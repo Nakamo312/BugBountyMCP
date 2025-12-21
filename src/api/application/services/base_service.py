@@ -1,8 +1,10 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Optional, List, Dict, Any, Tuple
+from typing import AsyncGenerator, AsyncIterator, Optional, List, Dict, Any, Tuple
 from urllib.parse import parse_qs, urlparse
+
+from api.application.exceptions import ScanExecutionError, ToolNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -117,3 +119,31 @@ class BaseScanService(ABC):
 
     async def save_results(self, data: Dict[str, Any]) -> None:
         pass
+async def exec_stream(self, command: List[str]) -> AsyncGenerator[str, None]:
+        """
+        Executes a command and yields output line by line.
+        """
+        program = command[0]
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+        except FileNotFoundError:
+            # logic to catch missing binary
+            raise ToolNotFoundError(tool_name=program, path=program)
+        except Exception as e:
+            raise ScanExecutionError(f"Failed to start process: {str(e)}")
+
+        # Reading output...
+        async for line in process.stdout:
+            decoded = line.decode().strip()
+            if decoded:
+                yield decoded
+
+        exit_code = await process.wait()
+        if exit_code != 0:
+            stderr = await process.stderr.read()
+            raise ScanExecutionError(f"Tool exited with code {exit_code}: {stderr.decode()}")

@@ -2,21 +2,25 @@
 from fastapi import APIRouter, Query, Body
 from dishka.integrations.fastapi import FromDishka, DishkaRoute
 
-from ...application.services.subfinder import SubfinderScanService
-from ...application.services.httpx import HTTPXScanService
+from api.presentation.schemas import HTTPXScanRequest, ScanResponse, SubfinderScanRequest
+
+from api.application.services.subfinder import SubfinderScanService
+from api.application.services.httpx import HTTPXScanService
 
 
 router = APIRouter(route_class=DishkaRoute)
 
 
-@router.post("/scan/subfinder")
+@router.post("/scan/subfinder",
+    response_model=ScanResponse,
+    summary="Run Subfinder Scan",
+    description="Executes Subfinder to discover subdomains for a given target."
+)
 async def scan_subfinder(
-    program_id: str = Body(...),
-    domain: str = Body(...),
-    probe: bool = Body(True),
+    request: SubfinderScanRequest,
     *,
     subfinder_service: FromDishka[SubfinderScanService],
-) -> dict:
+) -> ScanResponse:
     """
     Execute Subfinder scan to discover subdomains.
     
@@ -29,20 +33,30 @@ async def scan_subfinder(
     Returns:
         Scan results
     """
-    return await subfinder_service.execute(
-        program_id=program_id,
-        domain=domain,
-        probe=probe,
+    results = await subfinder_service.execute(
+        program_id=request.program_id,
+        domain=request.domain,
+        probe=request.probe,
+    )
+    
+    return ScanResponse(
+        status="success",
+        message=f"Subfinder scan completed for {request.domain}",
+        results=results
     )
 
 
-@router.post("/scan/httpx")
+@router.post(
+    "/scan/httpx",
+    response_model=ScanResponse,
+    summary="Run HTTPX Scan",
+    description="Executes HTTPX probing on a list of targets."
+)
 async def scan_httpx(
-    program_id: str = Body(...),
-    targets: list[str] | str = Body(...),
+    request: HTTPXScanRequest,
     *,
     httpx_service: FromDishka[HTTPXScanService],
-) -> dict:
+) -> ScanResponse:
     """
     Execute HTTPX scan.
     
@@ -54,8 +68,14 @@ async def scan_httpx(
     Returns:
         Scan results
     """
-    return await httpx_service.execute(
-        program_id=program_id,
-        targets=targets,
+    results = await httpx_service.execute(
+            program_id=request.program_id,
+            targets=request.targets,
+        )
+
+    return ScanResponse(
+        status="success",
+        message="HTTPX scan completed",
+        results=results
     )
 
