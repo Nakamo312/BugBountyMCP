@@ -53,10 +53,21 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Или через uvicorn напрямую:
+Или через uvicorn напрямую (из корня проекта):
 
 ```bash
-uvicorn api.presentation.rest.app:create_app --factory --host 0.0.0.0 --port 8000
+uvicorn src.api.presentation.rest.app:create_app --factory --host 0.0.0.0 --port 8000
+```
+
+Или с добавлением src в PYTHONPATH:
+
+```bash
+PYTHONPATH=src uvicorn api.presentation.rest.app:create_app --factory --host 0.0.0.0 --port 8000
+```
+
+На Windows PowerShell:
+```powershell
+$env:PYTHONPATH="src"; uvicorn api.presentation.rest.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
 Приложение будет доступно по адресу `http://localhost:8000`
