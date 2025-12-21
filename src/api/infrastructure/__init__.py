@@ -24,4 +24,7 @@ __all__ = [
     "ProgramRepository",
     "HostRepository",
     "EndpointRepository",
+    "IPAddressRepository",
+    "HostIPRepository",
+    "ServiceRepository"
 ]

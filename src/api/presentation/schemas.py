@@ -1,23 +1,74 @@
-"""API Data Transfer Objects and Schemas"""
+"""Presentation layer schemas - API request/response models"""
+from typing import Union, List, Optional
+from uuid import UUID
 from pydantic import BaseModel, Field
-from typing import List, Union, Optional, Any
+
+
+# Request Schemas
+class HTTPXScanRequest(BaseModel):
+    """HTTP request schema for HTTPX scan"""
+    program_id: str = Field(..., description="Program UUID as string")
+    targets: Union[str, List[str]] = Field(..., description="Single target or list")
+    timeout: Optional[int] = Field(default=600, ge=1, le=3600)
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "targets": ["https://example.com"],
+                "timeout": 600
+            }
+        }
 
 
 class SubfinderScanRequest(BaseModel):
-    program_id: str = Field(..., description="Program UUID", example="123e4567-e89b-12d3-a456-426614174000")
-    domain: str = Field(..., description="Target domain to scan", example="tesla.com")
-    probe: bool = Field(True, description="Run HTTPX probe on discovered subdomains?")
+    """HTTP request schema for Subfinder scan"""
+    program_id: str = Field(..., description="Program UUID as string")
+    domain: str = Field(..., min_length=1)
+    probe: bool = Field(default=True)
+    timeout: Optional[int] = Field(default=600, ge=1, le=3600)
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "domain": "example.com",
+                "probe": True,
+                "timeout": 600
+            }
+        }
 
-class HTTPXScanRequest(BaseModel):
-    program_id: str = Field(..., description="Program UUID", example="123e4567-e89b-12d3-a456-426614174000")
-    targets: Union[List[str], str] = Field(..., description="Single URL or list of URLs/domains", example=["https://google.com", "sub.example.com"])
+
+# Response Schemas
+class ScanResponse(BaseModel):
+    """Generic scan response wrapper"""
+    status: str = Field(..., description="success or error")
+    message: str
+    results: dict = Field(..., description="Scan results")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "status": "success",
+                "message": "Scan completed",
+                "results": {
+                    "scanner": "httpx",
+                    "hosts": 10,
+                    "endpoints": 45
+                }
+            }
+        }
 
 
 class ErrorResponse(BaseModel):
-    detail: str = Field(..., description="Error description")
-    code: str = Field(..., description="Internal error code")
-
-class ScanResponse(BaseModel):
-    status: str = Field("started", description="Task status")
-    message: str = Field(..., description="Human readable message")
-    results: Optional[Any] = Field(None, description="Scan results (if available immediately)")
+    """Error response schema"""
+    detail: str
+    code: str
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "detail": "Scan execution failed",
+                "code": "SCAN_FAILED"
+            }
+        }

@@ -1,11 +1,13 @@
-"""Base repository with unique constraint handling"""
-from abc import ABC, abstractmethod
+"""Base repository with full CRUD and pagination support"""
+from abc import ABC
 from typing import Generic, TypeVar, Optional, List, Tuple, Dict, Any
 from uuid import UUID
-from sqlalchemy import select
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
+
+from api.domain.repositories import IBaseRepository
 
 Model = TypeVar("Model")
 
@@ -18,10 +20,15 @@ class UniqueConstraintViolation(Exception):
         super().__init__(f"Unique constraint violated for {fields}: {values}")
 
 
-class BaseRepository(ABC, Generic[Model]):
-    model: type[Model]
+class BaseRepository(Generic[Model], IBaseRepository[Model]):
+    """
+    Base repository implementing common CRUD operations.
     
-    # Subclasses должны определить unique_fields как список кортежей полей
+    Subclasses should define:
+    - model: SQLAlchemy model class
+    - unique_fields: List of tuples defining unique constraints
+    """
+    model: type[Model]
     unique_fields: Optional[List[Tuple[str, ...]]] = None
 
     def __init__(self, session: AsyncSession):
@@ -34,28 +41,116 @@ class BaseRepository(ABC, Generic[Model]):
         )
         return result.scalar_one_or_none()
 
-    async def get_by_unique_fields(self, **filters) -> Optional[Model]:
-        """Get entity by unique fields combination"""
+    async def get_by_fields(self, **filters) -> Optional[Model]:
+        """
+        Get entity by arbitrary fields.
+        
+        Example:
+            repo.get_by_fields(program_id=uuid, host="example.com")
+        """
         conditions = [
             getattr(self.model, key) == value 
             for key, value in filters.items()
+            if hasattr(self.model, key)
         ]
+        if not conditions:
+            return None
+            
         result = await self.session.execute(
-            select(self.model).where(*conditions)
+            select(self.model).where(and_(*conditions))
         )
         return result.scalar_one_or_none()
 
-    async def exists_by_unique_fields(self, **filters) -> bool:
-        """Check if entity exists by unique fields"""
-        return await self.get_by_unique_fields(**filters) is not None
+    async def find_many(
+        self,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 100,
+        offset: int = 0,
+        order_by: Optional[str] = None
+    ) -> List[Model]:
+        """
+        Find multiple entities with pagination and filtering.
+        
+        Args:
+            filters: Dict of field:value pairs to filter by
+            limit: Maximum number of results (default 100)
+            offset: Number of results to skip (default 0)
+            order_by: Field name to order by (prefix with - for DESC)
+            
+        Example:
+            repo.find_many(
+                filters={"program_id": uuid, "in_scope": True},
+                limit=50,
+                offset=0,
+                order_by="-created_at"
+            )
+        """
+        query = select(self.model)
+        
+        # Apply filters
+        if filters:
+            conditions = [
+                getattr(self.model, key) == value
+                for key, value in filters.items()
+                if hasattr(self.model, key)
+            ]
+            if conditions:
+                query = query.where(and_(*conditions))
+        
+        # Apply ordering
+        if order_by:
+            if order_by.startswith('-'):
+                # Descending order
+                field = order_by[1:]
+                if hasattr(self.model, field):
+                    query = query.order_by(getattr(self.model, field).desc())
+            else:
+                # Ascending order
+                if hasattr(self.model, order_by):
+                    query = query.order_by(getattr(self.model, order_by))
+        
+        # Apply pagination
+        query = query.limit(limit).offset(offset)
+        
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
 
-    async def create(self, data: dict, *, ignore_conflicts: bool = False) -> Model:
+    async def count(self, filters: Optional[Dict[str, Any]] = None) -> int:
+        """
+        Count entities matching filters.
+        
+        Args:
+            filters: Dict of field:value pairs to filter by
+            
+        Returns:
+            Number of matching entities
+        """
+        query = select(func.count(self.model.id))
+        
+        if filters:
+            conditions = [
+                getattr(self.model, key) == value
+                for key, value in filters.items()
+                if hasattr(self.model, key)
+            ]
+            if conditions:
+                query = query.where(and_(*conditions))
+        
+        result = await self.session.execute(query)
+        return result.scalar_one()
+
+    async def create(self, data: Dict[str, Any]) -> Model:
         """
         Create new entity.
         
         Args:
-            data: Entity data
-            ignore_conflicts: If True, return existing entity on conflict
+            data: Entity data as dict
+            
+        Returns:
+            Created entity
+            
+        Raises:
+            UniqueConstraintViolation: If unique constraint violated
         """
         model = self.model(**data)
         self.session.add(model)
@@ -63,39 +158,59 @@ class BaseRepository(ABC, Generic[Model]):
         try:
             await self.session.flush()
             return model
-        except IntegrityError:
+        except IntegrityError as e:
             await self.session.rollback()
-            
-            if ignore_conflicts and self.unique_fields:
-                # Try to find existing entity
-                for unique_combo in self.unique_fields:
-                    filters = {
-                        field: data.get(field) 
-                        for field in unique_combo 
-                        if field in data
-                    }
-                    if len(filters) == len(unique_combo):
-                        existing = await self.get_by_unique_fields(**filters)
-                        if existing:
-                            return existing
-            
             raise UniqueConstraintViolation(
                 fields=self.unique_fields[0] if self.unique_fields else [],
                 values=data
-            )
+            ) from e
+
+    async def update(self, id: UUID, data: Dict[str, Any]) -> Model:
+        """
+        Update entity by ID.
+        
+        Args:
+            id: Entity ID
+            data: Fields to update
+            
+        Returns:
+            Updated entity
+        """
+        result = await self.session.execute(
+            select(self.model).where(self.model.id == id)
+        )
+        model = result.scalar_one()
+        
+        for key, value in data.items():
+            if hasattr(model, key):
+                setattr(model, key, value)
+        
+        await self.session.flush()
+        return model
+
+    async def delete(self, id: UUID) -> None:
+        """Delete entity by ID"""
+        obj = await self.get_by_id(id)
+        if obj:
+            await self.session.delete(obj)
+            await self.session.flush()
 
     async def get_or_create(
         self, 
-        defaults: Optional[dict] = None,
+        defaults: Optional[Dict[str, Any]] = None,
         **filters
     ) -> Tuple[Model, bool]:
         """
         Get existing entity or create new one.
         
+        Args:
+            defaults: Additional fields for creation
+            **filters: Fields to search by
+            
         Returns:
-            Tuple of (entity, created) where created is True if entity was created
+            Tuple of (entity, created) where created is True if new
         """
-        existing = await self.get_by_unique_fields(**filters)
+        existing = await self.get_by_fields(**filters)
         if existing:
             return existing, False
         
@@ -103,33 +218,10 @@ class BaseRepository(ABC, Generic[Model]):
         model = await self.create(data)
         return model, True
 
-    async def update_or_create(
-        self,
-        filters: dict,
-        defaults: dict
-    ) -> Tuple[Model, bool]:
-        """
-        Update existing entity or create new one.
-        
-        Returns:
-            Tuple of (entity, created) where created is True if entity was created
-        """
-        existing = await self.get_by_unique_fields(**filters)
-        if existing:
-            for key, value in defaults.items():
-                setattr(existing, key, value)
-            await self.session.flush()
-            return existing, False
-        
-        data = {**filters, **defaults}
-        model = await self.create(data)
-        return model, True
-
     async def upsert(
         self,
-        data: dict,
-        *,
-        conflict_fields: Optional[List[str]] = None,
+        data: Dict[str, Any],
+        conflict_fields: List[str],
         update_fields: Optional[List[str]] = None
     ) -> Model:
         """
@@ -137,18 +229,16 @@ class BaseRepository(ABC, Generic[Model]):
         
         Args:
             data: Entity data
-            conflict_fields: Fields to check for conflicts (uses unique_fields if None)
+            conflict_fields: Fields to check for conflicts
             update_fields: Fields to update on conflict (all except conflict_fields if None)
+            
+        Returns:
+            Created or updated entity
         """
-        if conflict_fields is None:
-            if not self.unique_fields:
-                raise ValueError("Either conflict_fields or unique_fields must be defined")
-            conflict_fields = list(self.unique_fields[0])
-        
         stmt = insert(self.model).values(**data)
         
         if update_fields is None:
-            # Update all fields except conflict fields
+            # Update all fields except conflict fields and id
             update_fields = [
                 key for key in data.keys() 
                 if key not in conflict_fields and key != 'id'
@@ -166,25 +256,45 @@ class BaseRepository(ABC, Generic[Model]):
         await self.session.flush()
         return result.scalar_one()
 
+    async def bulk_create(self, items: List[Dict[str, Any]]) -> List[Model]:
+        """
+        Create multiple entities.
+        
+        Args:
+            items: List of entity data dicts
+            
+        Returns:
+            List of created entities
+        """
+        if not items:
+            return []
+        
+        models = [self.model(**item) for item in items]
+        self.session.add_all(models)
+        await self.session.flush()
+        return models
+
     async def bulk_upsert(
         self,
-        items: List[dict],
-        *,
-        conflict_fields: Optional[List[str]] = None,
+        items: List[Dict[str, Any]],
+        conflict_fields: List[str],
         update_fields: Optional[List[str]] = None
     ) -> None:
-        """Bulk insert or update"""
+        """
+        Bulk insert or update.
+        
+        Args:
+            items: List of entity data dicts
+            conflict_fields: Fields to check for conflicts
+            update_fields: Fields to update on conflict
+        """
         if not items:
             return
-        
-        if conflict_fields is None:
-            if not self.unique_fields:
-                raise ValueError("Either conflict_fields or unique_fields must be defined")
-            conflict_fields = list(self.unique_fields[0])
         
         stmt = insert(self.model).values(items)
         
         if update_fields is None:
+            # Update all fields except conflict fields and id
             update_fields = [
                 key for key in items[0].keys() 
                 if key not in conflict_fields and key != 'id'
@@ -200,26 +310,3 @@ class BaseRepository(ABC, Generic[Model]):
         
         await self.session.execute(stmt)
         await self.session.flush()
-
-    async def delete(self, id: UUID) -> None:
-        """Delete entity by ID"""
-        obj = await self.get_by_id(id)
-        if obj:
-            await self.session.delete(obj)
-            await self.session.flush()
-
-    async def list_all(self) -> List[Model]:
-        """List all entities"""
-        result = await self.session.execute(select(self.model))
-        return result.scalars().all()
-
-    async def update(self, id: UUID, data: dict) -> Model:
-        """Update entity by ID"""
-        result = await self.session.execute(
-            select(self.model).where(self.model.id == id)
-        )
-        model = result.scalar_one()
-        for key, value in data.items():
-            setattr(model, key, value)
-        await self.session.flush()
-        return model

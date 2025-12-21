@@ -2,6 +2,7 @@
 import pytest
 
 from api.application.services.httpx import HTTPXScanService
+from api.application.services.subfinder import SubfinderScanService
 from api.infrastructure.repositories.host import HostRepository
 from api.infrastructure.repositories.ip_address import IPAddressRepository
 from api.infrastructure.repositories.host_ip import HostIPRepository
@@ -16,10 +17,6 @@ def host_repository(session):
     """Host repository instance"""
     return HostRepository(session)
 
-@pytest.fixture
-def settings():
-    """Settings instance"""
-    return Settings()
 
 @pytest.fixture
 def ip_repository(session):
@@ -52,14 +49,21 @@ def input_param_repository(session):
 
 
 @pytest.fixture
+def settings():
+    """Settings instance with mocked tool paths"""
+    settings = Settings()
+    return settings
+
+
+@pytest.fixture
 def httpx_service(
-    session,
     host_repository,
     ip_repository,
     host_ip_repository,
     service_repository,
     endpoint_repository,
-    input_param_repository
+    input_param_repository,
+    settings
 ):
     """HTTPXScanService instance with all dependencies"""
     return HTTPXScanService(
@@ -69,4 +73,14 @@ def httpx_service(
         service_repository=service_repository,
         endpoint_repository=endpoint_repository,
         input_param_repository=input_param_repository,
+        settings=settings
+    )
+
+
+@pytest.fixture
+def subfinder_service(httpx_service, settings):
+    """SubfinderScanService instance with dependencies"""
+    return SubfinderScanService(
+        httpx_service=httpx_service,
+        settings=settings
     )

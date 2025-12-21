@@ -4,18 +4,15 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
+import sys
 
 from api.infrastructure.repositories.program import ProgramRepository
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="function")
 async def engine():
     """Create SQLite in-memory engine with proper configuration"""
-    # Import models with type override
-    import sys
-    from unittest.mock import Mock
-    
-    # Create mock for PostgreSQL-specific types that returns our custom types
+    # Override PostgreSQL-specific types with SQLite-compatible versions
     from api.infrastructure.database.types import UUID, JSONType, ArrayType
     from sqlalchemy.dialects import postgresql
     
@@ -28,7 +25,7 @@ async def engine():
     
     # Override with SQLite-compatible versions
     postgresql.UUID = lambda as_uuid=True: UUID()
-    postgresql.JSONB = JSONType()
+    postgresql.JSONB = lambda none_as_null=False: JSONType()
     
     def array_factory(item_type=None, **kwargs):
         return ArrayType(item_type)
@@ -73,13 +70,15 @@ async def engine():
         del sys.modules['api.infrastructure.database.models']
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="function")
 async def session(engine):
     """Create async session"""
     async_session = async_sessionmaker(
         engine, 
         class_=AsyncSession, 
-        expire_on_commit=False
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False
     )
     
     async with async_session() as session:
@@ -94,3 +93,12 @@ async def program(session):
     program = await repo.create({'name': 'test_program'})
     await session.commit()
     return program
+
+
+@pytest.fixture
+def mock_settings():
+    """Mock settings for tests"""
+    from api.config import Settings
+    settings = Settings()
+    # Override tool paths for testing
+    return settings
