@@ -1,4 +1,5 @@
 """Dependency Injection providers using dishka"""
+from typing import AsyncIterable
 from dishka import Provider, Scope, provide, from_context
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,18 +16,18 @@ from .services.subfinder import SubfinderScanService
 
 
 class DatabaseProvider(Provider):
-    """Provider for database connections"""
+    scope = Scope.APP
     
-    settings = from_context(provides=Settings, scope=Scope.APP)
-    session = from_context(provides=AsyncSession, scope=Scope.REQUEST)
-    
+    settings = from_context(provides=Settings) 
+
     @provide(scope=Scope.APP)
-    def get_database_connection(
-        self,
-        settings: Settings,
-    ) -> DatabaseConnection:
-        """Create database connection"""
+    def get_database_connection(self, settings: Settings) -> DatabaseConnection:
         return DatabaseConnection(settings.postgres_dsn)
+
+    @provide(scope=Scope.REQUEST)
+    async def get_session(self, db: DatabaseConnection) -> AsyncIterable[AsyncSession]:
+        async with db.session() as session:
+            yield session
 
 
 class RepositoryProvider(Provider):
