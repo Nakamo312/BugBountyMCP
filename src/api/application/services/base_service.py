@@ -1,25 +1,45 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, AsyncIterator, Optional, List, Dict, Any, Tuple
+from typing import AsyncIterator, Optional, List, Dict, Any, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from api.application.exceptions import ScanExecutionError, ToolNotFoundError
 
 logger = logging.getLogger(__name__)
 
+# Constants
+DEFAULT_SCAN_TIMEOUT = 600  # seconds
+
 
 class CommandExecutionMixin:
+    """Mixin for executing external commands"""
+    
     async def exec_stream(
         self, 
         command: List[str], 
         stdin: Optional[str] = None,  
-        timeout: int = 600, 
+        timeout: int = DEFAULT_SCAN_TIMEOUT, 
         cwd: Optional[str] = None
     ) -> AsyncIterator[str]:
+        """
+        Execute command and stream output line by line.
+        
+        Args:
+            command: Command and arguments to execute
+            stdin: Optional input to send to process
+            timeout: Maximum execution time in seconds
+            cwd: Working directory for command
+            
+        Yields:
+            Output lines from stdout
+            
+        Raises:
+            ToolNotFoundError: If command binary not found
+            ScanExecutionError: If process fails or times out
+        """
         self.logger.info(f"Executing: {' '.join(command)}")
         
-        program = command[0]
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
@@ -28,89 +48,88 @@ class CommandExecutionMixin:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd
             )
-
-            if stdin:
-                process.stdin.write(stdin.encode())
-                await process.stdin.drain()
-                process.stdin.close() 
-
-        except FileNotFoundError:
-            raise ToolNotFoundError(tool_name=program, path=program)
-        except Exception as e:
-            raise ScanExecutionError(f"Failed to start process: {str(e)}")
-
-        try:
-            async for line in process.stdout:
-                decoded = line.decode(errors='ignore').strip()
-                if decoded:
-                    yield decoded
-
-            exit_code = await asyncio.wait_for(process.wait(), timeout=timeout)
-            
-            if exit_code != 0:
-                stderr = await process.stderr.read()
-                raise ScanExecutionError(f"Tool exited with code {exit_code}: {stderr.decode()}")
-
-        except asyncio.TimeoutError:
-            self.logger.warning(f"Process timeout after {timeout}s")
-            process.kill()
-            await process.wait()
-            raise ScanExecutionError(f"Process timed out after {timeout}s")
-
         except FileNotFoundError:
             raise ToolNotFoundError(tool_name=command[0], path=command[0])
         except Exception as e:
             raise ScanExecutionError(f"Failed to start process: {str(e)}")
+
+        # Send stdin if provided
+        if stdin:
+            try:
+                process.stdin.write(stdin.encode())
+                await process.stdin.drain()
+                process.stdin.close()
+            except Exception as e:
+                process.kill()
+                await process.wait()
+                raise ScanExecutionError(f"Failed to write stdin: {str(e)}")
+
         try:
+            # Stream stdout line by line
             async for line in process.stdout:
                 decoded = line.decode(errors='ignore').strip()
                 if decoded:
                     yield decoded
 
-            await asyncio.wait_for(process.wait(), timeout=timeout)
+            # Wait for process to complete
+            exit_code = await asyncio.wait_for(process.wait(), timeout=timeout)
             
-            if process.returncode != 0 and process.returncode is not None:
-                stderr_data = await process.stderr.read()
-                self.logger.error(f"Tool exited with code {process.returncode}: {stderr_data.decode()}")
+            # Log errors if process failed
+            if exit_code != 0:
+                stderr = await process.stderr.read()
+                error_msg = stderr.decode(errors='ignore')
+                self.logger.error(f"Tool exited with code {exit_code}: {error_msg}")
 
         except asyncio.TimeoutError:
             self.logger.warning(f"Process timeout after {timeout}s")
             process.kill()
             await process.wait()
             raise ScanExecutionError(f"Process timed out after {timeout}s")
-
-        async def reader(stream):
-            while True:
-                line = await stream.readline()
-                if not line:
-                    break
-                decoded = line.decode(errors='ignore').strip()
-                if decoded:
-                    yield decoded
-
-        async for line in reader(process.stdout):
-            yield line
-
-        try:
-            await asyncio.wait_for(process.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
-            self.logger.warning(f"Process timeout after {timeout}s")
+        except asyncio.CancelledError:
+            self.logger.warning("Process cancelled by user")
             process.kill()
             await process.wait()
+            raise
+        except Exception as e:
+            process.kill()
+            await process.wait()
+            raise ScanExecutionError(f"Process execution failed: {str(e)}")
 
     async def exec_command(
         self,
         command: List[str],
-        timeout: int = 600,
+        timeout: int = DEFAULT_SCAN_TIMEOUT,
         cwd: Optional[str] = None
-    ) -> tuple[str, str, int]:
+    ) -> Tuple[str, str, int]:
+        """
+        Execute command and return full output.
+        
+        Args:
+            command: Command and arguments to execute
+            timeout: Maximum execution time in seconds
+            cwd: Working directory for command
+            
+        Returns:
+            Tuple of (stdout, stderr, return_code)
+            
+        Raises:
+            ToolNotFoundError: If command binary not found
+            ScanExecutionError: If process times out
+        """
         self.logger.info(f"Executing: {' '.join(command)}")
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd
-        )
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd
+            )
+        except FileNotFoundError:
+            raise ToolNotFoundError(tool_name=command[0], path=command[0])
+        except Exception as e:
+            raise ScanExecutionError(f"Failed to start process: {str(e)}")
+            
         try:
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(), timeout=timeout
@@ -124,14 +143,30 @@ class CommandExecutionMixin:
             self.logger.warning(f"Process timeout after {timeout}s")
             process.kill()
             await process.wait()
+            raise ScanExecutionError(f"Process timed out after {timeout}s")
+        except asyncio.CancelledError:
+            self.logger.warning("Process cancelled by user")
+            process.kill()
+            await process.wait()
             raise
+
         
 class URLParseMixin:
+    """Mixin for URL parsing utilities"""
+    
     @staticmethod
     def split_path_and_params(full_path: str) -> Tuple[str, Dict[str, str]]:
         """
-        Разделяет path и query-параметры из URL.
-        Например: "/api/data?x=y&z=1" -> ("/api/data", {"x": "y", "z": "1"})
+        Split path and query parameters from URL.
+        
+        Args:
+            full_path: Full URL path with query string
+            
+        Returns:
+            Tuple of (path, query_params_dict)
+            
+        Example:
+            "/api/data?x=y&z=1" -> ("/api/data", {"x": "y", "z": "1"})
         """
         parsed = urlparse(full_path)
         path = parsed.path or "/"
@@ -140,37 +175,64 @@ class URLParseMixin:
     
 
 class URLUtilsMixin:
-    @staticmethod
-    def filter_static_urls(url: str) -> bool:
-        static_ext = [
-            '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg',
-            '.woff', '.woff2', '.ttf', '.eot', '.mp4', '.mp3',
-            '.pdf', '.doc', '.docx', '.htm', '.webp', '.ico'
-        ]
+    """Mixin for URL filtering utilities"""
+    
+    # Static file extensions to filter out
+    STATIC_EXTENSIONS = (
+        '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg',
+        '.woff', '.woff2', '.ttf', '.eot', '.mp4', '.mp3',
+        '.pdf', '.doc', '.docx', '.htm', '.webp', '.ico'
+    )
+    
+    @classmethod
+    def filter_static_urls(cls, url: str) -> bool:
+        """
+        Check if URL should be filtered out as static content.
+        
+        Args:
+            url: URL to check
+            
+        Returns:
+            True if URL should be kept, False if should be filtered
+        """
         url_lower = url.lower()
-        return not any(url_lower.endswith(ext) for ext in static_ext)
+        return not any(url_lower.endswith(ext) for ext in cls.STATIC_EXTENSIONS)
 
     @staticmethod
     def is_js_url(url: str) -> bool:
-        return url.lower().endswith('.js') or '.js?' in url.lower()
+        """Check if URL points to JavaScript file"""
+        url_lower = url.lower()
+        return url_lower.endswith('.js') or '.js?' in url_lower
 
     @staticmethod
     def extract_host_from_url(url: str) -> Optional[str]:
+        """
+        Extract hostname from URL.
+        
+        Args:
+            url: Full URL
+            
+        Returns:
+            Hostname or None if parsing fails
+        """
         try:
-            from urllib.parse import urlparse
             return urlparse(url).netloc
         except Exception:
             return None
 
 
 class BaseScanService(ABC):
+    """Base class for all scan services"""
+    
     def __init__(self):
         self.name = self.__class__.__name__
         self.logger = logging.getLogger(f"service.{self.name}")
 
     @abstractmethod
     async def execute(self, *args, **kwargs):
+        """Execute scan service - must be implemented by subclasses"""
         pass
 
     async def save_results(self, data: Dict[str, Any]) -> None:
+        """Optional method to save scan results"""
         pass
