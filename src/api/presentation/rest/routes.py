@@ -1,5 +1,5 @@
 """REST API routes"""
-from fastapi import APIRouter
+from fastapi import APIRouter, Query, Body
 from dishka.integrations.fastapi import FromDishka, DishkaRoute
 
 from ...application.services.subfinder import SubfinderScanService
@@ -11,9 +11,10 @@ router = APIRouter(route_class=DishkaRoute)
 
 @router.post("/scan/subfinder")
 async def scan_subfinder(
-    program_id: str,
-    domain: str,
-    probe: bool = True,
+    program_id: str = Body(...),
+    domain: str = Body(...),
+    probe: bool = Body(True),
+    *,
     subfinder_service: FromDishka[SubfinderScanService],
 ) -> dict:
     """
@@ -37,8 +38,9 @@ async def scan_subfinder(
 
 @router.post("/scan/httpx")
 async def scan_httpx(
-    program_id: str,
-    targets: list[str] | str,
+    program_id: str = Body(...),
+    targets: list[str] | str = Body(...),
+    *,
     httpx_service: FromDishka[HTTPXScanService],
 ) -> dict:
     """
