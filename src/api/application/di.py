@@ -104,6 +104,7 @@ class ServiceProvider(Provider):
             service_repository=service_repository,
             endpoint_repository=endpoint_repository,
             input_param_repository=input_param_repository,
+            settings=settings
         )
     
     @provide(scope=Scope.REQUEST)
@@ -113,5 +114,5 @@ class ServiceProvider(Provider):
         settings: Settings
     ) -> SubfinderScanService:
         """Create SubfinderScanService - depends only on HTTPXScanService"""
-        return SubfinderScanService(httpx_service=httpx_service)
+        return SubfinderScanService(httpx_service=httpx_service, settings=settings)
 
