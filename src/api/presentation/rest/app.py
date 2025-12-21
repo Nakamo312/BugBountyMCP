@@ -11,21 +11,19 @@ from .routes import router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
-    # Create container on startup
-    container = create_container()
-    app.state.dishka_container = container
-    
-    # Setup dishka
-    setup_dishka(container, app)
-    
+    # Container is already created and setup_dishka is already called
     yield
     
     # Cleanup on shutdown
+    container = app.state.dishka_container
     await container.close()
 
 
 def create_app() -> FastAPI:
     """Create and configure FastAPI application"""
+    # Create container before app creation
+    container = create_container()
+    
     app = FastAPI(
         title="Bug Bounty Framework API",
         description="Bug Bounty Reconnaissance Framework",
@@ -33,7 +31,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     
-    # Add database session middleware
+    # Store container in app state
+    app.state.dishka_container = container
+    
+    # Setup dishka BEFORE adding other middleware
+    setup_dishka(container, app)
+    
+    # Add database session middleware AFTER setup_dishka
     app.middleware("http")(db_session_middleware)
     
     # Include routes
