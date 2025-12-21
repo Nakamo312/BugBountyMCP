@@ -1,0 +1,39 @@
+name: Deploy to Kali
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Deploy via SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.KALI_HOST }}      
+        username: ${{ secrets.KALI_USER }} 
+        key: ${{ secrets.KALI_SSH_KEY }}    
+        port: ${{ secrets.KALI_PORT }}      
+        script_stop: true
+        timeout: 120s
+        script: |
+          cd ~/Tools/bb/BugBountyMCP
+
+
+          echo "📥 Pulling latest code..."
+          git fetch --all
+          git reset --hard origin/main
+
+
+          echo "🚀 Rebuilding and restarting containers..."
+          docker-compose down
+          docker-compose up -d --build
+
+          echo "🧹 Cleaning up..."
+          docker image prune -f
+
+          echo "✅ Status:"
+          docker-compose ps
