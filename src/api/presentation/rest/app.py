@@ -4,7 +4,6 @@ from fastapi import FastAPI
 from dishka.integrations.fastapi import DishkaRoute, setup_dishka
 
 from ...application.container import create_container
-from ...application.di import AsyncContainer
 from .middleware import db_session_middleware
 from .routes import router
 
