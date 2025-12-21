@@ -4,11 +4,11 @@ from fastapi import FastAPI
 from dishka.integrations.fastapi import setup_dishka
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from ....api.config import Settings
-from ....api.application.exceptions import ScanExecutionError, ToolNotFoundError
-from ....api.presentation.rest.handlers import global_exception_handler, scan_execution_handler, tool_not_found_handler
+from api.config import Settings
+from api.application.exceptions import ScanExecutionError, ToolNotFoundError
+from api.presentation.rest.handlers import global_exception_handler, scan_execution_handler, tool_not_found_handler
 
-from ...application.container import create_container
+from api.application.container import create_container
 from .routes import router
 
 
