@@ -9,6 +9,7 @@ from api.application.exceptions import ScanExecutionError, ToolNotFoundError
 from api.presentation.rest.handlers import global_exception_handler, scan_execution_handler, tool_not_found_handler
 
 from api.application.container import create_container
+from api.infrastructure.database.connection import DatabaseConnection
 from .routes import router
 
 
@@ -17,6 +18,9 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     yield
     container = app.state.dishka_container
+    db_connection = await container.get(DatabaseConnection)
+    await db_connection.create_tables()
+    start_mappers()
     await container.close()
 
 

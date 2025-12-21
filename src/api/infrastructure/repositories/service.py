@@ -1,62 +1,50 @@
-from typing import Optional
+"""Service repository"""
+from typing import Dict
 from uuid import UUID
-
-from sqlalchemy import select
 from api.infrastructure.database.models import ServiceModel
-from api.infrastructure.repositories.base_repo import BaseRepository
+from .base_repo import BaseRepository
 
 
 class ServiceRepository(BaseRepository[ServiceModel]):
-    """PostgreSQL implementation of Service repository"""
-
+    """Repository for Service entities"""
+    
     model = ServiceModel
-    unique_fields = [('ip_id', 'port')]
-
+    unique_fields = [("ip_id", "scheme", "port")]
+    
     async def get_or_create_with_tech(
         self,
         ip_id: UUID,
         scheme: str,
         port: int,
-        technologies: Optional[dict] = None,
+        technologies: Dict[str, bool]
     ) -> ServiceModel:
         """
-        Get existing service or create new one.
-        If exists and has new technologies, merge them.
+        Get or create service and merge technologies.
+        
+        Args:
+            ip_id: IP address ID
+            scheme: http or https
+            port: Port number (1-65535)
+            technologies: Dict of technology names and their presence
+            
+        Returns:
+            Service entity with merged technologies
         """
-        existing = await self.get_by_unique_fields(ip_id=ip_id, port=port)
+        # Validate port
+        port = max(1, min(int(port), 65535))
+        
+        # Try to find existing service
+        existing = await self.get_by_fields(ip_id=ip_id, scheme=scheme, port=port)
         
         if existing:
-            # Merge technologies if provided
-            if technologies:
-                current_tech = existing.technologies or {}
-                # Merge dictionaries
-                merged = {**current_tech, **technologies}
-                if merged != current_tech:
-                    existing.technologies = merged
-                    await self.session.flush()
-            return existing
+            # Merge technologies
+            merged_tech = {**(existing.technologies or {}), **technologies}
+            return await self.update(existing.id, {"technologies": merged_tech})
         
         # Create new service
-        service, _ = await self.get_or_create(
-            ip_id=ip_id,
-            port=port,
-            defaults={
-                'scheme': scheme,
-                'technologies': technologies or {}
-            }
-        )
-        return service
-
-    async def add_technology(
-        self, service_id: UUID, tech_name: str, tech_value: any
-    ) -> ServiceModel:
-        """Add a single technology to existing service"""
-        service = await self.get_by_id(service_id)
-        if not service:
-            raise ValueError(f"Service {service_id} not found")
-        
-        technologies = service.technologies or {}
-        technologies[tech_name] = tech_value
-        service.technologies = technologies
-        await self.session.flush()
-        return service
+        return await self.create({
+            "ip_id": ip_id,
+            "scheme": scheme,
+            "port": port,
+            "technologies": technologies
+        })
