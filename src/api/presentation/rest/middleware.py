@@ -2,7 +2,7 @@
 from typing import Callable
 from fastapi import Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from dishka import AsyncContainer
+from dishka import AsyncContainer, Scope
 
 from ...infrastructure.database.connection import DatabaseConnection
 
@@ -19,8 +19,9 @@ async def db_session_middleware(
     db_connection: DatabaseConnection = await container.get(DatabaseConnection)
     
     async with db_connection.session() as session:
-        # Add session to container context for this request
-        async with container(
+        # Enter request scope and add session to context
+        async with container.enter_scope(
+            scope=Scope.REQUEST,
             context={AsyncSession: session},
         ):
             response = await call_next(request)

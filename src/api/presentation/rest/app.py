@@ -6,6 +6,7 @@ from dishka.integrations.fastapi import DishkaRoute, setup_dishka
 from ...application.container import create_container
 from ...application.di import AsyncContainer
 from .middleware import db_session_middleware
+from .routes import router
 
 
 @asynccontextmanager
@@ -35,6 +36,9 @@ def create_app() -> FastAPI:
     
     # Add database session middleware
     app.middleware("http")(db_session_middleware)
+    
+    # Include routes
+    app.include_router(router)
     
     return app
 

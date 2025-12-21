@@ -45,9 +45,40 @@ api/
 pip install -r requirements.txt
 ```
 
+## Running
+
+Запуск приложения:
+
+```bash
+python main.py
+```
+
+Или через uvicorn напрямую:
+
+```bash
+uvicorn api.presentation.rest.app:create_app --factory --host 0.0.0.0 --port 8000
+```
+
+Приложение будет доступно по адресу `http://localhost:8000`
+
+## API Endpoints
+
+- `POST /scan/subfinder` - Запуск Subfinder сканирования
+- `POST /scan/httpx` - Запуск HTTPX сканирования
+
+## Dependency Injection
+
+Проект использует **dishka** для Dependency Injection:
+
+- **DatabaseProvider** - провайдер для подключения к БД
+- **RepositoryProvider** - провайдер для репозиториев
+- **ServiceProvider** - провайдер для сервисов
+
+`SubfinderScanService` зависит только от `HTTPXScanService`, который уже имеет все зависимости на репозитории.
+
 ## Status
 
 - [x] Domain Layer
-- [ ] Infrastructure Layer
-- [ ] Application Layer
-- [ ] Presentation Layer
+- [x] Infrastructure Layer
+- [x] Application Layer
+- [x] Presentation Layer (REST API с DI)
