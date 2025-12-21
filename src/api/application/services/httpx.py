@@ -82,7 +82,6 @@ class HTTPXScanService(BaseScanService, CommandExecutionMixin, URLParseMixin):
                 update_fields=["in_scope"]
             )
 
-        # Process each scan result
         for data in scan_results:
             host_name = data.get("host") or data.get("input")
             
