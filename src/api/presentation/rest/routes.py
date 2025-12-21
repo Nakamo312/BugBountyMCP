@@ -14,7 +14,7 @@ async def scan_subfinder(
     program_id: str,
     domain: str,
     probe: bool = True,
-    subfinder_service: FromDishka[SubfinderScanService] = None,
+    subfinder_service: FromDishka[SubfinderScanService],
 ) -> dict:
     """
     Execute Subfinder scan to discover subdomains.
@@ -39,7 +39,7 @@ async def scan_subfinder(
 async def scan_httpx(
     program_id: str,
     targets: list[str] | str,
-    httpx_service: FromDishka[HTTPXScanService] = None,
+    httpx_service: FromDishka[HTTPXScanService],
 ) -> dict:
     """
     Execute HTTPX scan.
