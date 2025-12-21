@@ -1,0 +1,119 @@
+import asyncio
+import logging
+from abc import ABC, abstractmethod
+from typing import AsyncIterator, Optional, List, Dict, Any, Tuple
+from urllib.parse import parse_qs, urlparse
+
+logger = logging.getLogger(__name__)
+
+
+class CommandExecutionMixin:
+    async def exec_stream(
+        self,
+        command: List[str],
+        timeout: int = 600,
+        cwd: Optional[str] = None
+    ) -> AsyncIterator[str]:
+        self.logger.info(f"Executing: {' '.join(command)}")
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd
+        )
+
+        async def reader(stream):
+            while True:
+                line = await stream.readline()
+                if not line:
+                    break
+                decoded = line.decode(errors='ignore').strip()
+                if decoded:
+                    yield decoded
+
+        async for line in reader(process.stdout):
+            yield line
+
+        try:
+            await asyncio.wait_for(process.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Process timeout after {timeout}s")
+            process.kill()
+            await process.wait()
+
+    async def exec_command(
+        self,
+        command: List[str],
+        timeout: int = 600,
+        cwd: Optional[str] = None
+    ) -> tuple[str, str, int]:
+        self.logger.info(f"Executing: {' '.join(command)}")
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=timeout
+            )
+            return (
+                stdout.decode(errors='ignore'),
+                stderr.decode(errors='ignore'),
+                process.returncode
+            )
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Process timeout after {timeout}s")
+            process.kill()
+            await process.wait()
+            raise
+        
+class URLParseMixin:
+    @staticmethod
+    def split_path_and_params(full_path: str) -> Tuple[str, Dict[str, str]]:
+        """
+        Разделяет path и query-параметры из URL.
+        Например: "/api/data?x=y&z=1" -> ("/api/data", {"x": "y", "z": "1"})
+        """
+        parsed = urlparse(full_path)
+        path = parsed.path or "/"
+        query_params = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+        return path, query_params
+    
+
+class URLUtilsMixin:
+    @staticmethod
+    def filter_static_urls(url: str) -> bool:
+        static_ext = [
+            '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg',
+            '.woff', '.woff2', '.ttf', '.eot', '.mp4', '.mp3',
+            '.pdf', '.doc', '.docx', '.htm', '.webp', '.ico'
+        ]
+        url_lower = url.lower()
+        return not any(url_lower.endswith(ext) for ext in static_ext)
+
+    @staticmethod
+    def is_js_url(url: str) -> bool:
+        return url.lower().endswith('.js') or '.js?' in url.lower()
+
+    @staticmethod
+    def extract_host_from_url(url: str) -> Optional[str]:
+        try:
+            from urllib.parse import urlparse
+            return urlparse(url).netloc
+        except Exception:
+            return None
+
+
+class BaseScanService(ABC):
+    def __init__(self):
+        self.name = self.__class__.__name__
+        self.logger = logging.getLogger(f"service.{self.name}")
+
+    @abstractmethod
+    async def execute(self, *args, **kwargs):
+        pass
+
+    async def save_results(self, data: Dict[str, Any]) -> None:
+        pass
