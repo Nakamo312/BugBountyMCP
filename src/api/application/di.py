@@ -94,6 +94,7 @@ class ServiceProvider(Provider):
         service_repository: ServiceRepository,
         endpoint_repository: EndpointRepository,
         input_param_repository: InputParameterRepository,
+        settings: Settings
     ) -> HTTPXScanService:
         """Create HTTPXScanService with all dependencies"""
         return HTTPXScanService(
@@ -109,6 +110,7 @@ class ServiceProvider(Provider):
     def get_subfinder_service(
         self,
         httpx_service: HTTPXScanService,
+        settings: Settings
     ) -> SubfinderScanService:
         """Create SubfinderScanService - depends only on HTTPXScanService"""
         return SubfinderScanService(httpx_service=httpx_service)

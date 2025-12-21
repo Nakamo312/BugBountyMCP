@@ -9,7 +9,7 @@ from api.infrastructure.repositories.host_ip import HostIPRepository
 from api.infrastructure.repositories.service import ServiceRepository
 from api.infrastructure.repositories.endpoint import EndpointRepository
 from api.infrastructure.repositories.input_parameters import InputParameterRepository
-from api.config import settings
+from api.config import Settings, settings
 from .base_service import BaseScanService, CommandExecutionMixin, URLParseMixin
 
 
@@ -26,9 +26,11 @@ class HTTPXScanService(BaseScanService, CommandExecutionMixin, URLParseMixin):
         host_ip_repository: HostIPRepository,
         service_repository: ServiceRepository,
         endpoint_repository: EndpointRepository,
-        input_param_repository: Optional[InputParameterRepository] = None,
+        input_param_repository: Optional[InputParameterRepository],
+        settings: Settings
     ):
         super().__init__()
+        self.settings = settings
         self.host_repository = host_repository
         self.ip_repository = ip_repository
         self.host_ip_repository = host_ip_repository
@@ -192,8 +194,9 @@ class HTTPXScanService(BaseScanService, CommandExecutionMixin, URLParseMixin):
         Yields:
             Dict with scan results for each URL
         """
+        tool_path = self.settings.get_tool_path("httpx")
         command = [
-            settings.get_tool_path("httpx"),
+            tool_path,
             "-status-code",
             "-title",
             "-tech-detect",
