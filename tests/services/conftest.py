@@ -8,6 +8,7 @@ from api.infrastructure.repositories.host_ip import HostIPRepository
 from api.infrastructure.repositories.service import ServiceRepository
 from api.infrastructure.repositories.endpoint import EndpointRepository
 from api.infrastructure.repositories.input_parameters import InputParameterRepository
+from api.config import Settings
 
 
 @pytest.fixture
@@ -15,6 +16,10 @@ def host_repository(session):
     """Host repository instance"""
     return HostRepository(session)
 
+@pytest.fixture
+def settings():
+    """Settings instance"""
+    return Settings()
 
 @pytest.fixture
 def ip_repository(session):
@@ -45,3 +50,23 @@ def input_param_repository(session):
     """Input parameter repository instance"""
     return InputParameterRepository(session)
 
+
+@pytest.fixture
+def httpx_service(
+    session,
+    host_repository,
+    ip_repository,
+    host_ip_repository,
+    service_repository,
+    endpoint_repository,
+    input_param_repository
+):
+    """HTTPXScanService instance with all dependencies"""
+    return HTTPXScanService(
+        host_repository=host_repository,
+        ip_repository=ip_repository,
+        host_ip_repository=host_ip_repository,
+        service_repository=service_repository,
+        endpoint_repository=endpoint_repository,
+        input_param_repository=input_param_repository,
+    )

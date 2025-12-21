@@ -18,6 +18,7 @@ from api.infrastructure.repositories.host_ip import HostIPRepository
 from api.infrastructure.repositories.service import ServiceRepository
 from api.infrastructure.repositories.endpoint import EndpointRepository
 from api.infrastructure.repositories.input_parameters import InputParameterRepository
+from api.config import Settings
 
 
 @pytest.fixture
@@ -30,6 +31,7 @@ def httpx_service(session):
         service_repository=ServiceRepository(session),
         endpoint_repository=EndpointRepository(session),
         input_param_repository=InputParameterRepository(session),
+        settings=Settings()
     )
 
 
