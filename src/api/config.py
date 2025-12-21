@@ -24,10 +24,21 @@ class Settings(BaseSettings):
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
     
     def get_tool_path(self, tool_name: str) -> str:
-        go_path = f"/home/v1k70r/go/bin/{tool_name}"
-        if os.path.exists(go_path):
-            return go_path
-        return tool_name 
+        """
+        Get full path to tool.
+        """
+        search_paths = [
+            f"/home/v1k70r/go/bin/{tool_name}",
+            f"/usr/local/bin/{tool_name}",
+            f"/usr/bin/{tool_name}",
+        ]
+        
+        for path in search_paths:
+            if os.path.exists(path):
+                return path
+                
+        return tool_name
+    
     class Config:
         env_file = ".env"
 
