@@ -34,10 +34,13 @@ def create_app() -> FastAPI:
     # Store container in app state
     app.state.dishka_container = container
     
-    # Setup dishka BEFORE adding other middleware
+    # Setup dishka FIRST - this adds ContainerMiddleware
+    # ContainerMiddleware creates request scope
     setup_dishka(container, app)
     
     # Add database session middleware AFTER setup_dishka
+    # Due to LIFO stack, this runs BEFORE ContainerMiddleware
+    # It creates session context that ContainerMiddleware will use
     app.middleware("http")(db_session_middleware)
     
     # Include routes
