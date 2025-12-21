@@ -29,3 +29,19 @@ jobs:
     - name: Run Tests
       run: |
         pytest tests/ -v
+deploy:
+    name: Deploy to Local Kali
+    needs: test              
+    runs-on: self-hosted     
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Docker Compose Up
+        run: |
+          docker-compose down
+          docker-compose up --build -d
+          
+      - name: Check Status
+        run: docker ps

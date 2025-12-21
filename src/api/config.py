@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     def get_tool_path(self, tool_name: str) -> str:
         prefix = self.TOOLS_PATH_PREFIX
         search_paths = [
-            f"{prefix}/go_bin/{tool_name}",
-            f"{prefix}/usr_bin/{tool_name}",
+            f"{prefix}/go_bin/bin/{tool_name}",
+            f"{prefix}/usr_bin/bin/{tool_name}",
             f"/usr/local/bin/{tool_name}",
             f"/usr/bin/{tool_name}",
         ]
