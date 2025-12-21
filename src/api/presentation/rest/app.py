@@ -2,6 +2,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from dishka.integrations.fastapi import DishkaRoute, setup_dishka
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from ...application.container import create_container
 from .middleware import db_session_middleware
@@ -34,14 +35,14 @@ def create_app() -> FastAPI:
     # Store container in app state
     app.state.dishka_container = container
     
-    # Setup dishka FIRST - this adds ContainerMiddleware
-    # ContainerMiddleware creates request scope
-    setup_dishka(container, app)
-    
-    # Add database session middleware AFTER setup_dishka
-    # Due to LIFO stack, this runs BEFORE ContainerMiddleware
-    # It creates session context that ContainerMiddleware will use
+    # Add database session middleware FIRST
+    # Due to LIFO stack, this runs AFTER ContainerMiddleware
+    # It wraps the request container created by ContainerMiddleware with session context
     app.middleware("http")(db_session_middleware)
+    
+    # Setup dishka AFTER adding session middleware
+    # ContainerMiddleware creates request scope, then our middleware wraps it with session
+    setup_dishka(container, app)
     
     # Include routes
     app.include_router(router)
