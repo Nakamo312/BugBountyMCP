@@ -11,18 +11,73 @@ logger = logging.getLogger(__name__)
 
 class CommandExecutionMixin:
     async def exec_stream(
-        self,
-        command: List[str],
-        timeout: int = 600,
+        self, 
+        command: List[str], 
+        stdin: Optional[str] = None,  
+        timeout: int = 600, 
         cwd: Optional[str] = None
     ) -> AsyncIterator[str]:
         self.logger.info(f"Executing: {' '.join(command)}")
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd
-        )
+        
+        program = command[0]
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdin=asyncio.subprocess.PIPE if stdin else None,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd
+            )
+
+            if stdin:
+                process.stdin.write(stdin.encode())
+                await process.stdin.drain()
+                process.stdin.close() 
+
+        except FileNotFoundError:
+            raise ToolNotFoundError(tool_name=program, path=program)
+        except Exception as e:
+            raise ScanExecutionError(f"Failed to start process: {str(e)}")
+
+        try:
+            async for line in process.stdout:
+                decoded = line.decode(errors='ignore').strip()
+                if decoded:
+                    yield decoded
+
+            exit_code = await asyncio.wait_for(process.wait(), timeout=timeout)
+            
+            if exit_code != 0:
+                stderr = await process.stderr.read()
+                raise ScanExecutionError(f"Tool exited with code {exit_code}: {stderr.decode()}")
+
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Process timeout after {timeout}s")
+            process.kill()
+            await process.wait()
+            raise ScanExecutionError(f"Process timed out after {timeout}s")
+
+        except FileNotFoundError:
+            raise ToolNotFoundError(tool_name=command[0], path=command[0])
+        except Exception as e:
+            raise ScanExecutionError(f"Failed to start process: {str(e)}")
+        try:
+            async for line in process.stdout:
+                decoded = line.decode(errors='ignore').strip()
+                if decoded:
+                    yield decoded
+
+            await asyncio.wait_for(process.wait(), timeout=timeout)
+            
+            if process.returncode != 0 and process.returncode is not None:
+                stderr_data = await process.stderr.read()
+                self.logger.error(f"Tool exited with code {process.returncode}: {stderr_data.decode()}")
+
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Process timeout after {timeout}s")
+            process.kill()
+            await process.wait()
+            raise ScanExecutionError(f"Process timed out after {timeout}s")
 
         async def reader(stream):
             while True:
@@ -119,31 +174,3 @@ class BaseScanService(ABC):
 
     async def save_results(self, data: Dict[str, Any]) -> None:
         pass
-async def exec_stream(self, command: List[str]) -> AsyncGenerator[str, None]:
-        """
-        Executes a command and yields output line by line.
-        """
-        program = command[0]
-        
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-        except FileNotFoundError:
-            # logic to catch missing binary
-            raise ToolNotFoundError(tool_name=program, path=program)
-        except Exception as e:
-            raise ScanExecutionError(f"Failed to start process: {str(e)}")
-
-        # Reading output...
-        async for line in process.stdout:
-            decoded = line.decode().strip()
-            if decoded:
-                yield decoded
-
-        exit_code = await process.wait()
-        if exit_code != 0:
-            stderr = await process.stderr.read()
-            raise ScanExecutionError(f"Tool exited with code {exit_code}: {stderr.decode()}")
