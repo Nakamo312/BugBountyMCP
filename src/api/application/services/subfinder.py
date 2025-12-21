@@ -2,6 +2,7 @@
 from typing import AsyncIterator, Dict, Any, Iterable, Optional, Union
 import json
 
+from api.config import settings
 from .base_service import BaseScanService, CommandExecutionMixin
 from .httpx import HTTPXScanService
 
@@ -101,7 +102,7 @@ class SubfinderScanService(BaseScanService, CommandExecutionMixin):
             Discovered subdomain strings
         """
         command = [
-            "subfinder",
+            settings.get_tool_path("subfinder"),
             "-d", domain,
             "-silent",  # Only output subdomains
         ]

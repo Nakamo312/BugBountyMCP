@@ -3,6 +3,7 @@ from typing import AsyncIterator, Dict, Any, List
 from uuid import UUID
 from urllib.parse import urlparse
 
+from ...config import settings
 from .base_service import BaseScanService
 from ...infrastructure.repositories import EndpointRepository, ServiceRepository, HostRepository
 
@@ -36,7 +37,7 @@ class URLDiscoveryService(BaseScanService):
             target: Domain to scan
             **kwargs: providers (list), blacklist (list), threads (int)
         """
-        command = ["gau", target]
+        command = [settings.get_tool_path("gau"), target]
         
         if providers := kwargs.get("providers"):
             command.extend(["--providers", ",".join(providers)])

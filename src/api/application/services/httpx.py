@@ -9,6 +9,7 @@ from api.infrastructure.repositories.host_ip import HostIPRepository
 from api.infrastructure.repositories.service import ServiceRepository
 from api.infrastructure.repositories.endpoint import EndpointRepository
 from api.infrastructure.repositories.input_parameters import InputParameterRepository
+from api.config import settings
 from .base_service import BaseScanService, CommandExecutionMixin, URLParseMixin
 
 
@@ -192,7 +193,7 @@ class HTTPXScanService(BaseScanService, CommandExecutionMixin, URLParseMixin):
             Dict with scan results for each URL
         """
         command = [
-            "httpx",
+            settings.get_tool_path("httpx"),
             "-status-code",
             "-title",
             "-tech-detect",

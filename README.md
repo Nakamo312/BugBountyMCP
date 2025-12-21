@@ -47,6 +47,8 @@ pip install -r requirements.txt
 
 ## Running
 
+### Local Development
+
 Запуск приложения:
 
 ```bash
@@ -71,6 +73,28 @@ $env:PYTHONPATH="src"; uvicorn api.presentation.rest.app:create_app --factory --
 ```
 
 Приложение будет доступно по адресу `http://localhost:8000`
+
+### Docker Compose
+
+Для запуска с Docker Compose (с персистентной БД и доступом к CLI инструментам хоста):
+
+```bash
+# Создать .env файл (если еще не создан)
+cp .env.example .env
+
+# Запустить сервисы
+docker-compose up -d
+
+# Просмотр логов
+docker-compose logs -f api
+
+# Остановить сервисы
+docker-compose down
+```
+
+Подробная документация по Docker: [DOCKER.md](DOCKER.md)
+
+**Важно**: Убедитесь, что CLI инструменты (httpx, subfinder, gau и т.д.) установлены на вашем хосте, так как контейнер использует их через bind mounts.
 
 ## API Endpoints
 
