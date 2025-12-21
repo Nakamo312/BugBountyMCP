@@ -204,7 +204,7 @@ class HTTPXScanService(BaseScanService, CommandExecutionMixin, URLParseMixin):
             "-json",
         ]
 
-        stdin_input = None
+        self.logger.info(f"Targets type: {type(targets)}, value: {targets}")
         if isinstance(targets, str):
             command += ["-u", targets]
         else:

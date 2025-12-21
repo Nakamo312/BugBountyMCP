@@ -42,6 +42,8 @@ jobs:
           run: |
             docker-compose down
             docker-compose up --build -d
-            
+        - name: Cleanup old images
+          run: |
+            docker image prune -f            
         - name: Check Status
           run: docker ps
