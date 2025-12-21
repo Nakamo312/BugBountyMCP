@@ -8,9 +8,9 @@ from .database import (
 )
 from .normalization import PathNormalizer, Deduplicator
 from .repositories import (
-    PostgresProgramRepository,
-    PostgresHostRepository,
-    PostgresEndpointRepository,
+    ProgramRepository,
+    HostRepository,
+    EndpointRepository,
 )
 
 __all__ = [
@@ -21,7 +21,7 @@ __all__ = [
     "EndpointModel",
     "PathNormalizer",
     "Deduplicator",
-    "PostgresProgramRepository",
-    "PostgresHostRepository",
-    "PostgresEndpointRepository",
+    "ProgramRepository",
+    "HostRepository",
+    "EndpointRepository",
 ]

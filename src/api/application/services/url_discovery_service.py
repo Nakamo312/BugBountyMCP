@@ -23,7 +23,11 @@ class URLDiscoveryService(BaseScanService):
         self.endpoint_repository = endpoint_repository
         self.service_repository = service_repository
         self.host_repository = host_repository
-    
+
+    async def execute(self, *args, **kwargs):
+        """Реализация абстрактного метода execute"""
+        return await self.parse_and_save(*args, **kwargs)  
+      
     async def execute_scan(self, target: str, **kwargs) -> AsyncIterator[str]:
         """
         Execute gau scan
