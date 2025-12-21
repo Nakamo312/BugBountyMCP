@@ -5,6 +5,8 @@ from dishka.integrations.fastapi import setup_dishka
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.config import Settings
+from src.api.application.exceptions import ScanExecutionError, ToolNotFoundError
+from src.api.presentation.rest.handlers import global_exception_handler, scan_execution_handler, tool_not_found_handler
 
 from ...application.container import create_container
 from .routes import router
@@ -27,7 +29,9 @@ def create_app() -> FastAPI:
         title="Bug Bounty Framework API",
         lifespan=lifespan,
     )
-    
+    app.add_exception_handler(ToolNotFoundError, tool_not_found_handler)
+    app.add_exception_handler(ScanExecutionError, scan_execution_handler)
+    app.add_exception_handler(Exception, global_exception_handler)
     setup_dishka(container, app)
     
     app.include_router(router)
