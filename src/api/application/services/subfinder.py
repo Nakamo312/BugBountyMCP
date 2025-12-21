@@ -2,7 +2,8 @@
 from typing import AsyncIterator, Dict, Any, Iterable, Optional, Union
 import json
 
-from api.config import settings
+from api.config import Settings, settings
+
 from .base_service import BaseScanService, CommandExecutionMixin
 from .httpx import HTTPXScanService
 
@@ -19,7 +20,7 @@ class SubfinderScanService(BaseScanService, CommandExecutionMixin):
     name = "subfinder"
     category = "subdomain"
 
-    def __init__(self, httpx_service: HTTPXScanService):
+    def __init__(self, httpx_service: HTTPXScanService, settings: Settings):
         """
         Initialize SubfinderScanService.
         
@@ -28,6 +29,7 @@ class SubfinderScanService(BaseScanService, CommandExecutionMixin):
         """
         super().__init__()
         self.httpx_service = httpx_service
+        self.settings = settings
 
     async def execute(
         self,
@@ -53,7 +55,6 @@ class SubfinderScanService(BaseScanService, CommandExecutionMixin):
                 - subdomains_probed: count of probed subdomains (if probe=True)
                 - httpx_results: HTTPX results (if probe=True)
         """
-        # Discover subdomains
         subdomains = []
         async for subdomain in self.execute_scan(domain, **kwargs):
             subdomains.append(subdomain)
@@ -65,7 +66,6 @@ class SubfinderScanService(BaseScanService, CommandExecutionMixin):
             "subdomains": subdomains,
         }
         
-        # Optionally probe discovered subdomains with HTTPX
         if probe and subdomains:
             self.logger.info(
                 f"Probing {len(subdomains)} discovered subdomains with HTTPX"
@@ -101,26 +101,23 @@ class SubfinderScanService(BaseScanService, CommandExecutionMixin):
         Yields:
             Discovered subdomain strings
         """
+        tool_path = self.settings.get_tool_path("subfinder")
         command = [
-            settings.get_tool_path("subfinder"),
+            tool_path,
             "-d", domain,
-            "-silent",  # Only output subdomains
+            "-silent",  
         ]
         
-        # Add optional sources
         sources = kwargs.get("sources")
         if sources:
             command.extend(["-sources", ",".join(sources)])
         
-        # Add recursive option
         if kwargs.get("recursive"):
             command.append("-recursive")
         
-        # Add all option (use all sources)
         if kwargs.get("all_sources"):
             command.append("-all")
         
-        # Execute and yield results
         async for line in self.exec_stream(
             command,
             timeout=kwargs.get("timeout", 300),
