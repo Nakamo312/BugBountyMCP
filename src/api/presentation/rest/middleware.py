@@ -25,17 +25,16 @@ async def db_session_middleware(
     async with db_connection.session() as session:
         # Create nested container with session in context
         # ContainerMiddleware will use the container from request.state.dishka_container
-        # So we replace it with our nested container before ContainerMiddleware runs
-        original_container = request.state.dishka_container
-        
+        # So we set it in request state before ContainerMiddleware runs
         async with container(context={AsyncSession: session}) as nested_container:
-            # Replace container in request state so ContainerMiddleware uses nested one
+            # Set nested container in request state so ContainerMiddleware uses it
             request.state.dishka_container = nested_container
             try:
                 response = await call_next(request)
             finally:
-                # Restore original container
-                request.state.dishka_container = original_container
+                # Clean up - remove container from request state
+                if hasattr(request.state, 'dishka_container'):
+                    delattr(request.state, 'dishka_container')
         
         return response
 
