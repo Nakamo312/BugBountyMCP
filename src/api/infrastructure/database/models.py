@@ -7,7 +7,7 @@ from sqlalchemy.orm import declarative_base
 import uuid
 
 # Import custom types for cross-database compatibility
-from api.infrastructure.database.types import UUID, JSONType, ArrayType
+from ...infrastructure.database.types import UUID, JSONType, ArrayType
 
 Base = declarative_base()
 
