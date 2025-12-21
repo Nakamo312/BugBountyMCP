@@ -195,21 +195,29 @@ class HTTPXScanService(BaseScanService, CommandExecutionMixin, URLParseMixin):
         """
         tool_path = self.settings.get_tool_path("httpx")
         command = [
-            tool_path,
-            "-status-code",
-            "-title",
-            "-tech-detect",
-            "-ip",
-            "-cname",
-            "-json",
-        ]
+        tool_path,
+        "-json",             # Обязательно для парсинга
+        "-silent",           # Убирает баннер из вывода (чистый JSON)
+        "-status-code",      # Показывает 200, 301 и т.д.
+        "-tech-detect",      # Стек технологий
+        "-title",            # Заголовок страницы
+        "-ip",               # IP адрес
+        "-cdn",              # Определение Cloudflare/WAF
+        "-asn",              # Инфо о провайдере
+        "-follow-redirects", # Идти до конца, если есть редирект
+        "-filter-duplicates", # Убирать одинаковые ответы
+        "-s" # Потоковый режим
+    ]
 
-        self.logger.error(f"Targets type: {type(targets)}, value: {targets}")
         if isinstance(targets, str):
             command += ["-u", targets]
         else:
-            command += ["-l", "-"]
-            stdin_input = "\n".join(targets)
+            target_list = list(targets)
+            if not target_list:
+                self.logger.warning("No targets provided for scan")
+                return
+            
+            stdin_input = "\n".join(target_list)
 
         async for line in self.exec_stream(
             command,
