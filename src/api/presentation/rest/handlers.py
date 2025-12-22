@@ -1,7 +1,9 @@
 """Global Exception Handlers"""
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
-from ...application.exceptions import ToolNotFoundError, ScanExecutionError
+
+from ...application.exceptions import ScanExecutionError, ToolNotFoundError
+
 
 async def tool_not_found_handler(request: Request, exc: ToolNotFoundError):
     return JSONResponse(

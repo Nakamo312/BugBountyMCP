@@ -1,11 +1,12 @@
 """URL discovery service (GAU/waybackurls)"""
-from typing import AsyncIterator, Dict, Any, List
-from uuid import UUID
+from typing import Any, AsyncIterator, Dict, List
 from urllib.parse import urlparse
+from uuid import UUID
 
 from ...config import settings
+from ...infrastructure.repositories import (EndpointRepository, HostRepository,
+                                            ServiceRepository)
 from .base_service import BaseScanService
-from ...infrastructure.repositories import EndpointRepository, ServiceRepository, HostRepository
 
 
 class URLDiscoveryService(BaseScanService):

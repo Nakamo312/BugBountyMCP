@@ -1,7 +1,8 @@
 """Host repository"""
 
 from api.domain.models import HostModel
-from api.infrastructure.repositories.adapters.sqlalchemy_repository import SQLAlchemyBaseRepository
+from api.infrastructure.repositories.adapters.sqlalchemy_repository import \
+    SQLAlchemyBaseRepository
 
 
 class SQLAlchemyHostRepository(SQLAlchemyBaseRepository[HostModel]):

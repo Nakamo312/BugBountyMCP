@@ -2,7 +2,8 @@
 from uuid import UUID
 
 from api.domain.models import HostIPModel
-from api.infrastructure.repositories.adapters.sqlalchemy_repository import SQLAlchemyBaseRepository
+from api.infrastructure.repositories.adapters.sqlalchemy_repository import \
+    SQLAlchemyBaseRepository
 
 
 class SQLAlchemyHostIPRepository(SQLAlchemyBaseRepository[HostIPModel]):

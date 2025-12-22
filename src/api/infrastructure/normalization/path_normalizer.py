@@ -1,7 +1,7 @@
 """URL path normalization for deduplication"""
 import re
-from urllib.parse import urlparse, parse_qs, urlencode
-from typing import Dict, Any
+from typing import Any, Dict
+from urllib.parse import parse_qs, urlencode, urlparse
 
 
 class PathNormalizer:

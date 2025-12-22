@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Optional, List, Dict, Any, Tuple
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from api.application.exceptions import ScanExecutionError, ToolNotFoundError

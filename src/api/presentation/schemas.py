@@ -1,7 +1,8 @@
 """Presentation layer schemas - API request/response models"""
-from typing import Union, List, Optional
+from typing import List, Optional, Union
 from uuid import UUID
-from pydantic import BaseModel, Field
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # Request Schemas
@@ -11,7 +12,7 @@ class HTTPXScanRequest(BaseModel):
     targets: Union[str, List[str]] = Field(..., description="Single target or list")
     timeout: Optional[int] = Field(default=600, ge=1, le=3600)
     
-    class Config:
+    model_config = ConfigDict(
         json_schema_extra = {
             "example": {
                 "program_id": "123e4567-e89b-12d3-a456-426614174000",
@@ -19,6 +20,7 @@ class HTTPXScanRequest(BaseModel):
                 "timeout": 600
             }
         }
+    )
 
 
 class SubfinderScanRequest(BaseModel):
@@ -28,7 +30,7 @@ class SubfinderScanRequest(BaseModel):
     probe: bool = Field(default=True)
     timeout: Optional[int] = Field(default=600, ge=1, le=3600)
     
-    class Config:
+    model_config = ConfigDict(
         json_schema_extra = {
             "example": {
                 "program_id": "123e4567-e89b-12d3-a456-426614174000",
@@ -37,6 +39,7 @@ class SubfinderScanRequest(BaseModel):
                 "timeout": 600
             }
         }
+    )
 
 
 # Response Schemas
@@ -46,7 +49,7 @@ class ScanResponse(BaseModel):
     message: str
     results: dict = Field(..., description="Scan results")
     
-    class Config:
+    model_config = ConfigDict(
         json_schema_extra = {
             "example": {
                 "status": "success",
@@ -58,17 +61,19 @@ class ScanResponse(BaseModel):
                 }
             }
         }
+    )
 
 
 class ErrorResponse(BaseModel):
     """Error response schema"""
     detail: str
     code: str
-    
-    class Config:
+
+    model_config = ConfigDict(
         json_schema_extra = {
             "example": {
                 "detail": "Scan execution failed",
                 "code": "SCAN_FAILED"
             }
         }
+    )

@@ -1,16 +1,19 @@
 """FastAPI application with DI setup"""
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+
 from dishka.integrations.fastapi import setup_dishka
+from fastapi import FastAPI
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from api.config import Settings
-from api.application.exceptions import ScanExecutionError, ToolNotFoundError
-from api.presentation.rest.handlers import global_exception_handler, scan_execution_handler, tool_not_found_handler
-
 from api.application.container import create_container
-from api.infrastructure.database.connection import DatabaseConnection
+from api.application.exceptions import ScanExecutionError, ToolNotFoundError
+from api.config import Settings
 from api.infrastructure.adapters.mappers import start_mappers
+from api.infrastructure.database.connection import DatabaseConnection
+from api.presentation.rest.handlers import (global_exception_handler,
+                                            scan_execution_handler,
+                                            tool_not_found_handler)
+
 from .routes import router
 
 

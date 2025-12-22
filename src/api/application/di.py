@@ -1,25 +1,38 @@
-"""Dependency Injection providers using dishka"""
+# api/application/container_base.py (обновленный)
 from typing import AsyncIterable
-from dishka import Provider, Scope, provide, from_context
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.infrastructure.repositories.adapters.endpoint import SQLAlchemyEndpointRepository
-from api.infrastructure.repositories.adapters.host import SQLAlchemyHostRepository
-from api.infrastructure.repositories.adapters.host_ip import SQLAlchemyHostIPRepository
-from api.infrastructure.repositories.adapters.input_parameters import SQLAlchemyInputParameterRepository
-from api.infrastructure.repositories.adapters.ip_address import SQLAlchemyIPAddressRepository
-from api.infrastructure.repositories.adapters.service import SQLAlchemyServiceRepository
-from api.infrastructure.repositories.interfaces.endpoint import EndpointRepository
+from dishka import Provider, Scope, from_context, provide
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from api.application.services.httpx import HTTPXScanService
+from api.application.services.program import ProgramService
+from api.application.services.subfinder import SubfinderScanService
+from api.config import Settings
+from api.infrastructure.database.connection import DatabaseConnection
+from api.infrastructure.repositories.adapters.endpoint import \
+    SQLAlchemyEndpointRepository
+from api.infrastructure.repositories.adapters.host import \
+    SQLAlchemyHostRepository
+from api.infrastructure.repositories.adapters.host_ip import \
+    SQLAlchemyHostIPRepository
+from api.infrastructure.repositories.adapters.input_parameters import \
+    SQLAlchemyInputParameterRepository
+from api.infrastructure.repositories.adapters.ip_address import \
+    SQLAlchemyIPAddressRepository
+from api.infrastructure.repositories.adapters.service import \
+    SQLAlchemyServiceRepository
+from api.infrastructure.repositories.interfaces.endpoint import \
+    EndpointRepository
+from api.infrastructure.repositories.interfaces.host import HostRepository
 from api.infrastructure.repositories.interfaces.host_ip import HostIPRepository
-from api.infrastructure.repositories.interfaces.service import ServiceRepository
-
-from ..config import Settings
-from ..infrastructure.database.connection import DatabaseConnection
-from ..infrastructure.repositories.interfaces.host import HostRepository
-from ..infrastructure.repositories.interfaces.ip_address import IPAddressRepository
-from ..infrastructure.repositories.interfaces.input_parameters import InputParameterRepository
-from .services.httpx import HTTPXScanService
-from .services.subfinder import SubfinderScanService
+from api.infrastructure.repositories.interfaces.input_parameters import \
+    InputParameterRepository
+from api.infrastructure.repositories.interfaces.ip_address import \
+    IPAddressRepository
+from api.infrastructure.repositories.interfaces.service import \
+    ServiceRepository
+from api.infrastructure.unit_of_work.adapters.program import \
+    SQLAlchemyProgramUnitOfWork
 
 
 class DatabaseProvider(Provider):
@@ -30,6 +43,10 @@ class DatabaseProvider(Provider):
     @provide(scope=Scope.APP)
     def get_database_connection(self, settings: Settings) -> DatabaseConnection:
         return DatabaseConnection(settings.postgres_dsn)
+
+    @provide(scope=Scope.APP)  
+    def get_session_factory(self, db: DatabaseConnection) -> async_sessionmaker:
+        return db.session_factory
 
     @provide(scope=Scope.REQUEST)
     async def get_session(self, db: DatabaseConnection) -> AsyncIterable[AsyncSession]:
@@ -45,7 +62,6 @@ class RepositoryProvider(Provider):
         self,
         session: AsyncSession,
     ) -> HostRepository:
-        """Create HostRepository"""
         return SQLAlchemyHostRepository(session)
     
     @provide(scope=Scope.REQUEST)
@@ -53,7 +69,6 @@ class RepositoryProvider(Provider):
         self,
         session: AsyncSession,
     ) -> IPAddressRepository:
-        """Create IPAddressRepository"""
         return SQLAlchemyIPAddressRepository(session)
     
     @provide(scope=Scope.REQUEST)
@@ -61,7 +76,6 @@ class RepositoryProvider(Provider):
         self,
         session: AsyncSession,
     ) -> HostIPRepository:
-        """Create HostIPRepository"""
         return SQLAlchemyHostIPRepository(session)
     
     @provide(scope=Scope.REQUEST)
@@ -69,7 +83,6 @@ class RepositoryProvider(Provider):
         self,
         session: AsyncSession,
     ) -> ServiceRepository:
-        """Create ServiceRepository"""
         return SQLAlchemyServiceRepository(session)
     
     @provide(scope=Scope.REQUEST)
@@ -77,7 +90,6 @@ class RepositoryProvider(Provider):
         self,
         session: AsyncSession,
     ) -> EndpointRepository:
-        """Create EndpointRepository"""
         return SQLAlchemyEndpointRepository(session)
     
     @provide(scope=Scope.REQUEST)
@@ -85,8 +97,18 @@ class RepositoryProvider(Provider):
         self,
         session: AsyncSession,
     ) -> InputParameterRepository:
-        """Create InputParameterRepository"""
         return SQLAlchemyInputParameterRepository(session)
+
+
+class UnitOfWorkProvider(Provider):
+    """Provider for Unit of Work"""
+    
+    @provide(scope=Scope.REQUEST)
+    def get_program_uow(
+        self,
+        session_factory: async_sessionmaker
+    ) -> SQLAlchemyProgramUnitOfWork:
+        return SQLAlchemyProgramUnitOfWork(session_factory)
 
 
 class ServiceProvider(Provider):
@@ -103,7 +125,6 @@ class ServiceProvider(Provider):
         input_param_repository: InputParameterRepository,
         settings: Settings
     ) -> HTTPXScanService:
-        """Create HTTPXScanService with all dependencies"""
         return HTTPXScanService(
             host_repository=host_repository,
             ip_repository=ip_repository,
@@ -120,6 +141,11 @@ class ServiceProvider(Provider):
         httpx_service: HTTPXScanService,
         settings: Settings
     ) -> SubfinderScanService:
-        """Create SubfinderScanService - depends only on HTTPXScanService"""
         return SubfinderScanService(httpx_service=httpx_service, settings=settings)
-
+    
+    @provide(scope=Scope.REQUEST)
+    def get_program_service(
+        self,
+        program_uow: SQLAlchemyProgramUnitOfWork
+    ) -> ProgramService:
+        return ProgramService(program_uow)
