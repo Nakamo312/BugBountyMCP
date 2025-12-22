@@ -21,4 +21,4 @@ class SQLAlchemyHTTPXUnitOfWork(SQLAlchemyAbstractUnitOfWork, HTTPXUnitOfWork):
         self.endpoints = SQLAlchemyEndpointRepository(session=self._session)
         self.input_parameters = SQLAlchemyInputParameterRepository(session=self._session)
         
-        return uow
+        return self
