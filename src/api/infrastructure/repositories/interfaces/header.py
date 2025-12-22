@@ -1,8 +1,8 @@
 """Header repository"""
 
 from api.domain.models import HeaderModel
-from api.infrastructure.repositories.interfaces.repository import \
-    AbstractRepository
+from api.infrastructure.repositories.interfaces.base import AbstractRepository
+
 
 
 class HeaderRepository(AbstractRepository[HeaderModel]):

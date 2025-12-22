@@ -1,25 +1,29 @@
-from typing import Optional
+
+from abc import ABC, abstractmethod
+from typing import Optional, List
 from uuid import UUID
-
 from api.domain.models import EndpointModel
-from api.infrastructure.repositories.interfaces.repository import \
-    AbstractRepository
+from api.infrastructure.repositories.interfaces.base import AbstractRepository
 
 
-class EndpointRepository(AbstractRepository[EndpointModel]):
-    """Repository for Endpoint entities"""
-    
-    model = EndpointModel
-    unique_fields = [("host_id", "service_id", "normalized_path")]
-    
+class EndpointRepository(AbstractRepository[EndpointModel], ABC):
+    @abstractmethod
     async def upsert_with_method(
-            self,
-            host_id: UUID,
-            service_id: UUID,
-            path: str,
-            method: str,
-            normalized_path: str,
-            status_code: Optional[int] = None,
-            **kwargs
-        ) -> EndpointModel:
+        self,
+        host_id: UUID,
+        service_id: UUID,
+        path: str,
+        method: str,
+        normalized_path: str,
+        status_code: Optional[int] = None,
+        **kwargs
+    ) -> EndpointModel:
+        raise NotImplementedError
+    
+    @abstractmethod
+    async def find_by_host(self, host_id: UUID) -> List[EndpointModel]:
+        raise NotImplementedError
+    
+    @abstractmethod
+    async def find_by_service(self, service_id: UUID) -> List[EndpointModel]:
         raise NotImplementedError
