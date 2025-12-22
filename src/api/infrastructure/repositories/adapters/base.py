@@ -4,7 +4,7 @@
 from typing import Any, Dict, List, Optional, Tuple, Type
 from uuid import UUID
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert
 
@@ -135,6 +135,18 @@ class SQLAlchemyAbstractRepository(AbstractRepository):
         created = await self.create(entity)
         return created, True
 
+    def _get_constraint_name(self, table, conflict_fields: List[str]) -> str:
+        mapper = inspect(self.model)
+        table_obj = mapper.persist_selectable
+        
+        for constraint in table_obj.constraints:
+            if hasattr(constraint, 'columns'):
+                constraint_cols = {col.name for col in constraint.columns}
+                if constraint_cols == set(conflict_fields):
+                    return constraint.name
+        
+        return f"uq_{table.name}_{'_'.join(conflict_fields)}"
+
     async def upsert(
         self,
         entity: Any,
@@ -152,7 +164,7 @@ class SQLAlchemyAbstractRepository(AbstractRepository):
         table = self.model.__table__
         stmt = insert(table).values(entity_dict)
         
-        constraint_name = f"uq_{table.name}_{'_'.join(conflict_fields)}"
+        constraint_name = self._get_constraint_name(table, conflict_fields)
         
         if update_fields:
             update_dict = {
@@ -204,7 +216,7 @@ class SQLAlchemyAbstractRepository(AbstractRepository):
         table = self.model.__table__
         stmt = insert(table).values(values)
         
-        constraint_name = f"uq_{table.name}_{'_'.join(conflict_fields)}"
+        constraint_name = self._get_constraint_name(table, conflict_fields)
         
         if update_fields:
             update_dict = {
