@@ -9,4 +9,4 @@ class SQLAlchemyAbstractRepository(AbstractRepository, ABC):
     """
 
     def __init__(self, session: AsyncSession) -> None:
-        self._session: AsyncSession = session
+        self.session: AsyncSession = session
