@@ -1,5 +1,5 @@
 """Mapper configuration for SQLAlchemy Core tables to domain models"""
-from sqlalchemy.orm import registry
+from sqlalchemy.orm import registry, relationship
 
 from api.domain.models import (
     ProgramModel, ScopeRuleModel, RootInputModel, HostModel,
@@ -16,53 +16,44 @@ from api.infrastructure.adapters.orm import (
     findings, leaks
 )
 
-# Create mapper registry
 mapper_registry = registry(metadata=metadata)
 
-
 def start_mappers():
-    """
-    Map all domain models to ORM models, for purpose of using domain models directly during work with the database,
-    according to DDD.
-    """
-
-    # ==================== CORE ENTITIES ====================
-
     mapper_registry.map_imperatively(
         class_=ProgramModel,
         local_table=programs,
         properties={
-            'scope_rules': mapper_registry.relationship(
+            'scope_rules': relationship(
                 ScopeRuleModel,
                 backref='program',
                 cascade='all, delete-orphan',
                 lazy='select'
             ),
-            'root_inputs': mapper_registry.relationship(
+            'root_inputs': relationship(
                 RootInputModel,
                 backref='program',
                 cascade='all, delete-orphan',
                 lazy='select'
             ),
-            'hosts': mapper_registry.relationship(
+            'hosts': relationship(
                 HostModel,
                 backref='program',
                 cascade='all, delete-orphan',
                 lazy='select'
             ),
-            'ip_addresses': mapper_registry.relationship(
+            'ip_addresses': relationship(
                 IPAddressModel,
                 backref='program',
                 cascade='all, delete-orphan',
                 lazy='select'
             ),
-            'findings': mapper_registry.relationship(
+            'findings': relationship(
                 FindingModel,
                 backref='program',
                 cascade='all, delete-orphan',
                 lazy='select'
             ),
-            'leaks': mapper_registry.relationship(
+            'leaks': relationship(
                 LeakModel,
                 backref='program',
                 cascade='all, delete-orphan',
@@ -85,21 +76,21 @@ def start_mappers():
         class_=HostModel,
         local_table=hosts,
         properties={
-            'ips': mapper_registry.relationship(
+            'ips': relationship(
                 IPAddressModel,
                 secondary=host_ips,
                 backref='hosts',
                 lazy='select'
             ),
-            'endpoints': mapper_registry.relationship(
+            'endpoints': relationship(
                 EndpointModel,
                 backref='host',
                 cascade='all, delete-orphan',
                 lazy='select'
             ),
-            'input_parameters': mapper_registry.relationship(
+            'input_parameters': relationship(
                 InputParameterModel,
-                secondary=endpoints,  # Through endpoints
+                secondary=endpoints,
                 primaryjoin=(hosts.c.id == endpoints.c.host_id),
                 secondaryjoin=(endpoints.c.id == input_parameters.c.endpoint_id),
                 viewonly=True,
@@ -112,7 +103,7 @@ def start_mappers():
         class_=IPAddressModel,
         local_table=ip_addresses,
         properties={
-            'services': mapper_registry.relationship(
+            'services': relationship(
                 ServiceModel,
                 backref='ip',
                 cascade='all, delete-orphan',
@@ -125,12 +116,12 @@ def start_mappers():
         class_=HostIPModel,
         local_table=host_ips,
         properties={
-            'host': mapper_registry.relationship(
+            'host': relationship(
                 HostModel,
                 backref='host_ip_links',
                 lazy='select'
             ),
-            'ip': mapper_registry.relationship(
+            'ip': relationship(
                 IPAddressModel,
                 backref='host_ip_links',
                 lazy='select'
@@ -142,13 +133,13 @@ def start_mappers():
         class_=ServiceModel,
         local_table=services,
         properties={
-            'endpoints': mapper_registry.relationship(
+            'endpoints': relationship(
                 EndpointModel,
                 backref='service',
                 cascade='all, delete-orphan',
                 lazy='select'
             ),
-            'input_parameters': mapper_registry.relationship(
+            'input_parameters': relationship(
                 InputParameterModel,
                 backref='service',
                 cascade='all, delete-orphan',
@@ -161,31 +152,31 @@ def start_mappers():
         class_=EndpointModel,
         local_table=endpoints,
         properties={
-            'input_parameters': mapper_registry.relationship(
+            'input_parameters': relationship(
                 InputParameterModel,
                 backref='endpoint',
                 cascade='all, delete-orphan',
                 lazy='select'
             ),
-            'headers': mapper_registry.relationship(
+            'headers': relationship(
                 HeaderModel,
                 backref='endpoint',
                 cascade='all, delete-orphan',
                 lazy='select'
             ),
-            'findings': mapper_registry.relationship(
+            'findings': relationship(
                 FindingModel,
                 backref='endpoint',
                 cascade='all, delete-orphan',
                 lazy='select'
             ),
-            'leaks': mapper_registry.relationship(
+            'leaks': relationship(
                 LeakModel,
                 backref='endpoint',
                 cascade='all, delete-orphan',
                 lazy='select'
             ),
-            'scanner_executions': mapper_registry.relationship(
+            'scanner_executions': relationship(
                 ScannerExecutionModel,
                 backref='endpoint',
                 cascade='all, delete-orphan',
@@ -194,13 +185,11 @@ def start_mappers():
         }
     )
 
-    # ==================== ENRICHMENT ENTITIES ====================
-
     mapper_registry.map_imperatively(
         class_=InputParameterModel,
         local_table=input_parameters,
         properties={
-            'findings': mapper_registry.relationship(
+            'findings': relationship(
                 FindingModel,
                 backref='parameter',
                 cascade='all, delete-orphan',
@@ -214,19 +203,17 @@ def start_mappers():
         local_table=headers
     )
 
-    # ==================== TYPE ENTITIES ====================
-
     mapper_registry.map_imperatively(
         class_=VulnTypeModel,
         local_table=vuln_types,
         properties={
-            'payloads': mapper_registry.relationship(
+            'payloads': relationship(
                 PayloadModel,
                 backref='vuln_type',
                 cascade='all, delete-orphan',
                 lazy='select'
             ),
-            'findings': mapper_registry.relationship(
+            'findings': relationship(
                 FindingModel,
                 backref='vuln_type',
                 cascade='all, delete-orphan',
@@ -235,13 +222,11 @@ def start_mappers():
         }
     )
 
-    # ==================== SCANNER ENTITIES ====================
-
     mapper_registry.map_imperatively(
         class_=ScannerTemplateModel,
         local_table=scanner_templates,
         properties={
-            'executions': mapper_registry.relationship(
+            'executions': relationship(
                 ScannerExecutionModel,
                 backref='template',
                 cascade='all, delete-orphan',
@@ -254,7 +239,7 @@ def start_mappers():
         class_=ScannerExecutionModel,
         local_table=scanner_executions,
         properties={
-            'findings': mapper_registry.relationship(
+            'findings': relationship(
                 FindingModel,
                 backref='execution',
                 cascade='all, delete-orphan',
@@ -267,7 +252,7 @@ def start_mappers():
         class_=PayloadModel,
         local_table=payloads,
         properties={
-            'findings': mapper_registry.relationship(
+            'findings': relationship(
                 FindingModel,
                 backref='payload',
                 cascade='all, delete-orphan',
@@ -275,8 +260,6 @@ def start_mappers():
             ),
         }
     )
-
-    # ==================== RESULTS ENTITIES ====================
 
     mapper_registry.map_imperatively(
         class_=FindingModel,
@@ -288,10 +271,7 @@ def start_mappers():
         local_table=leaks
     )
 
-
-# Convenience function to get all mapped classes
 def get_mapped_classes():
-    """Return all mapped domain model classes"""
     return {
         ProgramModel,
         ScopeRuleModel,
@@ -311,8 +291,5 @@ def get_mapped_classes():
         LeakModel,
     }
 
-
-# For Alembic autogenerate support
 def get_metadata():
-    """Return metadata for Alembic"""
     return metadata
