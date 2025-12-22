@@ -62,15 +62,18 @@ class ServiceProvider(Provider):
         """Create ProgramService with Program UoW"""
         return ProgramService(program_uow)
     
+class ServiceProvider(Provider):
+    """Provider for application services"""
+    
     @provide(scope=Scope.REQUEST)
     def get_httpx_service(
         self,
-        scan_uow: SQLAlchemyHTTPXUnitOfWork,
+        session_factory: async_sessionmaker,
         settings: Settings
     ) -> HTTPXScanService:
-        """Create HTTPXScanService with Scan UoW"""
+        """Create HTTPXScanService with UoW factory"""
         return HTTPXScanService(
-            uow=scan_uow,
+            uow_factory=lambda: SQLAlchemyHTTPXUnitOfWork(session_factory),
             settings=settings
         )
     

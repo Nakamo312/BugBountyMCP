@@ -1,4 +1,3 @@
-# api/infrastructure/database/unit_of_work/scan.py
 from abc import ABC
 
 from api.infrastructure.repositories.interfaces.host import HostRepository
