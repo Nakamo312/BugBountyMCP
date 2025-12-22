@@ -95,7 +95,6 @@ services = Table(
     Column('technologies', JSONType(), default=dict),
     UniqueConstraint('ip_id', 'port', name='uq_services_ip_port'),
     Index('idx_services_lookup', 'ip_id', 'port'),
-    CheckConstraint(name='ck_services_scheme_valid'),
     CheckConstraint("port > 0 AND port <= 65535", name='ck_services_port_range'),
     CheckConstraint("port != 0", name='ck_services_port_not_zero'),
 )

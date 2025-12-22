@@ -1,15 +1,15 @@
 """Base repository with full CRUD and pagination support"""
-from abc import ABC
-from typing import Generic, TypeVar, Optional, List, Tuple, Dict, Any
+from typing import TypeVar, Optional, List, Tuple, Dict, Any
 from uuid import UUID
-from sqlalchemy import select, func, and_, or_
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
 
-from api.domain.repositories import IBaseRepository
+from api.infrastructure.repositories.interfaces.repository import AbstractRepository
+from src.api.domain.models import AbstractModel
+from api.infrastructure.database.repositories import SQLAlchemyAbstractRepository
 
-Model = TypeVar("Model")
+Model = TypeVar('T', bound=AbstractModel)
 
 
 class UniqueConstraintViolation(Exception):
@@ -20,7 +20,7 @@ class UniqueConstraintViolation(Exception):
         super().__init__(f"Unique constraint violated for {fields}: {values}")
 
 
-class BaseRepository(Generic[Model], IBaseRepository[Model]):
+class SQLAlchemyBaseRepository(SQLAlchemyAbstractRepository, AbstractRepository[Model]):
     """
     Base repository implementing common CRUD operations.
     
@@ -31,10 +31,7 @@ class BaseRepository(Generic[Model], IBaseRepository[Model]):
     model: type[Model]
     unique_fields: Optional[List[Tuple[str, ...]]] = None
 
-    def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def get_by_id(self, id: UUID) -> Optional[Model]:
+    async def get(self, id: UUID) -> Optional[Model]:
         """Get entity by ID"""
         result = await self.session.execute(
             select(self.model).where(self.model.id == id)
@@ -87,7 +84,6 @@ class BaseRepository(Generic[Model], IBaseRepository[Model]):
         """
         query = select(self.model)
         
-        # Apply filters
         if filters:
             conditions = [
                 getattr(self.model, key) == value
@@ -97,19 +93,15 @@ class BaseRepository(Generic[Model], IBaseRepository[Model]):
             if conditions:
                 query = query.where(and_(*conditions))
         
-        # Apply ordering
         if order_by:
             if order_by.startswith('-'):
-                # Descending order
                 field = order_by[1:]
                 if hasattr(self.model, field):
                     query = query.order_by(getattr(self.model, field).desc())
             else:
-                # Ascending order
                 if hasattr(self.model, order_by):
                     query = query.order_by(getattr(self.model, order_by))
         
-        # Apply pagination
         query = query.limit(limit).offset(offset)
         
         result = await self.session.execute(query)
@@ -238,7 +230,6 @@ class BaseRepository(Generic[Model], IBaseRepository[Model]):
         stmt = insert(self.model).values(**data)
         
         if update_fields is None:
-            # Update all fields except conflict fields and id
             update_fields = [
                 key for key in data.keys() 
                 if key not in conflict_fields and key != 'id'
@@ -294,7 +285,6 @@ class BaseRepository(Generic[Model], IBaseRepository[Model]):
         stmt = insert(self.model).values(items)
         
         if update_fields is None:
-            # Update all fields except conflict fields and id
             update_fields = [
                 key for key in items[0].keys() 
                 if key not in conflict_fields and key != 'id'

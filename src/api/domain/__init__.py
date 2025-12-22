@@ -1,6 +1,6 @@
 """Domain layer - Pure business logic without dependencies"""
 
-from .entities import (
+from .models import (
     # Enums
     RuleType,
     InputType,
@@ -8,35 +8,6 @@ from .entities import (
     ParamLocation,
     Severity,
     ScanStatus,
-    
-    # Core entities
-    Program,
-    ScopeRule,
-    RootInput,
-    Host,
-    IPAddress,
-    HostIP,
-    Service,
-    Endpoint,
-    InputParameter,
-    Header,
-    
-    # Types
-    VulnType,
-    LeakType,
-    
-    # Scanning
-    ScannerTemplate,
-    ScannerExecution,
-    Payload,
-    
-    # Results
-    Finding,
-    Leak,
-)
-
-from .repositories import (
-    IBaseRepository
 )
 
 __all__ = [
@@ -66,7 +37,6 @@ __all__ = [
     "Payload",
     "Finding",
     "Leak",
-
     "IBaseRepository"
 
 ]

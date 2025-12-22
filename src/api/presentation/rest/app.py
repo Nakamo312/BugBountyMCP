@@ -10,6 +10,7 @@ from api.presentation.rest.handlers import global_exception_handler, scan_execut
 
 from api.application.container import create_container
 from api.infrastructure.database.connection import DatabaseConnection
+from api.infrastructure.adapters.mappers import start_mappers
 from .routes import router
 
 

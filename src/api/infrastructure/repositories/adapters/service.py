@@ -1,11 +1,12 @@
 """Service repository"""
 from typing import Dict
 from uuid import UUID
-from api.infrastructure.database.models import ServiceModel
-from .base_repo import BaseRepository
+
+from api.domain.models import ServiceModel
+from api.infrastructure.repositories.adapters.sqlalchemy_repository import SQLAlchemyBaseRepository
 
 
-class ServiceRepository(BaseRepository[ServiceModel]):
+class SQLAlchemyServiceRepository(SQLAlchemyBaseRepository[ServiceModel]):
     """Repository for Service entities"""
     
     model = ServiceModel
@@ -30,18 +31,14 @@ class ServiceRepository(BaseRepository[ServiceModel]):
         Returns:
             Service entity with merged technologies
         """
-        # Validate port
         port = max(1, min(int(port), 65535))
         
-        # Try to find existing service
         existing = await self.get_by_fields(ip_id=ip_id, scheme=scheme, port=port)
         
         if existing:
-            # Merge technologies
             merged_tech = {**(existing.technologies or {}), **technologies}
             return await self.update(existing.id, {"technologies": merged_tech})
-        
-        # Create new service
+
         return await self.create({
             "ip_id": ip_id,
             "scheme": scheme,

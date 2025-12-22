@@ -9,8 +9,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
-from .models import Base
-
+from ..adapters.orm import metadata
 
 class DatabaseConnection:
     """Database connection manager"""
@@ -33,12 +32,12 @@ class DatabaseConnection:
     async def create_tables(self):
         """Create all tables"""
         async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(metadata.create_all)
     
     async def drop_tables(self):
         """Drop all tables"""
         async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(metadata.drop_all)
     
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[AsyncSession, None]:
