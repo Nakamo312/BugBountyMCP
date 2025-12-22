@@ -1,3 +1,4 @@
+# api/infrastructure/repositories/adapters/base.py
 """SQLAlchemy abstract repository with default implementations"""
 
 from typing import Any, Dict, List, Optional, Tuple, Type
@@ -5,32 +6,19 @@ from uuid import UUID
 
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.dialects.postgresql import insert
 
 from api.infrastructure.exception.exceptions import EntityNotFound
 from api.infrastructure.repositories.interfaces.base import AbstractRepository
 
 
 class SQLAlchemyAbstractRepository(AbstractRepository):
-    """
-    Base SQLAlchemy repository with default implementations.
-    Concrete repositories should set the `model` class attribute.
-    """
-
     model: Type = None
 
     def __init__(self, session: AsyncSession) -> None:
         self.session: AsyncSession = session
 
     async def get(self, id: UUID) -> Optional[Any]:
-        """
-        Get entity by ID.
-
-        Args:
-            id: Entity UUID
-
-        Returns:
-            Entity or None if not found
-        """
         if not self.model:
             raise NotImplementedError("Model not specified in repository")
 
@@ -40,15 +28,6 @@ class SQLAlchemyAbstractRepository(AbstractRepository):
         return result.scalar_one_or_none()
 
     async def get_by_fields(self, **filters) -> Optional[Any]:
-        """
-        Get entity by field values.
-
-        Args:
-            **filters: Field name to value mapping
-
-        Returns:
-            Entity or None if not found
-        """
         if not self.model:
             raise NotImplementedError("Model not specified in repository")
 
@@ -72,18 +51,6 @@ class SQLAlchemyAbstractRepository(AbstractRepository):
         offset: int = 0,
         order_by: Optional[str] = None
     ) -> List[Any]:
-        """
-        Find multiple entities with pagination and ordering.
-
-        Args:
-            filters: Optional filter dictionary
-            limit: Maximum number of results
-            offset: Results offset
-            order_by: Field to order by (prefix with '-' for descending)
-
-        Returns:
-            List of entities
-        """
         if not self.model:
             raise NotImplementedError("Model not specified in repository")
 
@@ -112,15 +79,6 @@ class SQLAlchemyAbstractRepository(AbstractRepository):
         return list(result.scalars().all())
 
     async def count(self, filters: Optional[Dict[str, Any]] = None) -> int:
-        """
-        Count entities matching filters.
-
-        Args:
-            filters: Optional filter dictionary
-
-        Returns:
-            Number of matching entities
-        """
         if not self.model:
             raise NotImplementedError("Model not specified in repository")
 
@@ -139,33 +97,11 @@ class SQLAlchemyAbstractRepository(AbstractRepository):
         return result.scalar_one()
 
     async def create(self, entity: Any) -> Any:
-        """
-        Create new entity.
-
-        Args:
-            entity: Entity to create
-
-        Returns:
-            Created entity
-        """
         self.session.add(entity)
         await self.session.flush()
         return entity
 
     async def update(self, id: UUID, entity: Any) -> Any:
-        """
-        Update existing entity.
-
-        Args:
-            id: Entity UUID
-            entity: Updated entity data
-
-        Returns:
-            Updated entity
-
-        Raises:
-            EntityNotFound: If entity does not exist
-        """
         existing = await self.get(id)
         if not existing:
             raise EntityNotFound(f"Entity with id {id} not found")
@@ -178,12 +114,6 @@ class SQLAlchemyAbstractRepository(AbstractRepository):
         return existing
 
     async def delete(self, id: UUID) -> None:
-        """
-        Delete entity by ID.
-
-        Args:
-            id: Entity UUID
-        """
         entity = await self.get(id)
         if entity:
             await self.session.delete(entity)
@@ -193,15 +123,6 @@ class SQLAlchemyAbstractRepository(AbstractRepository):
         self,
         entity: Any,
     ) -> Tuple[Any, bool]:
-        """
-        Get existing entity or create new one.
-
-        Args:
-            entity: Entity to create if not exists
-
-        Returns:
-            Tuple of (entity, created) where created is True if new
-        """
         filters = {
             key: value for key, value in entity.__dict__.items()
             if not key.startswith('_')
@@ -220,33 +141,42 @@ class SQLAlchemyAbstractRepository(AbstractRepository):
         conflict_fields: List[str],
         update_fields: Optional[List[str]] = None
     ) -> Any:
-        """
-        Insert or update entity.
-
-        Args:
-            entity: Entity to upsert
-            conflict_fields: Fields to check for conflicts
-            update_fields: Fields to update on conflict
-
-        Returns:
-            Upserted entity
-        """
-        try:
-            created = await self.create(entity)
-            return created
-        except Exception:
-            return await self.update(entity.id, entity)
+        if not self.model:
+            raise NotImplementedError("Model not specified in repository")
+        
+        entity_dict = {
+            k: v for k, v in entity.__dict__.items() 
+            if not k.startswith('_')
+        }
+        
+        table = self.model.__table__
+        stmt = insert(table).values(entity_dict)
+        
+        constraint_name = f"uq_{table.name}_{'_'.join(conflict_fields)}"
+        
+        if update_fields:
+            update_dict = {
+                col: stmt.excluded[col]
+                for col in update_fields
+            }
+            stmt = stmt.on_conflict_do_update(
+                constraint=constraint_name,
+                set_=update_dict
+            )
+        else:
+            stmt = stmt.on_conflict_do_nothing(
+                constraint=constraint_name
+            )
+        
+        await self.session.execute(stmt)
+        await self.session.flush()
+        
+        existing = await self.get_by_fields(**{
+            field: entity_dict[field] for field in conflict_fields
+        })
+        return existing
 
     async def bulk_create(self, entities: List[Any]) -> List[Any]:
-        """
-        Create multiple entities.
-
-        Args:
-            entities: List of entities to create
-
-        Returns:
-            List of created entities
-        """
         if not entities:
             return []
 
@@ -260,16 +190,35 @@ class SQLAlchemyAbstractRepository(AbstractRepository):
         conflict_fields: List[str],
         update_fields: Optional[List[str]] = None
     ) -> None:
-        """
-        Insert or update multiple entities.
-
-        Args:
-            entities: List of entities to upsert
-            conflict_fields: Fields to check for conflicts
-            update_fields: Fields to update on conflict
-        """
-        for entity in entities:
-            try:
-                await self.upsert(entity, conflict_fields, update_fields)
-            except Exception:
-                continue
+        if not entities:
+            return
+        
+        if not self.model:
+            raise NotImplementedError("Model not specified in repository")
+        
+        values = [
+            {k: v for k, v in entity.__dict__.items() if not k.startswith('_')}
+            for entity in entities
+        ]
+        
+        table = self.model.__table__
+        stmt = insert(table).values(values)
+        
+        constraint_name = f"uq_{table.name}_{'_'.join(conflict_fields)}"
+        
+        if update_fields:
+            update_dict = {
+                col: stmt.excluded[col]
+                for col in update_fields
+            }
+            stmt = stmt.on_conflict_do_update(
+                constraint=constraint_name,
+                set_=update_dict
+            )
+        else:
+            stmt = stmt.on_conflict_do_nothing(
+                constraint=constraint_name
+            )
+        
+        await self.session.execute(stmt)
+        await self.session.flush()
