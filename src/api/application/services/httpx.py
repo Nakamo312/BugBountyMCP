@@ -1,3 +1,4 @@
+# api/application/services/httpx.py
 import json
 import logging
 from typing import AsyncIterator, Dict, Any, List
@@ -14,36 +15,16 @@ logger = logging.getLogger(__name__)
 
 
 class HTTPXScanService:
-    """Service for executing HTTPX scans with proper transaction management"""
     
     def __init__(self, uow_factory, settings: Settings):
-        """
-        Args:
-            uow_factory: Factory function that creates HTTPXUnitOfWork instances
-            settings: Application settings
-        """
         self.uow_factory = uow_factory
         self.settings = settings
     
     async def execute(self, input_dto: HTTPXScanInputDTO) -> HTTPXScanOutputDTO:
-        """
-        Execute HTTPX scan and store results atomically.
-        
-        Args:
-            input_dto: Scan input parameters
-            
-        Returns:
-            Scan output with statistics
-            
-        Raises:
-            Exception: If scan fails
-        """
         logger.info(f"Starting HTTPX scan for program {input_dto.program_id}")
         
-        # Создаем новый UoW для этой операции
         async with self.uow_factory() as uow:
             try:
-                # Сначала собираем ВСЕ результаты сканирования
                 scan_results = []
                 async for scan_result in self._execute_httpx_scan(input_dto.targets, input_dto.timeout):
                     host_name = scan_result.get("host") or scan_result.get("input")
@@ -60,30 +41,18 @@ class HTTPXScanService:
                         services=0
                     )
                 
-                # Создаем хосты перед обработкой результатов
                 host_names = {host_name for host_name, _ in scan_results}
                 await self._bulk_upsert_hosts(uow, input_dto.program_id, host_names)
                 
-                # Обрабатываем результаты
                 endpoints_count = 0
-                processed_pairs = set()  # Для предотвращения дубликатов в одной транзакции
+                processed_pairs = set()
                 
                 for host_name, scan_result in scan_results:
-                    try:
-                        result = await self._process_scan_result(
-                            uow, input_dto.program_id, host_name, scan_result, processed_pairs
-                        )
-                        endpoints_count += result
-                    except IntegrityError as e:
-                        # Логируем и продолжаем
-                        logger.warning(f"Integrity error processing {host_name}: {e}")
-                        await uow._session.rollback()
-                        continue
-                    except Exception as e:
-                        logger.error(f"Error processing {host_name}: {e}")
-                        raise
+                    result = await self._process_scan_result(
+                        uow, input_dto.program_id, host_name, scan_result, processed_pairs
+                    )
+                    endpoints_count += result
                 
-                # Коммитим транзакцию
                 await uow.commit()
                 
                 logger.info(f"HTTPX scan completed: {len(host_names)} hosts, {endpoints_count} endpoints")
@@ -96,13 +65,11 @@ class HTTPXScanService:
                 )
                 
             except Exception as e:
-                # Откатываем транзакцию при любой ошибке
                 logger.error(f"Scan failed: {e}")
                 await uow.rollback()
                 raise
     
     async def _bulk_upsert_hosts(self, uow: HTTPXUnitOfWork, program_id: UUID, hosts: set):
-        """Bulk insert/update discovered hosts"""
         if not hosts:
             return
         
@@ -117,17 +84,12 @@ class HTTPXScanService:
             for host in hosts
         ]
         
-        try:
-            await uow.hosts.bulk_upsert(
-                entities=host_entities,
-                conflict_fields=["program_id", "host"],
-                update_fields=["in_scope"]
-            )
-            await uow._session.flush()  # Делаем flush, чтобы хосты были доступны
-        except IntegrityError as e:
-            logger.warning(f"Host bulk upsert error: {e}")
-            await uow._session.rollback()
-            raise
+        await uow.hosts.bulk_upsert(
+            entities=host_entities,
+            conflict_fields=["program_id", "host"],
+            update_fields=["in_scope"]
+        )
+        await uow._session.flush()
     
     async def _process_scan_result(
         self, 
@@ -137,13 +99,6 @@ class HTTPXScanService:
         data: Dict[str, Any],
         processed_pairs: set
     ) -> int:
-        """
-        Process single HTTPX scan result.
-        
-        Returns:
-            Number of endpoints created
-        """
-        # Находим хост (должен существовать после _bulk_upsert_hosts)
         host = await uow.hosts.get_by_fields(
             program_id=program_id,
             host=host_name
@@ -153,10 +108,9 @@ class HTTPXScanService:
             logger.error(f"Host {host_name} not found after bulk upsert")
             return 0
         
-        # Проверяем, не обрабатывали ли мы уже эту пару host-ip в этой транзакции
         main_ip = data.get("host_ip")
         if main_ip:
-            pair_key = (host.id, main_ip)
+            pair_key = (host.id, main_ip, "httpx")
             if pair_key in processed_pairs:
                 logger.debug(f"Host-IP pair already processed: {host_name} - {main_ip}")
                 return 0
@@ -172,10 +126,9 @@ class HTTPXScanService:
             await self._process_cnames(uow, host, data.get("cname", []))
             
             return 1
-        except IntegrityError as e:
-            logger.warning(f"Integrity error in _process_scan_result: {e}")
-            await uow._session.rollback()
-            return 0
+        except Exception as e:
+            logger.error(f"Error processing {host_name}: {e}")
+            raise
     
     async def _process_ip_addresses(
         self, 
@@ -185,37 +138,41 @@ class HTTPXScanService:
         data: Dict[str, Any],
         processed_pairs: set
     ) -> IPAddressModel:
-        """Process IP addresses from scan result with duplicate protection"""
         main_ip = data.get("host_ip")
         ip_model = None
         
-        # Обрабатываем основной IP
         if main_ip:
-            # Проверяем, существует ли уже связь
-            existing_link = await uow.host_ips.get_by_fields(
-                host_id=host_id,
-                source="httpx"
-            )
+            pair_key = (host_id, main_ip, "httpx")
             
-            if not existing_link:
-                # Ищем или создаем IP
+            if pair_key in processed_pairs:
                 existing_ip = await uow.ips.get_by_fields(
                     program_id=program_id,
                     address=main_ip
                 )
-                
-                if existing_ip:
-                    ip_model = existing_ip
-                else:
-                    ip_model = IPAddressModel(
-                        id=uuid4(),
-                        program_id=program_id,
-                        address=main_ip,
-                        in_scope=True
-                    )
-                    ip_model = await uow.ips.create(ip_model)
-                
-                # Создаем связь
+                return existing_ip
+            
+            existing_ip = await uow.ips.get_by_fields(
+                program_id=program_id,
+                address=main_ip
+            )
+            
+            if existing_ip:
+                ip_model = existing_ip
+            else:
+                ip_model = IPAddressModel(
+                    id=uuid4(),
+                    program_id=program_id,
+                    address=main_ip,
+                    in_scope=True
+                )
+                ip_model = await uow.ips.create(ip_model)
+            
+            existing_link = await uow.host_ips.get_by_fields(
+                host_id=host_id,
+                ip_id=ip_model.id
+            )
+            
+            if not existing_link:
                 host_ip = HostIPModel(
                     id=uuid4(),
                     host_id=host_id,
@@ -224,37 +181,36 @@ class HTTPXScanService:
                 )
                 await uow.host_ips.create(host_ip)
         
-        # Обрабатываем дополнительные IP (A-записи)
         for extra_ip in data.get("a", []):
-            pair_key = (host_id, extra_ip, "dns")
+            pair_key = (host_id, extra_ip, "httpx-dns")
             if pair_key in processed_pairs:
                 continue
             
-            # Проверяем существование связи
+            processed_pairs.add(pair_key)
+            
+            existing_extra_ip = await uow.ips.get_by_fields(
+                program_id=program_id,
+                address=extra_ip
+            )
+            
+            if not existing_extra_ip:
+                extra_ip_model = IPAddressModel(
+                    id=uuid4(),
+                    program_id=program_id,
+                    address=extra_ip,
+                    in_scope=True
+                )
+                await uow.ips.create(extra_ip_model)
+                ip_id_to_use = extra_ip_model.id
+            else:
+                ip_id_to_use = existing_extra_ip.id
+            
             existing_extra_link = await uow.host_ips.get_by_fields(
                 host_id=host_id,
-                ip_address=extra_ip,
-                source="httpx-dns"
+                ip_id=ip_id_to_use
             )
             
             if not existing_extra_link:
-                existing_extra_ip = await uow.ips.get_by_fields(
-                    program_id=program_id,
-                    address=extra_ip
-                )
-                
-                if not existing_extra_ip:
-                    extra_ip_model = IPAddressModel(
-                        id=uuid4(),
-                        program_id=program_id,
-                        address=extra_ip,
-                        in_scope=True
-                    )
-                    await uow.ips.create(extra_ip_model)
-                    ip_id_to_use = extra_ip_model.id
-                else:
-                    ip_id_to_use = existing_extra_ip.id
-                
                 extra_host_ip = HostIPModel(
                     id=uuid4(),
                     host_id=host_id,
@@ -262,7 +218,6 @@ class HTTPXScanService:
                     source="httpx-dns"
                 )
                 await uow.host_ips.create(extra_host_ip)
-                processed_pairs.add(pair_key)
         
         return ip_model
     
@@ -272,38 +227,33 @@ class HTTPXScanService:
         ip_id: UUID, 
         data: Dict[str, Any]
     ) -> ServiceModel:
-        """Process service and technologies"""
-        try:
-            technologies = {}
-            tech_list = data.get("tech", [])
-            if tech_list:
-                technologies = {tech: True for tech in tech_list}
-            
-            scheme = data.get("scheme", "http")
-            port = int(data.get("port", 80))
+        technologies = {}
+        tech_list = data.get("tech", [])
+        if tech_list:
+            technologies = {tech: True for tech in tech_list}
+        
+        scheme = data.get("scheme", "http")
+        port = int(data.get("port", 80))
 
-            existing_service = await uow.services.get_by_fields(
-                ip_id=ip_id,
-                scheme=scheme,
-                port=port
-            )
-            
-            if existing_service:
-                merged_tech = {**existing_service.technologies, **technologies}
-                updated_service = existing_service.copy(update={"technologies": merged_tech})
-                return await uow.services.update(existing_service.id, updated_service)
-            
-            service = ServiceModel(
-                id=uuid4(),
-                ip_id=ip_id,
-                scheme=scheme,
-                port=port,
-                technologies=technologies
-            )
-            return await uow.services.create(service)
-        except Exception as e:
-            logger.error(f"Error processing service: {e}")
-            raise
+        existing_service = await uow.services.get_by_fields(
+            ip_id=ip_id,
+            scheme=scheme,
+            port=port
+        )
+        
+        if existing_service:
+            merged_tech = {**existing_service.technologies, **technologies}
+            updated_service = existing_service.copy(update={"technologies": merged_tech})
+            return await uow.services.update(existing_service.id, updated_service)
+        
+        service = ServiceModel(
+            id=uuid4(),
+            ip_id=ip_id,
+            scheme=scheme,
+            port=port,
+            technologies=technologies
+        )
+        return await uow.services.create(service)
     
     async def _process_endpoint(
         self, 
@@ -312,78 +262,72 @@ class HTTPXScanService:
         service_id: UUID, 
         data: Dict[str, Any]
     ):
-        """Process endpoint and parameters"""
-        try:
-            raw_path = data.get("path", "/")
+        raw_path = data.get("path", "/")
+        
+        if "?" in raw_path:
+            path, query_string = raw_path.split("?", 1)
+            query_params = dict(p.split("=") if "=" in p else (p, "") 
+                              for p in query_string.split("&"))
+        else:
+            path = raw_path
+            query_params = {}
+        
+        normalized_path = path.lower()
+        method = data.get("method", "GET")
+        
+        existing_endpoint = await uow.endpoints.get_by_fields(
+            host_id=host_id,
+            service_id=service_id,
+            normalized_path=normalized_path
+        )
+        
+        if existing_endpoint:
+            methods = existing_endpoint.methods or []
+            if method not in methods:
+                methods.append(method)
             
-            if "?" in raw_path:
-                path, query_string = raw_path.split("?", 1)
-                query_params = dict(p.split("=") if "=" in p else (p, "") 
-                                  for p in query_string.split("&"))
-            else:
-                path = raw_path
-                query_params = {}
-            
-            normalized_path = path.lower()
-            method = data.get("method", "GET")
-            
-            existing_endpoint = await uow.endpoints.get_by_fields(
+            update_data = {
+                "methods": methods,
+                "status_code": data.get("status_code", 200)
+            }
+            updated_endpoint = existing_endpoint.copy(update=update_data)
+            endpoint = await uow.endpoints.update(existing_endpoint.id, updated_endpoint)
+        else:
+            endpoint = EndpointModel(
+                id=uuid4(),
                 host_id=host_id,
                 service_id=service_id,
-                normalized_path=normalized_path
+                path=path,
+                normalized_path=normalized_path,
+                methods=[method],
+                status_code=data.get("status_code", 200)
+            )
+            endpoint = await uow.endpoints.create(endpoint)
+        
+        for name, value in query_params.items():
+            existing_param = await uow.input_parameters.get_by_fields(
+                endpoint_id=endpoint.id,
+                location="query",
+                name=name
             )
             
-            if existing_endpoint:
-                methods = existing_endpoint.methods or []
-                if method not in methods:
-                    methods.append(method)
-                
-                update_data = {
-                    "methods": methods,
-                    "status_code": data.get("status_code", 200)
-                }
-                updated_endpoint = existing_endpoint.copy(update=update_data)
-                endpoint = await uow.endpoints.update(existing_endpoint.id, updated_endpoint)
+            if existing_param:
+                updated_param = existing_param.copy(update={"example_value": value})
+                await uow.input_parameters.update(existing_param.id, updated_param)
             else:
-                endpoint = EndpointModel(
+                param = InputParameterModel(
                     id=uuid4(),
-                    host_id=host_id,
-                    service_id=service_id,
-                    path=path,
-                    normalized_path=normalized_path,
-                    methods=[method],
-                    status_code=data.get("status_code", 200)
-                )
-                endpoint = await uow.endpoints.create(endpoint)
-            
-            # Обрабатываем параметры запроса
-            for name, value in query_params.items():
-                existing_param = await uow.input_parameters.get_by_fields(
                     endpoint_id=endpoint.id,
+                    name=name,
                     location="query",
-                    name=name
+                    param_type="string",
+                    reflected=False,
+                    is_array=False,
+                    example_value=value
                 )
-                
-                if existing_param:
-                    updated_param = existing_param.copy(update={"example_value": value})
-                    await uow.input_parameters.update(existing_param.id, updated_param)
-                else:
-                    param = InputParameterModel(
-                        id=uuid4(),
-                        endpoint_id=endpoint.id,
-                        name=name,
-                        location="query",
-                        param_type="string",
-                        reflected=False,
-                        is_array=False,
-                        example_value=value
-                    )
-                    await uow.input_parameters.create(param)
-            
-            return endpoint
-        except Exception as e:
-            logger.error(f"Error processing endpoint: {e}")
-            raise
+                await uow.input_parameters.create(param)
+        
+        return endpoint
     
     async def _process_cnames(
         self, 
@@ -391,26 +335,20 @@ class HTTPXScanService:
         host: HostModel, 
         cnames: list
     ):
-        """Process and merge CNAME records"""
         if not cnames:
             return
         
-        try:
-            existing_cnames = host.cname or []
-            merged_cnames = list(set(existing_cnames + cnames))
-            
-            updated_host = host.copy(update={"cname": merged_cnames})
-            await uow.hosts.update(host.id, updated_host)
-        except Exception as e:
-            logger.error(f"Error processing CNAMEs: {e}")
-            raise
+        existing_cnames = host.cname or []
+        merged_cnames = list(set(existing_cnames + cnames))
+        
+        updated_host = host.copy(update={"cname": merged_cnames})
+        await uow.hosts.update(host.id, updated_host)
     
     async def _execute_httpx_scan(
         self, 
         targets: List[str], 
         timeout: int
     ) -> AsyncIterator[Dict[str, Any]]:
-        """Execute HTTPX command and yield JSON results"""
         import asyncio
         
         tool_path = self.settings.get_tool_path("httpx")
@@ -455,7 +393,6 @@ class HTTPXScanService:
                 except json.JSONDecodeError:
                     continue
             
-            # Ждем завершения процесса
             await process.wait()
             
         except Exception as e:
