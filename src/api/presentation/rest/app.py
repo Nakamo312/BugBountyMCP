@@ -1,9 +1,7 @@
 """FastAPI application with DI setup"""
 from contextlib import asynccontextmanager
-
 from dishka.integrations.fastapi import setup_dishka
 from fastapi import FastAPI
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.application.container import create_container
 from api.application.exceptions import ScanExecutionError, ToolNotFoundError
@@ -13,17 +11,19 @@ from api.infrastructure.database.connection import DatabaseConnection
 from api.presentation.rest.handlers import (global_exception_handler,
                                             scan_execution_handler,
                                             tool_not_found_handler)
-
-from .routes import router
+from api.presentation.rest.routes import router 
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     container = app.state.dishka_container
-    db_connection = await container.get(DatabaseConnection)
-    await db_connection.create_tables()
-    start_mappers()
+    try:
+        db_connection = await container.get(DatabaseConnection)
+        await db_connection.create_tables()
+        start_mappers()
+    except Exception as e:
+        print(f"Database warning: {e}")
     yield
     await container.close()
 
