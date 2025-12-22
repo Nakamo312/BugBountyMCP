@@ -3,12 +3,12 @@ import pytest
 
 from api.application.services.httpx import HTTPXScanService
 from api.application.services.subfinder import SubfinderScanService
-from api.infrastructure.repositories.host import HostRepository
-from api.infrastructure.repositories.ip_address import IPAddressRepository
-from api.infrastructure.repositories.host_ip import HostIPRepository
-from api.infrastructure.repositories.service import ServiceRepository
-from api.infrastructure.repositories.endpoint import EndpointRepository
-from api.infrastructure.repositories.input_parameters import InputParameterRepository
+from api.infrastructure.repositories.interfaces.host import HostRepository
+from api.infrastructure.repositories.interfaces.ip_address import IPAddressRepository
+from api.infrastructure.repositories.interfaces.host_ip import HostIPRepository
+from api.infrastructure.repositories.interfaces.service import ServiceRepository
+from api.infrastructure.repositories.interfaces.endpoint import EndpointRepository
+from api.infrastructure.repositories.interfaces.input_parameters import InputParameterRepository
 from api.config import Settings
 
 

@@ -1,6 +1,7 @@
 """IP Address repository"""
 from api.domain.models import IPAddressModel, ProgramModel
-from api.infrastructure.repositories.adapters.sqlalchemy_repository import SQLAlchemyBaseRepository
+from api.infrastructure.repositories.adapters.sqlalchemy_repository import \
+    SQLAlchemyBaseRepository
 
 
 class SQLAlchemyIPAddressRepository(SQLAlchemyBaseRepository[ProgramModel]):

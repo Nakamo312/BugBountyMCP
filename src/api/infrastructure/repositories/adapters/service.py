@@ -3,7 +3,8 @@ from typing import Dict
 from uuid import UUID
 
 from api.domain.models import ServiceModel
-from api.infrastructure.repositories.adapters.sqlalchemy_repository import SQLAlchemyBaseRepository
+from api.infrastructure.repositories.adapters.sqlalchemy_repository import \
+    SQLAlchemyBaseRepository
 
 
 class SQLAlchemyServiceRepository(SQLAlchemyBaseRepository[ServiceModel]):

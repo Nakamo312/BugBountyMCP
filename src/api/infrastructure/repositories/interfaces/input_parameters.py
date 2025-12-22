@@ -1,7 +1,7 @@
 """Input parameter repository"""
 from api.domain.models import InputParameterModel
-from api.infrastructure.repositories.interfaces.repository import AbstractRepository
-
+from api.infrastructure.repositories.interfaces.repository import \
+    AbstractRepository
 
 
 class InputParameterRepository(AbstractRepository[InputParameterModel]):

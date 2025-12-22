@@ -1,20 +1,14 @@
 """REST API routes - Presentation layer"""
 from uuid import UUID
+
+from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
-from dishka.integrations.fastapi import FromDishka, DishkaRoute
 
-from api.presentation.schemas import (
-    HTTPXScanRequest,
-    SubfinderScanRequest,
-    ScanResponse
-)
-from api.application.dto import (
-    HTTPXScanInputDTO,
-    SubfinderScanInputDTO,
-)
-from api.application.services.subfinder import SubfinderScanService
+from api.application.dto import HTTPXScanInputDTO, SubfinderScanInputDTO
 from api.application.services.httpx import HTTPXScanService
-
+from api.application.services.subfinder import SubfinderScanService
+from api.presentation.schemas import (HTTPXScanRequest, ScanResponse,
+                                      SubfinderScanRequest)
 
 router = APIRouter(route_class=DishkaRoute)
 

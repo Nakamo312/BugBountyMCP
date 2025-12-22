@@ -1,11 +1,14 @@
 """SQLAlchemy Core tables mapped from domain entities (imperative style)"""
-from sqlalchemy import Table, Column, MetaData, ForeignKey, UniqueConstraint, Index, CheckConstraint
-from sqlalchemy import String, Integer, Boolean, Text, DateTime
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSON, ARRAY
 import uuid
 
+from sqlalchemy import (Boolean, CheckConstraint, Column, DateTime, ForeignKey,
+                        Index, Integer, MetaData, String, Table, Text,
+                        UniqueConstraint)
+from sqlalchemy.dialects.postgresql import ARRAY, JSON
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+
 # Import custom types for cross-database compatibility
-from api.infrastructure.database.types import UUID, JSONType, ArrayType
+from api.infrastructure.database.types import UUID, ArrayType, JSONType
 
 metadata = MetaData()
 
@@ -66,11 +69,7 @@ ip_addresses = Table(
     UniqueConstraint('program_id', 'address', name='uq_ip_addresses_program_address'),
     Index('idx_ip_addresses_lookup', 'program_id', 'address'),
     CheckConstraint("address != ''", name='ck_ip_addresses_address_not_empty'),
-    CheckConstraint(
-        "(address ~ '^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$' OR "
-        "address ~ '^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^([0-9a-fA-F]{1,4}:){1,7}:|^:(:[0-9a-fA-F]{1,4}){1,7}$')",
-        name='ck_ip_addresses_valid_ip'
-    ),  # Проверка IPv4/IPv6
+    
 )
 
 host_ips = Table(
@@ -122,7 +121,7 @@ endpoints = Table(
     CheckConstraint(
         "CARDINALITY(methods) > 0", 
         name='ck_endpoints_methods_not_empty'
-    ),  # Проверка что массив методов не пустой
+    ),  
 )
 
 # ==================== ENRICHMENT TABLES ====================

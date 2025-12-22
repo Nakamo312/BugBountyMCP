@@ -1,18 +1,16 @@
 """HTTPX Scan Service - Refactored with DTOs and SOLID principles"""
-from typing import AsyncIterator, Dict, Any
 import json
 import logging
+from typing import Any, AsyncIterator, Dict
 
-from api.infrastructure.repositories import (
-    HostRepository,
-    IPAddressRepository,
-    HostIPRepository,
-    ServiceRepository,
-    EndpointRepository,
-    InputParameterRepository,
-)
-from api.config import Settings
 from api.application.dto import HTTPXScanInputDTO, HTTPXScanOutputDTO
+from api.config import Settings
+from api.infrastructure.repositories import (EndpointRepository,
+                                             HostIPRepository, HostRepository,
+                                             InputParameterRepository,
+                                             IPAddressRepository,
+                                             ServiceRepository)
+
 from .base_service import BaseScanService, CommandExecutionMixin, URLParseMixin
 
 logger = logging.getLogger(__name__)

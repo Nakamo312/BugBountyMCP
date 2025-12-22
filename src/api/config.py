@@ -1,5 +1,8 @@
 import os
+
+from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
@@ -42,7 +45,8 @@ class Settings(BaseSettings):
             return shared_path
         return relative_path
     
-    class Config:
+    model_config = ConfigDict(
         env_file = ".env"
+    )
 
 settings = Settings()

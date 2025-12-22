@@ -2,7 +2,8 @@
 from uuid import UUID
 
 from api.domain.models import HostIPModel
-from api.infrastructure.repositories.interfaces.repository import AbstractRepository
+from api.infrastructure.repositories.interfaces.repository import \
+    AbstractRepository
 
 
 class HostIPRepository(AbstractRepository[HostIPModel]):

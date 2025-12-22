@@ -1,6 +1,6 @@
 """Deduplication logic"""
-from typing import List, Set, TypeVar, Callable, Any
 from hashlib import sha256
+from typing import Any, Callable, List, Set, TypeVar
 
 T = TypeVar('T')
 

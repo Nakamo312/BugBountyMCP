@@ -1,15 +1,13 @@
 """Database connection management"""
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    AsyncEngine,
-    create_async_engine,
-    async_sessionmaker
-)
+
+from sqlalchemy.ext.asyncio import (AsyncEngine, AsyncSession,
+                                    async_sessionmaker, create_async_engine)
 from sqlalchemy.pool import NullPool
 
 from ..adapters.orm import metadata
+
 
 class DatabaseConnection:
     """Database connection manager"""

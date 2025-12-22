@@ -1,6 +1,10 @@
 from abc import ABC
-from api.infrastructure.repositories.interfaces.repository import AbstractRepository
+
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.infrastructure.repositories.interfaces.repository import \
+    AbstractRepository
+
 
 class SQLAlchemyAbstractRepository(AbstractRepository, ABC):
     """

@@ -1,7 +1,10 @@
 from typing import Optional
 from uuid import UUID
+
 from api.domain.models import EndpointModel
-from api.infrastructure.repositories.interfaces.repository import AbstractRepository
+from api.infrastructure.repositories.interfaces.repository import \
+    AbstractRepository
+
 
 class EndpointRepository(AbstractRepository[EndpointModel]):
     """Repository for Endpoint entities"""

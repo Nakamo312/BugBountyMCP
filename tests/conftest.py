@@ -5,8 +5,8 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
 import sys
-
-from api.infrastructure.repositories.program import ProgramRepository
+from api.infrastructure.adapters.orm import metadata
+from api.infrastructure.repositories.interfaces.program import ProgramRepository
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -35,7 +35,6 @@ async def engine():
     if 'api.infrastructure.database.models' in sys.modules:
         del sys.modules['api.infrastructure.database.models']
     
-    from api.infrastructure.database.models import Base
     
     # Create engine
     engine = create_async_engine(
@@ -54,7 +53,7 @@ async def engine():
     
     # Create all tables
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(metadata.create_all)
     
     yield engine
     

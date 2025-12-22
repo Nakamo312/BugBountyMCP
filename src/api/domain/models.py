@@ -3,10 +3,11 @@ from abc import ABC
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Dict, Any, Set
+from typing import Any, Dict, List, Optional, Set
 from uuid import UUID, uuid4
 
-from src.api.domain.enums import HttpMethod, InputType, ParamLocation, RuleType, ScanStatus, Severity
+from api.domain.enums import (HttpMethod, InputType, ParamLocation, RuleType,
+                              ScanStatus, Severity)
 
 
 @dataclass

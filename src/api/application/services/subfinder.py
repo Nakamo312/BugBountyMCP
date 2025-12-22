@@ -1,13 +1,11 @@
 """Subfinder Scan Service - Refactored with DTOs"""
-from typing import AsyncIterator
 import logging
+from typing import AsyncIterator
 
+from api.application.dto import (HTTPXScanInputDTO, SubfinderScanInputDTO,
+                                 SubfinderScanOutputDTO)
 from api.config import Settings
-from api.application.dto import (
-    SubfinderScanInputDTO,
-    SubfinderScanOutputDTO,
-    HTTPXScanInputDTO,
-)
+
 from .base_service import BaseScanService, CommandExecutionMixin
 from .httpx import HTTPXScanService
 

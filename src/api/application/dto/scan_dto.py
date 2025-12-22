@@ -1,7 +1,8 @@
 """DTOs for scan services"""
-from typing import List, Union, Optional
+from typing import List, Optional, Union
 from uuid import UUID
-from pydantic import BaseModel, Field, field_validator
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class HTTPXScanInputDTO(BaseModel):
@@ -17,8 +18,8 @@ class HTTPXScanInputDTO(BaseModel):
         if isinstance(v, str):
             return [v]
         return v
-    
-    class Config:
+
+    model_config = ConfigDict(
         json_schema_extra = {
             "example": {
                 "program_id": "123e4567-e89b-12d3-a456-426614174000",
@@ -26,6 +27,7 @@ class HTTPXScanInputDTO(BaseModel):
                 "timeout": 600
             }
         }
+    )
 
 
 class HTTPXScanOutputDTO(BaseModel):
@@ -33,8 +35,8 @@ class HTTPXScanOutputDTO(BaseModel):
     scanner: str = Field(..., description="Scanner name")
     hosts: int = Field(..., description="Number of hosts scanned")
     endpoints: int = Field(..., description="Number of endpoints discovered")
-    
-    class Config:
+
+    model_config = ConfigDict(
         json_schema_extra = {
             "example": {
                 "scanner": "httpx",
@@ -42,6 +44,7 @@ class HTTPXScanOutputDTO(BaseModel):
                 "endpoints": 45
             }
         }
+    )
 
 
 class SubfinderScanInputDTO(BaseModel):
@@ -59,15 +62,16 @@ class SubfinderScanInputDTO(BaseModel):
             raise ValueError("Domain cannot be empty")
         return v.strip()
     
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "program_id": "123e4567-e89b-12d3-a456-426614174000",
-                "domain": "example.com",
-                "probe": True,
-                "timeout": 600
+        model_config = ConfigDict(
+            json_schema_extra = {
+                "example": {
+                    "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "domain": "example.com",
+                    "probe": True,
+                    "timeout": 600
+                }
             }
-        }
+        )
 
 
 class SubfinderScanOutputDTO(BaseModel):
@@ -78,7 +82,7 @@ class SubfinderScanOutputDTO(BaseModel):
     probed: bool = Field(..., description="Whether subdomains were probed")
     httpx_results: Optional[HTTPXScanOutputDTO] = Field(None, description="HTTPX scan results if probed")
     
-    class Config:
+    model_config = ConfigDict(
         json_schema_extra = {
             "example": {
                 "scanner": "subfinder",
@@ -92,6 +96,7 @@ class SubfinderScanOutputDTO(BaseModel):
                 }
             }
         }
+    )
 
 
 class ScanResultDTO(BaseModel):
@@ -100,7 +105,7 @@ class ScanResultDTO(BaseModel):
     message: str = Field(..., description="Human-readable message")
     data: Union[HTTPXScanOutputDTO, SubfinderScanOutputDTO] = Field(..., description="Scan results")
     
-    class Config:
+    model_config = ConfigDict(
         json_schema_extra = {
             "example": {
                 "status": "success",
@@ -112,3 +117,4 @@ class ScanResultDTO(BaseModel):
                 }
             }
         }
+    )

@@ -1,20 +1,19 @@
 """Mapper configuration for SQLAlchemy Core tables to domain models"""
 from sqlalchemy.orm import registry, relationship
 
-from api.domain.models import (
-    ProgramModel, ScopeRuleModel, RootInputModel, HostModel,
-    IPAddressModel, HostIPModel, ServiceModel, EndpointModel,
-    InputParameterModel, HeaderModel, VulnTypeModel,
-    ScannerTemplateModel, ScannerExecutionModel, PayloadModel,
-    FindingModel, LeakModel
-)
-
-from api.infrastructure.adapters.orm import (
-    metadata, programs, scope_rules, root_inputs, hosts, ip_addresses,
-    host_ips, services, endpoints, input_parameters, headers,
-    vuln_types, scanner_templates, scanner_executions, payloads,
-    findings, leaks
-)
+from api.domain.models import (EndpointModel, FindingModel, HeaderModel,
+                               HostIPModel, HostModel, InputParameterModel,
+                               IPAddressModel, LeakModel, PayloadModel,
+                               ProgramModel, RootInputModel,
+                               ScannerExecutionModel, ScannerTemplateModel,
+                               ScopeRuleModel, ServiceModel, VulnTypeModel)
+from api.infrastructure.adapters.orm import (endpoints, findings, headers,
+                                             host_ips, hosts, input_parameters,
+                                             ip_addresses, leaks, metadata,
+                                             payloads, programs, root_inputs,
+                                             scanner_executions,
+                                             scanner_templates, scope_rules,
+                                             services, vuln_types)
 
 mapper_registry = registry(metadata=metadata)
 
