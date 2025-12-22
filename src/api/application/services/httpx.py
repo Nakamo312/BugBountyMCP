@@ -77,7 +77,7 @@ class HTTPXScanService:
                     except IntegrityError as e:
                         # Логируем и продолжаем
                         logger.warning(f"Integrity error processing {host_name}: {e}")
-                        await uow.session.rollback()
+                        await uow._session.rollback()
                         continue
                     except Exception as e:
                         logger.error(f"Error processing {host_name}: {e}")
@@ -123,10 +123,10 @@ class HTTPXScanService:
                 conflict_fields=["program_id", "host"],
                 update_fields=["in_scope"]
             )
-            await uow.session.flush()  # Делаем flush, чтобы хосты были доступны
+            await uow._session.flush()  # Делаем flush, чтобы хосты были доступны
         except IntegrityError as e:
             logger.warning(f"Host bulk upsert error: {e}")
-            await uow.session.rollback()
+            await uow._session.rollback()
             raise
     
     async def _process_scan_result(
@@ -174,7 +174,7 @@ class HTTPXScanService:
             return 1
         except IntegrityError as e:
             logger.warning(f"Integrity error in _process_scan_result: {e}")
-            await uow.session.rollback()
+            await uow._session.rollback()
             return 0
     
     async def _process_ip_addresses(
