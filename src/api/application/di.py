@@ -70,7 +70,7 @@ class ServiceProvider(Provider):
     ) -> HTTPXScanService:
         """Create HTTPXScanService with Scan UoW"""
         return HTTPXScanService(
-            scan_uow=scan_uow,
+            uow=scan_uow,
             settings=settings
         )
     
