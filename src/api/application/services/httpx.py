@@ -1,13 +1,7 @@
-# api/application/services/httpx_service.py
 import json
 import logging
 from typing import AsyncIterator, Dict, Any
 from uuid import UUID, uuid4
-
-from api.domain.models import (
-    HostModel, IPAddressModel, HostIPModel, ServiceModel, 
-    EndpointModel, InputParameterModel
-)
 
 from api.config import Settings
 from api.application.dto.scan_dto import HTTPXScanInputDTO, HTTPXScanOutputDTO
@@ -19,13 +13,13 @@ logger = logging.getLogger(__name__)
 class HTTPXScanService:
     """Service for executing HTTPX scans with proper DDD architecture"""
     
-    def __init__(self, uow_factory, settings: Settings):
+    def __init__(self, uow: HTTPXUnitOfWork, settings: Settings):
         """
         Args:
-            uow_factory: Factory that creates ScanUnitOfWork instances
+            uow: Initialized HTTPXUnitOfWork instance
             settings: Application settings
         """
-        self.uow_factory = uow_factory
+        self.uow = uow
         self.settings = settings
     
     async def execute(self, input_dto: HTTPXScanInputDTO) -> HTTPXScanOutputDTO:
@@ -40,34 +34,36 @@ class HTTPXScanService:
         """
         logger.info(f"Starting HTTPX scan for program {input_dto.program_id}")
         
-        async with self.uow_factory() as uow:
-            scanned_hosts = set()
-            endpoints_count = 0
-            
-            async for scan_result in self._execute_httpx_scan(input_dto.targets, input_dto.timeout):
-                host_name = scan_result.get("host") or scan_result.get("input")
-                if not host_name:
-                    continue
-                    
-                scanned_hosts.add(host_name)
-                endpoints_count += await self._process_scan_result(
-                    uow, input_dto.program_id, host_name, scan_result
-                )
-            
-            await self._bulk_upsert_hosts(uow, input_dto.program_id, scanned_hosts)
-            
-            await uow.commit()
-            
-            logger.info(
-                f"HTTPX scan completed: {len(scanned_hosts)} hosts, {endpoints_count} endpoints"
+        # НЕТ КОНТЕКСТНОГО МЕНЕДЖЕРА - uow уже передан
+        scanned_hosts = set()
+        endpoints_count = 0
+        
+        async for scan_result in self._execute_httpx_scan(input_dto.targets, input_dto.timeout):
+            host_name = scan_result.get("host") or scan_result.get("input")
+            if not host_name:
+                continue
+                
+            scanned_hosts.add(host_name)
+            endpoints_count += await self._process_scan_result(
+                self.uow, input_dto.program_id, host_name, scan_result
             )
-            
-            return HTTPXScanOutputDTO(
-                hosts=len(scanned_hosts),
-                endpoints=endpoints_count,
-                services=len(scanned_hosts)  
-            )
+        
+        await self._bulk_upsert_hosts(self.uow, input_dto.program_id, scanned_hosts)
+        
+        # Коммитим транзакцию
+        await self.uow.commit()
+        
+        logger.info(
+            f"HTTPX scan completed: {len(scanned_hosts)} hosts, {endpoints_count} endpoints"
+        )
+        
+        return HTTPXScanOutputDTO(
+            hosts=len(scanned_hosts),
+            endpoints=endpoints_count,
+            services=len(scanned_hosts)  
+        )
     
+    # Все вспомогательные методы остаются без изменений...
     async def _bulk_upsert_hosts(self, uow: HTTPXUnitOfWork, program_id: UUID, hosts: set):
         """Bulk insert/update discovered hosts"""
         host_entities = [
