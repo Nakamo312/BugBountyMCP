@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from api.config import Settings
 from api.application.dto.scan_dto import HTTPXScanInputDTO, HTTPXScanOutputDTO
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
+from api.domain.models import EndpointModel, HostIPModel, HostModel, IPAddressModel, InputParameterModel, ServiceModel
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,6 @@ class HTTPXScanService:
         """
         logger.info(f"Starting HTTPX scan for program {input_dto.program_id}")
         
-        # НЕТ КОНТЕКСТНОГО МЕНЕДЖЕРА - uow уже передан
         scanned_hosts = set()
         endpoints_count = 0
         
@@ -50,7 +50,6 @@ class HTTPXScanService:
         
         await self._bulk_upsert_hosts(self.uow, input_dto.program_id, scanned_hosts)
         
-        # Коммитим транзакцию
         await self.uow.commit()
         
         logger.info(
@@ -63,7 +62,6 @@ class HTTPXScanService:
             services=len(scanned_hosts)  
         )
     
-    # Все вспомогательные методы остаются без изменений...
     async def _bulk_upsert_hosts(self, uow: HTTPXUnitOfWork, program_id: UUID, hosts: set):
         """Bulk insert/update discovered hosts"""
         host_entities = [
@@ -167,7 +165,6 @@ class HTTPXScanService:
                 )
                 await uow.ips.create(extra_ip_model)
             
-            # Link host to extra IP
             extra_host_ip = HostIPModel(
                 id=uuid4(),
                 host_id=host_id,
