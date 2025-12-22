@@ -1,8 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from api.infrastructure.database.unit_of_work.abstract import \
-    AbstractUnitOfWork
-
+from api.infrastructure.unit_of_work.interfaces.base import AbstractUnitOfWork
 
 class SQLAlchemyAbstractUnitOfWork(AbstractUnitOfWork):
     def __init__(self, session_factory: async_sessionmaker):

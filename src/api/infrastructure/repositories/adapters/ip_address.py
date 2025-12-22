@@ -1,10 +1,10 @@
 """IP Address repository"""
 from api.domain.models import IPAddressModel, ProgramModel
-from api.infrastructure.repositories.adapters.sqlalchemy_repository import \
-    SQLAlchemyBaseRepository
+from api.infrastructure.repositories.adapters.base import SQLAlchemyAbstractRepository
+from api.infrastructure.repositories.interfaces.ip_address import IPAddressRepository
 
 
-class SQLAlchemyIPAddressRepository(SQLAlchemyBaseRepository[ProgramModel]):
+class SQLAlchemyIPAddressRepository(SQLAlchemyAbstractRepository, IPAddressRepository):
     """Repository for IPAddress entities"""
     
     model = IPAddressModel

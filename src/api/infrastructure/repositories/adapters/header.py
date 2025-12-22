@@ -1,10 +1,9 @@
 """Header repository"""
 
 from api.domain.models import HeaderModel
-from api.infrastructure.database.repositories import \
-    SQLAlchemyAbstractRepository
-from api.infrastructure.repositories.interfaces.repository import \
-    AbstractRepository
+from api.infrastructure.repositories.interfaces.base import AbstractRepository
+from api.infrastructure.repositories.adapters.base import SQLAlchemyAbstractRepository
+
 
 
 class SQLAlchemyHeaderRepository(SQLAlchemyAbstractRepository, AbstractRepository[HeaderModel]):

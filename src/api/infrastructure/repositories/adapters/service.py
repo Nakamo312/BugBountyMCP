@@ -3,11 +3,11 @@ from typing import Dict
 from uuid import UUID
 
 from api.domain.models import ServiceModel
-from api.infrastructure.repositories.adapters.sqlalchemy_repository import \
-    SQLAlchemyBaseRepository
+from api.infrastructure.repositories.adapters.base import SQLAlchemyAbstractRepository
+from api.infrastructure.repositories.interfaces.service import ServiceRepository
 
 
-class SQLAlchemyServiceRepository(SQLAlchemyBaseRepository[ServiceModel]):
+class SQLAlchemyServiceRepository(SQLAlchemyAbstractRepository, ServiceRepository):
     """Repository for Service entities"""
     
     model = ServiceModel
