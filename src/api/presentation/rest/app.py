@@ -17,11 +17,11 @@ from .routes import router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
-    yield
     container = app.state.dishka_container
     db_connection = await container.get(DatabaseConnection)
     await db_connection.create_tables()
     start_mappers()
+    yield
     await container.close()
 
 
