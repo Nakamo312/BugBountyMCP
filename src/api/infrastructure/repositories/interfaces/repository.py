@@ -3,18 +3,20 @@ from abc import ABC, abstractmethod
 from typing import Generic, TypeVar, Optional, List, Tuple, Dict, Any
 from uuid import UUID
 
+from api.domain.models import AbstractModel
+
+T = TypeVar('T', bound=AbstractModel)
 
 
-class AbstractRepository(ABC):
-    """Base repository interface"""
-    
+class AbstractRepository(ABC, Generic[T]):  
+       
     @abstractmethod
-    async def get(self, id: UUID) -> Optional[AbstractModel]:
+    async def get(self, id: UUID) -> Optional[T]:  
         raise NotImplementedError
 
     
     @abstractmethod
-    async def get_by_fields(self, **filters) -> Optional[AbstractModel]:
+    async def get_by_fields(self, **filters) -> Optional[T]:  
         raise NotImplementedError
 
     
@@ -25,7 +27,7 @@ class AbstractRepository(ABC):
         limit: int = 100,
         offset: int = 0,
         order_by: Optional[str] = None
-    ) -> List[T]:
+    ) -> List[T]:  
         raise NotImplementedError
 
     
@@ -35,12 +37,12 @@ class AbstractRepository(ABC):
 
     
     @abstractmethod
-    async def create(self, data: Optional[AbstractModel]) -> Optional[AbstractModel]:
+    async def create(self, data: Optional[T]) -> Optional[T]: 
         raise NotImplementedError
 
     
     @abstractmethod
-    async def update(self, id: UUID, data: Dict[str, Any]) -> Optional[AbstractModel]:
+    async def update(self, id: UUID, data: Dict[str, Any]) -> Optional[T]:  
         raise NotImplementedError
 
     
@@ -52,9 +54,9 @@ class AbstractRepository(ABC):
     @abstractmethod
     async def get_or_create(
         self,
-        defaults: Optional[AbstractModel] = None,
+        defaults: Optional[T] = None,  
         **filters
-    ) -> Tuple[AbstractModel, bool]:
+    ) -> Tuple[T, bool]:  
         raise NotImplementedError
 
     
@@ -64,12 +66,12 @@ class AbstractRepository(ABC):
         data: Dict[str, Any],
         conflict_fields: List[str],
         update_fields: Optional[List[str]] = None
-    ) -> AbstractModel:
+    ) -> T:  
         raise NotImplementedError
 
     
     @abstractmethod
-    async def bulk_create(self, items: List[Dict[str, Any]]) -> List[AbstractModel]:
+    async def bulk_create(self, items: List[Dict[str, Any]]) -> List[T]: 
         raise NotImplementedError
 
     

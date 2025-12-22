@@ -1,10 +1,6 @@
 """Infrastructure layer - database, repositories, normalization"""
-from .database import (
-    Base,
-    DatabaseConnection,
-    ProgramModel,
-    HostModel,
-    EndpointModel,
+from .database.connection import (
+    DatabaseConnection
 )
 from .normalization import PathNormalizer, Deduplicator
 from .repositories import (

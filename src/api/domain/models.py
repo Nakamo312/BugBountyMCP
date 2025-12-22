@@ -122,12 +122,12 @@ class InputParameterModel(AbstractModel):
     endpoint_id: UUID
     name: str
     location: ParamLocation
+    service_id: UUID
     param_type: str = "string"  # string, int, bool, array, object
     reflected: bool = False
     is_array: bool = False
     example_value: Optional[str] = None
     id: UUID = field(default_factory=uuid4)
-    service_id: UUID
     
 
 

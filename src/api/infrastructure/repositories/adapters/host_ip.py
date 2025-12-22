@@ -1,10 +1,11 @@
 """Host-IP mapping repository"""
 from uuid import UUID
-from api.infrastructure.database.models import HostIPModel
-from .base_repo import BaseRepository
+
+from api.domain.models import HostIPModel
+from api.infrastructure.repositories.adapters.sqlalchemy_repository import SQLAlchemyBaseRepository
 
 
-class HostIPRepository(BaseRepository[HostIPModel]):
+class SQLAlchemyHostIPRepository(SQLAlchemyBaseRepository[HostIPModel]):
     """Repository for HostIP mapping entities"""
     
     model = HostIPModel

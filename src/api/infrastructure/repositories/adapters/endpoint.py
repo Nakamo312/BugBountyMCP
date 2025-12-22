@@ -2,11 +2,12 @@
 from typing import Optional
 from uuid import UUID
 from sqlalchemy.dialects.postgresql import array
-from api.infrastructure.database.models import EndpointModel
-from .base_repo import BaseRepository
+from api.infrastructure.repositories.adapters.sqlalchemy_repository import SQLAlchemyBaseRepository
+from src.api.domain.models import EndpointModel
 
 
-class EndpointRepository(BaseRepository[EndpointModel]):
+
+class SQLAlchemyEndpointRepository(SQLAlchemyBaseRepository[EndpointModel]):
     """Repository for Endpoint entities"""
     
     model = EndpointModel

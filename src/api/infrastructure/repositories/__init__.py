@@ -1,11 +1,11 @@
 """Repository implementations"""
-from .program import ProgramRepository
-from .host import HostRepository
-from .endpoint import EndpointRepository
-from .ip_address import IPAddressRepository
-from .host_ip import HostIPRepository
-from .service import ServiceRepository
-from .input_parameters import InputParameterRepository
+from .interfaces.program import ProgramRepository
+from .interfaces.host import HostRepository
+from .interfaces.endpoint import EndpointRepository
+from .interfaces.ip_address import IPAddressRepository
+from .interfaces.host_ip import HostIPRepository
+from .interfaces.service import ServiceRepository
+from .interfaces.input_parameters import InputParameterRepository
 __all__ = [
     "ProgramRepository",
     "HostRepository",
