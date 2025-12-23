@@ -1,14 +1,14 @@
-"""Host-IP mapping repository"""
+from abc import ABC
 from uuid import UUID
-
 from api.domain.models import HostIPModel
 from api.infrastructure.repositories.interfaces.base import AbstractRepository
 
 
-class HostIPRepository(AbstractRepository[HostIPModel]):
-    """Repository for HostIP mapping entities"""
-    
-    model = HostIPModel
-    unique_fields = [("host_id", "ip_id")]
-    async def link(self, host_id: UUID, ip_id: UUID, source: str) -> HostIPModel:
+class HostIPRepository(AbstractRepository[HostIPModel], ABC):
+    async def ensure(
+        self,
+        host_id: UUID,
+        ip_id: UUID,
+        source: str,
+    ) -> HostIPModel:
         raise NotImplementedError
