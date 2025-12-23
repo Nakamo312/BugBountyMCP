@@ -8,22 +8,13 @@ from api.infrastructure.repositories.interfaces.base import AbstractRepository
 
 class EndpointRepository(AbstractRepository[EndpointModel], ABC):
     @abstractmethod
-    async def upsert_with_method(
+    async def ensure(
         self,
         host_id: UUID,
         service_id: UUID,
         path: str,
-        method: str,
         normalized_path: str,
-        status_code: Optional[int] = None,
-        **kwargs
+        method: str,
+        status_code: int | None,
     ) -> EndpointModel:
-        raise NotImplementedError
-    
-    @abstractmethod
-    async def find_by_host(self, host_id: UUID) -> List[EndpointModel]:
-        raise NotImplementedError
-    
-    @abstractmethod
-    async def find_by_service(self, service_id: UUID) -> List[EndpointModel]:
         raise NotImplementedError
