@@ -83,7 +83,7 @@ async def scan_httpx(
     """
     try:
         input_dto = HTTPXScanInputDTO(
-            program_id=UUID(request.program_id),
+            program_id=request.program_id,
             targets=request.targets,
             timeout=request.timeout
         )
