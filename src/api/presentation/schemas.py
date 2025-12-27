@@ -47,8 +47,6 @@ class ScanResponse(BaseModel):
     """Generic scan response wrapper"""
     status: str = Field(..., description="success or error")
     message: str
-    results: dict = Field(..., description="Scan results")
-    
     model_config = ConfigDict(
         json_schema_extra = {
             "example": {
