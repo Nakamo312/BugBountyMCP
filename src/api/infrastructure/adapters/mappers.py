@@ -1,23 +1,19 @@
 """Mapper configuration for SQLAlchemy Core tables to domain models"""
 from sqlalchemy.orm import registry, relationship
 
-from api.domain.models import (
-    EndpointModel, FindingModel, HeaderModel,
-    HostIPModel, HostModel, InputParameterModel,
-    IPAddressModel, LeakModel, PayloadModel,
-    ProgramModel, RootInputModel,
-    ScannerExecutionModel, ScannerTemplateModel,
-    ScopeRuleModel, ServiceModel, VulnTypeModel
-)
-from api.infrastructure.adapters.orm import (
-    endpoints, findings, headers,
-    host_ips, hosts, input_parameters,
-    ip_addresses, leaks, metadata,
-    payloads, programs, root_inputs,
-    scanner_executions,
-    scanner_templates, scope_rules,
-    services, vuln_types
-)
+from api.domain.models import (EndpointModel, FindingModel, HeaderModel,
+                               HostIPModel, HostModel, InputParameterModel,
+                               IPAddressModel, LeakModel, PayloadModel,
+                               ProgramModel, RootInputModel,
+                               ScannerExecutionModel, ScannerTemplateModel,
+                               ScopeRuleModel, ServiceModel, VulnTypeModel)
+from api.infrastructure.adapters.orm import (endpoints, findings, headers,
+                                             host_ips, hosts, input_parameters,
+                                             ip_addresses, leaks, metadata,
+                                             payloads, programs, root_inputs,
+                                             scanner_executions,
+                                             scanner_templates, scope_rules,
+                                             services, vuln_types)
 
 mapper_registry = registry(metadata=metadata)
 
@@ -75,7 +71,6 @@ def start_mappers():
         local_table=root_inputs
     )
 
-    # ------------------ Host / IP / HostIP ------------------
     mapper_registry.map_imperatively(
         class_=HostModel,
         local_table=hosts,
@@ -83,9 +78,9 @@ def start_mappers():
             'ips': relationship(
                 IPAddressModel,
                 secondary=host_ips,
-                backref='linked_hosts',  # уникальное имя backref
+                backref='hosts',
                 lazy='select',
-                overlaps="host_ip_links,hosts,ips"
+                overlaps="hosts,ips"
             ),
             'endpoints': relationship(
                 EndpointModel,
@@ -101,40 +96,35 @@ def start_mappers():
                 viewonly=True,
                 lazy='select'
             ),
-            'host_ip_links': relationship(
-                HostIPModel,
-                backref='host',
-                lazy='select',
-                overlaps="ips,linked_hosts"
-            )
         }
     )
 
     mapper_registry.map_imperatively(
-        class_=IPAddressModel,
-        local_table=ip_addresses,
-        properties={
-            'services': relationship(
-                ServiceModel,
-                backref='ip',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'host_ip_links': relationship(
-                HostIPModel,
-                backref='ip',
-                lazy='select',
-                overlaps="hosts,linked_hosts,ips"
-            ),
-            'hosts': relationship(
-                HostModel,
-                secondary=host_ips,
-                backref='ips',
-                lazy='select',
-                overlaps="host_ip_links,linked_hosts"
-            )
-        }
-    )
+    class_=IPAddressModel,
+    local_table=ip_addresses,
+    properties={
+        'services': relationship(
+            ServiceModel,
+            backref='ip',
+            cascade='all, delete-orphan',
+            lazy='select'
+        ),
+        'host_ip_links': relationship(
+            HostIPModel,
+            backref='ip',
+            lazy='select',
+            overlaps="hosts,ips"
+        ),
+        'hosts': relationship(
+            HostModel,
+            secondary=host_ips,
+            backref='ips',
+            lazy='select',
+            overlaps="hosts,ips"
+        )
+    }
+)
+
 
     mapper_registry.map_imperatively(
         class_=HostIPModel,
@@ -144,17 +134,16 @@ def start_mappers():
                 HostModel,
                 backref='host_ip_links',
                 lazy='select',
-                overlaps="ips,linked_hosts"
+                overlaps="hosts,ips"
             ),
             'ip': relationship(
                 IPAddressModel,
                 backref='host_ip_links',
                 lazy='select',
-                overlaps="hosts,linked_hosts,ips"
+                overlaps="hosts,ips"
             ),
         }
     )
-    # ------------------ /Host-IP ------------------
 
     mapper_registry.map_imperatively(
         class_=ServiceModel,
@@ -298,7 +287,6 @@ def start_mappers():
         local_table=leaks
     )
 
-
 def get_mapped_classes():
     return {
         ProgramModel,
@@ -318,7 +306,6 @@ def get_mapped_classes():
         FindingModel,
         LeakModel,
     }
-
 
 def get_metadata():
     return metadata
