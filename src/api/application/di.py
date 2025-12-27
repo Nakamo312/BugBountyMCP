@@ -12,7 +12,7 @@ from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOf
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
-from src.api.infrastructure.events.event_bus import EventBus
+from api.infrastructure.events.event_bus import EventBus
 
 
 class DatabaseProvider(Provider):
