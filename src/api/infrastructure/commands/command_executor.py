@@ -39,22 +39,48 @@ class CommandExecutor:
         self.state = ProcessState.RUNNING
         yield ProcessEvent(type="started")
 
-        if self.stdin:
+        if self.stdin and self.process.stdin:
             try:
                 self.process.stdin.write(self.stdin.encode())
                 await self.process.stdin.drain()
-                self.process.stdin.close()
+                self.process.stdin.write_eof()
             except Exception as exc:
                 logger.warning(f"Failed to write stdin: {exc}")
 
         try:
             async with asyncio.timeout(self.timeout):
-                async for event in self._stream_output():
-                    yield event
+                async def stream(stream, name):
+                    async for line in stream:
+                        yield ProcessEvent(type=name, payload=line.decode(errors="ignore").strip())
+
+                stdout_task = asyncio.create_task(stream(self.process.stdout, "stdout").__anext__())
+                stderr_task = asyncio.create_task(stream(self.process.stderr, "stderr").__anext__())
+
+                tasks = {"stdout": stdout_task, "stderr": stderr_task}
+
+                while tasks:
+                    done, _ = await asyncio.wait(tasks.values(), return_when=asyncio.FIRST_COMPLETED)
+                    for d in done:
+                        for name, task in list(tasks.items()):
+                            if task is d:
+                                try:
+                                    event = task.result()
+                                    yield event
+                                    tasks[name] = asyncio.create_task(
+                                        stream(self.process.stdout if name=="stdout" else self.process.stderr, name).__anext__()
+                                    )
+                                except StopAsyncIteration:
+                                    tasks.pop(name)
+                                break
 
                 return_code = await self.process.wait()
                 self.state = ProcessState.TERMINATED
                 yield ProcessEvent(type="terminated", payload=str(return_code))
+                stdout_data = await self.process.stdout.read()
+                stderr_data = await self.process.stderr.read()
+                logger.info("Process finished with returncode=%s", return_code)
+                logger.info("stdout:\n%s", stdout_data.decode())
+                logger.error("stderr:\n%s", stderr_data.decode())
 
         except TimeoutError:
             self.state = ProcessState.TIMEOUT

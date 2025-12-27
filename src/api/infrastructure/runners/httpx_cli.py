@@ -37,8 +37,9 @@ class HTTPXCliRunner:
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
         async for event in executor.run():
-            if hasattr(event, "payload"):
-                logger.debug("HTTPX event payload: %s", event.payload)
-            else:
-                logger.debug("HTTPX event without payload: %s", event)
-            yield event
+           if hasattr(event, "payload"):
+               logger.info("Received event: %s", event.payload)
+           else:
+               logger.warning("Received event without payload: %s", event)
+           yield event
+
