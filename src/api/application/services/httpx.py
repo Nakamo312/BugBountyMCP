@@ -29,7 +29,7 @@ class HTTPXScanService:
         async for event in self.runner.run(targets):
             if hasattr(event, "payload"):
                 await self.bus.publish("scan_results", {
-                    "program_id": program_id,
+                    "program_id": str(program_id),
                     "result": event.payload
                 })
 
