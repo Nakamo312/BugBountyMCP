@@ -13,7 +13,7 @@ class SQLAlchemyHTTPXUnitOfWork(SQLAlchemyAbstractUnitOfWork, HTTPXUnitOfWork):
     """SQLAlchemy implementation of Scan Unit of Work"""
     
     async def __aenter__(self):
-        uow = await super().__aenter__()
+        await super().__aenter__()
         self.hosts = SQLAlchemyHostRepository(session=self._session)
         self.ips = SQLAlchemyIPAddressRepository(session=self._session)
         self.host_ips = SQLAlchemyHostIPRepository(session=self._session)
