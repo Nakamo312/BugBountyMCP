@@ -79,7 +79,8 @@ def start_mappers():
                 IPAddressModel,
                 secondary=host_ips,
                 backref='hosts',
-                lazy='select'
+                lazy='select',
+                overlaps="hosts,ips"
             ),
             'endpoints': relationship(
                 EndpointModel,
@@ -99,17 +100,31 @@ def start_mappers():
     )
 
     mapper_registry.map_imperatively(
-        class_=IPAddressModel,
-        local_table=ip_addresses,
-        properties={
-            'services': relationship(
-                ServiceModel,
-                backref='ip',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
-    )
+    class_=IPAddressModel,
+    local_table=ip_addresses,
+    properties={
+        'services': relationship(
+            ServiceModel,
+            backref='ip',
+            cascade='all, delete-orphan',
+            lazy='select'
+        ),
+        'host_ip_links': relationship(
+            HostIPModel,
+            backref='ip',
+            lazy='select',
+            overlaps="hosts,ips"
+        ),
+        'hosts': relationship(
+            HostModel,
+            secondary=host_ips,
+            backref='ips',
+            lazy='select',
+            overlaps="hosts,ips"
+        )
+    }
+)
+
 
     mapper_registry.map_imperatively(
         class_=HostIPModel,
@@ -118,12 +133,14 @@ def start_mappers():
             'host': relationship(
                 HostModel,
                 backref='host_ip_links',
-                lazy='select'
+                lazy='select',
+                overlaps="hosts,ips"
             ),
             'ip': relationship(
                 IPAddressModel,
                 backref='host_ip_links',
-                lazy='select'
+                lazy='select',
+                overlaps="hosts,ips"
             ),
         }
     )
