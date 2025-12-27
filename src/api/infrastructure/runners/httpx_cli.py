@@ -1,6 +1,9 @@
 from typing import AsyncIterator, List
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.schemas.models.process_event import ProcessEvent
+import logging
+
+logger = logging.getLogger(__name__)
 
 class HTTPXCliRunner:
     def __init__(self, httpx_path: str, timeout: int = 600):
@@ -29,7 +32,13 @@ class HTTPXCliRunner:
         else:
             stdin = "\n".join(targets)
 
+        logger.info("Starting HTTPX command: %s, stdin=%s", " ".join(command), stdin)
+
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
         async for event in executor.run():
-            yield event  
+            if hasattr(event, "payload"):
+                logger.debug("HTTPX event payload: %s", event.payload)
+            else:
+                logger.debug("HTTPX event without payload: %s", event)
+            yield event
