@@ -32,12 +32,9 @@ async def lifespan(app: FastAPI):
         await db_connection.create_tables()
         start_mappers()
 
-        event_bus: EventBus = await container.get(EventBus)
-        await event_bus.connect()
-
         orchestrator: Orchestrator = await container.get(Orchestrator)
         asyncio.create_task(orchestrator.start())
-
+        
         logger.info("Application startup complete")
     except Exception as e:
         logger.exception("Startup failed: %s", e)

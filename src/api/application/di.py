@@ -13,7 +13,9 @@ from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUn
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.events.event_bus import EventBus
+from dishka import AsyncContainer
 
+from api.application.services.orchestrator import Orchestrator
 
 class DatabaseProvider(Provider):
     scope = Scope.APP
@@ -94,3 +96,15 @@ class ServiceProvider(Provider):
             httpx_service=httpx_service,
             settings=settings
         )
+
+
+class OrchestratorProvider(Provider):
+    scope = Scope.APP
+
+    @provide(scope=Scope.APP)
+    def get_orchestrator(
+        self,
+        bus: EventBus,
+        container: AsyncContainer,  
+    ) -> Orchestrator:
+        return Orchestrator(bus=bus, container=container)
