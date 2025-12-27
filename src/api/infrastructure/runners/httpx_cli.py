@@ -1,3 +1,4 @@
+import json
 from typing import AsyncIterator, List
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.schemas.models.process_event import ProcessEvent
@@ -37,9 +38,17 @@ class HTTPXCliRunner:
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
         async for event in executor.run():
-           if hasattr(event, "payload"):
-               logger.info("Received event: %s", event.payload)
-           else:
-               logger.warning("Received event without payload: %s", event)
-           yield event
+            if event.type != "stdout":
+                continue
+            
+            if not event.payload:
+                continue
+            
+            try:
+                data = json.loads(event.payload)
+            except json.JSONDecodeError:
+                logger.debug("Non-JSON stdout line skipped: %r", event.payload)
+                continue
+            
+            yield data
 
