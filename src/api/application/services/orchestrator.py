@@ -1,3 +1,4 @@
+import json
 from typing import Dict, Any
 import asyncio
 import logging
@@ -40,4 +41,8 @@ class Orchestrator:
     async def handle_scan_result(self, event: Dict[str, Any]):
         async with self.container() as request_container:
             ingestor = await request_container.get(HTTPXResultIngestor)
-            await ingestor.ingest(event["program_id"], [event["result"]])
+            result = event["result"]
+            if isinstance(result, str):
+                result = json.loads(result)
+            
+            await ingestor.ingest(event["program_id"], [result])

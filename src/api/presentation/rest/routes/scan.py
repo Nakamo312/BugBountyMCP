@@ -96,8 +96,7 @@ async def scan_httpx(
         
         return ScanResponse(
             status="success",
-            message="HTTPX scan completed",
-            results=result.model_dump()
+            message="HTTPX scan started, results will be ingested asynchronously"
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
