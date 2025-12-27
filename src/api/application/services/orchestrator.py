@@ -20,6 +20,7 @@ class Orchestrator:
         self.tasks: set[asyncio.Task] = set()
 
     async def start(self):
+        await self.bus.connect()
         asyncio.create_task(
             self.bus.subscribe("service_events", self.handle_service_event)
         )

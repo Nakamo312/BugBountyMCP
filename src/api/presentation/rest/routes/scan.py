@@ -90,8 +90,7 @@ async def scan_httpx(
         
         result = await httpx_service.execute(
             program_id=input_dto.program_id,
-            targets=input_dto.targets,
-            timeout=input_dto.timeout,
+            targets=input_dto.targets
         )
 
         
