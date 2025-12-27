@@ -1,4 +1,5 @@
 # api/infrastructure/unit_of_work/adapters/base.py
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from api.infrastructure.unit_of_work.interfaces.base import AbstractUnitOfWork
@@ -32,22 +33,23 @@ class SQLAlchemyAbstractUnitOfWork(AbstractUnitOfWork):
     async def create_savepoint(self, name: str):
         if not self._session:
             raise RuntimeError("Session not initialized")
-        await self._session.execute(f"SAVEPOINT {name}")
+        await self._session.execute(text(f"SAVEPOINT {name}"))
         self._savepoints.append(name)
-
+    
     async def rollback_to_savepoint(self, name: str):
         if not self._session:
             return
         if name not in self._savepoints:
             raise ValueError(f"Savepoint {name} does not exist")
-        await self._session.execute(f"ROLLBACK TO SAVEPOINT {name}")
+        await self._session.execute(text(f"ROLLBACK TO SAVEPOINT {name}"))
         idx = self._savepoints.index(name)
         self._savepoints = self._savepoints[:idx]
-
+    
     async def release_savepoint(self, name: str):
         if not self._session:
             return
         if name not in self._savepoints:
             raise ValueError(f"Savepoint {name} does not exist")
-        await self._session.execute(f"RELEASE SAVEPOINT {name}")
+        await self._session.execute(text(f"RELEASE SAVEPOINT {name}"))
         self._savepoints.remove(name)
+    
