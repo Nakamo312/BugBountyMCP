@@ -50,5 +50,6 @@ class HTTPXCliRunner:
                 logger.debug("Non-JSON stdout line skipped: %r", event.payload)
                 continue
             
-            yield data
+            yield ProcessEvent(type="result", payload=data)
+
 
