@@ -69,7 +69,7 @@ services:
     ports:
       - "${API_PORT}:8000"
     volumes:
-      - ${HOST_GO_BIN:-/usr/bin}:/host_root/go_bin:ro
+      - ${HOST_GO_BIN:-/usr/go/bin/bin/}:/host_root/go_bin:ro
       - ${HOST_USR_BIN:-/usr/bin}:/host_root/usr_bin:ro
       - ${HOST_SECLISTS:-/usr/share/seclists}:/usr/share/seclists:ro
       - ${HOST_WORDLISTS:-/usr/share/wordlists}:/usr/share/wordlists:ro
