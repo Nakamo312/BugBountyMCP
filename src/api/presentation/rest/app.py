@@ -33,8 +33,8 @@ async def lifespan(app: FastAPI):
         start_mappers()
 
         orchestrator: Orchestrator = await container.get(Orchestrator)
-        asyncio.create_task(orchestrator.start())
-        
+        await orchestrator.start()  
+
         logger.info("Application startup complete")
     except Exception as e:
         logger.exception("Startup failed: %s", e)
