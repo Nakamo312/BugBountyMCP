@@ -53,7 +53,10 @@ class CLIRunnerProvider(Provider):
 
     @provide(scope=Scope.APP)
     def get_httpx_runner(self, settings: Settings) -> HTTPXCliRunner:
-        return HTTPXCliRunner(settings=settings)
+        return HTTPXCliRunner(
+            httpx_path=settings.get_tool_path("httpx"),
+            timeout=600,  
+        )
 
     @provide(scope=Scope.APP)
     def get_event_bus(self, settings: Settings) -> EventBus:
