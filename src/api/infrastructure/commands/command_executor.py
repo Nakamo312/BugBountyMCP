@@ -2,18 +2,25 @@
 import asyncio
 import logging
 from typing import AsyncIterator, List, Optional
+
 from api.infrastructure.schemas.enums.process_state import ProcessState
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 logger = logging.getLogger(__name__)
 
+
 class CommandExecutor:
     """
-    Execute CLI command and yield ProcessEvent objects, 
+    Execute CLI command and yield ProcessEvent objects,
     supporting full lifecycle control (state, timeout, cancellation).
     """
 
-    def __init__(self, command: List[str], stdin: Optional[str] = None, timeout: int = 600):
+    def __init__(
+        self,
+        command: List[str],
+        stdin: Optional[str] = None,
+        timeout: int = 600,
+    ):
         self.command = command
         self.stdin = stdin
         self.timeout = timeout
@@ -22,7 +29,7 @@ class CommandExecutor:
 
     async def run(self) -> AsyncIterator[ProcessEvent]:
         self.state = ProcessState.STARTING
-        logger.info(f"Starting process: {' '.join(self.command)}")
+        logger.info("Starting process: %s", " ".join(self.command))
 
         try:
             self.process = await asyncio.create_subprocess_exec(
@@ -39,48 +46,26 @@ class CommandExecutor:
         self.state = ProcessState.RUNNING
         yield ProcessEvent(type="started")
 
+        # write stdin if provided
         if self.stdin and self.process.stdin:
             try:
                 self.process.stdin.write(self.stdin.encode())
                 await self.process.stdin.drain()
                 self.process.stdin.write_eof()
             except Exception as exc:
-                logger.warning(f"Failed to write stdin: {exc}")
+                logger.warning("Failed to write stdin: %s", exc)
 
         try:
             async with asyncio.timeout(self.timeout):
-                async def stream(stream, name):
-                    async for line in stream:
-                        yield ProcessEvent(type=name, payload=line.decode(errors="ignore").strip())
-
-                stdout_task = asyncio.create_task(stream(self.process.stdout, "stdout").__anext__())
-                stderr_task = asyncio.create_task(stream(self.process.stderr, "stderr").__anext__())
-
-                tasks = {"stdout": stdout_task, "stderr": stderr_task}
-
-                while tasks:
-                    done, _ = await asyncio.wait(tasks.values(), return_when=asyncio.FIRST_COMPLETED)
-                    for d in done:
-                        for name, task in list(tasks.items()):
-                            if task is d:
-                                try:
-                                    event = task.result()
-                                    yield event
-                                    tasks[name] = asyncio.create_task(
-                                        stream(self.process.stdout if name=="stdout" else self.process.stderr, name).__anext__()
-                                    )
-                                except StopAsyncIteration:
-                                    tasks.pop(name)
-                                break
+                # 🔥 корректный стрим stdout / stderr
+                async for event in self._stream_output():
+                    yield event
 
                 return_code = await self.process.wait()
                 self.state = ProcessState.TERMINATED
-                yield ProcessEvent(type="terminated", payload=str(return_code))
-                stdout_data = await self.process.stdout.read()
-                stderr_data = await self.process.stderr.read()
+                yield ProcessEvent(type="terminated")
+
                 logger.info("Process finished with returncode=%s", return_code)
-                logger.info("stdout:\n%s", stdout_data.decode())
-                logger.error("stderr:\n%s", stderr_data.decode())
 
         except TimeoutError:
             self.state = ProcessState.TIMEOUT
@@ -110,32 +95,40 @@ class CommandExecutor:
 
     async def _stream_output(self) -> AsyncIterator[ProcessEvent]:
         """
-        Stream stdout and stderr simultaneously and yield events in order.
+        Stream stdout and stderr simultaneously without recreating iterators.
         """
         assert self.process is not None
 
         async def reader(stream, event_type):
             async for line in stream:
-                yield ProcessEvent(type=event_type, payload=line.decode(errors="ignore").strip())
+                text = line.decode(errors="ignore").strip()
+                if not text:
+                    continue
+                yield ProcessEvent(type=event_type, payload=text)
 
         stdout_iter = reader(self.process.stdout, "stdout")
         stderr_iter = reader(self.process.stderr, "stderr")
 
-        stdout_task = asyncio.create_task(stdout_iter.__anext__())
-        stderr_task = asyncio.create_task(stderr_iter.__anext__())
-
-        tasks = {"stdout": stdout_task, "stderr": stderr_task}
+        tasks = {
+            "stdout": asyncio.create_task(stdout_iter.__anext__()),
+            "stderr": asyncio.create_task(stderr_iter.__anext__()),
+        }
 
         while tasks:
-            done, _ = await asyncio.wait(tasks.values(), return_when=asyncio.FIRST_COMPLETED)
-            for d in done:
+            done, _ = await asyncio.wait(
+                tasks.values(), return_when=asyncio.FIRST_COMPLETED
+            )
+
+            for finished in done:
                 for name, task in list(tasks.items()):
-                    if task is d:
+                    if task is finished:
                         try:
                             event = task.result()
                             yield event
                             tasks[name] = asyncio.create_task(
-                                stdout_iter.__anext__() if name == "stdout" else stderr_iter.__anext__()
+                                stdout_iter.__anext__()
+                                if name == "stdout"
+                                else stderr_iter.__anext__()
                             )
                         except StopAsyncIteration:
                             tasks.pop(name)
