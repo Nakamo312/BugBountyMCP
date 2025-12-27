@@ -1,14 +1,20 @@
 """REST API routes - Presentation layer"""
 from uuid import UUID
-
-from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException
+from dishka.integrations.fastapi import FromDishka, DishkaRoute
 
-from api.application.dto import HTTPXScanInputDTO, SubfinderScanInputDTO
-from api.application.services.httpx import HTTPXScanService
+from api.presentation.schemas import (
+    HTTPXScanRequest,
+    SubfinderScanRequest,
+    ScanResponse
+)
+from api.application.dto import (
+    HTTPXScanInputDTO,
+    SubfinderScanInputDTO,
+)
 from api.application.services.subfinder import SubfinderScanService
-from api.presentation.schemas import (HTTPXScanRequest, ScanResponse,
-                                      SubfinderScanRequest)
+from api.application.services.httpx import HTTPXScanService
+
 
 router = APIRouter(route_class=DishkaRoute)
 
@@ -39,7 +45,6 @@ async def scan_subfinder(
     - **timeout**: Scan timeout in seconds (default: 600)
     """
     try:
-        # Convert HTTP schema to DTO
         input_dto = SubfinderScanInputDTO(
             program_id=UUID(request.program_id),
             domain=request.domain,
@@ -47,7 +52,6 @@ async def scan_subfinder(
             timeout=request.timeout
         )
         
-        # Execute service
         result = await subfinder_service.execute(input_dto)
         
         return ScanResponse(
@@ -78,15 +82,18 @@ async def scan_httpx(
     - **timeout**: Scan timeout in seconds (default: 600)
     """
     try:
-        # Convert HTTP schema to DTO
         input_dto = HTTPXScanInputDTO(
             program_id=UUID(request.program_id),
             targets=request.targets,
             timeout=request.timeout
         )
         
-        # Execute service
-        result = await httpx_service.execute(input_dto)
+        result = await httpx_service.execute(
+            program_id=input_dto.program_id,
+            targets=input_dto.targets,
+            timeout=input_dto.timeout,
+        )
+
         
         return ScanResponse(
             status="success",
