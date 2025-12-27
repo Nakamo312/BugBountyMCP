@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import Enum, auto
 
 
 class RuleType(str, Enum):
@@ -52,3 +52,11 @@ class ScanStatus(str, Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
+class ProcessState(Enum):
+    CREATED = auto()
+    STARTING = auto()
+    RUNNING = auto()
+    TERMINATING = auto()
+    TERMINATED = auto()
+    FAILED = auto()
+    TIMEOUT = auto()
