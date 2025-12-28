@@ -8,10 +8,6 @@ from api.presentation.schemas import (
     SubfinderScanRequest,
     ScanResponse
 )
-from api.application.dto import (
-    HTTPXScanInputDTO,
-    SubfinderScanInputDTO,
-)
 from api.application.services.subfinder import SubfinderScanService
 from api.application.services.httpx import HTTPXScanService
 
@@ -29,7 +25,7 @@ async def health_check():
     "/scan/subfinder",
     response_model=ScanResponse,
     summary="Run Subfinder Scan",
-    description="Executes Subfinder to discover subdomains for a given target.",
+    description="Starts Subfinder subdomain enumeration. Returns immediately, scan runs in background.",
     tags=["Scans"]
 )
 async def scan_subfinder(
@@ -37,26 +33,23 @@ async def scan_subfinder(
     subfinder_service: FromDishka[SubfinderScanService],
 ) -> ScanResponse:
     """
-    Execute Subfinder scan to discover subdomains.
-    
+    Start Subfinder scan to discover subdomains.
+
     - **program_id**: Program UUID
     - **domain**: Target domain to scan
-    - **probe**: If True, probe discovered subdomains with HTTPX (default: True)
     - **timeout**: Scan timeout in seconds (default: 600)
+
+    Returns immediately. Discovered subdomains are published to EventBus for HTTPX processing.
     """
     try:
-        input_dto = SubfinderScanInputDTO(
+        result = await subfinder_service.execute(
             program_id=UUID(request.program_id),
-            domain=request.domain,
-            probe=request.probe,
-            timeout=request.timeout
+            domain=request.domain
         )
-        
-        result = await subfinder_service.execute(input_dto)
-        
+
         return ScanResponse(
             status="success",
-            message=f"Subfinder scan completed for {request.domain}",
+            message=result.message,
             results=result.model_dump()
         )
     except ValueError as e:
@@ -67,7 +60,7 @@ async def scan_subfinder(
     "/scan/httpx",
     response_model=ScanResponse,
     summary="Run HTTPX Scan",
-    description="Executes HTTPX probing on a list of targets.",
+    description="Starts HTTPX probing. Returns immediately, scan runs in background.",
     tags=["Scans"]
 )
 async def scan_httpx(
@@ -75,28 +68,26 @@ async def scan_httpx(
     httpx_service: FromDishka[HTTPXScanService],
 ) -> ScanResponse:
     """
-    Execute HTTPX scan.
-    
+    Start HTTPX scan.
+
     - **program_id**: Program UUID
     - **targets**: Single target or list of targets (URLs or domains)
     - **timeout**: Scan timeout in seconds (default: 600)
+
+    Returns immediately. Results are published to EventBus for ingestion.
     """
     try:
-        input_dto = HTTPXScanInputDTO(
-            program_id=request.program_id,
-            targets=request.targets,
-            timeout=request.timeout
-        )
-        
+        targets = request.targets if isinstance(request.targets, list) else [request.targets]
+
         result = await httpx_service.execute(
-            program_id=input_dto.program_id,
-            targets=input_dto.targets
+            program_id=UUID(request.program_id),
+            targets=targets
         )
 
-        
         return ScanResponse(
             status="success",
-            message="HTTPX scan started, results will be ingested asynchronously"
+            message=result.message,
+            results=result.model_dump()
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
