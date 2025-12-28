@@ -12,6 +12,7 @@ from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOf
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
+from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 from api.infrastructure.events.event_bus import EventBus
 from dishka import AsyncContainer
 
@@ -55,7 +56,14 @@ class CLIRunnerProvider(Provider):
     def get_httpx_runner(self, settings: Settings) -> HTTPXCliRunner:
         return HTTPXCliRunner(
             httpx_path=settings.get_tool_path("httpx"),
-            timeout=600,  
+            timeout=600,
+        )
+
+    @provide(scope=Scope.APP)
+    def get_subfinder_runner(self, settings: Settings) -> SubfinderCliRunner:
+        return SubfinderCliRunner(
+            subfinder_path=settings.get_tool_path("subfinder"),
+            timeout=600,
         )
 
     @provide(scope=Scope.APP)
@@ -92,12 +100,12 @@ class ServiceProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def get_subfinder_service(
         self,
-        httpx_service: HTTPXScanService,
-        settings: Settings
+        subfinder_runner: SubfinderCliRunner,
+        event_bus: EventBus
     ) -> SubfinderScanService:
         return SubfinderScanService(
-            httpx_service=httpx_service,
-            settings=settings
+            runner=subfinder_runner,
+            bus=event_bus
         )
 
 
