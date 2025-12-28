@@ -141,11 +141,64 @@ class GAUScanOutputDTO(BaseModel):
     )
 
 
+class KatanaScanInputDTO(BaseModel):
+    """Input DTO for Katana scan service"""
+    program_id: UUID = Field(..., description="Program UUID")
+    target: str = Field(..., description="Target URL to crawl", min_length=1)
+    depth: int = Field(default=3, description="Maximum crawl depth", ge=1, le=10)
+    js_crawl: bool = Field(default=True, description="Enable JavaScript endpoint crawling")
+    headless: bool = Field(default=False, description="Enable headless browser mode")
+    timeout: Optional[int] = Field(default=600, description="Scan timeout in seconds", ge=1, le=3600)
+
+    @field_validator('target')
+    @classmethod
+    def validate_target(cls, v):
+        """Basic target URL validation"""
+        if not v or v.isspace():
+            raise ValueError("Target cannot be empty")
+        v = v.strip()
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("Target must be a valid URL starting with http:// or https://")
+        return v
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "target": "https://example.com",
+                "depth": 3,
+                "js_crawl": True,
+                "headless": False,
+                "timeout": 600
+            }
+        }
+    )
+
+
+class KatanaScanOutputDTO(BaseModel):
+    """Output DTO for Katana scan service"""
+    status: str = Field(..., description="Scan status")
+    message: str = Field(..., description="Status message")
+    scanner: str = Field(..., description="Scanner name")
+    target: str = Field(..., description="Target URL")
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "status": "started",
+                "message": "Katana crawl started for https://example.com",
+                "scanner": "katana",
+                "target": "https://example.com"
+            }
+        }
+    )
+
+
 class ScanResultDTO(BaseModel):
     """Generic scan result wrapper"""
     status: str = Field(..., description="Scan status (success/error)")
     message: str = Field(..., description="Human-readable message")
-    data: Union[HTTPXScanOutputDTO, SubfinderScanOutputDTO, GAUScanOutputDTO] = Field(..., description="Scan results")
+    data: Union[HTTPXScanOutputDTO, SubfinderScanOutputDTO, GAUScanOutputDTO, KatanaScanOutputDTO] = Field(..., description="Scan results")
 
     model_config = ConfigDict(
         json_schema_extra = {

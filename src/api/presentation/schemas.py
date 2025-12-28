@@ -61,6 +61,29 @@ class GAUScanRequest(BaseModel):
     )
 
 
+class KatanaScanRequest(BaseModel):
+    """HTTP request schema for Katana scan"""
+    program_id: str = Field(..., description="Program UUID as string")
+    target: str = Field(..., min_length=1)
+    depth: int = Field(default=3, ge=1, le=10)
+    js_crawl: bool = Field(default=True)
+    headless: bool = Field(default=False)
+    timeout: Optional[int] = Field(default=600, ge=1, le=3600)
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "target": "https://example.com",
+                "depth": 3,
+                "js_crawl": True,
+                "headless": False,
+                "timeout": 600
+            }
+        }
+    )
+
+
 # Response Schemas
 class ScanResponse(BaseModel):
     """Generic scan response wrapper"""

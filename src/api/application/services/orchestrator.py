@@ -36,6 +36,9 @@ class Orchestrator:
         asyncio.create_task(
             self.bus.subscribe("gau_discovered", self.handle_gau_discovered)
         )
+        asyncio.create_task(
+            self.bus.subscribe("katana_discovered", self.handle_katana_discovered)
+        )
 
     async def handle_service_event(self, event: Dict[str, Any]):
         async with self.container() as request_container:
@@ -104,5 +107,31 @@ class Orchestrator:
                 httpx_service = await request_container.get(HTTPXScanService)
 
                 logger.info(f"Starting HTTPX scan for GAU batch: program={program_id} urls={len(urls)}")
+
+                await httpx_service.execute(program_id=program_id, targets=urls)
+
+    async def handle_katana_discovered(self, event: Dict[str, Any]):
+        """
+        Handle Katana URL discovery events by triggering HTTPX scans for the batch.
+        Creates background task to avoid blocking queue processing.
+        """
+        program_id = event["program_id"]
+        urls = event["urls"]
+
+        logger.info(f"Received Katana URL batch for program {program_id}: {len(urls)} URLs")
+
+        task = asyncio.create_task(self._process_katana_batch(program_id, urls))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+
+    async def _process_katana_batch(self, program_id: str, urls: list[str]):
+        """
+        Process Katana URL batch with semaphore to limit concurrent scans.
+        """
+        async with self._scan_semaphore:
+            async with self.container() as request_container:
+                httpx_service = await request_container.get(HTTPXScanService)
+
+                logger.info(f"Starting HTTPX scan for Katana batch: program={program_id} urls={len(urls)}")
 
                 await httpx_service.execute(program_id=program_id, targets=urls)

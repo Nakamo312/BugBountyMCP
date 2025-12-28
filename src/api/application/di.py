@@ -9,12 +9,14 @@ from api.application.services.httpx import HTTPXScanService
 from api.application.services.program import ProgramService
 from api.application.services.subfinder import SubfinderScanService
 from api.application.services.gau import GAUScanService
+from api.application.services.katana import KatanaScanService
 from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOfWork
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 from api.infrastructure.runners.gau_cli import GAUCliRunner
+from api.infrastructure.runners.katana_cli import KatanaCliRunner
 from api.infrastructure.events.event_bus import EventBus
 from dishka import AsyncContainer
 
@@ -76,6 +78,13 @@ class CLIRunnerProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
+    def get_katana_runner(self, settings: Settings) -> KatanaCliRunner:
+        return KatanaCliRunner(
+            katana_path=settings.get_tool_path("katana"),
+            timeout=600,
+        )
+
+    @provide(scope=Scope.APP)
     def get_event_bus(self, settings: Settings) -> EventBus:
         return EventBus(settings)
 
@@ -125,6 +134,17 @@ class ServiceProvider(Provider):
     ) -> GAUScanService:
         return GAUScanService(
             runner=gau_runner,
+            bus=event_bus
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_katana_service(
+        self,
+        katana_runner: KatanaCliRunner,
+        event_bus: EventBus
+    ) -> KatanaScanService:
+        return KatanaScanService(
+            runner=katana_runner,
             bus=event_bus
         )
 

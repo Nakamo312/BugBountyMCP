@@ -7,11 +7,13 @@ from api.presentation.schemas import (
     HTTPXScanRequest,
     SubfinderScanRequest,
     GAUScanRequest,
+    KatanaScanRequest,
     ScanResponse
 )
 from api.application.services.subfinder import SubfinderScanService
 from api.application.services.httpx import HTTPXScanService
 from api.application.services.gau import GAUScanService
+from api.application.services.katana import KatanaScanService
 
 
 router = APIRouter(route_class=DishkaRoute)
@@ -121,6 +123,47 @@ async def scan_gau(
             program_id=UUID(request.program_id),
             domain=request.domain,
             include_subs=request.include_subs
+        )
+
+        return ScanResponse(
+            status="success",
+            message=result.message,
+            results=result.model_dump()
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
+
+
+@router.post(
+    "/scan/katana",
+    response_model=ScanResponse,
+    summary="Run Katana Scan",
+    description="Starts Katana web crawling. Returns immediately, scan runs in background.",
+    tags=["Scans"]
+)
+async def scan_katana(
+    request: KatanaScanRequest,
+    katana_service: FromDishka[KatanaScanService],
+) -> ScanResponse:
+    """
+    Start Katana crawl to discover URLs via active web crawling.
+
+    - **program_id**: Program UUID
+    - **target**: Target URL to crawl
+    - **depth**: Maximum crawl depth (default: 3)
+    - **js_crawl**: Enable JavaScript endpoint parsing (default: true)
+    - **headless**: Enable headless browser mode (default: false)
+    - **timeout**: Scan timeout in seconds (default: 600)
+
+    Returns immediately. Discovered URLs are published to EventBus for HTTPX processing.
+    """
+    try:
+        result = await katana_service.execute(
+            program_id=UUID(request.program_id),
+            target=request.target,
+            depth=request.depth,
+            js_crawl=request.js_crawl,
+            headless=request.headless
         )
 
         return ScanResponse(
