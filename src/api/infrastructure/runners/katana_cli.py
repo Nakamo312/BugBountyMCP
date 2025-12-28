@@ -78,12 +78,12 @@ class KatanaCliRunner:
     def _extract_url(self, line: str) -> str | None:
         """
         Extract URL from katana JSON output.
-        Katana outputs JSONL with 'url' field.
+        Katana outputs JSONL with endpoint in request field.
         """
         try:
             import json
             data = json.loads(line)
-            return data.get("request", {}).get("url") or data.get("url")
+            return data.get("request", {}).get("endpoint") or data.get("url")
         except (json.JSONDecodeError, KeyError):
             if line.startswith("http://") or line.startswith("https://"):
                 return line
