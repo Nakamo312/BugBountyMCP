@@ -33,6 +33,9 @@ class Orchestrator:
         asyncio.create_task(
             self.bus.subscribe("subdomain_discovered", self.handle_subdomain_discovered)
         )
+        asyncio.create_task(
+            self.bus.subscribe("gau_discovered", self.handle_gau_discovered)
+        )
 
     async def handle_service_event(self, event: Dict[str, Any]):
         async with self.container() as request_container:
@@ -77,3 +80,29 @@ class Orchestrator:
                 logger.info(f"Starting HTTPX scan for program {program_id}: {len(targets)} targets")
 
                 await httpx_service.execute(program_id=program_id, targets=targets)
+
+    async def handle_gau_discovered(self, event: Dict[str, Any]):
+        """
+        Handle GAU URL discovery events by triggering HTTPX scans for the batch.
+        Creates background task to avoid blocking queue processing.
+        """
+        program_id = event["program_id"]
+        urls = event["urls"]
+
+        logger.info(f"Received GAU URL batch for program {program_id}: {len(urls)} URLs")
+
+        task = asyncio.create_task(self._process_gau_batch(program_id, urls))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+
+    async def _process_gau_batch(self, program_id: str, urls: list[str]):
+        """
+        Process GAU URL batch with semaphore to limit concurrent scans.
+        """
+        async with self._scan_semaphore:
+            async with self.container() as request_container:
+                httpx_service = await request_container.get(HTTPXScanService)
+
+                logger.info(f"Starting HTTPX scan for GAU batch: program={program_id} urls={len(urls)}")
+
+                await httpx_service.execute(program_id=program_id, targets=urls)

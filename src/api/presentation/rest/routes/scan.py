@@ -6,10 +6,12 @@ from dishka.integrations.fastapi import FromDishka, DishkaRoute
 from api.presentation.schemas import (
     HTTPXScanRequest,
     SubfinderScanRequest,
+    GAUScanRequest,
     ScanResponse
 )
 from api.application.services.subfinder import SubfinderScanService
 from api.application.services.httpx import HTTPXScanService
+from api.application.services.gau import GAUScanService
 
 
 router = APIRouter(route_class=DishkaRoute)
@@ -82,6 +84,43 @@ async def scan_httpx(
         result = await httpx_service.execute(
             program_id=UUID(request.program_id),
             targets=targets
+        )
+
+        return ScanResponse(
+            status="success",
+            message=result.message,
+            results=result.model_dump()
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
+
+
+@router.post(
+    "/scan/gau",
+    response_model=ScanResponse,
+    summary="Run GAU Scan",
+    description="Starts GAU URL discovery from web archives. Returns immediately, scan runs in background.",
+    tags=["Scans"]
+)
+async def scan_gau(
+    request: GAUScanRequest,
+    gau_service: FromDishka[GAUScanService],
+) -> ScanResponse:
+    """
+    Start GAU (GetAllURLs) scan to discover historical URLs.
+
+    - **program_id**: Program UUID
+    - **domain**: Target domain to scan
+    - **include_subs**: Include subdomains in discovery (default: true)
+    - **timeout**: Scan timeout in seconds (default: 600)
+
+    Returns immediately. Discovered URLs are published to EventBus for HTTPX processing.
+    """
+    try:
+        result = await gau_service.execute(
+            program_id=UUID(request.program_id),
+            domain=request.domain,
+            include_subs=request.include_subs
         )
 
         return ScanResponse(

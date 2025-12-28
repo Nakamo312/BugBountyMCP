@@ -95,12 +95,58 @@ class SubfinderScanOutputDTO(BaseModel):
     )
 
 
+class GAUScanInputDTO(BaseModel):
+    """Input DTO for GAU scan service"""
+    program_id: UUID = Field(..., description="Program UUID")
+    domain: str = Field(..., description="Target domain", min_length=1)
+    include_subs: bool = Field(default=True, description="Include subdomains in URL discovery")
+    timeout: Optional[int] = Field(default=600, description="Scan timeout in seconds", ge=1, le=3600)
+
+    @field_validator('domain')
+    @classmethod
+    def validate_domain(cls, v):
+        """Basic domain validation"""
+        if not v or v.isspace():
+            raise ValueError("Domain cannot be empty")
+        return v.strip()
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "domain": "example.com",
+                "include_subs": True,
+                "timeout": 600
+            }
+        }
+    )
+
+
+class GAUScanOutputDTO(BaseModel):
+    """Output DTO for GAU scan service"""
+    status: str = Field(..., description="Scan status")
+    message: str = Field(..., description="Status message")
+    scanner: str = Field(..., description="Scanner name")
+    domain: str = Field(..., description="Target domain")
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "status": "started",
+                "message": "GAU scan started for example.com",
+                "scanner": "gau",
+                "domain": "example.com"
+            }
+        }
+    )
+
+
 class ScanResultDTO(BaseModel):
     """Generic scan result wrapper"""
     status: str = Field(..., description="Scan status (success/error)")
     message: str = Field(..., description="Human-readable message")
-    data: Union[HTTPXScanOutputDTO, SubfinderScanOutputDTO] = Field(..., description="Scan results")
-    
+    data: Union[HTTPXScanOutputDTO, SubfinderScanOutputDTO, GAUScanOutputDTO] = Field(..., description="Scan results")
+
     model_config = ConfigDict(
         json_schema_extra = {
             "example": {
