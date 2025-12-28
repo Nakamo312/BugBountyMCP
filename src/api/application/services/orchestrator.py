@@ -28,6 +28,9 @@ class Orchestrator:
         asyncio.create_task(
             self.bus.subscribe("scan_results", self.handle_scan_result)
         )
+        asyncio.create_task(
+            self.bus.subscribe("subdomain_discovered", self.handle_subdomain_discovered)
+        )
 
     async def handle_service_event(self, event: Dict[str, Any]):
         async with self.container() as request_container:
@@ -44,5 +47,19 @@ class Orchestrator:
             result = event["result"]
             if isinstance(result, str):
                 result = json.loads(result)
-            
+
             await ingestor.ingest(event["program_id"], [result])
+
+    async def handle_subdomain_discovered(self, event: Dict[str, Any]):
+        """
+        Handle subdomain discovery events by triggering HTTPX scans for the batch.
+        """
+        async with self.container() as request_container:
+            httpx_service = await request_container.get(HTTPXScanService)
+
+            program_id = event["program_id"]
+            targets = event["subdomains"]
+
+            logger.info(f"Processing subdomain batch for program {program_id}: {len(targets)} targets")
+
+            await httpx_service.execute(program_id=program_id, targets=targets)

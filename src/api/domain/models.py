@@ -98,9 +98,9 @@ class HostIPModel(AbstractModel):
 class ServiceModel(AbstractModel):
     """Network service (HTTP/HTTPS endpoint)"""
     ip_id: UUID
-    scheme: str  # http/https
+    scheme: str  
     port: int
-    technologies: Dict[str, bool] = field(default_factory=dict)  # {"nginx": True, "php": True}
+    technologies: Dict[str, bool] = field(default_factory=dict)  
     id: UUID = field(default_factory=uuid4)
 
 
@@ -111,7 +111,7 @@ class EndpointModel(AbstractModel):
     service_id: UUID
     path: str
     normalized_path: str
-    methods: List[HttpMethod] = field(default_factory=list)  # ["GET", "POST"]
+    methods: List[HttpMethod] = field(default_factory=list)  
     status_code: Optional[int] = None
     id: UUID = field(default_factory=uuid4)
 
@@ -124,7 +124,7 @@ class InputParameterModel(AbstractModel):
     name: str
     location: ParamLocation
     service_id: UUID
-    param_type: str = "string"  # string, int, bool, array, object
+    param_type: str = "string"  
     reflected: bool = False
     is_array: bool = False
     example_value: Optional[str] = None

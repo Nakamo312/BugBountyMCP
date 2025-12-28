@@ -32,16 +32,18 @@ class HTTPXScanInputDTO(BaseModel):
 
 class HTTPXScanOutputDTO(BaseModel):
     """Output DTO for HTTPX scan service"""
+    status: str = Field(..., description="Scan status")
+    message: str = Field(..., description="Status message")
     scanner: str = Field(..., description="Scanner name")
-    hosts: int = Field(..., description="Number of hosts scanned")
-    endpoints: int = Field(..., description="Number of endpoints discovered")
+    targets_count: int = Field(..., description="Number of targets to scan")
 
     model_config = ConfigDict(
         json_schema_extra = {
             "example": {
+                "status": "started",
+                "message": "HTTPX scan started for 10 targets",
                 "scanner": "httpx",
-                "hosts": 10,
-                "endpoints": 45
+                "targets_count": 10
             }
         }
     )
@@ -61,39 +63,33 @@ class SubfinderScanInputDTO(BaseModel):
         if not v or v.isspace():
             raise ValueError("Domain cannot be empty")
         return v.strip()
-    
-        model_config = ConfigDict(
-            json_schema_extra = {
-                "example": {
-                    "program_id": "123e4567-e89b-12d3-a456-426614174000",
-                    "domain": "example.com",
-                    "probe": True,
-                    "timeout": 600
-                }
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "domain": "example.com",
+                "probe": True,
+                "timeout": 600
             }
-        )
+        }
+    )
 
 
 class SubfinderScanOutputDTO(BaseModel):
     """Output DTO for Subfinder scan service"""
+    status: str = Field(..., description="Scan status")
+    message: str = Field(..., description="Status message")
     scanner: str = Field(..., description="Scanner name")
     domain: str = Field(..., description="Target domain")
-    subdomains: int = Field(..., description="Number of subdomains discovered")
-    probed: bool = Field(..., description="Whether subdomains were probed")
-    httpx_results: Optional[HTTPXScanOutputDTO] = Field(None, description="HTTPX scan results if probed")
-    
+
     model_config = ConfigDict(
         json_schema_extra = {
             "example": {
+                "status": "started",
+                "message": "Subfinder scan started for example.com",
                 "scanner": "subfinder",
-                "domain": "example.com",
-                "subdomains": 25,
-                "probed": True,
-                "httpx_results": {
-                    "scanner": "httpx",
-                    "hosts": 20,
-                    "endpoints": 80
-                }
+                "domain": "example.com"
             }
         }
     )
