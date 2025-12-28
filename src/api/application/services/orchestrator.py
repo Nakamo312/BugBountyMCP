@@ -15,10 +15,12 @@ class Orchestrator:
         self,
         bus: EventBus,
         container: AsyncContainer,
+        max_concurrent_scans: int = 3,
     ):
         self.bus = bus
         self.container = container
         self.tasks: set[asyncio.Task] = set()
+        self._scan_semaphore = asyncio.Semaphore(max_concurrent_scans)
 
     async def start(self):
         await self.bus.connect()
@@ -53,13 +55,25 @@ class Orchestrator:
     async def handle_subdomain_discovered(self, event: Dict[str, Any]):
         """
         Handle subdomain discovery events by triggering HTTPX scans for the batch.
+        Creates background task to avoid blocking queue processing.
         """
-        async with self.container() as request_container:
-            httpx_service = await request_container.get(HTTPXScanService)
+        program_id = event["program_id"]
+        targets = event["subdomains"]
 
-            program_id = event["program_id"]
-            targets = event["subdomains"]
+        logger.info(f"Received subdomain batch for program {program_id}: {len(targets)} targets")
 
-            logger.info(f"Processing subdomain batch for program {program_id}: {len(targets)} targets")
+        task = asyncio.create_task(self._process_subdomain_batch(program_id, targets))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
 
-            await httpx_service.execute(program_id=program_id, targets=targets)
+    async def _process_subdomain_batch(self, program_id: str, targets: list[str]):
+        """
+        Process subdomain batch with semaphore to limit concurrent scans.
+        """
+        async with self._scan_semaphore:
+            async with self.container() as request_container:
+                httpx_service = await request_container.get(HTTPXScanService)
+
+                logger.info(f"Starting HTTPX scan for program {program_id}: {len(targets)} targets")
+
+                await httpx_service.execute(program_id=program_id, targets=targets)
