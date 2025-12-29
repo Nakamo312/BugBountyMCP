@@ -100,18 +100,28 @@ class CommandExecutor:
         assert self.process is not None
 
         async def reader(stream, event_type):
+            count = 0
             async for line in stream:
                 text = line.decode(errors="ignore").strip()
                 if not text:
                     continue
+                count += 1
                 yield ProcessEvent(type=event_type, payload=text)
+            logger.debug(f"Stream {event_type} finished after {count} lines")
 
+        sentinel = object()
         stdout_iter = reader(self.process.stdout, "stdout")
         stderr_iter = reader(self.process.stderr, "stderr")
 
+        async def safe_anext(it):
+            try:
+                return await it.__anext__()
+            except StopAsyncIteration:
+                return sentinel
+
         tasks = {
-            "stdout": asyncio.create_task(stdout_iter.__anext__()),
-            "stderr": asyncio.create_task(stderr_iter.__anext__()),
+            "stdout": asyncio.create_task(safe_anext(stdout_iter)),
+            "stderr": asyncio.create_task(safe_anext(stderr_iter)),
         }
 
         while tasks:
@@ -122,14 +132,12 @@ class CommandExecutor:
             for finished in done:
                 for name, task in list(tasks.items()):
                     if task is finished:
-                        try:
-                            event = task.result()
-                            yield event
-                            tasks[name] = asyncio.create_task(
-                                stdout_iter.__anext__()
-                                if name == "stdout"
-                                else stderr_iter.__anext__()
-                            )
-                        except StopAsyncIteration:
+                        result = task.result()
+                        if result is sentinel:
                             tasks.pop(name)
+                        else:
+                            yield result
+                            tasks[name] = asyncio.create_task(
+                                safe_anext(stdout_iter if name == "stdout" else stderr_iter)
+                            )
                         break
