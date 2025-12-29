@@ -8,6 +8,7 @@ from api.config import Settings
 from api.infrastructure.events.event_bus import EventBus
 from api.application.services.httpx import HTTPXScanService
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
+from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class Orchestrator:
             self.bus.subscribe("gau_discovered", self.handle_gau_discovered)
         )
         asyncio.create_task(
-            self.bus.subscribe("katana_discovered", self.handle_katana_discovered)
+            self.bus.subscribe("katana_results_batch", self.handle_katana_results_batch)
         )
         asyncio.create_task(
             self.bus.subscribe("host_discovered", self.handle_host_discovered)
@@ -116,31 +117,15 @@ class Orchestrator:
 
                 await httpx_service.execute(program_id=program_id, targets=urls)
 
-    async def handle_katana_discovered(self, event: Dict[str, Any]):
-        """
-        Handle Katana URL discovery events by triggering HTTPX scans for the batch.
-        Creates background task to avoid blocking queue processing.
-        """
-        program_id = event["program_id"]
-        urls = event["urls"]
+    async def handle_katana_results_batch(self, event: Dict[str, Any]):
+        """Handle batched Katana scan results"""
+        async with self.container() as request_container:
+            ingestor = await request_container.get(KatanaResultIngestor)
+            program_id = UUID(event["program_id"])
+            results = event["results"]
 
-        logger.info(f"Received Katana URL batch for program {program_id}: {len(urls)} URLs")
-
-        task = asyncio.create_task(self._process_katana_batch(program_id, urls))
-        self.tasks.add(task)
-        task.add_done_callback(self.tasks.discard)
-
-    async def _process_katana_batch(self, program_id: str, urls: list[str]):
-        """
-        Process Katana URL batch with semaphore to limit concurrent scans.
-        """
-        async with self._scan_semaphore:
-            async with self.container() as request_container:
-                httpx_service = await request_container.get(HTTPXScanService)
-
-                logger.info(f"Starting HTTPX scan for Katana batch: program={program_id} urls={len(urls)}")
-
-                await httpx_service.execute(program_id=program_id, targets=urls)
+            logger.info(f"Ingesting Katana results batch: program={program_id} count={len(results)}")
+            await ingestor.ingest(program_id, results)
 
     async def handle_host_discovered(self, event: Dict[str, Any]):
         """

@@ -12,7 +12,9 @@ from api.application.services.gau import GAUScanService
 from api.application.services.katana import KatanaScanService
 from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOfWork
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
+from api.infrastructure.unit_of_work.adapters.katana import SQLAlchemyKatanaUnitOfWork
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
+from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 from api.infrastructure.runners.gau_cli import GAUCliRunner
@@ -50,6 +52,10 @@ class UnitOfWorkProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def get_scan_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyHTTPXUnitOfWork:
         return SQLAlchemyHTTPXUnitOfWork(session_factory)
+
+    @provide(scope=Scope.REQUEST)
+    def get_katana_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyKatanaUnitOfWork:
+        return SQLAlchemyKatanaUnitOfWork(session_factory)
 
 
 class CLIRunnerProvider(Provider):
@@ -95,6 +101,10 @@ class IngestorProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def get_httpx_ingestor(self, scan_uow: SQLAlchemyHTTPXUnitOfWork, event_bus: EventBus) -> HTTPXResultIngestor:
         return HTTPXResultIngestor(uow=scan_uow, bus=event_bus)
+
+    @provide(scope=Scope.REQUEST)
+    def get_katana_ingestor(self, katana_uow: SQLAlchemyKatanaUnitOfWork) -> KatanaResultIngestor:
+        return KatanaResultIngestor(uow=katana_uow)
 
 
 class ServiceProvider(Provider):
