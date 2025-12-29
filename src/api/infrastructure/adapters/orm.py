@@ -137,7 +137,7 @@ input_parameters = Table(
     Column('param_type', String(20), nullable=False, default='string'),
     Column('reflected', Boolean, default=False),
     Column('is_array', Boolean, default=False),
-    Column('example_value', String(500), nullable=True),
+    Column('example_value', Text, nullable=True),
     UniqueConstraint('endpoint_id', 'location', 'name', name='uq_input_parameters_endpoint_location_name'),
     Index('idx_input_parameters_lookup', 'endpoint_id', 'location', 'name'),
     CheckConstraint("name != ''", name='ck_input_parameters_name_not_empty'),
