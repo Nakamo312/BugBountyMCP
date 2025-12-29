@@ -23,8 +23,9 @@ if str(src_path) not in sys.path:
 if __name__ == "__main__":
     import uvicorn
     from api.presentation.rest.app import create_app
-    from api.config import settings
+    from api.config import Settings
 
+    settings = Settings()
     # Setup logging
     setup_logging(settings.LOG_LEVEL)
     logger = logging.getLogger(__name__)

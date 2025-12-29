@@ -10,23 +10,23 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8"
     )
 
-    API_HOST: str
-    API_PORT: int
+    API_HOST: str = "0.0.0.0"
+    API_PORT: int = 8000
 
-    POSTGRES_HOST: str
-    POSTGRES_PORT: int
-    POSTGRES_DB: str
-    POSTGRES_USER: str
-    POSTGRES_PASSWORD: str
+    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "bugbounty"
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = "postgres"
 
-    RABBITMQ_HOST: str
-    RABBITMQ_PORT: int
-    RABBITMQ_USER: str
-    RABBITMQ_PASSWORD: str
-    RABBITMQ_VHOST: str
+    RABBITMQ_HOST: str = "localhost"
+    RABBITMQ_PORT: int = 5672
+    RABBITMQ_USER: str = "guest"
+    RABBITMQ_PASSWORD: str = "guest"
+    RABBITMQ_VHOST: str = "/"
 
-    LOG_LEVEL: str
-    TOOLS_PATH_PREFIX: str
+    LOG_LEVEL: str = "INFO"
+    TOOLS_PATH_PREFIX: str = "/usr/local"
     ORCHESTRATOR_MAX_CONCURRENT: int = 2
     ORCHESTRATOR_SCAN_DELAY: float = 30.0
 
@@ -94,5 +94,3 @@ class Settings(BaseSettings):
         if os.path.exists(shared_path):
             return shared_path
         return relative_path
-
-settings = Settings()
