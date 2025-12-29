@@ -107,7 +107,7 @@ class CommandExecutor:
                     continue
                 count += 1
                 yield ProcessEvent(type=event_type, payload=text)
-            logger.debug(f"Stream {event_type} finished after {count} lines")
+            logger.info(f"Stream {event_type} finished after {count} non-empty lines")
 
         sentinel = object()
         stdout_iter = reader(self.process.stdout, "stdout")
