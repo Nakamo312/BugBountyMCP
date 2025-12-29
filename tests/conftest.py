@@ -1,103 +1,98 @@
-"""Test configuration with proper SQLite support"""
 import pytest
-import pytest_asyncio
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import event
-from sqlalchemy.pool import StaticPool
-import sys
-from api.infrastructure.adapters.orm import metadata
-from api.infrastructure.repositories.interfaces.program import ProgramRepository
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
-
-@pytest_asyncio.fixture(scope="function")
-async def engine():
-    """Create SQLite in-memory engine with proper configuration"""
-    # Override PostgreSQL-specific types with SQLite-compatible versions
-    from api.infrastructure.database.types import UUID, JSONType, ArrayType
-    from sqlalchemy.dialects import postgresql
-    
-    # Store originals
-    original_types = {
-        'UUID': postgresql.UUID,
-        'JSONB': postgresql.JSONB,
-        'ARRAY': postgresql.ARRAY,
-    }
-    
-    # Override with SQLite-compatible versions
-    postgresql.UUID = lambda as_uuid=True: UUID()
-    postgresql.JSONB = lambda none_as_null=False: JSONType()
-    
-    def array_factory(item_type=None, **kwargs):
-        return ArrayType(item_type)
-    postgresql.ARRAY = array_factory
-    
-    # Force reload of models to use new types
-    if 'api.infrastructure.database.models' in sys.modules:
-        del sys.modules['api.infrastructure.database.models']
-    
-    
-    # Create engine
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        echo=False,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    
-    # Enable foreign keys for SQLite
-    @event.listens_for(engine.sync_engine, "connect")
-    def set_sqlite_pragma(dbapi_conn, connection_record):
-        cursor = dbapi_conn.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
-    
-    # Create all tables
-    async with engine.begin() as conn:
-        await conn.run_sync(metadata.create_all)
-    
-    yield engine
-    
-    await engine.dispose()
-    
-    # Restore original types
-    postgresql.UUID = original_types['UUID']
-    postgresql.JSONB = original_types['JSONB']
-    postgresql.ARRAY = original_types['ARRAY']
-    
-    # Force reload again to restore original types
-    if 'api.infrastructure.database.models' in sys.modules:
-        del sys.modules['api.infrastructure.database.models']
-
-
-@pytest_asyncio.fixture(scope="function")
-async def session(engine):
-    """Create async session"""
-    async_session = async_sessionmaker(
-        engine, 
-        class_=AsyncSession, 
-        expire_on_commit=False,
-        autocommit=False,
-        autoflush=False
-    )
-    
-    async with async_session() as session:
-        yield session
-        await session.rollback()
-
-
-@pytest_asyncio.fixture
-async def program(session):
-    """Create test program"""
-    repo = ProgramRepository(session)
-    program = await repo.create({'name': 'test_program'})
-    await session.commit()
-    return program
+from api.domain.models import (
+    HostModel,
+    IPAddressModel,
+    ServiceModel,
+    EndpointModel,
+    InputParameterModel,
+    ProgramModel
+)
+from api.domain.enums import HttpMethod, ParamLocation
+from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
 
 
 @pytest.fixture
-def mock_settings():
-    """Mock settings for tests"""
-    from api.config import Settings
-    settings = Settings()
-    # Override tool paths for testing
-    return settings
+def mock_uow():
+    uow = AsyncMock(spec=HTTPXUnitOfWork)
+
+    uow.hosts = AsyncMock()
+    uow.ips = AsyncMock()
+    uow.host_ips = AsyncMock()
+    uow.services = AsyncMock()
+    uow.endpoints = AsyncMock()
+    uow.input_parameters = AsyncMock()
+
+    uow.commit = AsyncMock()
+    uow.rollback = AsyncMock()
+    uow.create_savepoint = AsyncMock()
+    uow.rollback_to_savepoint = AsyncMock()
+    uow.release_savepoint = AsyncMock()
+
+    uow.__aenter__ = AsyncMock(return_value=uow)
+    uow.__aexit__ = AsyncMock(return_value=None)
+
+    return uow
+
+
+@pytest.fixture
+def sample_program():
+    return ProgramModel(
+        id=uuid4(),
+        name="hackerone"
+    )
+
+
+@pytest.fixture
+def sample_host():
+    return HostModel(
+        id=uuid4(),
+        host="example.com",
+        program_id=uuid4()
+    )
+
+
+@pytest.fixture
+def sample_ip():
+    return IPAddressModel(
+        id=uuid4(),
+        address="1.2.3.4",
+        program_id=uuid4()
+    )
+
+
+@pytest.fixture
+def sample_service():
+    return ServiceModel(
+        id=uuid4(),
+        ip_id=uuid4(),
+        port=443,
+        scheme="https"
+    )
+
+
+@pytest.fixture
+def sample_endpoint():
+    return EndpointModel(
+        id=uuid4(),
+        host_id=uuid4(),
+        service_id=uuid4(),
+        path="/api/users",
+        normalized_path="/api/users",
+        methods=[HttpMethod.GET]
+    )
+
+
+@pytest.fixture
+def sample_input_parameter():
+    return InputParameterModel(
+        id=uuid4(),
+        endpoint_id=uuid4(),
+        service_id=uuid4(),
+        name="user_id",
+        location=ParamLocation.QUERY,
+        param_type="string",
+        example_value="123"
+    )
