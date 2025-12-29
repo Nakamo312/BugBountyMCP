@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from uuid import UUID
-from typing import Set
+from typing import Dict, Any, List
 
 from api.infrastructure.runners.katana_cli import KatanaCliRunner
 from api.infrastructure.events.event_bus import EventBus
@@ -14,12 +14,11 @@ logger = logging.getLogger(__name__)
 class KatanaScanService:
     """
     Service for Katana web crawling.
-    Discovers URLs via active crawling, deduplicates, and publishes batches to EventBus.
+    Publishes batched JSON results to EventBus for KatanaResultIngestor.
     """
 
-    BATCH_SIZE_MIN = 50
-    BATCH_SIZE_MAX = 100
-    BATCH_TIMEOUT = 10.0
+    RESULT_BATCH_SIZE = 100
+    RESULT_BATCH_TIMEOUT = 10.0
 
     def __init__(self, runner: KatanaCliRunner, bus: EventBus):
         self.runner = runner
@@ -74,56 +73,45 @@ class KatanaScanService:
     ):
         """Background task for Katana crawl execution"""
         try:
-            urls_found = 0
+            results_count = 0
             batches_published = 0
-            seen_urls: Set[str] = set()
 
-            async for batch in self._batch_urls(program_id, targets, depth, js_crawl, headless, seen_urls):
+            async for batch in self._batch_results(targets, depth, js_crawl, headless):
                 if batch:
                     await self._publish_batch(program_id, batch)
                     batches_published += 1
-                    urls_found += len(batch)
+                    results_count += len(batch)
 
             logger.info(
                 f"Katana scan completed: program={program_id} targets={len(targets)} "
-                f"urls={urls_found} batches={batches_published}"
+                f"results={results_count} batches={batches_published}"
             )
         except Exception as e:
             logger.error(f"Katana scan failed: program={program_id} targets={len(targets)} error={e}")
 
-    async def _batch_urls(
+    async def _batch_results(
         self,
-        program_id: UUID,
         targets: list[str],
         depth: int,
         js_crawl: bool,
         headless: bool,
-        seen_urls: Set[str],
     ):
         """
-        Collect URLs from katana and yield them in batches.
-        Deduplicates URLs in-memory.
+        Collect Katana JSON results and yield them in batches.
         """
-        batch = []
+        batch: List[Dict[str, Any]] = []
         last_batch_time = asyncio.get_event_loop().time()
 
         async for event in self.runner.run(targets, depth, js_crawl, headless):
-            if event.type != "url":
+            if event.type != "result" or not event.payload:
                 continue
 
-            url = event.payload
-            if url in seen_urls:
-                continue
-
-            seen_urls.add(url)
-            batch.append(url)
+            batch.append(event.payload)
 
             current_time = asyncio.get_event_loop().time()
             time_elapsed = current_time - last_batch_time
 
-            if len(batch) >= self.BATCH_SIZE_MAX or (
-                len(batch) >= self.BATCH_SIZE_MIN and time_elapsed >= self.BATCH_TIMEOUT
-            ):
+            if len(batch) >= self.RESULT_BATCH_SIZE or time_elapsed >= self.RESULT_BATCH_TIMEOUT:
                 yield batch
                 batch = []
                 last_batch_time = current_time
@@ -131,13 +119,13 @@ class KatanaScanService:
         if batch:
             yield batch
 
-    async def _publish_batch(self, program_id: UUID, urls: list[str]):
-        """Publish URL batch to EventBus for HTTPX processing"""
+    async def _publish_batch(self, program_id: UUID, results: List[Dict[str, Any]]):
+        """Publish result batch to EventBus for KatanaResultIngestor"""
         await self.bus.publish(
-            "katana_discovered",
+            "katana_results_batch",
             {
                 "program_id": str(program_id),
-                "urls": urls,
+                "results": results,
             },
         )
-        logger.debug(f"Published URL batch: program={program_id} count={len(urls)}")
+        logger.debug(f"Published Katana results batch: program={program_id} count={len(results)}")

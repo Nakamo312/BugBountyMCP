@@ -76,36 +76,9 @@ class KatanaCliRunner:
             if not line:
                 continue
 
-            url = self._extract_url(line)
-            if url and self._is_valid_url(url):
-                yield ProcessEvent(type="url", payload=url)
-
-    def _extract_url(self, line: str) -> str | None:
-        """
-        Extract URL from katana JSON output.
-        Katana outputs JSONL with endpoint in request field.
-        """
-        try:
-            import json
-            data = json.loads(line)
-            return data.get("request", {}).get("endpoint") or data.get("url")
-        except (json.JSONDecodeError, KeyError):
-            if line.startswith("http://") or line.startswith("https://"):
-                return line
-            return None
-
-    def _is_valid_url(self, value: str) -> bool:
-        """
-        Validate if string looks like a URL.
-        Filters out error messages and non-URL output.
-        """
-        if not value or len(value) > 2048:
-            return False
-
-        if any(keyword in value.lower() for keyword in ["error", "failed", "no such file", "usage:", "flag"]):
-            return False
-
-        if not value.startswith(("http://", "https://")):
-            return False
-
-        return True
+            try:
+                import json
+                json_data = json.loads(line)
+                yield ProcessEvent(type="result", payload=json_data)
+            except json.JSONDecodeError:
+                logger.debug("Non-JSON stdout line skipped: %r", line)
