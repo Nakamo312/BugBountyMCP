@@ -121,13 +121,17 @@ class Orchestrator:
 
     async def handle_katana_results_batch(self, event: Dict[str, Any]):
         """Handle batched Katana scan results"""
-        async with self.container() as request_container:
-            ingestor = await request_container.get(KatanaResultIngestor)
-            program_id = UUID(event["program_id"])
-            results = event["results"]
+        try:
+            async with self.container() as request_container:
+                ingestor = await request_container.get(KatanaResultIngestor)
+                program_id = UUID(event["program_id"])
+                results = event["results"]
 
-            logger.info(f"Ingesting Katana results batch: program={program_id} count={len(results)}")
-            await ingestor.ingest(program_id, results)
+                logger.info(f"Ingesting Katana results batch: program={program_id} count={len(results)}")
+                await ingestor.ingest(program_id, results)
+                logger.info(f"Katana results ingested successfully: program={program_id} count={len(results)}")
+        except Exception as exc:
+            logger.error(f"Failed to ingest Katana results: error={exc}", exc_info=True)
 
     async def handle_host_discovered(self, event: Dict[str, Any]):
         """
