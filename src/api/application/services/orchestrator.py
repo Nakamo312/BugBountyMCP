@@ -6,7 +6,9 @@ from dishka import AsyncContainer
 
 from api.config import Settings
 from api.infrastructure.events.event_bus import EventBus
+from api.infrastructure.events.event_types import EventType
 from api.application.services.httpx import HTTPXScanService
+from api.application.services.katana import KatanaScanService
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
 
@@ -28,22 +30,22 @@ class Orchestrator:
     async def start(self):
         await self.bus.connect()
         asyncio.create_task(
-            self.bus.subscribe("service_events", self.handle_service_event)
+            self.bus.subscribe(EventType.SERVICE_EVENTS, self.handle_service_event)
         )
         asyncio.create_task(
-            self.bus.subscribe("scan_results_batch", self.handle_scan_results_batch)
+            self.bus.subscribe(EventType.SCAN_RESULTS_BATCH, self.handle_scan_results_batch)
         )
         asyncio.create_task(
-            self.bus.subscribe("subdomain_discovered", self.handle_subdomain_discovered)
+            self.bus.subscribe(EventType.SUBDOMAIN_DISCOVERED, self.handle_subdomain_discovered)
         )
         asyncio.create_task(
-            self.bus.subscribe("gau_discovered", self.handle_gau_discovered)
+            self.bus.subscribe(EventType.GAU_DISCOVERED, self.handle_gau_discovered)
         )
         asyncio.create_task(
-            self.bus.subscribe("katana_results_batch", self.handle_katana_results_batch)
+            self.bus.subscribe(EventType.KATANA_RESULTS_BATCH, self.handle_katana_results_batch)
         )
         asyncio.create_task(
-            self.bus.subscribe("host_discovered", self.handle_host_discovered)
+            self.bus.subscribe(EventType.HOST_DISCOVERED, self.handle_host_discovered)
         )
 
     async def handle_service_event(self, event: Dict[str, Any]):
@@ -150,7 +152,6 @@ class Orchestrator:
 
         async with self._scan_semaphore:
             async with self.container() as request_container:
-                from api.application.services.katana import KatanaScanService
                 katana_service = await request_container.get(KatanaScanService)
 
                 logger.info(f"Starting Katana crawl for new hosts: program={program_id} hosts={len(hosts)}")

@@ -2,10 +2,11 @@
 import asyncio
 import logging
 from uuid import UUID
-from typing import Set
 
 from api.infrastructure.runners.gau_cli import GAUCliRunner
+from api.application.services.batch_processor import GAUBatchProcessor
 from api.infrastructure.events.event_bus import EventBus
+from api.infrastructure.events.event_types import EventType
 from api.application.dto.scan_dto import GAUScanOutputDTO
 
 logger = logging.getLogger(__name__)
@@ -17,12 +18,9 @@ class GAUScanService:
     Discovers URLs from web archives, deduplicates, and publishes batches to EventBus.
     """
 
-    BATCH_SIZE_MIN = 50
-    BATCH_SIZE_MAX = 100
-    BATCH_TIMEOUT = 10.0
-
-    def __init__(self, runner: GAUCliRunner, bus: EventBus):
+    def __init__(self, runner: GAUCliRunner, processor: GAUBatchProcessor, bus: EventBus):
         self.runner = runner
+        self.processor = processor
         self.bus = bus
 
     async def execute(self, program_id: UUID, domain: str, include_subs: bool = True) -> GAUScanOutputDTO:
@@ -53,9 +51,8 @@ class GAUScanService:
         try:
             urls_found = 0
             batches_published = 0
-            seen_urls: Set[str] = set()
 
-            async for batch in self._batch_urls(program_id, domain, include_subs, seen_urls):
+            async for batch in self.processor.batch_stream(self.runner.run(domain, include_subs)):
                 if batch:
                     await self._publish_batch(program_id, batch)
                     batches_published += 1
@@ -68,40 +65,10 @@ class GAUScanService:
         except Exception as e:
             logger.error(f"GAU scan failed: program={program_id} domain={domain} error={e}")
 
-    async def _batch_urls(self, program_id: UUID, domain: str, include_subs: bool, seen_urls: Set[str]):
-        """
-        Collect URLs from gau and yield them in batches.
-        Deduplicates URLs in-memory.
-        """
-        batch = []
-        last_batch_time = asyncio.get_event_loop().time()
-
-        async for event in self.runner.run(domain, include_subs):
-            if event.type != "url":
-                continue
-
-            url = event.payload
-            if url in seen_urls:
-                continue
-
-            seen_urls.add(url)
-            batch.append(url)
-
-            current_time = asyncio.get_event_loop().time()
-            time_elapsed = current_time - last_batch_time
-
-            if len(batch) >= self.BATCH_SIZE_MAX or (len(batch) >= self.BATCH_SIZE_MIN and time_elapsed >= self.BATCH_TIMEOUT):
-                yield batch
-                batch = []
-                last_batch_time = current_time
-
-        if batch:
-            yield batch
-
     async def _publish_batch(self, program_id: UUID, urls: list[str]):
         """Publish URL batch to EventBus for HTTPX processing"""
         await self.bus.publish(
-            "gau_discovered",
+            EventType.GAU_DISCOVERED,
             {
                 "program_id": str(program_id),
                 "urls": urls,

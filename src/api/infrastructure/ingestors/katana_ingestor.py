@@ -3,36 +3,27 @@ from uuid import UUID
 from urllib.parse import urlparse, parse_qs
 import logging
 
+from api.config import Settings
 from api.infrastructure.unit_of_work.interfaces.katana import KatanaUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
+from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 
-BATCH_SIZE = 50
 logger = logging.getLogger(__name__)
 
 
-class KatanaResultIngestor:
+class KatanaResultIngestor(BaseResultIngestor):
     """
     Handles batch ingestion of Katana crawl results into domain entities.
     Uses savepoints to allow partial success without rolling back entire transaction.
     """
 
-    def __init__(self, uow: KatanaUnitOfWork):
-        self.uow = uow
+    def __init__(self, uow: KatanaUnitOfWork, settings: Settings):
+        super().__init__(uow, settings.KATANA_INGESTOR_BATCH_SIZE)
 
-    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]):
-        async with self.uow as uow:
-            for batch_index, batch in enumerate(self._chunks(results, BATCH_SIZE)):
-                savepoint_name = f"batch_{batch_index}"
-                await uow.create_savepoint(savepoint_name)
-
-                try:
-                    for data in batch:
-                        await self._process_record(uow, program_id, data)
-                    await uow.release_savepoint(savepoint_name)
-                except Exception as exc:
-                    await uow.rollback_to_savepoint(savepoint_name)
-                    logger.error("Batch %d failed: %s", batch_index, exc)
-            await uow.commit()
+    async def _process_batch(self, uow: KatanaUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
+        """Process a batch of Katana results"""
+        for data in batch:
+            await self._process_record(uow, program_id, data)
 
     async def _process_record(
         self,
@@ -66,7 +57,10 @@ class KatanaResultIngestor:
         if not ip:
             return
 
-        service = await uow.services.ensure(ip_id=ip.id, scheme=scheme, port=port)
+        service = await uow.services.get_by_fields(ip_id=ip.id, scheme=scheme, port=port)
+        if not service:
+            return
+
         endpoint = await self._ensure_endpoint(uow, host, service, request, response, path)
 
         await self._process_query_params(uow, endpoint, service, query_string)
@@ -137,7 +131,3 @@ class KatanaResultIngestor:
                 name=name.lower(),
                 value=str(value),
             )
-
-    def _chunks(self, data: List[Any], size: int):
-        for i in range(0, len(data), size):
-            yield data[i:i + size]

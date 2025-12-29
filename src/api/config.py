@@ -24,6 +24,28 @@ class Settings(BaseSettings):
     ORCHESTRATOR_MAX_CONCURRENT: int = 2
     ORCHESTRATOR_SCAN_DELAY: float = 30.0
 
+    # Batch processing settings
+    SUBFINDER_BATCH_MIN: int = 50
+    SUBFINDER_BATCH_MAX: int = 200
+    SUBFINDER_BATCH_TIMEOUT: float = 10.0
+
+    HTTPX_BATCH_MIN: int = 100
+    HTTPX_BATCH_MAX: int = 100
+    HTTPX_BATCH_TIMEOUT: float = 10.0
+
+    GAU_BATCH_MIN: int = 100
+    GAU_BATCH_MAX: int = 200
+    GAU_BATCH_TIMEOUT: float = 15.0
+
+    KATANA_BATCH_MIN: int = 100
+    KATANA_BATCH_MAX: int = 100
+    KATANA_BATCH_TIMEOUT: float = 10.0
+
+    # Ingestor settings
+    HTTPX_INGESTOR_BATCH_SIZE: int = 50
+    HTTPX_NEW_HOST_BATCH_SIZE: int = 50
+    KATANA_INGESTOR_BATCH_SIZE: int = 50
+
     @property
     def postgres_dsn(self) -> str:
         return (

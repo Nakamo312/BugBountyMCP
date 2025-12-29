@@ -2,48 +2,45 @@ from typing import List, Dict, Any, Set
 from uuid import UUID
 import logging
 
+from api.config import Settings
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
 from api.infrastructure.events.event_bus import EventBus
+from api.infrastructure.events.event_types import EventType
+from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 
-BATCH_SIZE = 50
-NEW_HOST_BATCH_SIZE = 10
 logger = logging.getLogger(__name__)
 
 
-class HTTPXResultIngestor:
+class HTTPXResultIngestor(BaseResultIngestor):
     """
     Handles batch ingestion of HTTPX scan results into domain entities.
     Uses savepoints to allow partial success without rolling back entire transaction.
     Publishes events for newly discovered hosts with active services.
     """
 
-    def __init__(self, uow: HTTPXUnitOfWork, bus: EventBus):
-        self.uow = uow
+    def __init__(self, uow: HTTPXUnitOfWork, bus: EventBus, settings: Settings):
+        super().__init__(uow, settings.HTTPX_INGESTOR_BATCH_SIZE)
         self.bus = bus
+        self.settings = settings
+        self._new_hosts: Set[str] = set()
+        self._seen_hosts: Set[str] = set()
 
     async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]):
-        new_hosts: Set[str] = set()
-        seen_hosts: Set[str] = set()
+        self._new_hosts = set()
+        self._seen_hosts = set()
 
-        async with self.uow as uow:
-            for batch_index, batch in enumerate(self._chunks(results, BATCH_SIZE)):
-                savepoint_name = f"batch_{batch_index}"
-                await uow.create_savepoint(savepoint_name)
+        await super().ingest(program_id, results)
 
-                try:
-                    for data in batch:
-                        host_url, is_new = await self._process_record(uow, program_id, data, seen_hosts)
-                        if host_url and is_new:
-                            new_hosts.add(host_url)
-                    await uow.release_savepoint(savepoint_name)
-                except Exception as exc:
-                    await uow.rollback_to_savepoint(savepoint_name)
-                    logger.error("Batch %d failed: %s", batch_index, exc)
-            await uow.commit()
+        if self._new_hosts:
+            await self._publish_new_hosts(program_id, list(self._new_hosts))
 
-        if new_hosts:
-            await self._publish_new_hosts(program_id, list(new_hosts))
+    async def _process_batch(self, uow: HTTPXUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
+        """Process a batch of HTTPX results"""
+        for data in batch:
+            host_url, is_new = await self._process_record(uow, program_id, data, self._seen_hosts)
+            if host_url and is_new:
+                self._new_hosts.add(host_url)
 
     async def _process_record(
         self,
@@ -153,17 +150,12 @@ class HTTPXResultIngestor:
 
     async def _publish_new_hosts(self, program_id: UUID, hosts: List[str]):
         """Publish newly discovered active hosts to EventBus for Katana crawling"""
-        for batch in self._chunks(hosts, NEW_HOST_BATCH_SIZE):
+        for batch in self._chunks(hosts, self.settings.HTTPX_NEW_HOST_BATCH_SIZE):
             await self.bus.publish(
-                "host_discovered",
+                EventType.HOST_DISCOVERED,
                 {
                     "program_id": str(program_id),
                     "hosts": batch,
                 },
             )
             logger.info(f"Published new hosts batch: program={program_id} count={len(batch)}")
-
-    def _chunks(self, data: List[Any], size: int):
-        """Split data into chunks of given size"""
-        for i in range(0, len(data), size):
-            yield data[i:i + size]
