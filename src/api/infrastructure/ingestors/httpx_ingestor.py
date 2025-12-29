@@ -74,7 +74,7 @@ class HTTPXResultIngestor(BaseResultIngestor):
         status_code = data.get("status_code")
         if status_code and 200 <= status_code < 400 and is_new_host:
             scheme = data.get("scheme", "http")
-            port = data.get("port", 80 if scheme == "http" else 443)
+            port = int(data.get("port", 80 if scheme == "http" else 443))
 
             if port in (80, 443):
                 return f"{scheme}://{host_name}", True
