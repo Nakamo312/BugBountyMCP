@@ -57,11 +57,27 @@ class CommandExecutor:
 
         try:
             async with asyncio.timeout(self.timeout):
-                # 🔥 корректный стрим stdout / stderr
-                async for event in self._stream_output():
-                    yield event
+                # Create task to wait for process completion
+                wait_task = asyncio.create_task(self.process.wait())
 
-                return_code = await self.process.wait()
+                # Stream output and check if process finished
+                try:
+                    async for event in self._stream_output():
+                        yield event
+                        # If process finished, stop waiting for streams
+                        if wait_task.done():
+                            logger.info("Process finished, breaking from stream loop")
+                            break
+                except Exception as e:
+                    logger.error(f"Error in stream output: {e}")
+                    raise
+
+                # Ensure process is finished
+                if not wait_task.done():
+                    return_code = await wait_task
+                else:
+                    return_code = wait_task.result()
+
                 self.state = ProcessState.TERMINATED
                 yield ProcessEvent(type="terminated")
 
