@@ -4,6 +4,12 @@ from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
+    model_config = ConfigDict(
+        extra='ignore',
+        env_file=".env",
+        env_file_encoding="utf-8"
+    )
+
     API_HOST: str
     API_PORT: int
 
@@ -54,6 +60,13 @@ class Settings(BaseSettings):
         )
 
     @property
+    def postgres_dsn_sync(self) -> str:
+        return (
+            f"postgresql+psycopg2://{self.POSTGRES_USER}:"
+            f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        )
+
+    @property
     def rabbitmq_url(self) -> str:
         return (
             f"amqp://{self.RABBITMQ_USER}:{self.RABBITMQ_PASSWORD}"
@@ -81,10 +94,5 @@ class Settings(BaseSettings):
         if os.path.exists(shared_path):
             return shared_path
         return relative_path
-
-    model_config = ConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8"
-    )
 
 settings = Settings()
