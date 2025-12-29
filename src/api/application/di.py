@@ -202,6 +202,7 @@ class ServiceProvider(Provider):
 
 class OrchestratorProvider(Provider):
     scope = Scope.APP
+    settings = from_context(provides=Settings)
 
     @provide(scope=Scope.APP)
     def get_orchestrator(
