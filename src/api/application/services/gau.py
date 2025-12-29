@@ -17,9 +17,9 @@ class GAUScanService:
     Discovers URLs from web archives, deduplicates, and publishes batches to EventBus.
     """
 
-    BATCH_SIZE_MIN = 10
-    BATCH_SIZE_MAX = 50
-    BATCH_TIMEOUT = 5.0
+    BATCH_SIZE_MIN = 50
+    BATCH_SIZE_MAX = 100
+    BATCH_TIMEOUT = 10.0
 
     def __init__(self, runner: GAUCliRunner, bus: EventBus):
         self.runner = runner

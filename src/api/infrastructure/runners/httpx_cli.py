@@ -12,6 +12,9 @@ class HTTPXCliRunner:
         self.timeout = timeout
 
     async def run(self, targets: List[str] | str) -> AsyncIterator[ProcessEvent]:
+        target_count = 1 if isinstance(targets, str) else len(targets)
+        thread_count = min(target_count, 20)
+
         command = [
             self.httpx_path,
             "-json",
@@ -24,6 +27,7 @@ class HTTPXCliRunner:
             "-asn",
             "-follow-redirects",
             "-filter-duplicates",
+            "-t", str(thread_count),
             "-s"
         ]
 

@@ -1,7 +1,7 @@
 """HTTPX Scan Service - Event-driven architecture"""
 import asyncio
 import logging
-from typing import List
+from typing import List, Dict, Any
 from uuid import UUID
 
 from api.application.dto import HTTPXScanOutputDTO
@@ -14,8 +14,11 @@ logger = logging.getLogger(__name__)
 class HTTPXScanService:
     """
     Event-driven service for HTTPX scans.
-    Publishes results to EventBus as they are discovered.
+    Batches results before publishing to EventBus for better performance.
     """
+
+    RESULT_BATCH_SIZE = 100
+    RESULT_BATCH_TIMEOUT = 10.0
 
     def __init__(self, runner: HTTPXCliRunner, bus: EventBus):
         self.runner = runner
@@ -46,19 +49,60 @@ class HTTPXScanService:
 
     async def _run_scan(self, program_id: UUID, targets: List[str]):
         """
-        Background task that runs the actual scan.
+        Background task that runs the actual scan with result batching.
         """
         results_count = 0
+        batches_published = 0
 
         try:
-            async for event in self.runner.run(targets):
-                if event.type == "result" and event.payload:
-                    await self.bus.publish("scan_results", {
-                        "program_id": str(program_id),
-                        "result": event.payload
-                    })
-                    results_count += 1
+            async for batch in self._batch_results(targets):
+                if batch:
+                    await self._publish_batch(program_id, batch)
+                    batches_published += 1
+                    results_count += len(batch)
 
-            logger.info(f"HTTPX scan completed: program={program_id} results={results_count}")
+            logger.info(
+                f"HTTPX scan completed: program={program_id} "
+                f"results={results_count} batches={batches_published}"
+            )
         except Exception as e:
             logger.error(f"HTTPX scan failed: program={program_id} error={e}", exc_info=True)
+
+    async def _batch_results(
+        self,
+        targets: List[str],
+    ):
+        """
+        Collect HTTPX results and yield them in batches.
+        Similar to GAU/Katana batching strategy.
+        """
+        batch: List[Dict[str, Any]] = []
+        last_batch_time = asyncio.get_event_loop().time()
+
+        async for event in self.runner.run(targets):
+            if event.type != "result" or not event.payload:
+                continue
+
+            batch.append(event.payload)
+
+            current_time = asyncio.get_event_loop().time()
+            time_elapsed = current_time - last_batch_time
+
+            if len(batch) >= self.RESULT_BATCH_SIZE or time_elapsed >= self.RESULT_BATCH_TIMEOUT:
+                yield batch
+                batch = []
+                last_batch_time = current_time
+
+        if batch:
+            yield batch
+
+    async def _publish_batch(self, program_id: UUID, results: List[Dict[str, Any]]):
+        """Publish batch of results to EventBus"""
+        await self.bus.publish(
+            "scan_results_batch",
+            {
+                "program_id": str(program_id),
+                "results": results,
+            },
+        )
+        logger.debug(f"Published HTTPX results batch: program={program_id} count={len(results)}")

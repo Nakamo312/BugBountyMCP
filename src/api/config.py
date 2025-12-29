@@ -21,6 +21,8 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str
     TOOLS_PATH_PREFIX: str
+    ORCHESTRATOR_MAX_CONCURRENT: int = 2
+    ORCHESTRATOR_SCAN_DELAY: float = 30.0
 
     @property
     def postgres_dsn(self) -> str:

@@ -1,9 +1,10 @@
-import json
 from typing import Dict, Any
 import asyncio
 import logging
+from uuid import UUID
 from dishka import AsyncContainer
 
+from api.config import Settings
 from api.infrastructure.events.event_bus import EventBus
 from api.application.services.httpx import HTTPXScanService
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
@@ -15,12 +16,13 @@ class Orchestrator:
         self,
         bus: EventBus,
         container: AsyncContainer,
-        max_concurrent_scans: int = 3,
+        settings: Settings,
     ):
         self.bus = bus
         self.container = container
+        self.settings = settings
         self.tasks: set[asyncio.Task] = set()
-        self._scan_semaphore = asyncio.Semaphore(max_concurrent_scans)
+        self._scan_semaphore = asyncio.Semaphore(settings.ORCHESTRATOR_MAX_CONCURRENT)
 
     async def start(self):
         await self.bus.connect()
@@ -28,7 +30,7 @@ class Orchestrator:
             self.bus.subscribe("service_events", self.handle_service_event)
         )
         asyncio.create_task(
-            self.bus.subscribe("scan_results", self.handle_scan_result)
+            self.bus.subscribe("scan_results_batch", self.handle_scan_results_batch)
         )
         asyncio.create_task(
             self.bus.subscribe("subdomain_discovered", self.handle_subdomain_discovered)
@@ -38,6 +40,9 @@ class Orchestrator:
         )
         asyncio.create_task(
             self.bus.subscribe("katana_discovered", self.handle_katana_discovered)
+        )
+        asyncio.create_task(
+            self.bus.subscribe("host_discovered", self.handle_host_discovered)
         )
 
     async def handle_service_event(self, event: Dict[str, Any]):
@@ -49,14 +54,15 @@ class Orchestrator:
 
             await getattr(httpx_service, action)(**kwargs)
 
-    async def handle_scan_result(self, event: Dict[str, Any]):
+    async def handle_scan_results_batch(self, event: Dict[str, Any]):
+        """Handle batched HTTPX scan results"""
         async with self.container() as request_container:
             ingestor = await request_container.get(HTTPXResultIngestor)
-            result = event["result"]
-            if isinstance(result, str):
-                result = json.loads(result)
+            program_id = UUID(event["program_id"])
+            results = event["results"]
 
-            await ingestor.ingest(event["program_id"], [result])
+            logger.info(f"Ingesting HTTPX results batch: program={program_id} count={len(results)}")
+            await ingestor.ingest(program_id, results)
 
     async def handle_subdomain_discovered(self, event: Dict[str, Any]):
         """
@@ -135,3 +141,33 @@ class Orchestrator:
                 logger.info(f"Starting HTTPX scan for Katana batch: program={program_id} urls={len(urls)}")
 
                 await httpx_service.execute(program_id=program_id, targets=urls)
+
+    async def handle_host_discovered(self, event: Dict[str, Any]):
+        """
+        Handle new host discovery events by triggering Katana crawls.
+        Creates background task to avoid blocking queue processing.
+        """
+        program_id = event["program_id"]
+        hosts = event["hosts"]
+
+        logger.info(f"Received new hosts for program {program_id}: {len(hosts)} hosts")
+
+        task = asyncio.create_task(self._process_host_batch(program_id, hosts))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+
+    async def _process_host_batch(self, program_id: str, hosts: list[str]):
+        """
+        Process new host batch by launching Katana crawl with rate limiting.
+        Delay prevents cascading load from newly discovered hosts.
+        """
+        await asyncio.sleep(self.settings.ORCHESTRATOR_SCAN_DELAY)
+
+        async with self._scan_semaphore:
+            async with self.container() as request_container:
+                from api.application.services.katana import KatanaScanService
+                katana_service = await request_container.get(KatanaScanService)
+
+                logger.info(f"Starting Katana crawl for new hosts: program={program_id} hosts={len(hosts)}")
+
+                await katana_service.execute(program_id=program_id, targets=hosts)
