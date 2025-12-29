@@ -5,7 +5,9 @@ from uuid import UUID
 from typing import Dict, Any, List
 
 from api.infrastructure.runners.katana_cli import KatanaCliRunner
+from api.application.services.batch_processor import KatanaBatchProcessor
 from api.infrastructure.events.event_bus import EventBus
+from api.infrastructure.events.event_types import EventType
 from api.application.dto.scan_dto import KatanaScanOutputDTO
 
 logger = logging.getLogger(__name__)
@@ -17,11 +19,9 @@ class KatanaScanService:
     Publishes batched JSON results to EventBus for KatanaResultIngestor.
     """
 
-    RESULT_BATCH_SIZE = 100
-    RESULT_BATCH_TIMEOUT = 10.0
-
-    def __init__(self, runner: KatanaCliRunner, bus: EventBus):
+    def __init__(self, runner: KatanaCliRunner, processor: KatanaBatchProcessor, bus: EventBus):
         self.runner = runner
+        self.processor = processor
         self.bus = bus
 
     async def execute(
@@ -76,7 +76,7 @@ class KatanaScanService:
             results_count = 0
             batches_published = 0
 
-            async for batch in self._batch_results(targets, depth, js_crawl, headless):
+            async for batch in self.processor.batch_stream(self.runner.run(targets, depth, js_crawl, headless)):
                 if batch:
                     await self._publish_batch(program_id, batch)
                     batches_published += 1
@@ -89,40 +89,10 @@ class KatanaScanService:
         except Exception as e:
             logger.error(f"Katana scan failed: program={program_id} targets={len(targets)} error={e}")
 
-    async def _batch_results(
-        self,
-        targets: list[str],
-        depth: int,
-        js_crawl: bool,
-        headless: bool,
-    ):
-        """
-        Collect Katana JSON results and yield them in batches.
-        """
-        batch: List[Dict[str, Any]] = []
-        last_batch_time = asyncio.get_event_loop().time()
-
-        async for event in self.runner.run(targets, depth, js_crawl, headless):
-            if event.type != "result" or not event.payload:
-                continue
-
-            batch.append(event.payload)
-
-            current_time = asyncio.get_event_loop().time()
-            time_elapsed = current_time - last_batch_time
-
-            if len(batch) >= self.RESULT_BATCH_SIZE or time_elapsed >= self.RESULT_BATCH_TIMEOUT:
-                yield batch
-                batch = []
-                last_batch_time = current_time
-
-        if batch:
-            yield batch
-
     async def _publish_batch(self, program_id: UUID, results: List[Dict[str, Any]]):
         """Publish result batch to EventBus for KatanaResultIngestor"""
         await self.bus.publish(
-            "katana_results_batch",
+            EventType.KATANA_RESULTS_BATCH,
             {
                 "program_id": str(program_id),
                 "results": results,

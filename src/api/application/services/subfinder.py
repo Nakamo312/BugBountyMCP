@@ -1,11 +1,13 @@
 """Subfinder Scan Service - Event-driven architecture"""
 import asyncio
 import logging
-from typing import AsyncIterator, List
+from typing import List
 from uuid import UUID
 
 from api.application.dto import SubfinderScanOutputDTO
+from api.application.services.batch_processor import SubfinderBatchProcessor
 from api.infrastructure.events.event_bus import EventBus
+from api.infrastructure.events.event_types import EventType
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 
 logger = logging.getLogger(__name__)
@@ -17,12 +19,9 @@ class SubfinderScanService:
     Publishes batches of discovered subdomains to EventBus for HTTPX processing.
     """
 
-    BATCH_SIZE_MIN = 10
-    BATCH_SIZE_MAX = 50
-    BATCH_TIMEOUT = 5.0
-
-    def __init__(self, runner: SubfinderCliRunner, bus: EventBus):
+    def __init__(self, runner: SubfinderCliRunner, processor: SubfinderBatchProcessor, bus: EventBus):
         self.runner = runner
+        self.processor = processor
         self.bus = bus
 
     async def execute(self, program_id: UUID, domain: str) -> SubfinderScanOutputDTO:
@@ -56,7 +55,7 @@ class SubfinderScanService:
         batches_published = 0
 
         try:
-            async for batch in self._batch_subdomains(domain):
+            async for batch in self.processor.batch_stream(self.runner.run(domain)):
                 if batch:
                     await self._publish_batch(program_id, batch)
                     total_subdomains += len(batch)
@@ -70,34 +69,6 @@ class SubfinderScanService:
         except Exception as e:
             logger.error(f"Subfinder scan failed: program={program_id} domain={domain} error={e}", exc_info=True)
 
-    async def _batch_subdomains(self, domain: str) -> AsyncIterator[List[str]]:
-        """
-        Collect subdomains into optimally-sized batches.
-
-        Yields:
-            Batches of subdomains (10-50 domains per batch)
-        """
-        batch = []
-        last_batch_time = asyncio.get_event_loop().time()
-
-        async for event in self.runner.run(domain):
-            if event.type == "subdomain" and event.payload:
-                batch.append(event.payload)
-
-                if len(batch) >= self.BATCH_SIZE_MAX:
-                    yield batch
-                    batch = []
-                    last_batch_time = asyncio.get_event_loop().time()
-
-                elif (len(batch) >= self.BATCH_SIZE_MIN and
-                      asyncio.get_event_loop().time() - last_batch_time >= self.BATCH_TIMEOUT):
-                    yield batch
-                    batch = []
-                    last_batch_time = asyncio.get_event_loop().time()
-
-        if batch:
-            yield batch
-
     async def _publish_batch(self, program_id: UUID, subdomains: List[str]):
         """
         Publish batch of subdomains to EventBus.
@@ -106,7 +77,7 @@ class SubfinderScanService:
             program_id: Program identifier
             subdomains: List of discovered subdomains
         """
-        await self.bus.publish("subdomain_discovered", {
+        await self.bus.publish(EventType.SUBDOMAIN_DISCOVERED, {
             "program_id": str(program_id),
             "subdomains": subdomains,
             "timestamp": asyncio.get_event_loop().time()
