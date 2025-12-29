@@ -93,8 +93,8 @@ class IngestorProvider(Provider):
     scope = Scope.REQUEST
 
     @provide(scope=Scope.REQUEST)
-    def get_httpx_ingestor(self, scan_uow: SQLAlchemyHTTPXUnitOfWork) -> HTTPXResultIngestor:
-        return HTTPXResultIngestor(uow=scan_uow)
+    def get_httpx_ingestor(self, scan_uow: SQLAlchemyHTTPXUnitOfWork, event_bus: EventBus) -> HTTPXResultIngestor:
+        return HTTPXResultIngestor(uow=scan_uow, bus=event_bus)
 
 
 class ServiceProvider(Provider):
@@ -156,6 +156,11 @@ class OrchestratorProvider(Provider):
     def get_orchestrator(
         self,
         bus: EventBus,
-        container: AsyncContainer,  
+        container: AsyncContainer,
+        settings: Settings,
     ) -> Orchestrator:
-        return Orchestrator(bus=bus, container=container)
+        return Orchestrator(
+            bus=bus,
+            container=container,
+            settings=settings
+        )

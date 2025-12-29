@@ -20,16 +20,16 @@ class KatanaCliRunner:
 
     async def run(
         self,
-        target: str,
+        targets: list[str] | str,
         depth: int = 3,
         js_crawl: bool = True,
         headless: bool = False,
     ) -> AsyncIterator[ProcessEvent]:
         """
-        Execute katana crawler for the given target.
+        Execute katana crawler for the given targets.
 
         Args:
-            target: Target URL to crawl
+            targets: Single target URL or list of target URLs to crawl
             depth: Maximum crawl depth (default: 3)
             js_crawl: Enable JavaScript endpoint parsing (default: True)
             headless: Enable headless browser crawling (default: False)
@@ -37,9 +37,14 @@ class KatanaCliRunner:
         Yields:
             ProcessEvent with type="url" and payload=discovered_url
         """
+        if isinstance(targets, str):
+            targets = [targets]
+
+        stdin_input = "\n".join(targets)
+
         command = [
             self.katana_path,
-            "-u", target,
+            "-list", "-",
             "-d", str(depth),
             "-silent",
             "-jsonl",
@@ -56,9 +61,9 @@ class KatanaCliRunner:
         if headless:
             command.extend(["-hl", "-nos"])
 
-        logger.info("Starting Katana command: %s", " ".join(command))
+        logger.info("Starting Katana command for %d targets: %s", len(targets), " ".join(command))
 
-        executor = CommandExecutor(command, stdin=None, timeout=self.timeout)
+        executor = CommandExecutor(command, stdin=stdin_input, timeout=self.timeout)
 
         async for event in executor.run():
             if event.type != "stdout":

@@ -17,9 +17,9 @@ class KatanaScanService:
     Discovers URLs via active crawling, deduplicates, and publishes batches to EventBus.
     """
 
-    BATCH_SIZE_MIN = 10
-    BATCH_SIZE_MAX = 50
-    BATCH_TIMEOUT = 5.0
+    BATCH_SIZE_MIN = 50
+    BATCH_SIZE_MAX = 100
+    BATCH_TIMEOUT = 10.0
 
     def __init__(self, runner: KatanaCliRunner, bus: EventBus):
         self.runner = runner
@@ -28,17 +28,17 @@ class KatanaScanService:
     async def execute(
         self,
         program_id: UUID,
-        target: str,
+        targets: list[str] | str,
         depth: int = 3,
         js_crawl: bool = True,
         headless: bool = False,
     ) -> KatanaScanOutputDTO:
         """
-        Execute Katana crawl for target URL.
+        Execute Katana crawl for target URLs.
 
         Args:
             program_id: Target program ID
-            target: Target URL to crawl
+            targets: Single target URL or list of target URLs to crawl
             depth: Maximum crawl depth (default: 3)
             js_crawl: Enable JavaScript crawling (default: True)
             headless: Enable headless browser mode (default: False)
@@ -46,24 +46,28 @@ class KatanaScanService:
         Returns:
             DTO with scan status
         """
+        if isinstance(targets, str):
+            targets = [targets]
+
         logger.info(
-            f"Starting Katana scan: program={program_id} target={target} "
+            f"Starting Katana scan: program={program_id} targets={len(targets)} "
             f"depth={depth} js_crawl={js_crawl} headless={headless}"
         )
 
-        asyncio.create_task(self._run_scan(program_id, target, depth, js_crawl, headless))
+        asyncio.create_task(self._run_scan(program_id, targets, depth, js_crawl, headless))
 
+        target_desc = targets[0] if len(targets) == 1 else f"{len(targets)} targets"
         return KatanaScanOutputDTO(
             status="started",
-            message=f"Katana crawl started for {target}",
+            message=f"Katana crawl started for {target_desc}",
             scanner="katana",
-            target=target,
+            target=target_desc,
         )
 
     async def _run_scan(
         self,
         program_id: UUID,
-        target: str,
+        targets: list[str],
         depth: int,
         js_crawl: bool,
         headless: bool,
@@ -74,23 +78,23 @@ class KatanaScanService:
             batches_published = 0
             seen_urls: Set[str] = set()
 
-            async for batch in self._batch_urls(program_id, target, depth, js_crawl, headless, seen_urls):
+            async for batch in self._batch_urls(program_id, targets, depth, js_crawl, headless, seen_urls):
                 if batch:
                     await self._publish_batch(program_id, batch)
                     batches_published += 1
                     urls_found += len(batch)
 
             logger.info(
-                f"Katana scan completed: program={program_id} target={target} "
+                f"Katana scan completed: program={program_id} targets={len(targets)} "
                 f"urls={urls_found} batches={batches_published}"
             )
         except Exception as e:
-            logger.error(f"Katana scan failed: program={program_id} target={target} error={e}")
+            logger.error(f"Katana scan failed: program={program_id} targets={len(targets)} error={e}")
 
     async def _batch_urls(
         self,
         program_id: UUID,
-        target: str,
+        targets: list[str],
         depth: int,
         js_crawl: bool,
         headless: bool,
@@ -103,7 +107,7 @@ class KatanaScanService:
         batch = []
         last_batch_time = asyncio.get_event_loop().time()
 
-        async for event in self.runner.run(target, depth, js_crawl, headless):
+        async for event in self.runner.run(targets, depth, js_crawl, headless):
             if event.type != "url":
                 continue
 

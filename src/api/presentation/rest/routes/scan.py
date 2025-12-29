@@ -149,7 +149,7 @@ async def scan_katana(
     Start Katana crawl to discover URLs via active web crawling.
 
     - **program_id**: Program UUID
-    - **target**: Target URL to crawl
+    - **targets**: Single target URL or list of target URLs to crawl
     - **depth**: Maximum crawl depth (default: 3)
     - **js_crawl**: Enable JavaScript endpoint parsing (default: true)
     - **headless**: Enable headless browser mode (default: false)
@@ -158,9 +158,11 @@ async def scan_katana(
     Returns immediately. Discovered URLs are published to EventBus for HTTPX processing.
     """
     try:
+        targets = request.targets if isinstance(request.targets, list) else [request.targets]
+
         result = await katana_service.execute(
             program_id=UUID(request.program_id),
-            target=request.target,
+            targets=targets,
             depth=request.depth,
             js_crawl=request.js_crawl,
             headless=request.headless
