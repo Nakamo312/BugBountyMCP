@@ -29,13 +29,13 @@ class Settings(BaseSettings):
     SUBFINDER_BATCH_MAX: int = 200
     SUBFINDER_BATCH_TIMEOUT: float = 10.0
 
-    HTTPX_BATCH_MIN: int = 100
-    HTTPX_BATCH_MAX: int = 100
-    HTTPX_BATCH_TIMEOUT: float = 10.0
+    HTTPX_BATCH_MIN: int = 200
+    HTTPX_BATCH_MAX: int = 500
+    HTTPX_BATCH_TIMEOUT: float = 15.0
 
-    GAU_BATCH_MIN: int = 100
-    GAU_BATCH_MAX: int = 200
-    GAU_BATCH_TIMEOUT: float = 15.0
+    GAU_BATCH_MIN: int = 500
+    GAU_BATCH_MAX: int = 1000
+    GAU_BATCH_TIMEOUT: float = 20.0
 
     KATANA_BATCH_MIN: int = 100
     KATANA_BATCH_MAX: int = 100
