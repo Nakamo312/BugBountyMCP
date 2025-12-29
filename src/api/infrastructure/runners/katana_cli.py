@@ -41,6 +41,7 @@ class KatanaCliRunner:
             targets = [targets]
 
         stdin_input = "\n".join(targets)
+        logger.info(f"Katana stdin input: {stdin_input}")
 
         command = [
             self.katana_path,
@@ -78,7 +79,7 @@ class KatanaCliRunner:
                 continue
 
             line = event.payload.strip()
-            logger.info(f"[KATANA STDOUT] {line[:100]}")
+            logger.info(f"[KATANA STDOUT] {line}")
 
             if not line:
                 continue
