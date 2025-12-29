@@ -14,10 +14,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
 COPY main.py .
+COPY alembic/ ./alembic/
+COPY alembic.ini .
+COPY entrypoint.sh .
+
+RUN chmod +x entrypoint.sh
 
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
 EXPOSE 8000
 
+ENTRYPOINT ["./entrypoint.sh"]
 CMD ["python", "main.py"]
