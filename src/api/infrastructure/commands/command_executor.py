@@ -37,6 +37,7 @@ class CommandExecutor:
                 stdin=asyncio.subprocess.PIPE if self.stdin else None,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                limit=1024 * 1024,
             )
         except Exception as exc:
             self.state = ProcessState.FAILED
@@ -57,31 +58,30 @@ class CommandExecutor:
 
         try:
             async with asyncio.timeout(self.timeout):
-                # Create task to wait for process completion
                 wait_task = asyncio.create_task(self.process.wait())
 
-                # Stream output and check if process finished
                 try:
                     async for event in self._stream_output():
                         yield event
-                        # If process finished, stop waiting for streams
                         if wait_task.done():
-                            logger.info("Process finished, breaking from stream loop")
                             break
-                except Exception as e:
-                    logger.error(f"Error in stream output: {e}")
-                    raise
 
-                # Ensure process is finished
-                if not wait_task.done():
-                    return_code = await wait_task
-                else:
-                    return_code = wait_task.result()
+                    if not wait_task.done():
+                        return_code = await wait_task
+                    else:
+                        return_code = wait_task.result()
 
-                self.state = ProcessState.TERMINATED
-                yield ProcessEvent(type="terminated")
+                    self.state = ProcessState.TERMINATED
+                    yield ProcessEvent(type="terminated")
 
-                logger.info("Process finished with returncode=%s", return_code)
+                    logger.info("Process finished with returncode=%s", return_code)
+                finally:
+                    if not wait_task.done():
+                        wait_task.cancel()
+                        try:
+                            await wait_task
+                        except asyncio.CancelledError:
+                            pass
 
         except TimeoutError:
             self.state = ProcessState.TIMEOUT
@@ -110,20 +110,15 @@ class CommandExecutor:
             await self.process.wait()
 
     async def _stream_output(self) -> AsyncIterator[ProcessEvent]:
-        """
-        Stream stdout and stderr simultaneously without recreating iterators.
-        """
+        """Stream stdout and stderr simultaneously."""
         assert self.process is not None
 
         async def reader(stream, event_type):
-            count = 0
             async for line in stream:
                 text = line.decode(errors="ignore").strip()
                 if not text:
                     continue
-                count += 1
                 yield ProcessEvent(type=event_type, payload=text)
-            logger.info(f"Stream {event_type} finished after {count} non-empty lines")
 
         sentinel = object()
         stdout_iter = reader(self.process.stdout, "stdout")

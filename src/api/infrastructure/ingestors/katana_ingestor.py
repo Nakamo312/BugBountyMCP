@@ -52,24 +52,19 @@ class KatanaResultIngestor(BaseResultIngestor):
 
         host_ip_records = await uow.host_ips.find_many(filters={"host_id": host.id}, limit=1)
         if not host_ip_records:
-            logger.debug(f"No IP found for host {host_name}, skipping")
             return
         ip = await uow.ips.get(host_ip_records[0].ip_id)
         if not ip:
-            logger.debug(f"IP not found for host {host_name}, skipping")
             return
 
         service = await uow.services.get_by_fields(ip_id=ip.id, scheme=scheme, port=port)
         if not service:
-            logger.warning(f"Service not found for {host_name}:{port} ({scheme}), skipping endpoint {endpoint_url}")
             return
 
         endpoint = await self._ensure_endpoint(uow, host, service, request, response, path)
 
         await self._process_query_params(uow, endpoint, service, query_string)
         await self._process_headers(uow, endpoint, response)
-
-        logger.debug(f"Processed Katana endpoint: {endpoint_url}")
 
     async def _ensure_endpoint(
         self,

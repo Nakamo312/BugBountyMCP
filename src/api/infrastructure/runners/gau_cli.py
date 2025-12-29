@@ -59,7 +59,7 @@ class GAUCliRunner:
     def _is_valid_url(self, value: str) -> bool:
         """
         Validate if string looks like a URL.
-        Filters out error messages and non-URL output.
+        Filters out error messages, non-URL output, and static resources.
         """
         if not value or len(value) > 2048:
             return False
@@ -69,5 +69,18 @@ class GAUCliRunner:
 
         if not value.startswith(("http://", "https://")):
             return False
+
+        lower_value = value.lower()
+        static_patterns = [
+            ".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".ico",
+            ".woff", ".woff2", ".ttf", ".eot", ".otf",
+            ".mp4", ".mp3", ".avi", ".webm", ".flv", ".wav",
+            ".pdf", ".zip", ".tar", ".gz", ".rar", ".7z",
+            ".exe", ".dll", ".bin", ".dmg", ".iso"
+        ]
+
+        for pattern in static_patterns:
+            if pattern in lower_value:
+                return False
 
         return True
