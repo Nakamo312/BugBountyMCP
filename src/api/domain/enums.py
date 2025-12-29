@@ -51,12 +51,3 @@ class ScanStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
-
-class ProcessState(Enum):
-    CREATED = auto()
-    STARTING = auto()
-    RUNNING = auto()
-    TERMINATING = auto()
-    TERMINATED = auto()
-    FAILED = auto()
-    TIMEOUT = auto()
