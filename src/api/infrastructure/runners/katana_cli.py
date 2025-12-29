@@ -41,7 +41,6 @@ class KatanaCliRunner:
             targets = [targets]
 
         stdin_input = "\n".join(targets)
-        logger.info(f"Katana stdin input: {stdin_input}")
 
         command = [
             self.katana_path,
@@ -68,10 +67,6 @@ class KatanaCliRunner:
         result_count = 0
 
         async for event in executor.run():
-            if event.type == "stderr" and event.payload:
-                logger.info(f"[KATANA STDERR] {event.payload}")
-                continue
-
             if event.type != "stdout":
                 continue
 
@@ -79,8 +74,6 @@ class KatanaCliRunner:
                 continue
 
             line = event.payload.strip()
-            logger.info(f"[KATANA STDOUT] {line}")
-
             if not line:
                 continue
 
@@ -88,9 +81,7 @@ class KatanaCliRunner:
                 import json
                 json_data = json.loads(line)
                 result_count += 1
-                logger.debug("Katana result #%d: %s", result_count, json_data.get("request", {}).get("endpoint", "unknown"))
                 yield ProcessEvent(type="result", payload=json_data)
             except json.JSONDecodeError:
                 logger.warning("Non-JSON stdout line skipped: %r", line[:200])
 
-        logger.info("Katana finished: %d results yielded", result_count)
