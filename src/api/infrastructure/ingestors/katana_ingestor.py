@@ -7,6 +7,8 @@ from api.config import Settings
 from api.infrastructure.unit_of_work.interfaces.katana import KatanaUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
+from api.infrastructure.events.event_bus import EventBus
+from api.infrastructure.events.event_types import EventType
 
 logger = logging.getLogger(__name__)
 
@@ -15,15 +17,26 @@ class KatanaResultIngestor(BaseResultIngestor):
     """
     Handles batch ingestion of Katana crawl results into domain entities.
     Uses savepoints to allow partial success without rolling back entire transaction.
+    Detects JS files and publishes them for LinkFinder analysis.
     """
 
-    def __init__(self, uow: KatanaUnitOfWork, settings: Settings):
+    def __init__(self, uow: KatanaUnitOfWork, settings: Settings, bus: EventBus):
         super().__init__(uow, settings.KATANA_INGESTOR_BATCH_SIZE)
+        self.bus = bus
 
     async def _process_batch(self, uow: KatanaUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
-        """Process a batch of Katana results"""
+        """Process a batch of Katana results and collect JS files"""
+        js_files = []
+
         for data in batch:
             await self._process_record(uow, program_id, data)
+
+            endpoint_url = data.get("request", {}).get("endpoint")
+            if endpoint_url and self._is_js_file(endpoint_url):
+                js_files.append(endpoint_url)
+
+        if js_files:
+            await self._publish_js_files(program_id, js_files)
 
     async def _process_record(
         self,
@@ -131,3 +144,19 @@ class KatanaResultIngestor(BaseResultIngestor):
                 name=name.lower(),
                 value=str(value),
             )
+
+    def _is_js_file(self, url: str) -> bool:
+        """Check if URL points to a JavaScript file"""
+        url_lower = url.lower()
+        return url_lower.endswith('.js') or '.js?' in url_lower
+
+    async def _publish_js_files(self, program_id: UUID, js_files: List[str]):
+        """Publish discovered JS files for LinkFinder analysis"""
+        await self.bus.publish(
+            EventType.JS_FILES_DISCOVERED,
+            {
+                "program_id": str(program_id),
+                "js_files": js_files,
+            },
+        )
+        logger.debug(f"Published JS files for LinkFinder: program={program_id} count={len(js_files)}")
