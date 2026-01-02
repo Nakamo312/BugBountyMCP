@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, call
 from uuid import uuid4
 
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
-from api.domain.models import HostModel, IPAddressModel, ServiceModel, EndpointModel, InputParameterModel
+from api.domain.models import HostModel, IPAddressModel, ServiceModel, EndpointModel, InputParameterModel, HostIPModel
 from api.config import Settings
 
 
@@ -267,3 +267,95 @@ async def test_publish_new_hosts_publishes_events(httpx_ingestor, mock_event_bus
     assert mock_event_bus.publish.called
     # Should publish at least one batch
     assert mock_event_bus.publish.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_is_js_file_detects_js_extension(httpx_ingestor):
+    """Test _is_js_file detects .js extension"""
+    assert httpx_ingestor._is_js_file("https://example.com/app.js") is True
+    assert httpx_ingestor._is_js_file("https://example.com/bundle.min.js") is True
+    assert httpx_ingestor._is_js_file("https://example.com/APP.JS") is True
+
+
+@pytest.mark.asyncio
+async def test_is_js_file_detects_js_with_query_params(httpx_ingestor):
+    """Test _is_js_file detects .js with query parameters"""
+    assert httpx_ingestor._is_js_file("https://example.com/app.js?v=123") is True
+    assert httpx_ingestor._is_js_file("https://example.com/bundle.js?t=456&v=1") is True
+
+
+@pytest.mark.asyncio
+async def test_is_js_file_rejects_non_js_files(httpx_ingestor):
+    """Test _is_js_file rejects non-JS files"""
+    assert httpx_ingestor._is_js_file("https://example.com/style.css") is False
+    assert httpx_ingestor._is_js_file("https://example.com/image.png") is False
+    assert httpx_ingestor._is_js_file("https://example.com/api/users") is False
+
+
+@pytest.mark.asyncio
+async def test_process_batch_publishes_live_js_files(httpx_ingestor, mock_uow, mock_event_bus, sample_program, sample_host, sample_ip, sample_service):
+    """Test _process_batch collects live JS files with status 200"""
+    host_ip_model = HostIPModel(id=uuid4(), host_id=sample_host.id, ip_id=sample_ip.id, source="httpx")
+    endpoint = EndpointModel(
+        id=uuid4(),
+        host_id=sample_host.id,
+        service_id=sample_service.id,
+        path="/app.js",
+        normalized_path="/app.js",
+        methods=[]
+    )
+
+    mock_uow.hosts.get_by_fields = AsyncMock(return_value=None)
+    mock_uow.hosts.ensure = AsyncMock(return_value=sample_host)
+    mock_uow.ips.ensure = AsyncMock(return_value=sample_ip)
+    mock_uow.host_ips.ensure = AsyncMock(return_value=host_ip_model)
+    mock_uow.services.ensure = AsyncMock(return_value=sample_service)
+    mock_uow.endpoints.ensure = AsyncMock(return_value=endpoint)
+    mock_uow.input_parameters.ensure = AsyncMock()
+
+    batch = [
+        {"host": "example.com", "url": "https://example.com/app.js", "status_code": 200, "host_ip": "1.2.3.4", "scheme": "https", "port": 443, "path": "/app.js"},
+        {"host": "example.com", "url": "https://example.com/bundle.js", "status_code": 200, "host_ip": "1.2.3.4", "scheme": "https", "port": 443, "path": "/bundle.js"},
+        {"host": "example.com", "url": "https://example.com/dead.js", "status_code": 404, "host_ip": "1.2.3.4", "scheme": "https", "port": 443, "path": "/dead.js"},
+        {"host": "example.com", "url": "https://example.com/api/users", "status_code": 200, "host_ip": "1.2.3.4", "scheme": "https", "port": 443, "path": "/api/users"},
+    ]
+
+    await httpx_ingestor._process_batch(mock_uow, sample_program.id, batch)
+
+    # Check that JS files were collected (2 live JS files)
+    assert len(httpx_ingestor._js_files) == 2
+    assert "https://example.com/app.js" in httpx_ingestor._js_files
+    assert "https://example.com/bundle.js" in httpx_ingestor._js_files
+
+
+@pytest.mark.asyncio
+async def test_ingest_publishes_js_files_after_processing(httpx_ingestor, mock_uow, mock_event_bus, sample_program, sample_host, sample_ip, sample_service):
+    """Test ingest publishes JS files after all batches processed"""
+    endpoint = EndpointModel(id=uuid4(), host_id=sample_host.id, service_id=sample_service.id, path="/", normalized_path="/", methods=[])
+
+    mock_uow.hosts.get_by_fields = AsyncMock(return_value=None)
+    mock_uow.hosts.ensure = AsyncMock(return_value=sample_host)
+    mock_uow.ips.ensure = AsyncMock(return_value=sample_ip)
+    mock_uow.host_ips.ensure = AsyncMock()
+    mock_uow.services.ensure = AsyncMock(return_value=sample_service)
+    mock_uow.endpoints.ensure = AsyncMock(return_value=endpoint)
+    mock_uow.input_parameters.ensure = AsyncMock()
+    mock_uow.commit = AsyncMock()
+    mock_uow.create_savepoint = AsyncMock()
+    mock_uow.release_savepoint = AsyncMock()
+    mock_uow.__aenter__ = AsyncMock(return_value=mock_uow)
+    mock_uow.__aexit__ = AsyncMock(return_value=None)
+
+    results = [
+        {"host": "example.com", "url": "https://example.com/app.js", "status_code": 200, "host_ip": "1.2.3.4", "scheme": "https", "port": 443, "path": "/app.js"},
+    ]
+
+    await httpx_ingestor.ingest(sample_program.id, results)
+
+    # Check that JS files event was published
+    js_publish_calls = [
+        call for call in mock_event_bus.publish.call_args_list
+        if call[0][0].value == "js_files_discovered"
+    ]
+    assert len(js_publish_calls) == 1
+    assert js_publish_calls[0][0][1]["js_files"] == ["https://example.com/app.js"]

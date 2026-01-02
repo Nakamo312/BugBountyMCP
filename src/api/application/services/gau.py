@@ -16,7 +16,6 @@ class GAUScanService:
     """
     Service for GAU (GetAllURLs) scanning.
     Discovers URLs from web archives, deduplicates, and publishes batches to EventBus.
-    Detects JS files and publishes them for LinkFinder analysis.
     """
 
     def __init__(self, runner: GAUCliRunner, processor: GAUBatchProcessor, bus: EventBus):
@@ -52,23 +51,16 @@ class GAUScanService:
         try:
             urls_found = 0
             batches_published = 0
-            js_files_collected = []
 
             async for batch in self.processor.batch_stream(self.runner.run(domain, include_subs)):
                 if batch:
-                    js_files_in_batch = [url for url in batch if self._is_js_file(url)]
-                    js_files_collected.extend(js_files_in_batch)
-
                     await self._publish_batch(program_id, batch)
                     batches_published += 1
                     urls_found += len(batch)
 
-            if js_files_collected:
-                await self._publish_js_files(program_id, js_files_collected)
-
             logger.info(
                 f"GAU scan completed: program={program_id} domain={domain} "
-                f"urls={urls_found} batches={batches_published} js_files={len(js_files_collected)}"
+                f"urls={urls_found} batches={batches_published}"
             )
         except Exception as e:
             logger.error(f"GAU scan failed: program={program_id} domain={domain} error={e}")
@@ -83,19 +75,3 @@ class GAUScanService:
             },
         )
         logger.debug(f"Published URL batch: program={program_id} count={len(urls)}")
-
-    def _is_js_file(self, url: str) -> bool:
-        """Check if URL points to a JavaScript file"""
-        url_lower = url.lower()
-        return url_lower.endswith('.js') or '.js?' in url_lower
-
-    async def _publish_js_files(self, program_id: UUID, js_files: list[str]):
-        """Publish discovered JS files for LinkFinder analysis"""
-        await self.bus.publish(
-            EventType.JS_FILES_DISCOVERED,
-            {
-                "program_id": str(program_id),
-                "js_files": js_files,
-            },
-        )
-        logger.debug(f"Published JS files for LinkFinder: program={program_id} count={len(js_files)}")

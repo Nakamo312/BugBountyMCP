@@ -90,7 +90,8 @@ class LinkFinderResultIngestor:
         service = await self.uow.services.ensure(
             ip_id=ip.id,
             scheme=scheme,
-            port=port
+            port=port,
+            technologies={}
         )
 
         normalized_path = PathNormalizer.normalize_path(url)
