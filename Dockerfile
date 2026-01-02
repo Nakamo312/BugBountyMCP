@@ -7,10 +7,18 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     libpcap-dev \
     ca-certificates \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+RUN git clone https://github.com/GerbenJavado/LinkFinder.git /opt/linkfinder && \
+    cd /opt/linkfinder && \
+    pip install -r requirements.txt && \
+    echo '#!/bin/bash\ncd /opt/linkfinder && python linkfinder.py "$@"' > /usr/local/bin/linkfinder && \
+    chmod +x /usr/local/bin/linkfinder && \
+    chmod +x /opt/linkfinder/linkfinder.py
 
 COPY src/ ./src/
 COPY main.py .
