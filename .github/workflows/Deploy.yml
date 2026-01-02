@@ -22,18 +22,19 @@ jobs:
         script: |
           cd ~/Tools/bb/BugBountyMCP
 
-
           echo "📥 Pulling latest code..."
           git fetch --all
           git reset --hard origin/main
 
+          echo "🚀 Rebuilding only API container..."
+          docker-compose build api
+          docker-compose up -d --no-deps api
 
-          echo "🚀 Rebuilding and restarting containers..."
-          docker-compose down
-          docker-compose up -d --build
-
-          echo "🧹 Cleaning up..."
+          echo "🧹 Cleaning up old images..."
           docker image prune -f
 
-          echo "✅ Status:"
-          docker-compose ps
+          echo "✅ API Container status:"
+          docker-compose ps api
+
+          echo "📊 API logs (last 20 lines):"
+          docker-compose logs --tail=20 api
