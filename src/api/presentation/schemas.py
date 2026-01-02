@@ -84,6 +84,23 @@ class KatanaScanRequest(BaseModel):
     )
 
 
+class LinkFinderScanRequest(BaseModel):
+    """HTTP request schema for LinkFinder scan"""
+    program_id: str = Field(..., description="Program UUID as string")
+    targets: Union[str, List[str]] = Field(..., description="JS URL or list of JS URLs to analyze")
+    timeout: Optional[int] = Field(default=15, ge=1, le=60)
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "targets": ["https://example.com/app.js", "https://example.com/bundle.js"],
+                "timeout": 15
+            }
+        }
+    )
+
+
 # Response Schemas
 class ScanResponse(BaseModel):
     """Generic scan response wrapper"""

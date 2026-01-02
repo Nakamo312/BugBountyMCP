@@ -9,8 +9,10 @@ from api.infrastructure.events.event_bus import EventBus
 from api.infrastructure.events.event_types import EventType
 from api.application.services.httpx import HTTPXScanService
 from api.application.services.katana import KatanaScanService
+from api.application.services.linkfinder import LinkFinderScanService
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
+from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIngestor
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,12 @@ class Orchestrator:
         )
         asyncio.create_task(
             self.bus.subscribe(EventType.HOST_DISCOVERED, self.handle_host_discovered)
+        )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.LINKFINDER_RESULTS, self.handle_linkfinder_results)
+        )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.JS_FILES_DISCOVERED, self.handle_js_files_discovered)
         )
 
     async def handle_service_event(self, event: Dict[str, Any]):
@@ -161,3 +169,45 @@ class Orchestrator:
                 logger.info(f"Starting Katana crawl for new hosts: program={program_id} hosts={len(hosts)}")
 
                 await katana_service.execute(program_id=program_id, targets=hosts)
+
+    async def handle_linkfinder_results(self, event: Dict[str, Any]):
+        """Handle LinkFinder scan results"""
+        try:
+            async with self.container() as request_container:
+                ingestor = await request_container.get(LinkFinderResultIngestor)
+                program_id = UUID(event["program_id"])
+                result = event["result"]
+
+                logger.info(
+                    f"Ingesting LinkFinder result: program={program_id} "
+                    f"urls={len(result.get('urls', []))}"
+                )
+                await ingestor.ingest(program_id, result)
+        except Exception as exc:
+            logger.error(f"Failed to ingest LinkFinder results: error={exc}", exc_info=True)
+
+    async def handle_js_files_discovered(self, event: Dict[str, Any]):
+        """
+        Handle JS files discovery events by triggering LinkFinder scans.
+        Creates background task to avoid blocking queue processing.
+        """
+        program_id = event["program_id"]
+        js_files = event["js_files"]
+
+        logger.info(f"Received JS files batch for program {program_id}: {len(js_files)} files")
+
+        task = asyncio.create_task(self._process_js_files_batch(program_id, js_files))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+
+    async def _process_js_files_batch(self, program_id: str, js_files: list[str]):
+        """
+        Process JS files batch with semaphore to limit concurrent scans.
+        """
+        async with self._scan_semaphore:
+            async with self.container() as request_container:
+                linkfinder_service = await request_container.get(LinkFinderScanService)
+
+                logger.info(f"Starting LinkFinder scan for program {program_id}: {len(js_files)} JS files")
+
+                await linkfinder_service.execute(program_id=program_id, targets=js_files)

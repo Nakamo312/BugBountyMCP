@@ -34,6 +34,9 @@ def mock_container():
     katana_service = AsyncMock()
     katana_service.execute = AsyncMock()
 
+    linkfinder_service = AsyncMock()
+    linkfinder_service.execute = AsyncMock()
+
     # Mock ingestors
     httpx_ingestor = AsyncMock()
     httpx_ingestor.ingest = AsyncMock()
@@ -41,20 +44,29 @@ def mock_container():
     katana_ingestor = AsyncMock()
     katana_ingestor.ingest = AsyncMock()
 
+    linkfinder_ingestor = AsyncMock()
+    linkfinder_ingestor.ingest = AsyncMock()
+
     async def mock_get(service_type):
         from api.application.services.httpx import HTTPXScanService
         from api.application.services.katana import KatanaScanService
+        from api.application.services.linkfinder import LinkFinderScanService
         from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
         from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
+        from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIngestor
 
         if service_type == HTTPXScanService:
             return httpx_service
         elif service_type == KatanaScanService:
             return katana_service
+        elif service_type == LinkFinderScanService:
+            return linkfinder_service
         elif service_type == HTTPXResultIngestor:
             return httpx_ingestor
         elif service_type == KatanaResultIngestor:
             return katana_ingestor
+        elif service_type == LinkFinderResultIngestor:
+            return linkfinder_ingestor
         raise ValueError(f"Unknown service type: {service_type}")
 
     # Mock request container
@@ -84,7 +96,7 @@ async def test_start_subscribes_to_events(orchestrator, mock_event_bus):
     await orchestrator.start()
 
     mock_event_bus.connect.assert_called_once()
-    assert mock_event_bus.subscribe.call_count == 6
+    assert mock_event_bus.subscribe.call_count == 8
 
 
 @pytest.mark.asyncio
@@ -192,6 +204,36 @@ async def test_process_subdomain_batch_calls_httpx_service(orchestrator, mock_co
     targets = ["api.example.com", "www.example.com"]
 
     await orchestrator._process_subdomain_batch(str(sample_program.id), targets)
+
+    # Verify container was called to get service
+    assert mock_container.called
+
+
+@pytest.mark.asyncio
+async def test_handle_js_files_discovered_creates_task(orchestrator, sample_program):
+    """Test handle_js_files_discovered creates background task"""
+    event = {
+        "program_id": str(sample_program.id),
+        "js_files": ["https://example.com/app.js", "https://example.com/bundle.js"]
+    }
+
+    initial_task_count = len(orchestrator.tasks)
+
+    await orchestrator.handle_js_files_discovered(event)
+
+    # Should have created a background task
+    await asyncio.sleep(0.1)
+
+    # Task should be tracked
+    assert len(orchestrator.tasks) >= initial_task_count
+
+
+@pytest.mark.asyncio
+async def test_process_js_files_batch_calls_linkfinder_service(orchestrator, mock_container, sample_program):
+    """Test _process_js_files_batch calls LinkFinderScanService"""
+    js_files = ["https://example.com/app.js", "https://example.com/bundle.js"]
+
+    await orchestrator._process_js_files_batch(str(sample_program.id), js_files)
 
     # Verify container was called to get service
     assert mock_container.called

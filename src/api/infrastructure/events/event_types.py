@@ -11,3 +11,5 @@ class EventType(str, Enum):
     GAU_DISCOVERED = "gau_discovered"
     KATANA_RESULTS_BATCH = "katana_results_batch"
     HOST_DISCOVERED = "host_discovered"
+    LINKFINDER_RESULTS = "linkfinder_results"
+    JS_FILES_DISCOVERED = "js_files_discovered"

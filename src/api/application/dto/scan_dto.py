@@ -194,11 +194,61 @@ class KatanaScanOutputDTO(BaseModel):
     )
 
 
+class LinkFinderScanInputDTO(BaseModel):
+    """Input DTO for LinkFinder scan service"""
+    program_id: UUID = Field(..., description="Program UUID")
+    target: Union[str, List[str]] = Field(..., description="Target URL (with JS files) or list of JS URLs")
+    timeout: Optional[int] = Field(default=15, description="Scan timeout per JS file in seconds", ge=1, le=60)
+
+    @field_validator('target')
+    @classmethod
+    def validate_target(cls, v):
+        """Ensure target is always a list of URLs"""
+        if isinstance(v, str):
+            v = [v]
+        for url in v:
+            if not url or url.isspace():
+                raise ValueError("Target URL cannot be empty")
+            url = url.strip()
+            if not url.startswith(("http://", "https://")):
+                raise ValueError("Target must be a valid URL starting with http:// or https://")
+        return v
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "target": ["https://example.com/app.js", "https://example.com/bundle.js"],
+                "timeout": 15
+            }
+        }
+    )
+
+
+class LinkFinderScanOutputDTO(BaseModel):
+    """Output DTO for LinkFinder scan service"""
+    status: str = Field(..., description="Scan status")
+    message: str = Field(..., description="Status message")
+    scanner: str = Field(..., description="Scanner name")
+    targets_count: int = Field(..., description="Number of JS files to analyze")
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "status": "started",
+                "message": "LinkFinder scan started for 5 JS files",
+                "scanner": "linkfinder",
+                "targets_count": 5
+            }
+        }
+    )
+
+
 class ScanResultDTO(BaseModel):
     """Generic scan result wrapper"""
     status: str = Field(..., description="Scan status (success/error)")
     message: str = Field(..., description="Human-readable message")
-    data: Union[HTTPXScanOutputDTO, SubfinderScanOutputDTO, GAUScanOutputDTO, KatanaScanOutputDTO] = Field(..., description="Scan results")
+    data: Union[HTTPXScanOutputDTO, SubfinderScanOutputDTO, GAUScanOutputDTO, KatanaScanOutputDTO, LinkFinderScanOutputDTO] = Field(..., description="Scan results")
 
     model_config = ConfigDict(
         json_schema_extra = {

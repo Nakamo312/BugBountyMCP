@@ -8,12 +8,14 @@ from api.presentation.schemas import (
     SubfinderScanRequest,
     GAUScanRequest,
     KatanaScanRequest,
+    LinkFinderScanRequest,
     ScanResponse
 )
 from api.application.services.subfinder import SubfinderScanService
 from api.application.services.httpx import HTTPXScanService
 from api.application.services.gau import GAUScanService
 from api.application.services.katana import KatanaScanService
+from api.application.services.linkfinder import LinkFinderScanService
 
 
 router = APIRouter(route_class=DishkaRoute)
@@ -166,6 +168,43 @@ async def scan_katana(
             depth=request.depth,
             js_crawl=request.js_crawl,
             headless=request.headless
+        )
+
+        return ScanResponse(
+            status="success",
+            message=result.message,
+            results=result.model_dump()
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
+
+
+@router.post(
+    "/scan/linkfinder",
+    response_model=ScanResponse,
+    summary="Run LinkFinder Scan",
+    description="Starts LinkFinder JS analysis to discover hidden endpoints. Returns immediately, scan runs in background.",
+    tags=["Scans"]
+)
+async def scan_linkfinder(
+    request: LinkFinderScanRequest,
+    linkfinder_service: FromDishka[LinkFinderScanService],
+) -> ScanResponse:
+    """
+    Start LinkFinder scan to extract endpoints from JavaScript files.
+
+    - **program_id**: Program UUID
+    - **targets**: Single JS URL or list of JS URLs to analyze
+    - **timeout**: Scan timeout per JS file in seconds (default: 15)
+
+    Returns immediately. Discovered URLs are validated against program scope and ingested as endpoints.
+    """
+    try:
+        targets = request.targets if isinstance(request.targets, list) else [request.targets]
+
+        result = await linkfinder_service.execute(
+            program_id=UUID(request.program_id),
+            targets=targets
         )
 
         return ScanResponse(

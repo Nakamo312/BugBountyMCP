@@ -10,6 +10,7 @@ from api.application.services.program import ProgramService
 from api.application.services.subfinder import SubfinderScanService
 from api.application.services.gau import GAUScanService
 from api.application.services.katana import KatanaScanService
+from api.application.services.linkfinder import LinkFinderScanService
 from api.application.services.batch_processor import (
     HTTPXBatchProcessor,
     SubfinderBatchProcessor,
@@ -19,12 +20,15 @@ from api.application.services.batch_processor import (
 from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOfWork
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
 from api.infrastructure.unit_of_work.adapters.katana import SQLAlchemyKatanaUnitOfWork
+from api.infrastructure.unit_of_work.adapters.linkfinder import SQLAlchemyLinkFinderUnitOfWork
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
+from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 from api.infrastructure.runners.gau_cli import GAUCliRunner
 from api.infrastructure.runners.katana_cli import KatanaCliRunner
+from api.infrastructure.runners.linkfinder_cli import LinkFinderCliRunner
 from api.infrastructure.events.event_bus import EventBus
 from dishka import AsyncContainer
 
@@ -63,6 +67,10 @@ class UnitOfWorkProvider(Provider):
     def get_katana_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyKatanaUnitOfWork:
         return SQLAlchemyKatanaUnitOfWork(session_factory)
 
+    @provide(scope=Scope.REQUEST)
+    def get_linkfinder_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyLinkFinderUnitOfWork:
+        return SQLAlchemyLinkFinderUnitOfWork(session_factory)
+
 
 class CLIRunnerProvider(Provider):
     scope = Scope.APP
@@ -94,6 +102,13 @@ class CLIRunnerProvider(Provider):
         return KatanaCliRunner(
             katana_path=settings.get_tool_path("katana"),
             timeout=600,
+        )
+
+    @provide(scope=Scope.APP)
+    def get_linkfinder_runner(self, settings: Settings) -> LinkFinderCliRunner:
+        return LinkFinderCliRunner(
+            linkfinder_path=settings.get_tool_path("linkfinder"),
+            timeout=15,
         )
 
     @provide(scope=Scope.APP)
@@ -136,8 +151,21 @@ class IngestorProvider(Provider):
         return HTTPXResultIngestor(uow=scan_uow, bus=event_bus, settings=settings)
 
     @provide(scope=Scope.REQUEST)
-    def get_katana_ingestor(self, katana_uow: SQLAlchemyKatanaUnitOfWork, settings: Settings) -> KatanaResultIngestor:
-        return KatanaResultIngestor(uow=katana_uow, settings=settings)
+    def get_katana_ingestor(
+        self,
+        katana_uow: SQLAlchemyKatanaUnitOfWork,
+        settings: Settings,
+        event_bus: EventBus
+    ) -> KatanaResultIngestor:
+        return KatanaResultIngestor(uow=katana_uow, settings=settings, bus=event_bus)
+
+    @provide(scope=Scope.REQUEST)
+    def get_linkfinder_ingestor(
+        self,
+        linkfinder_uow: SQLAlchemyLinkFinderUnitOfWork,
+        settings: Settings
+    ) -> LinkFinderResultIngestor:
+        return LinkFinderResultIngestor(uow=linkfinder_uow, settings=settings)
 
 
 class ServiceProvider(Provider):
@@ -196,6 +224,17 @@ class ServiceProvider(Provider):
         return KatanaScanService(
             runner=katana_runner,
             processor=katana_processor,
+            bus=event_bus
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_linkfinder_service(
+        self,
+        linkfinder_runner: LinkFinderCliRunner,
+        event_bus: EventBus
+    ) -> LinkFinderScanService:
+        return LinkFinderScanService(
+            runner=linkfinder_runner,
             bus=event_bus
         )
 

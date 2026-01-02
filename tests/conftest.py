@@ -8,9 +8,10 @@ from api.domain.models import (
     ServiceModel,
     EndpointModel,
     InputParameterModel,
-    ProgramModel
+    ProgramModel,
+    ScopeRuleModel
 )
-from api.domain.enums import HttpMethod, ParamLocation
+from api.domain.enums import HttpMethod, ParamLocation, RuleType
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
 
 
@@ -95,4 +96,14 @@ def sample_input_parameter():
         location=ParamLocation.QUERY,
         param_type="string",
         example_value="123"
+    )
+
+
+@pytest.fixture
+def sample_scope_rule():
+    return ScopeRuleModel(
+        id=uuid4(),
+        program_id=uuid4(),
+        rule_type=RuleType.DOMAIN,
+        pattern="example.com"
     )
