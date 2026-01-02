@@ -58,7 +58,7 @@ async def test_execute_single_target(linkfinder_service):
 
 @pytest.mark.asyncio
 async def test_run_scan_publishes_results(linkfinder_service, mock_linkfinder_runner, mock_event_bus):
-    """Test _run_scan publishes discovered URLs to EventBus"""
+    """Test _run_scan publishes discovered URLs to GAU_DISCOVERED event"""
     program_id = uuid4()
     targets = ["https://example.com/app.js"]
 
@@ -83,9 +83,9 @@ async def test_run_scan_publishes_results(linkfinder_service, mock_linkfinder_ru
 
     mock_event_bus.publish.assert_called_once()
     call_args = mock_event_bus.publish.call_args[0]
-    assert call_args[0].value == "linkfinder_results"
+    assert call_args[0].value == "gau_discovered"
     assert call_args[1]["program_id"] == str(program_id)
-    assert call_args[1]["result"]["urls"] == [
+    assert call_args[1]["urls"] == [
         "https://example.com/api/users",
         "https://example.com/api/products"
     ]
@@ -93,7 +93,7 @@ async def test_run_scan_publishes_results(linkfinder_service, mock_linkfinder_ru
 
 @pytest.mark.asyncio
 async def test_run_scan_handles_multiple_results(linkfinder_service, mock_linkfinder_runner, mock_event_bus):
-    """Test _run_scan handles multiple result events"""
+    """Test _run_scan aggregates URLs from multiple result events"""
     program_id = uuid4()
     targets = ["https://example.com/app.js", "https://example.com/vendor.js"]
 
@@ -123,7 +123,14 @@ async def test_run_scan_handles_multiple_results(linkfinder_service, mock_linkfi
 
     await linkfinder_service._run_scan(program_id, targets)
 
-    assert mock_event_bus.publish.call_count == 2
+    mock_event_bus.publish.assert_called_once()
+    call_args = mock_event_bus.publish.call_args[0]
+    assert call_args[0].value == "gau_discovered"
+    assert call_args[1]["urls"] == [
+        "https://example.com/api/users",
+        "https://example.com/api/products",
+        "https://example.com/api/cart"
+    ]
 
 
 @pytest.mark.asyncio
@@ -189,33 +196,25 @@ async def test_run_scan_handles_exception(linkfinder_service, mock_linkfinder_ru
 
 
 @pytest.mark.asyncio
-async def test_publish_result_includes_program_id(linkfinder_service, mock_event_bus):
-    """Test _publish_result includes program_id in event payload"""
+async def test_publish_urls_for_httpx_includes_program_id(linkfinder_service, mock_event_bus):
+    """Test _publish_urls_for_httpx includes program_id in event payload"""
     program_id = uuid4()
-    payload = {
-        "source_js": "https://example.com/app.js",
-        "urls": ["https://example.com/api/users"],
-        "host": "example.com"
-    }
+    urls = ["https://example.com/api/users", "https://example.com/api/products"]
 
-    await linkfinder_service._publish_result(program_id, payload)
+    await linkfinder_service._publish_urls_for_httpx(program_id, urls)
 
     call_args = mock_event_bus.publish.call_args[0]
     assert call_args[1]["program_id"] == str(program_id)
-    assert call_args[1]["result"] == payload
+    assert call_args[1]["urls"] == urls
 
 
 @pytest.mark.asyncio
-async def test_publish_result_uses_correct_event_type(linkfinder_service, mock_event_bus):
-    """Test _publish_result uses LINKFINDER_RESULTS event type"""
+async def test_publish_urls_for_httpx_uses_correct_event_type(linkfinder_service, mock_event_bus):
+    """Test _publish_urls_for_httpx uses GAU_DISCOVERED event type"""
     program_id = uuid4()
-    payload = {
-        "source_js": "https://example.com/app.js",
-        "urls": ["https://example.com/api/users"],
-        "host": "example.com"
-    }
+    urls = ["https://example.com/api/users"]
 
-    await linkfinder_service._publish_result(program_id, payload)
+    await linkfinder_service._publish_urls_for_httpx(program_id, urls)
 
     call_args = mock_event_bus.publish.call_args[0]
-    assert call_args[0].value == "linkfinder_results"
+    assert call_args[0].value == "gau_discovered"

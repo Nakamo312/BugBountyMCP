@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class LinkFinderScanService:
     """
     Service for LinkFinder JS analysis.
-    Extracts endpoints from JavaScript files and publishes results to EventBus.
+    Extracts endpoints from JavaScript files and publishes them to HTTPX for validation.
     """
 
     def __init__(self, runner: LinkFinderCliRunner, bus: EventBus):
@@ -46,30 +46,33 @@ class LinkFinderScanService:
     async def _run_scan(self, program_id: UUID, targets: List[str]):
         """Background task for LinkFinder execution"""
         try:
-            results_count = 0
+            all_urls = []
 
             async for result in self.runner.run(targets):
                 if result.type == "result" and result.payload:
-                    await self._publish_result(program_id, result.payload)
-                    results_count += len(result.payload.get("urls", []))
+                    urls = result.payload.get("urls", [])
+                    all_urls.extend(urls)
+                    logger.debug(
+                        f"LinkFinder found URLs: source={result.payload.get('source_js')} count={len(urls)}"
+                    )
+
+            if all_urls:
+                await self._publish_urls_for_httpx(program_id, all_urls)
 
             logger.info(
                 f"LinkFinder scan completed: program={program_id} targets={len(targets)} "
-                f"urls_found={results_count}"
+                f"urls_found={len(all_urls)}"
             )
         except Exception as e:
             logger.error(f"LinkFinder scan failed: program={program_id} error={e}")
 
-    async def _publish_result(self, program_id: UUID, payload: dict):
-        """Publish result to EventBus for LinkFinderResultIngestor"""
+    async def _publish_urls_for_httpx(self, program_id: UUID, urls: List[str]):
+        """Publish discovered URLs to HTTPX for validation"""
         await self.bus.publish(
-            EventType.LINKFINDER_RESULTS,
+            EventType.GAU_DISCOVERED,
             {
                 "program_id": str(program_id),
-                "result": payload,
+                "urls": urls,
             },
         )
-        logger.debug(
-            f"Published LinkFinder result: program={program_id} "
-            f"source={payload.get('source_js')} urls={len(payload.get('urls', []))}"
-        )
+        logger.info(f"Published LinkFinder URLs for HTTPX validation: program={program_id} count={len(urls)}")

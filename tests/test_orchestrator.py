@@ -96,7 +96,7 @@ async def test_start_subscribes_to_events(orchestrator, mock_event_bus):
     await orchestrator.start()
 
     mock_event_bus.connect.assert_called_once()
-    assert mock_event_bus.subscribe.call_count == 8
+    assert mock_event_bus.subscribe.call_count == 7
 
 
 @pytest.mark.asyncio
