@@ -74,8 +74,7 @@ services:
       - ${HOST_USR_LOCAL_BIN:-/usr/local/bin}:/host_root/usr_local_bin:ro
       - ${HOST_SECLISTS:-/usr/share/seclists}:/usr/share/seclists:ro
       - ${HOST_WORDLISTS:-/usr/share/wordlists}:/usr/share/wordlists:ro
-      - ${HOST_USER_CONFIG:-/home/appuser/.config}:/home/appuser/.config:ro
-      - ${HOST_LINKFINDER:-/home/v1k70r/Tools/bb/LinkFinder}:/opt/linkfinder:ro
+      - ${HOST_USER_CONFIG:-/home/appuser/.config}:/home/appuser/.config:ro  
     depends_on:
       postgres:
         condition: service_healthy
