@@ -102,6 +102,7 @@ class LinkFinderResultIngestor:
             path=path,
             normalized_path=normalized_path,
             method="GET",
+            status_code=None,
         )
 
         if query_string:

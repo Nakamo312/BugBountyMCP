@@ -12,7 +12,6 @@ from api.application.services.katana import KatanaScanService
 from api.application.services.linkfinder import LinkFinderScanService
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
-from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIngestor
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +47,6 @@ class Orchestrator:
         )
         asyncio.create_task(
             self.bus.subscribe(EventType.HOST_DISCOVERED, self.handle_host_discovered)
-        )
-        asyncio.create_task(
-            self.bus.subscribe(EventType.LINKFINDER_RESULTS, self.handle_linkfinder_results)
         )
         asyncio.create_task(
             self.bus.subscribe(EventType.JS_FILES_DISCOVERED, self.handle_js_files_discovered)
@@ -169,22 +165,6 @@ class Orchestrator:
                 logger.info(f"Starting Katana crawl for new hosts: program={program_id} hosts={len(hosts)}")
 
                 await katana_service.execute(program_id=program_id, targets=hosts)
-
-    async def handle_linkfinder_results(self, event: Dict[str, Any]):
-        """Handle LinkFinder scan results"""
-        try:
-            async with self.container() as request_container:
-                ingestor = await request_container.get(LinkFinderResultIngestor)
-                program_id = UUID(event["program_id"])
-                result = event["result"]
-
-                logger.info(
-                    f"Ingesting LinkFinder result: program={program_id} "
-                    f"urls={len(result.get('urls', []))}"
-                )
-                await ingestor.ingest(program_id, result)
-        except Exception as exc:
-            logger.error(f"Failed to ingest LinkFinder results: error={exc}", exc_info=True)
 
     async def handle_js_files_discovered(self, event: Dict[str, Any]):
         """
