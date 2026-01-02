@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import re
 from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from api.application.exceptions import ScanExecutionError, ToolNotFoundError
+from api.domain.enums import RuleType
+from api.domain.models import ScopeRuleModel
 
 logger = logging.getLogger(__name__)
 
@@ -208,10 +211,10 @@ class URLUtilsMixin:
     def extract_host_from_url(url: str) -> Optional[str]:
         """
         Extract hostname from URL.
-        
+
         Args:
             url: Full URL
-            
+
         Returns:
             Hostname or None if parsing fails
         """
@@ -219,6 +222,65 @@ class URLUtilsMixin:
             return urlparse(url).netloc
         except Exception:
             return None
+
+
+class ScopeCheckMixin:
+    """Mixin for scope validation"""
+
+    @staticmethod
+    def is_in_scope(target: str, scope_rules: List[ScopeRuleModel]) -> bool:
+        """
+        Check if target matches program scope rules.
+
+        Args:
+            target: Domain or URL to check
+            scope_rules: List of program scope rules
+
+        Returns:
+            True if target is in scope
+        """
+        if not scope_rules:
+            return True
+
+        parsed = urlparse(target if target.startswith(('http://', 'https://')) else f'http://{target}')
+        domain = parsed.hostname
+
+        if not domain:
+            return False
+
+        for rule in scope_rules:
+            if rule.rule_type == RuleType.DOMAIN:
+                if domain == rule.pattern or domain.endswith(f".{rule.pattern}"):
+                    return True
+
+            elif rule.rule_type == RuleType.REGEX:
+                if re.match(rule.pattern, target):
+                    return True
+
+        return False
+
+    @staticmethod
+    def filter_in_scope(targets: List[str], scope_rules: List[ScopeRuleModel]) -> Tuple[List[str], List[str]]:
+        """
+        Filter targets by scope rules.
+
+        Args:
+            targets: List of domains or URLs
+            scope_rules: List of program scope rules
+
+        Returns:
+            Tuple of (in_scope_targets, out_of_scope_targets)
+        """
+        in_scope = []
+        out_of_scope = []
+
+        for target in targets:
+            if ScopeCheckMixin.is_in_scope(target, scope_rules):
+                in_scope.append(target)
+            else:
+                out_of_scope.append(target)
+
+        return in_scope, out_of_scope
 
 
 class BaseScanService(ABC):
