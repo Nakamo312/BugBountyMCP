@@ -16,7 +16,7 @@ class FFUFCliRunner:
     def __init__(
         self,
         ffuf_path: str = "ffuf",
-        wordlist: str = "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt",
+        wordlist: str = "/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt",
         rate_limit: int = 10,
         timeout: int = 600,
     ):
