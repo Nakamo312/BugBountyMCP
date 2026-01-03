@@ -21,6 +21,7 @@ from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOf
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
 from api.infrastructure.unit_of_work.adapters.katana import SQLAlchemyKatanaUnitOfWork
 from api.infrastructure.unit_of_work.adapters.linkfinder import SQLAlchemyLinkFinderUnitOfWork
+from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
 from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIngestor
@@ -55,7 +56,7 @@ class DatabaseProvider(Provider):
 class UnitOfWorkProvider(Provider):
     scope = Scope.REQUEST
 
-    @provide(scope=Scope.REQUEST)
+    @provide(scope=Scope.REQUEST, provides=ProgramUnitOfWork)
     def get_program_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyProgramUnitOfWork:
         return SQLAlchemyProgramUnitOfWork(session_factory)
 
