@@ -6,7 +6,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from api.application.exceptions import ScanExecutionError, ToolNotFoundError
-from api.domain.enums import RuleType
+from api.domain.enums import RuleType, ScopeAction
 from api.domain.models import ScopeRuleModel
 
 logger = logging.getLogger(__name__)
@@ -230,7 +230,13 @@ class ScopeCheckMixin:
     @staticmethod
     def is_in_scope(target: str, scope_rules: List[ScopeRuleModel]) -> bool:
         """
-        Check if target matches program scope rules.
+        Check if target matches program scope rules with include/exclude logic.
+
+        Logic:
+        1. If no rules exist - everything is in scope
+        2. Check exclude rules first - if matches, out of scope
+        3. Check include rules - if matches, in scope
+        4. If no include rules matched - out of scope
 
         Args:
             target: Domain or URL to check
@@ -248,14 +254,42 @@ class ScopeCheckMixin:
         if not domain:
             return False
 
+        # Check exclude rules first
         for rule in scope_rules:
-            if rule.rule_type == RuleType.DOMAIN:
-                if domain == rule.pattern or domain.endswith(f".{rule.pattern}"):
+            if rule.action == ScopeAction.EXCLUDE:
+                if ScopeCheckMixin._matches_rule(target, domain, rule):
+                    return False
+
+        # Check include rules
+        has_include_rules = any(r.action == ScopeAction.INCLUDE for r in scope_rules)
+        if not has_include_rules:
+            return True
+
+        for rule in scope_rules:
+            if rule.action == ScopeAction.INCLUDE:
+                if ScopeCheckMixin._matches_rule(target, domain, rule):
                     return True
 
-            elif rule.rule_type == RuleType.REGEX:
-                if re.match(rule.pattern, target):
-                    return True
+        return False
+
+    @staticmethod
+    def _matches_rule(target: str, domain: str, rule: ScopeRuleModel) -> bool:
+        """
+        Check if target matches a specific rule.
+
+        Args:
+            target: Full URL or domain
+            domain: Parsed hostname
+            rule: Scope rule to check
+
+        Returns:
+            True if matches
+        """
+        if rule.rule_type == RuleType.DOMAIN:
+            return domain == rule.pattern or domain.endswith(f".{rule.pattern}")
+
+        elif rule.rule_type == RuleType.REGEX:
+            return bool(re.match(rule.pattern, target))
 
         return False
 

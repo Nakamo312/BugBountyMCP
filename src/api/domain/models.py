@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Set
 from uuid import UUID, uuid4
 
 from api.domain.enums import (HttpMethod, InputType, ParamLocation, RuleType,
-                              ScanStatus, Severity)
+                              ScanStatus, ScopeAction, Severity)
 
 
 @dataclass
@@ -52,6 +52,7 @@ class ProgramModel(AbstractModel):
 class ScopeRuleModel(AbstractModel):
     """Program scope rule"""
     program_id: UUID
+    action: ScopeAction
     rule_type: RuleType
     pattern: str
     id: UUID = field(default_factory=uuid4)

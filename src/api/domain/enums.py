@@ -1,8 +1,14 @@
 from enum import Enum, auto
 
 
+class ScopeAction(str, Enum):
+    """Scope rule action"""
+    INCLUDE = "include"
+    EXCLUDE = "exclude"
+
+
 class RuleType(str, Enum):
-    """Scope rule types"""
+    """Scope rule match types"""
     DOMAIN = "domain"
     IP_RANGE = "ip_range"
     REGEX = "regex"
