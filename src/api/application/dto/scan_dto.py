@@ -263,6 +263,25 @@ class MantraScanOutputDTO(BaseModel):
     )
 
 
+class FFUFScanOutputDTO(BaseModel):
+    """Output DTO for FFUF scan service"""
+    status: str = Field(..., description="Scan status")
+    message: str = Field(..., description="Status message")
+    scanner: str = Field(..., description="Scanner name")
+    targets_count: int = Field(..., description="Number of targets to fuzz")
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "status": "started",
+                "message": "FFUF scan started for 3 targets",
+                "scanner": "ffuf",
+                "targets_count": 3
+            }
+        }
+    )
+
+
 class ScanResultDTO(BaseModel):
     """Generic scan result wrapper"""
     status: str = Field(..., description="Scan status (success/error)")

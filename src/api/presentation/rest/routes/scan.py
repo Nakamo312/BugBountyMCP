@@ -10,6 +10,7 @@ from api.presentation.schemas import (
     KatanaScanRequest,
     LinkFinderScanRequest,
     MantraScanRequest,
+    FFUFScanRequest,
     ScanResponse
 )
 from api.application.services.subfinder import SubfinderScanService
@@ -18,6 +19,7 @@ from api.application.services.gau import GAUScanService
 from api.application.services.katana import KatanaScanService
 from api.application.services.linkfinder import LinkFinderScanService
 from api.application.services.mantra import MantraScanService
+from api.application.services.ffuf import FFUFScanService
 
 
 router = APIRouter(route_class=DishkaRoute)
@@ -242,6 +244,43 @@ async def scan_mantra(
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
         result = await mantra_service.execute(
+            program_id=UUID(request.program_id),
+            targets=targets
+        )
+
+        return ScanResponse(
+            status="success",
+            message=result.message,
+            results=result.model_dump()
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
+
+
+@router.post(
+    "/scan/ffuf",
+    response_model=ScanResponse,
+    summary="Run FFUF Scan",
+    description="Starts FFUF directory/file fuzzing. Returns immediately, scan runs in background.",
+    tags=["Scans"]
+)
+async def scan_ffuf(
+    request: FFUFScanRequest,
+    ffuf_service: FromDishka[FFUFScanService],
+) -> ScanResponse:
+    """
+    Start FFUF scan to discover hidden directories and files via fuzzing.
+
+    - **program_id**: Program UUID
+    - **targets**: Single base URL or list of URLs to fuzz
+    - **timeout**: Scan timeout in seconds (default: 600)
+
+    Returns immediately. Discovered endpoints are published to EventBus and ingested with scope validation.
+    """
+    try:
+        targets = request.targets if isinstance(request.targets, list) else [request.targets]
+
+        result = await ffuf_service.execute(
             program_id=UUID(request.program_id),
             targets=targets
         )
