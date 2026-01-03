@@ -47,6 +47,13 @@ def mock_container():
     linkfinder_ingestor = AsyncMock()
     linkfinder_ingestor.ingest = AsyncMock()
 
+    # Mock ProgramUnitOfWork with scope_rules
+    program_uow = AsyncMock()
+    program_uow.__aenter__ = AsyncMock(return_value=program_uow)
+    program_uow.__aexit__ = AsyncMock(return_value=None)
+    program_uow.scope_rules = AsyncMock()
+    program_uow.scope_rules.find_by_program = AsyncMock(return_value=[])
+
     async def mock_get(service_type):
         from api.application.services.httpx import HTTPXScanService
         from api.application.services.katana import KatanaScanService
@@ -54,6 +61,7 @@ def mock_container():
         from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
         from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
         from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIngestor
+        from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
 
         if service_type == HTTPXScanService:
             return httpx_service
@@ -67,6 +75,8 @@ def mock_container():
             return katana_ingestor
         elif service_type == LinkFinderResultIngestor:
             return linkfinder_ingestor
+        elif service_type == ProgramUnitOfWork:
+            return program_uow
         raise ValueError(f"Unknown service type: {service_type}")
 
     # Mock request container

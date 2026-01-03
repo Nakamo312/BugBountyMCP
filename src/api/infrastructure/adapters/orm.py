@@ -28,9 +28,11 @@ scope_rules = Table(
     metadata,
     Column('id', UUID(), primary_key=True, default=uuid.uuid4),
     Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('action', String(10), nullable=False, server_default='include'),
     Column('rule_type', String(20), nullable=False),
     Column('pattern', String(500), nullable=False),
-    CheckConstraint("rule_type IN ('include', 'exclude', 'critical')", name='ck_scope_rules_rule_type'),
+    CheckConstraint("action IN ('include', 'exclude')", name='ck_scope_rules_action'),
+    CheckConstraint("rule_type IN ('domain', 'ip_range', 'regex')", name='ck_scope_rules_rule_type'),
     CheckConstraint("pattern != ''", name='ck_scope_rules_pattern_not_empty'),
 )
 

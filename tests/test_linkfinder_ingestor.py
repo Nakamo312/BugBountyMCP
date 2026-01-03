@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIngestor
 from api.domain.models import HostModel, IPAddressModel, ServiceModel, EndpointModel, HostIPModel, ScopeRuleModel
-from api.domain.enums import RuleType
+from api.domain.enums import RuleType, ScopeAction
 from api.config import Settings
 
 
@@ -151,6 +151,7 @@ async def test_is_in_scope_domain_match(linkfinder_ingestor):
         ScopeRuleModel(
             id=uuid4(),
             program_id=uuid4(),
+            action=ScopeAction.INCLUDE,
             rule_type=RuleType.DOMAIN,
             pattern="example.com"
         )
@@ -168,6 +169,7 @@ async def test_is_in_scope_regex_match(linkfinder_ingestor):
         ScopeRuleModel(
             id=uuid4(),
             program_id=uuid4(),
+            action=ScopeAction.INCLUDE,
             rule_type=RuleType.REGEX,
             pattern=r"https://.*\.example\.com/.*"
         )
@@ -194,6 +196,7 @@ async def test_is_in_scope_invalid_url(linkfinder_ingestor):
         ScopeRuleModel(
             id=uuid4(),
             program_id=uuid4(),
+            action=ScopeAction.INCLUDE,
             rule_type=RuleType.DOMAIN,
             pattern="example.com"
         )
@@ -220,6 +223,7 @@ async def test_ingest_filters_out_of_scope_urls(linkfinder_ingestor, mock_linkfi
         ScopeRuleModel(
             id=sample_program.id,
             program_id=sample_program.id,
+            action=ScopeAction.INCLUDE,
             rule_type=RuleType.DOMAIN,
             pattern="example.com"
         )
