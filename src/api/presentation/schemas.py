@@ -101,6 +101,23 @@ class LinkFinderScanRequest(BaseModel):
     )
 
 
+class MantraScanRequest(BaseModel):
+    """HTTP request schema for Mantra scan"""
+    program_id: str = Field(..., description="Program UUID as string")
+    targets: Union[str, List[str]] = Field(..., description="JS URL or list of JS URLs to scan for secrets")
+    timeout: Optional[int] = Field(default=300, ge=1, le=3600)
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "targets": ["https://example.com/app.js", "https://example.com/bundle.js"],
+                "timeout": 300
+            }
+        }
+    )
+
+
 # Response Schemas
 class ScanResponse(BaseModel):
     """Generic scan response wrapper"""
