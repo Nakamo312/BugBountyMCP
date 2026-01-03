@@ -13,3 +13,4 @@ class EventType(str, Enum):
     HOST_DISCOVERED = "host_discovered"
     JS_FILES_DISCOVERED = "js_files_discovered"
     MANTRA_RESULTS_BATCH = "mantra_results_batch"
+    FFUF_RESULTS_BATCH = "ffuf_results_batch"

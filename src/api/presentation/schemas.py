@@ -118,6 +118,23 @@ class MantraScanRequest(BaseModel):
     )
 
 
+class FFUFScanRequest(BaseModel):
+    """HTTP request schema for FFUF scan"""
+    program_id: str = Field(..., description="Program UUID as string")
+    targets: Union[str, List[str]] = Field(..., description="Base URL or list of URLs to fuzz")
+    timeout: Optional[int] = Field(default=600, ge=1, le=3600)
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "targets": ["https://example.com", "https://api.example.com"],
+                "timeout": 600
+            }
+        }
+    )
+
+
 # Response Schemas
 class ScanResponse(BaseModel):
     """Generic scan response wrapper"""

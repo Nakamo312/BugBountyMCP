@@ -12,6 +12,7 @@ from api.application.services.gau import GAUScanService
 from api.application.services.katana import KatanaScanService
 from api.application.services.linkfinder import LinkFinderScanService
 from api.application.services.mantra import MantraScanService
+from api.application.services.ffuf import FFUFScanService
 from api.application.services.batch_processor import (
     HTTPXBatchProcessor,
     SubfinderBatchProcessor,
@@ -28,12 +29,14 @@ from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
 from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIngestor
 from api.infrastructure.ingestors.mantra_ingestor import MantraResultIngestor
+from api.infrastructure.ingestors.ffuf_ingestor import FFUFResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 from api.infrastructure.runners.gau_cli import GAUCliRunner
 from api.infrastructure.runners.katana_cli import KatanaCliRunner
 from api.infrastructure.runners.linkfinder_cli import LinkFinderCliRunner
 from api.infrastructure.runners.mantra_cli import MantraCliRunner
+from api.infrastructure.runners.ffuf_cli import FFUFCliRunner
 from api.infrastructure.events.event_bus import EventBus
 from dishka import AsyncContainer
 
@@ -128,6 +131,15 @@ class CLIRunnerProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
+    def get_ffuf_runner(self, settings: Settings) -> FFUFCliRunner:
+        return FFUFCliRunner(
+            ffuf_path=settings.get_tool_path("ffuf"),
+            wordlist=settings.FFUF_WORDLIST,
+            rate_limit=settings.FFUF_RATE_LIMIT,
+            timeout=600,
+        )
+
+    @provide(scope=Scope.APP)
     def get_event_bus(self, settings: Settings) -> EventBus:
         return EventBus(settings)
 
@@ -189,6 +201,13 @@ class IngestorProvider(Provider):
         mantra_uow: SQLAlchemyMantraUnitOfWork
     ) -> MantraResultIngestor:
         return MantraResultIngestor(uow=mantra_uow)
+
+    @provide(scope=Scope.REQUEST)
+    def get_ffuf_ingestor(
+        self,
+        scan_uow: SQLAlchemyHTTPXUnitOfWork
+    ) -> FFUFResultIngestor:
+        return FFUFResultIngestor(uow=scan_uow)
 
 
 class ServiceProvider(Provider):
@@ -269,6 +288,17 @@ class ServiceProvider(Provider):
     ) -> MantraScanService:
         return MantraScanService(
             runner=mantra_runner,
+            bus=event_bus
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_ffuf_service(
+        self,
+        ffuf_runner: FFUFCliRunner,
+        event_bus: EventBus
+    ) -> FFUFScanService:
+        return FFUFScanService(
+            runner=ffuf_runner,
             bus=event_bus
         )
 
