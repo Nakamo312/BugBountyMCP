@@ -8,6 +8,8 @@ from api.infrastructure.normalization.path_normalizer import PathNormalizer
 from api.infrastructure.events.event_bus import EventBus
 from api.infrastructure.events.event_types import EventType
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
+from api.application.services.base_service import ScopeCheckMixin
+from api.domain.models import ScopeRuleModel
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +29,15 @@ class HTTPXResultIngestor(BaseResultIngestor):
         self._new_hosts: Set[str] = set()
         self._seen_hosts: Set[str] = set()
         self._js_files: List[str] = []
+        self._scope_rules: List[ScopeRuleModel] = []
 
     async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]):
         self._new_hosts = set()
         self._seen_hosts = set()
         self._js_files = []
+
+        async with self.uow as uow:
+            self._scope_rules = await uow.scope_rules.find_by_program(program_id)
 
         await super().ingest(program_id, results)
 
@@ -98,7 +104,13 @@ class HTTPXResultIngestor(BaseResultIngestor):
         host_name = data.get("host") or data.get("input")
         if not host_name:
             return None
-        return await uow.hosts.ensure(program_id=program_id, host=host_name)
+
+        in_scope = ScopeCheckMixin.is_in_scope(host_name, self._scope_rules)
+
+        if not in_scope:
+            logger.info(f"Out-of-scope host: {host_name} program={program_id}")
+
+        return await uow.hosts.ensure(program_id=program_id, host=host_name, in_scope=in_scope)
 
     async def _ensure_ip(self, uow: HTTPXUnitOfWork, program_id: UUID, host, data: Dict[str, Any]):
         host_ip = data.get("host_ip")
