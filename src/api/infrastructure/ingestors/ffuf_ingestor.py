@@ -4,6 +4,7 @@ from uuid import UUID
 from urllib.parse import urlparse
 
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
+from api.infrastructure.normalization.path_normalizer import PathNormalizer
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +81,13 @@ class FFUFResultIngestor:
                             skipped += 1
                             continue
 
+                        normalized_path = PathNormalizer.normalize_path(url)
+
                         await self.uow.endpoints.ensure(
                             host_id=host.id,
                             service_id=service.id,
                             path=path,
+                            normalized_path=normalized_path,
                             method="GET",
                             status_code=status_code,
                         )
