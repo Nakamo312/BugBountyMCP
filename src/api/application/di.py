@@ -173,7 +173,7 @@ class ServiceProvider(Provider):
     scope = Scope.REQUEST
 
     @provide(scope=Scope.REQUEST)
-    def get_program_service(self, program_uow: SQLAlchemyProgramUnitOfWork) -> ProgramService:
+    def get_program_service(self, program_uow: ProgramUnitOfWork) -> ProgramService:
         return ProgramService(program_uow)
 
     @provide(scope=Scope.REQUEST)
