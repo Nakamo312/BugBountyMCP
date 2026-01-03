@@ -50,10 +50,15 @@ class MantraScanService:
             results = []
 
             async for event in self.runner.run(targets):
+                logger.info(f"Mantra event: type={event.type} payload={event.payload!r}")
                 if event.type == "stdout" and event.payload:
+                    logger.info(f"Mantra stdout: {event.payload}")
                     parsed = self._parse_mantra_output(event.payload)
                     if parsed:
+                        logger.info(f"Parsed secret: {parsed}")
                         results.append(parsed)
+                    else:
+                        logger.warning(f"Failed to parse Mantra output: {event.payload!r}")
 
             if results:
                 await self._publish_results(program_id, results)
