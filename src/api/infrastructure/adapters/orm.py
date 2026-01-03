@@ -261,6 +261,7 @@ leaks = Table(
     Column('verified', Boolean, default=False),
     Column('false_positive', Boolean, default=False),
     Index('idx_leaks_program', 'program_id'),
+    UniqueConstraint('program_id', 'content', 'endpoint_id', name='uq_leaks_program_id_content_endpoint_id'),
     CheckConstraint("content != ''", name='ck_leaks_content_not_empty'),
     CheckConstraint("NOT (verified = true AND false_positive = true)", name='ck_leaks_state_exclusive'),
 )
