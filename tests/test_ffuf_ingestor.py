@@ -104,13 +104,14 @@ async def test_ingest_creates_endpoint(ffuf_ingestor, mock_httpx_uow, sample_hos
         port=443,
         scheme="https"
     )
-    mock_httpx_uow.endpoints.ensure.assert_called_once_with(
-        host_id=sample_host.id,
-        service_id=sample_service.id,
-        path="/admin",
-        method="GET",
-        status_code=200
-    )
+
+    call_args = mock_httpx_uow.endpoints.ensure.call_args[1]
+    assert call_args["host_id"] == sample_host.id
+    assert call_args["service_id"] == sample_service.id
+    assert call_args["path"] == "/admin"
+    assert call_args["method"] == "GET"
+    assert call_args["status_code"] == 200
+    assert "normalized_path" in call_args
     mock_httpx_uow.commit.assert_called_once()
 
 
