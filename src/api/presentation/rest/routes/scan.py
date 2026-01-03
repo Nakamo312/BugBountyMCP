@@ -9,6 +9,7 @@ from api.presentation.schemas import (
     GAUScanRequest,
     KatanaScanRequest,
     LinkFinderScanRequest,
+    MantraScanRequest,
     ScanResponse
 )
 from api.application.services.subfinder import SubfinderScanService
@@ -16,6 +17,7 @@ from api.application.services.httpx import HTTPXScanService
 from api.application.services.gau import GAUScanService
 from api.application.services.katana import KatanaScanService
 from api.application.services.linkfinder import LinkFinderScanService
+from api.application.services.mantra import MantraScanService
 
 
 router = APIRouter(route_class=DishkaRoute)
@@ -203,6 +205,43 @@ async def scan_linkfinder(
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
         result = await linkfinder_service.execute(
+            program_id=UUID(request.program_id),
+            targets=targets
+        )
+
+        return ScanResponse(
+            status="success",
+            message=result.message,
+            results=result.model_dump()
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
+
+
+@router.post(
+    "/scan/mantra",
+    response_model=ScanResponse,
+    summary="Run Mantra Scan",
+    description="Starts Mantra secret scanning on JavaScript files. Returns immediately, scan runs in background.",
+    tags=["Scans"]
+)
+async def scan_mantra(
+    request: MantraScanRequest,
+    mantra_service: FromDishka[MantraScanService],
+) -> ScanResponse:
+    """
+    Start Mantra scan to discover leaked secrets and credentials in JavaScript files.
+
+    - **program_id**: Program UUID
+    - **targets**: Single JS URL or list of JS URLs to scan for secrets
+    - **timeout**: Scan timeout in seconds (default: 300)
+
+    Returns immediately. Discovered secrets are published to EventBus and stored in leaks table with endpoint association.
+    """
+    try:
+        targets = request.targets if isinstance(request.targets, list) else [request.targets]
+
+        result = await mantra_service.execute(
             program_id=UUID(request.program_id),
             targets=targets
         )
