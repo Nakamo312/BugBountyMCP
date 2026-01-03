@@ -82,7 +82,7 @@ class Settings(BaseSettings):
         search_paths = [
             f"{prefix}/go_bin/bin/{tool_name}",
             f"{prefix}/usr_local_bin/{tool_name}",
-            f"{prefix}/usr_bin/bin/{tool_name}",
+            f"{prefix}/usr_bin/{tool_name}",
             f"/usr/local/bin/{tool_name}",
             f"/usr/bin/{tool_name}",
         ]
