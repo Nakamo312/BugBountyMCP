@@ -79,7 +79,10 @@ class MantraScanService:
         Returns:
             Dict with url and secret, or None if not a valid secret line
         """
-        match = re.match(r'^\[\+\]\s+(https?://[^\s]+)\s+\[(.+)\]$', line.strip())
+        ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
+        clean_line = ansi_escape.sub('', line).strip()
+
+        match = re.match(r'^\[\+\]\s+(https?://[^\s]+)\s+\[(.+)\]$', clean_line)
         if match:
             return {
                 "url": match.group(1),
