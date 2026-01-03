@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 from api.infrastructure.ingestors.ffuf_ingestor import FFUFResultIngestor
-from api.domain.models import HostModel, ServiceModel, EndpointModel
+from api.domain.models import HostModel, ServiceModel, EndpointModel, IPAddressModel, HostIPModel
 
 
 @pytest.fixture
@@ -14,6 +14,8 @@ def mock_httpx_uow():
     uow.hosts = AsyncMock()
     uow.services = AsyncMock()
     uow.endpoints = AsyncMock()
+    uow.host_ips = AsyncMock()
+    uow.ips = AsyncMock()
 
     uow.commit = AsyncMock()
     uow.rollback = AsyncMock()
@@ -40,17 +42,36 @@ def sample_host():
 
 
 @pytest.fixture
-def sample_service():
+def sample_ip(sample_host):
+    return IPAddressModel(
+        id=uuid4(),
+        address="192.168.1.1",
+        program_id=sample_host.program_id
+    )
+
+
+@pytest.fixture
+def sample_host_ip(sample_host, sample_ip):
+    return HostIPModel(
+        id=uuid4(),
+        host_id=sample_host.id,
+        ip_id=sample_ip.id,
+        source="httpx"
+    )
+
+
+@pytest.fixture
+def sample_service(sample_ip):
     return ServiceModel(
         id=uuid4(),
-        ip_id=uuid4(),
+        ip_id=sample_ip.id,
         port=443,
         scheme="https"
     )
 
 
 @pytest.mark.asyncio
-async def test_ingest_creates_endpoint(ffuf_ingestor, mock_httpx_uow, sample_host, sample_service):
+async def test_ingest_creates_endpoint(ffuf_ingestor, mock_httpx_uow, sample_host, sample_host_ip, sample_ip, sample_service):
     """Test that ingest creates endpoint for discovered URL"""
     program_id = uuid4()
     results = [
@@ -62,6 +83,8 @@ async def test_ingest_creates_endpoint(ffuf_ingestor, mock_httpx_uow, sample_hos
     ]
 
     mock_httpx_uow.hosts.get_by_fields = AsyncMock(return_value=sample_host)
+    mock_httpx_uow.host_ips.find_many = AsyncMock(return_value=[sample_host_ip])
+    mock_httpx_uow.ips.get = AsyncMock(return_value=sample_ip)
     mock_httpx_uow.services.get_by_fields = AsyncMock(return_value=sample_service)
     mock_httpx_uow.endpoints.ensure = AsyncMock()
 
@@ -71,7 +94,13 @@ async def test_ingest_creates_endpoint(ffuf_ingestor, mock_httpx_uow, sample_hos
         program_id=program_id,
         host="example.com"
     )
+    mock_httpx_uow.host_ips.find_many.assert_called_once_with(
+        filters={"host_id": sample_host.id},
+        limit=1
+    )
+    mock_httpx_uow.ips.get.assert_called_once_with(sample_host_ip.ip_id)
     mock_httpx_uow.services.get_by_fields.assert_called_once_with(
+        ip_id=sample_ip.id,
         port=443,
         scheme="https"
     )
@@ -106,7 +135,7 @@ async def test_ingest_skips_unknown_host(ffuf_ingestor, mock_httpx_uow):
 
 
 @pytest.mark.asyncio
-async def test_ingest_handles_http_url(ffuf_ingestor, mock_httpx_uow, sample_host):
+async def test_ingest_handles_http_url(ffuf_ingestor, mock_httpx_uow, sample_host, sample_host_ip, sample_ip):
     """Test ingesting HTTP URL (port 80)"""
     program_id = uuid4()
     results = [
@@ -116,22 +145,25 @@ async def test_ingest_handles_http_url(ffuf_ingestor, mock_httpx_uow, sample_hos
         }
     ]
 
-    http_service = ServiceModel(id=uuid4(), ip_id=uuid4(), port=80, scheme="http")
+    http_service = ServiceModel(id=uuid4(), ip_id=sample_ip.id, port=80, scheme="http")
 
     mock_httpx_uow.hosts.get_by_fields = AsyncMock(return_value=sample_host)
+    mock_httpx_uow.host_ips.find_many = AsyncMock(return_value=[sample_host_ip])
+    mock_httpx_uow.ips.get = AsyncMock(return_value=sample_ip)
     mock_httpx_uow.services.get_by_fields = AsyncMock(return_value=http_service)
     mock_httpx_uow.endpoints.ensure = AsyncMock()
 
     await ffuf_ingestor.ingest(program_id, results)
 
     mock_httpx_uow.services.get_by_fields.assert_called_once_with(
+        ip_id=sample_ip.id,
         port=80,
         scheme="http"
     )
 
 
 @pytest.mark.asyncio
-async def test_ingest_handles_custom_port(ffuf_ingestor, mock_httpx_uow, sample_host):
+async def test_ingest_handles_custom_port(ffuf_ingestor, mock_httpx_uow, sample_host, sample_host_ip, sample_ip):
     """Test ingesting URL with custom port"""
     program_id = uuid4()
     results = [
@@ -141,22 +173,25 @@ async def test_ingest_handles_custom_port(ffuf_ingestor, mock_httpx_uow, sample_
         }
     ]
 
-    custom_service = ServiceModel(id=uuid4(), ip_id=uuid4(), port=8443, scheme="https")
+    custom_service = ServiceModel(id=uuid4(), ip_id=sample_ip.id, port=8443, scheme="https")
 
     mock_httpx_uow.hosts.get_by_fields = AsyncMock(return_value=sample_host)
+    mock_httpx_uow.host_ips.find_many = AsyncMock(return_value=[sample_host_ip])
+    mock_httpx_uow.ips.get = AsyncMock(return_value=sample_ip)
     mock_httpx_uow.services.get_by_fields = AsyncMock(return_value=custom_service)
     mock_httpx_uow.endpoints.ensure = AsyncMock()
 
     await ffuf_ingestor.ingest(program_id, results)
 
     mock_httpx_uow.services.get_by_fields.assert_called_once_with(
+        ip_id=sample_ip.id,
         port=8443,
         scheme="https"
     )
 
 
 @pytest.mark.asyncio
-async def test_ingest_handles_root_path(ffuf_ingestor, mock_httpx_uow, sample_host, sample_service):
+async def test_ingest_handles_root_path(ffuf_ingestor, mock_httpx_uow, sample_host, sample_host_ip, sample_ip, sample_service):
     """Test ingesting URL with root path"""
     program_id = uuid4()
     results = [
@@ -167,6 +202,8 @@ async def test_ingest_handles_root_path(ffuf_ingestor, mock_httpx_uow, sample_ho
     ]
 
     mock_httpx_uow.hosts.get_by_fields = AsyncMock(return_value=sample_host)
+    mock_httpx_uow.host_ips.find_many = AsyncMock(return_value=[sample_host_ip])
+    mock_httpx_uow.ips.get = AsyncMock(return_value=sample_ip)
     mock_httpx_uow.services.get_by_fields = AsyncMock(return_value=sample_service)
     mock_httpx_uow.endpoints.ensure = AsyncMock()
 
@@ -178,7 +215,7 @@ async def test_ingest_handles_root_path(ffuf_ingestor, mock_httpx_uow, sample_ho
 
 
 @pytest.mark.asyncio
-async def test_ingest_handles_query_parameters(ffuf_ingestor, mock_httpx_uow, sample_host, sample_service):
+async def test_ingest_handles_query_parameters(ffuf_ingestor, mock_httpx_uow, sample_host, sample_host_ip, sample_ip, sample_service):
     """Test that query parameters are included in path"""
     program_id = uuid4()
     results = [
@@ -189,6 +226,8 @@ async def test_ingest_handles_query_parameters(ffuf_ingestor, mock_httpx_uow, sa
     ]
 
     mock_httpx_uow.hosts.get_by_fields = AsyncMock(return_value=sample_host)
+    mock_httpx_uow.host_ips.find_many = AsyncMock(return_value=[sample_host_ip])
+    mock_httpx_uow.ips.get = AsyncMock(return_value=sample_ip)
     mock_httpx_uow.services.get_by_fields = AsyncMock(return_value=sample_service)
     mock_httpx_uow.endpoints.ensure = AsyncMock()
 
@@ -200,7 +239,7 @@ async def test_ingest_handles_query_parameters(ffuf_ingestor, mock_httpx_uow, sa
 
 
 @pytest.mark.asyncio
-async def test_ingest_processes_multiple_results(ffuf_ingestor, mock_httpx_uow, sample_host, sample_service):
+async def test_ingest_processes_multiple_results(ffuf_ingestor, mock_httpx_uow, sample_host, sample_host_ip, sample_ip, sample_service):
     """Test ingesting multiple FFUF results"""
     program_id = uuid4()
     results = [
@@ -210,6 +249,8 @@ async def test_ingest_processes_multiple_results(ffuf_ingestor, mock_httpx_uow, 
     ]
 
     mock_httpx_uow.hosts.get_by_fields = AsyncMock(return_value=sample_host)
+    mock_httpx_uow.host_ips.find_many = AsyncMock(return_value=[sample_host_ip])
+    mock_httpx_uow.ips.get = AsyncMock(return_value=sample_ip)
     mock_httpx_uow.services.get_by_fields = AsyncMock(return_value=sample_service)
     mock_httpx_uow.endpoints.ensure = AsyncMock()
 
@@ -239,7 +280,7 @@ async def test_ingest_skips_invalid_results(ffuf_ingestor, mock_httpx_uow):
 
 
 @pytest.mark.asyncio
-async def test_ingest_handles_different_status_codes(ffuf_ingestor, mock_httpx_uow, sample_host, sample_service):
+async def test_ingest_handles_different_status_codes(ffuf_ingestor, mock_httpx_uow, sample_host, sample_host_ip, sample_ip, sample_service):
     """Test ingesting endpoints with various status codes"""
     program_id = uuid4()
     results = [
@@ -249,6 +290,8 @@ async def test_ingest_handles_different_status_codes(ffuf_ingestor, mock_httpx_u
     ]
 
     mock_httpx_uow.hosts.get_by_fields = AsyncMock(return_value=sample_host)
+    mock_httpx_uow.host_ips.find_many = AsyncMock(return_value=[sample_host_ip])
+    mock_httpx_uow.ips.get = AsyncMock(return_value=sample_ip)
     mock_httpx_uow.services.get_by_fields = AsyncMock(return_value=sample_service)
     mock_httpx_uow.endpoints.ensure = AsyncMock()
 
@@ -278,7 +321,7 @@ async def test_ingest_rollback_on_error(ffuf_ingestor, mock_httpx_uow):
 
 
 @pytest.mark.asyncio
-async def test_ingest_handles_missing_status_code(ffuf_ingestor, mock_httpx_uow, sample_host, sample_service):
+async def test_ingest_handles_missing_status_code(ffuf_ingestor, mock_httpx_uow, sample_host, sample_host_ip, sample_ip, sample_service):
     """Test ingesting result without status code"""
     program_id = uuid4()
     results = [
@@ -286,6 +329,8 @@ async def test_ingest_handles_missing_status_code(ffuf_ingestor, mock_httpx_uow,
     ]
 
     mock_httpx_uow.hosts.get_by_fields = AsyncMock(return_value=sample_host)
+    mock_httpx_uow.host_ips.find_many = AsyncMock(return_value=[sample_host_ip])
+    mock_httpx_uow.ips.get = AsyncMock(return_value=sample_ip)
     mock_httpx_uow.services.get_by_fields = AsyncMock(return_value=sample_service)
     mock_httpx_uow.endpoints.ensure = AsyncMock()
 
