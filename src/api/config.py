@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     HTTPX_NEW_HOST_BATCH_SIZE: int = 50
     KATANA_INGESTOR_BATCH_SIZE: int = 50
 
+    # FFUF settings
+    FFUF_WORDLIST: str = "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt"
+    FFUF_RATE_LIMIT: int = 10
+
     @property
     def postgres_dsn(self) -> str:
         return (
