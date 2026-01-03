@@ -57,7 +57,21 @@ class FFUFResultIngestor:
                             skipped += 1
                             continue
 
+                        host_ip_records = await self.uow.host_ips.find_many(
+                            filters={"host_id": host.id},
+                            limit=1
+                        )
+                        if not host_ip_records:
+                            skipped += 1
+                            continue
+
+                        ip = await self.uow.ips.get(host_ip_records[0].ip_id)
+                        if not ip:
+                            skipped += 1
+                            continue
+
                         service = await self.uow.services.get_by_fields(
+                            ip_id=ip.id,
                             port=port,
                             scheme=scheme
                         )
