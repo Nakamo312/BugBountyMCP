@@ -21,8 +21,9 @@ def mock_event_bus():
 
 @pytest.fixture
 def httpx_ingestor(mock_uow, mock_event_bus, settings):
-    # Add get_by_fields mock to uow.hosts
     mock_uow.hosts.get_by_fields = AsyncMock(return_value=None)
+    mock_uow.scope_rules = AsyncMock()
+    mock_uow.scope_rules.find_by_program = AsyncMock(return_value=[])
     return HTTPXResultIngestor(uow=mock_uow, bus=mock_event_bus, settings=settings)
 
 
@@ -37,7 +38,7 @@ async def test_ensure_host_creates_host(httpx_ingestor, mock_uow, sample_program
     result = await httpx_ingestor._ensure_host(mock_uow, sample_program.id, data)
 
     assert result == host
-    mock_uow.hosts.ensure.assert_called_once_with(program_id=sample_program.id, host="example.com")
+    mock_uow.hosts.ensure.assert_called_once_with(program_id=sample_program.id, host="example.com", in_scope=True)
 
 
 @pytest.mark.asyncio

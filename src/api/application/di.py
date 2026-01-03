@@ -11,6 +11,7 @@ from api.application.services.subfinder import SubfinderScanService
 from api.application.services.gau import GAUScanService
 from api.application.services.katana import KatanaScanService
 from api.application.services.linkfinder import LinkFinderScanService
+from api.application.services.mantra import MantraScanService
 from api.application.services.batch_processor import (
     HTTPXBatchProcessor,
     SubfinderBatchProcessor,
@@ -21,15 +22,18 @@ from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOf
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
 from api.infrastructure.unit_of_work.adapters.katana import SQLAlchemyKatanaUnitOfWork
 from api.infrastructure.unit_of_work.adapters.linkfinder import SQLAlchemyLinkFinderUnitOfWork
+from api.infrastructure.unit_of_work.adapters.mantra import SQLAlchemyMantraUnitOfWork
 from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
 from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIngestor
+from api.infrastructure.ingestors.mantra_ingestor import MantraResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 from api.infrastructure.runners.gau_cli import GAUCliRunner
 from api.infrastructure.runners.katana_cli import KatanaCliRunner
 from api.infrastructure.runners.linkfinder_cli import LinkFinderCliRunner
+from api.infrastructure.runners.mantra_cli import MantraCliRunner
 from api.infrastructure.events.event_bus import EventBus
 from dishka import AsyncContainer
 
@@ -72,6 +76,10 @@ class UnitOfWorkProvider(Provider):
     def get_linkfinder_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyLinkFinderUnitOfWork:
         return SQLAlchemyLinkFinderUnitOfWork(session_factory)
 
+    @provide(scope=Scope.REQUEST)
+    def get_mantra_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyMantraUnitOfWork:
+        return SQLAlchemyMantraUnitOfWork(session_factory)
+
 
 class CLIRunnerProvider(Provider):
     scope = Scope.APP
@@ -110,6 +118,13 @@ class CLIRunnerProvider(Provider):
         return LinkFinderCliRunner(
             linkfinder_path=settings.get_tool_path("linkfinder"),
             timeout=15,
+        )
+
+    @provide(scope=Scope.APP)
+    def get_mantra_runner(self, settings: Settings) -> MantraCliRunner:
+        return MantraCliRunner(
+            mantra_path=settings.get_tool_path("mantra"),
+            timeout=300,
         )
 
     @provide(scope=Scope.APP)
@@ -167,6 +182,13 @@ class IngestorProvider(Provider):
         settings: Settings
     ) -> LinkFinderResultIngestor:
         return LinkFinderResultIngestor(uow=linkfinder_uow, settings=settings)
+
+    @provide(scope=Scope.REQUEST)
+    def get_mantra_ingestor(
+        self,
+        mantra_uow: SQLAlchemyMantraUnitOfWork
+    ) -> MantraResultIngestor:
+        return MantraResultIngestor(uow=mantra_uow)
 
 
 class ServiceProvider(Provider):
@@ -236,6 +258,17 @@ class ServiceProvider(Provider):
     ) -> LinkFinderScanService:
         return LinkFinderScanService(
             runner=linkfinder_runner,
+            bus=event_bus
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_mantra_service(
+        self,
+        mantra_runner: MantraCliRunner,
+        event_bus: EventBus
+    ) -> MantraScanService:
+        return MantraScanService(
+            runner=mantra_runner,
             bus=event_bus
         )
 

@@ -37,6 +37,9 @@ def mock_container():
     linkfinder_service = AsyncMock()
     linkfinder_service.execute = AsyncMock()
 
+    mantra_service = AsyncMock()
+    mantra_service.execute = AsyncMock()
+
     # Mock ingestors
     httpx_ingestor = AsyncMock()
     httpx_ingestor.ingest = AsyncMock()
@@ -46,6 +49,9 @@ def mock_container():
 
     linkfinder_ingestor = AsyncMock()
     linkfinder_ingestor.ingest = AsyncMock()
+
+    mantra_ingestor = AsyncMock()
+    mantra_ingestor.ingest = AsyncMock()
 
     # Mock ProgramUnitOfWork with scope_rules
     program_uow = AsyncMock()
@@ -58,9 +64,11 @@ def mock_container():
         from api.application.services.httpx import HTTPXScanService
         from api.application.services.katana import KatanaScanService
         from api.application.services.linkfinder import LinkFinderScanService
+        from api.application.services.mantra import MantraScanService
         from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
         from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
         from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIngestor
+        from api.infrastructure.ingestors.mantra_ingestor import MantraResultIngestor
         from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
 
         if service_type == HTTPXScanService:
@@ -69,12 +77,16 @@ def mock_container():
             return katana_service
         elif service_type == LinkFinderScanService:
             return linkfinder_service
+        elif service_type == MantraScanService:
+            return mantra_service
         elif service_type == HTTPXResultIngestor:
             return httpx_ingestor
         elif service_type == KatanaResultIngestor:
             return katana_ingestor
         elif service_type == LinkFinderResultIngestor:
             return linkfinder_ingestor
+        elif service_type == MantraResultIngestor:
+            return mantra_ingestor
         elif service_type == ProgramUnitOfWork:
             return program_uow
         raise ValueError(f"Unknown service type: {service_type}")
@@ -106,7 +118,7 @@ async def test_start_subscribes_to_events(orchestrator, mock_event_bus):
     await orchestrator.start()
 
     mock_event_bus.connect.assert_called_once()
-    assert mock_event_bus.subscribe.call_count == 7
+    assert mock_event_bus.subscribe.call_count == 8
 
 
 @pytest.mark.asyncio
@@ -247,3 +259,49 @@ async def test_process_js_files_batch_calls_linkfinder_service(orchestrator, moc
 
     # Verify container was called to get service
     assert mock_container.called
+
+
+@pytest.mark.asyncio
+async def test_process_js_files_batch_calls_mantra_service(orchestrator, mock_container, sample_program):
+    """Test _process_js_files_batch calls MantraScanService"""
+    from api.application.services.mantra import MantraScanService
+
+    js_files = ["https://example.com/app.js", "https://example.com/bundle.js"]
+
+    # Get request container
+    request_container = await mock_container().__aenter__()
+    mantra_service = await request_container.get(MantraScanService)
+
+    await orchestrator._process_js_files_batch(str(sample_program.id), js_files)
+
+    # Verify MantraScanService.execute was called
+    mantra_service.execute.assert_called_once()
+    call_args = mantra_service.execute.call_args
+    assert call_args[1]["program_id"] == str(sample_program.id)
+    assert call_args[1]["targets"] == js_files
+
+
+@pytest.mark.asyncio
+async def test_handle_mantra_results_batch(orchestrator, mock_container, sample_program):
+    """Test handle_mantra_results_batch calls MantraResultIngestor"""
+    from api.infrastructure.ingestors.mantra_ingestor import MantraResultIngestor
+
+    event = {
+        "program_id": str(sample_program.id),
+        "results": [
+            {"url": "https://example.com/app.js", "secret": "sk_live_..."},
+            {"url": "https://example.com/bundle.js", "secret": "AKIA..."},
+        ]
+    }
+
+    # Get request container
+    request_container = await mock_container().__aenter__()
+    mantra_ingestor = await request_container.get(MantraResultIngestor)
+
+    await orchestrator.handle_mantra_results_batch(event)
+
+    # Verify MantraResultIngestor.ingest was called
+    mantra_ingestor.ingest.assert_called_once()
+    call_args = mantra_ingestor.ingest.call_args
+    assert call_args[0][0] == sample_program.id
+    assert len(call_args[0][1]) == 2
