@@ -4,6 +4,7 @@ import re
 from typing import List, Dict, Any
 from uuid import UUID
 
+from api.application.dto.scan_dto import MantraScanOutputDTO
 from api.infrastructure.events.event_bus import EventBus
 from api.infrastructure.events.event_types import EventType
 from api.infrastructure.runners.mantra_cli import MantraCliRunner
@@ -21,17 +22,27 @@ class MantraScanService:
         self.runner = runner
         self.bus = bus
 
-    async def execute(self, program_id: UUID, targets: List[str]):
+    async def execute(self, program_id: UUID, targets: List[str]) -> MantraScanOutputDTO:
         """
         Execute Mantra scan on JS files.
 
         Args:
             program_id: Target program ID
             targets: List of JS URLs to scan
+
+        Returns:
+            DTO with scan status
         """
         logger.info(f"Starting Mantra scan: program={program_id} targets={len(targets)}")
 
         asyncio.create_task(self._run_scan(program_id, targets))
+
+        return MantraScanOutputDTO(
+            status="started",
+            message=f"Mantra scan started for {len(targets)} JS file{'s' if len(targets) != 1 else ''}",
+            scanner="mantra",
+            targets_count=len(targets),
+        )
 
     async def _run_scan(self, program_id: UUID, targets: List[str]):
         """Background task for Mantra execution"""
