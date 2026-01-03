@@ -11,8 +11,10 @@ from api.infrastructure.events.event_types import EventType
 from api.application.services.httpx import HTTPXScanService
 from api.application.services.katana import KatanaScanService
 from api.application.services.linkfinder import LinkFinderScanService
+from api.application.services.mantra import MantraScanService
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
+from api.infrastructure.ingestors.mantra_ingestor import MantraResultIngestor
 from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
 
 logger = logging.getLogger(__name__)
@@ -69,6 +71,9 @@ class Orchestrator:
         )
         asyncio.create_task(
             self.bus.subscribe(EventType.JS_FILES_DISCOVERED, self.handle_js_files_discovered)
+        )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.MANTRA_RESULTS_BATCH, self.handle_mantra_results_batch)
         )
 
     async def handle_service_event(self, event: Dict[str, Any]):
@@ -184,6 +189,20 @@ class Orchestrator:
         except Exception as exc:
             logger.error(f"Failed to ingest Katana results: error={exc}", exc_info=True)
 
+    async def handle_mantra_results_batch(self, event: Dict[str, Any]):
+        """Handle batched Mantra scan results"""
+        try:
+            async with self.container() as request_container:
+                ingestor = await request_container.get(MantraResultIngestor)
+                program_id = UUID(event["program_id"])
+                results = event["results"]
+
+                logger.info(f"Ingesting Mantra results batch: program={program_id} count={len(results)}")
+                await ingestor.ingest(program_id, results)
+                logger.info(f"Mantra results ingested successfully: program={program_id} count={len(results)}")
+        except Exception as exc:
+            logger.error(f"Failed to ingest Mantra results: error={exc}", exc_info=True)
+
     async def handle_host_discovered(self, event: Dict[str, Any]):
         """
         Handle new host discovery events by triggering Katana crawls.
@@ -262,7 +281,9 @@ class Orchestrator:
         async with self._scan_semaphore:
             async with self.container() as request_container:
                 linkfinder_service = await request_container.get(LinkFinderScanService)
+                mantra_service = await request_container.get(MantraScanService)
 
-                logger.info(f"Starting LinkFinder scan for program {program_id}: {len(in_scope)} JS files")
+                logger.info(f"Starting LinkFinder and Mantra scans for program {program_id}: {len(in_scope)} JS files")
 
                 await linkfinder_service.execute(program_id=program_id, targets=in_scope)
+                await mantra_service.execute(program_id=program_id, targets=in_scope)
