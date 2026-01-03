@@ -244,6 +244,25 @@ class LinkFinderScanOutputDTO(BaseModel):
     )
 
 
+class MantraScanOutputDTO(BaseModel):
+    """Output DTO for Mantra scan service"""
+    status: str = Field(..., description="Scan status")
+    message: str = Field(..., description="Status message")
+    scanner: str = Field(..., description="Scanner name")
+    targets_count: int = Field(..., description="Number of JS files to scan")
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "status": "started",
+                "message": "Mantra scan started for 5 JS files",
+                "scanner": "mantra",
+                "targets_count": 5
+            }
+        }
+    )
+
+
 class ScanResultDTO(BaseModel):
     """Generic scan result wrapper"""
     status: str = Field(..., description="Scan status (success/error)")
