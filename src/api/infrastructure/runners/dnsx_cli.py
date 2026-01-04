@@ -40,23 +40,39 @@ class DNSxCliRunner:
             stdin = "\n".join(targets)
 
         logger.info("Starting DNSx Basic: targets=%d threads=%d", target_count, thread_count)
+        logger.debug("DNSx Basic command: %s", " ".join(command))
+        logger.debug("DNSx Basic stdin (first 500 chars): %s", stdin[:500] if stdin else "None")
 
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
+        event_count = 0
+        result_count = 0
         async for event in executor.run():
+            event_count += 1
+            logger.debug("DNSx Basic event #%d: type=%s payload_len=%d", event_count, event.type, len(event.payload) if event.payload else 0)
+
+            if event.type == "stderr" and event.payload:
+                logger.warning("DNSx Basic stderr: %s", event.payload)
+
             if event.type != "stdout":
                 continue
 
             if not event.payload:
                 continue
 
+            logger.debug("DNSx Basic stdout: %s", event.payload)
+
             try:
                 data = json.loads(event.payload)
+                result_count += 1
+                logger.debug("DNSx Basic parsed result #%d: %s", result_count, data)
             except json.JSONDecodeError:
                 logger.debug("Non-JSON stdout line skipped: %r", event.payload)
                 continue
 
             yield ProcessEvent(type="result", payload=data)
+
+        logger.info("DNSx Basic completed: total_events=%d results=%d", event_count, result_count)
 
     async def run_deep(self, targets: list[str] | str) -> AsyncIterator[ProcessEvent]:
         """
@@ -88,20 +104,36 @@ class DNSxCliRunner:
             stdin = "\n".join(targets)
 
         logger.info("Starting DNSx Deep: targets=%d threads=%d", target_count, thread_count)
+        logger.debug("DNSx Deep command: %s", " ".join(command))
+        logger.debug("DNSx Deep stdin (first 500 chars): %s", stdin[:500] if stdin else "None")
 
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
+        event_count = 0
+        result_count = 0
         async for event in executor.run():
+            event_count += 1
+            logger.debug("DNSx Deep event #%d: type=%s payload_len=%d", event_count, event.type, len(event.payload) if event.payload else 0)
+
+            if event.type == "stderr" and event.payload:
+                logger.warning("DNSx Deep stderr: %s", event.payload)
+
             if event.type != "stdout":
                 continue
 
             if not event.payload:
                 continue
 
+            logger.debug("DNSx Deep stdout: %s", event.payload)
+
             try:
                 data = json.loads(event.payload)
+                result_count += 1
+                logger.debug("DNSx Deep parsed result #%d: %s", result_count, data)
             except json.JSONDecodeError:
                 logger.debug("Non-JSON stdout line skipped: %r", event.payload)
                 continue
 
             yield ProcessEvent(type="result", payload=data)
+
+        logger.info("DNSx Deep completed: total_events=%d results=%d", event_count, result_count)
