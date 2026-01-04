@@ -27,8 +27,7 @@ def upgrade() -> None:
             h.host,
             dr.record_type,
             dr.value as cname_target,
-            dr.is_wildcard,
-            h.created_at as discovered_at
+            dr.is_wildcard
         FROM dns_records dr
         JOIN hosts h ON dr.host_id = h.id
         JOIN programs p ON h.program_id = p.id
@@ -38,7 +37,7 @@ def upgrade() -> None:
             WHERE dr2.host_id = dr.host_id
             AND dr2.record_type = 'A'
         )
-        ORDER BY h.created_at DESC;
+        ORDER BY h.host;
     """)
 
     # Email Security Analysis
@@ -50,12 +49,11 @@ def upgrade() -> None:
             EXISTS(SELECT 1 FROM dns_records WHERE host_id = h.id AND record_type = 'MX') as has_mx,
             EXISTS(SELECT 1 FROM dns_records WHERE host_id = h.id AND record_type = 'TXT' AND value LIKE '%v=spf1%') as has_spf,
             EXISTS(SELECT 1 FROM dns_records WHERE host_id = h.id AND record_type = 'TXT' AND value LIKE '%v=DMARC1%') as has_dmarc,
-            (SELECT COUNT(*) FROM dns_records WHERE host_id = h.id AND record_type = 'MX') as mx_count,
-            h.created_at as discovered_at
+            (SELECT COUNT(*) FROM dns_records WHERE host_id = h.id AND record_type = 'MX') as mx_count
         FROM hosts h
         JOIN programs p ON h.program_id = p.id
         WHERE EXISTS (SELECT 1 FROM dns_records WHERE host_id = h.id)
-        ORDER BY h.created_at DESC;
+        ORDER BY h.host;
     """)
 
     # Infrastructure Mapping
@@ -102,13 +100,12 @@ def upgrade() -> None:
             p.name as program_name,
             h.host,
             dr.record_type,
-            dr.value,
-            h.created_at as discovered_at
+            dr.value
         FROM dns_records dr
         JOIN hosts h ON dr.host_id = h.id
         JOIN programs p ON h.program_id = p.id
         WHERE dr.is_wildcard = true
-        ORDER BY h.created_at DESC;
+        ORDER BY h.host;
     """)
 
 
