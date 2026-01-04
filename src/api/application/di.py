@@ -20,6 +20,7 @@ from api.application.services.batch_processor import (
     GAUBatchProcessor,
     KatanaBatchProcessor,
     DNSxBatchProcessor,
+    SubjackBatchProcessor,
 )
 from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOfWork
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
@@ -156,6 +157,15 @@ class CLIRunnerProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
+    def get_subjack_runner(self, settings: Settings):
+        from api.infrastructure.runners.subjack_cli import SubjackCliRunner
+        return SubjackCliRunner(
+            subjack_path=settings.get_tool_path("subjack"),
+            fingerprints_path=settings.SUBJACK_FINGERPRINTS,
+            timeout=300,
+        )
+
+    @provide(scope=Scope.APP)
     def get_event_bus(self, settings: Settings) -> EventBus:
         return EventBus(settings)
 
@@ -183,6 +193,10 @@ class BatchProcessorProvider(Provider):
     @provide(scope=Scope.APP)
     def get_dnsx_processor(self, settings: Settings) -> DNSxBatchProcessor:
         return DNSxBatchProcessor(settings)
+
+    @provide(scope=Scope.APP)
+    def get_subjack_processor(self, settings: Settings) -> SubjackBatchProcessor:
+        return SubjackBatchProcessor(settings)
 
 
 class IngestorProvider(Provider):
@@ -237,6 +251,16 @@ class IngestorProvider(Provider):
         settings: Settings
     ) -> DNSxResultIngestor:
         return DNSxResultIngestor(uow=dnsx_uow, bus=event_bus, settings=settings)
+
+    @provide(scope=Scope.REQUEST)
+    def get_subjack_ingestor(
+        self,
+        httpx_uow: SQLAlchemyHTTPXUnitOfWork,
+        event_bus: EventBus,
+        settings: Settings
+    ):
+        from api.infrastructure.ingestors.subjack_ingestor import SubjackResultIngestor
+        return SubjackResultIngestor(uow=httpx_uow, bus=event_bus, settings=settings)
 
 
 class ServiceProvider(Provider):
@@ -341,6 +365,26 @@ class ServiceProvider(Provider):
         return DNSxScanService(
             runner=dnsx_runner,
             processor=dnsx_processor,
+            bus=event_bus
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_subjack_service(
+        self,
+        subjack_processor: SubjackBatchProcessor,
+        event_bus: EventBus,
+        settings: Settings
+    ):
+        from api.application.services.subjack import SubjackScanService
+        from api.infrastructure.runners.subjack_cli import SubjackCliRunner
+        subjack_runner = SubjackCliRunner(
+            subjack_path=settings.get_tool_path("subjack"),
+            fingerprints_path=settings.SUBJACK_FINGERPRINTS,
+            timeout=300
+        )
+        return SubjackScanService(
+            runner=subjack_runner,
+            processor=subjack_processor,
             bus=event_bus
         )
 

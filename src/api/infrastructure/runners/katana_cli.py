@@ -43,25 +43,26 @@ class KatanaCliRunner:
         stdin_input = "\n".join(targets)
 
         command = [
-        "/host_root/usr_local_bin/katana",
-        "-list", "-",
-        "-d", "3",
-        "-silent",
-        "-jsonl", 
-        "-c", "10",
-        "-p", "5",
-        "-rl", "150",
-        "-timeout", "15",
-        "-tech-detect",
-        "-known-files", "sitemapxml",
-        "-ef", "png,jpg,jpeg,gif,svg,ico,css,woff,woff2,ttf,eot,otf,mp4,mp3,avi,webm,flv,wav,pdf,zip,tar,gz,rar,7z,exe,dll,bin,dmg,iso",
-    ]
+            self.katana_path,
+            "-list", "-",
+            "-d", str(depth),
+            "-silent",
+            "-jsonl",
+            "-c", "10",
+            "-p", "5",
+            "-rl", "150",
+            "-timeout", "15",
+            "-tech-detect",
+            "-known-files", "sitemapxml",
+            "-f", "qurl",
+            "-ef", "png,jpg,jpeg,gif,svg,ico,css,woff,woff2,ttf,eot,otf,mp4,mp3,avi,webm,flv,wav,pdf,zip,tar,gz,rar,7z,exe,dll,bin,dmg,iso",
+        ]
 
         if js_crawl:
             command.append("-jc")
 
         if headless:
-            command.extend(["-hl", "-nos"])
+            command.extend(["-hl", "-nos", "-aff"])
 
         logger.info("Starting Katana command for %d targets: %s", len(targets), " ".join(command))
 

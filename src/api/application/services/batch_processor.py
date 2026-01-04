@@ -200,3 +200,20 @@ class DNSxBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
         if event.type == "result" and event.payload:
             return event.payload
         return None
+
+
+class SubjackBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
+    """Batch processor for Subjack subdomain takeover results"""
+
+    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
+        return {
+            'min': settings.HTTPX_BATCH_MIN,
+            'max': settings.HTTPX_BATCH_MAX,
+            'timeout': settings.HTTPX_BATCH_TIMEOUT
+        }
+
+    def _extract_item(self, event) -> Dict[str, Any] | None:
+        """Extract Subjack result from event"""
+        if event.type == "result" and event.payload:
+            return event.payload
+        return None

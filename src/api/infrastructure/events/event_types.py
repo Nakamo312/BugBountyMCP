@@ -17,3 +17,5 @@ class EventType(str, Enum):
     FFUF_RESULTS_BATCH = "ffuf_results_batch"
     DNSX_BASIC_RESULTS_BATCH = "dnsx_basic_results_batch"
     DNSX_DEEP_RESULTS_BATCH = "dnsx_deep_results_batch"
+    CNAME_DISCOVERED = "cname_discovered"
+    SUBJACK_RESULTS_BATCH = "subjack_results_batch"

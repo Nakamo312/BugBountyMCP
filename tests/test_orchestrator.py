@@ -31,6 +31,9 @@ def mock_container():
     httpx_service = AsyncMock()
     httpx_service.execute = AsyncMock()
 
+    dnsx_service = AsyncMock()
+    dnsx_service.execute = AsyncMock()
+
     katana_service = AsyncMock()
     katana_service.execute = AsyncMock()
 
@@ -43,6 +46,9 @@ def mock_container():
     # Mock ingestors
     httpx_ingestor = AsyncMock()
     httpx_ingestor.ingest = AsyncMock()
+
+    dnsx_ingestor = AsyncMock()
+    dnsx_ingestor.ingest = AsyncMock()
 
     katana_ingestor = AsyncMock()
     katana_ingestor.ingest = AsyncMock()
@@ -62,10 +68,12 @@ def mock_container():
 
     async def mock_get(service_type):
         from api.application.services.httpx import HTTPXScanService
+        from api.application.services.dnsx import DNSxScanService
         from api.application.services.katana import KatanaScanService
         from api.application.services.linkfinder import LinkFinderScanService
         from api.application.services.mantra import MantraScanService
         from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
+        from api.infrastructure.ingestors.dnsx_ingestor import DNSxResultIngestor
         from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
         from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIngestor
         from api.infrastructure.ingestors.mantra_ingestor import MantraResultIngestor
@@ -73,6 +81,8 @@ def mock_container():
 
         if service_type == HTTPXScanService:
             return httpx_service
+        elif service_type == DNSxScanService:
+            return dnsx_service
         elif service_type == KatanaScanService:
             return katana_service
         elif service_type == LinkFinderScanService:
@@ -81,6 +91,8 @@ def mock_container():
             return mantra_service
         elif service_type == HTTPXResultIngestor:
             return httpx_ingestor
+        elif service_type == DNSxResultIngestor:
+            return dnsx_ingestor
         elif service_type == KatanaResultIngestor:
             return katana_ingestor
         elif service_type == LinkFinderResultIngestor:
@@ -119,8 +131,9 @@ async def test_start_subscribes_to_events(orchestrator, mock_event_bus):
 
     mock_event_bus.connect.assert_called_once()
     # SERVICE_EVENTS, SCAN_RESULTS_BATCH, SUBDOMAIN_DISCOVERED, GAU_DISCOVERED,
-    # KATANA_RESULTS_BATCH, HOST_DISCOVERED, JS_FILES_DISCOVERED, MANTRA_RESULTS_BATCH, FFUF_RESULTS_BATCH
-    assert mock_event_bus.subscribe.call_count == 9
+    # KATANA_RESULTS_BATCH, HOST_DISCOVERED, JS_FILES_DISCOVERED, MANTRA_RESULTS_BATCH, FFUF_RESULTS_BATCH,
+    # DNSX_BASIC_RESULTS_BATCH, DNSX_DEEP_RESULTS_BATCH, DNSX_FILTERED_HOSTS, CNAME_DISCOVERED, SUBJACK_RESULTS_BATCH
+    assert mock_event_bus.subscribe.call_count == 14
 
 
 @pytest.mark.asyncio
@@ -223,8 +236,8 @@ async def test_semaphore_limits_concurrent_scans(orchestrator, sample_program):
 
 
 @pytest.mark.asyncio
-async def test_process_subdomain_batch_calls_httpx_service(orchestrator, mock_container, sample_program):
-    """Test _process_subdomain_batch calls HTTPXScanService"""
+async def test_process_subdomain_batch_calls_dnsx_service(orchestrator, mock_container, sample_program):
+    """Test _process_subdomain_batch calls DNSxScanService for wildcard filtering"""
     targets = ["api.example.com", "www.example.com"]
 
     await orchestrator._process_subdomain_batch(str(sample_program.id), targets)

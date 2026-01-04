@@ -187,11 +187,12 @@ class FindingModel(AbstractModel):
     """Vulnerability finding"""
     program_id: UUID
     vuln_type_id: UUID
-    endpoint_id: Optional[UUID]
-    parameter_id: Optional[UUID]
-    payload_id: Optional[UUID]
-    execution_id: Optional[UUID]
     description: str
+    host_id: Optional[UUID] = None
+    endpoint_id: Optional[UUID] = None
+    parameter_id: Optional[UUID] = None
+    payload_id: Optional[UUID] = None
+    execution_id: Optional[UUID] = None
     evidence: Dict[str, Any] = field(default_factory=dict)
     verified: bool = False
     false_positive: bool = False

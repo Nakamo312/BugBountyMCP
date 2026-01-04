@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     FFUF_WORDLIST: str = "/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt"
     FFUF_RATE_LIMIT: int = 10
 
+    # Subjack settings
+    SUBJACK_FINGERPRINTS: str = "/usr/share/subjack/fingerprints.json"
+
     @property
     def postgres_dsn(self) -> str:
         return (
