@@ -14,3 +14,5 @@ class EventType(str, Enum):
     JS_FILES_DISCOVERED = "js_files_discovered"
     MANTRA_RESULTS_BATCH = "mantra_results_batch"
     FFUF_RESULTS_BATCH = "ffuf_results_batch"
+    DNSX_BASIC_RESULTS_BATCH = "dnsx_basic_results_batch"
+    DNSX_DEEP_RESULTS_BATCH = "dnsx_deep_results_batch"

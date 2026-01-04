@@ -135,6 +135,25 @@ class FFUFScanRequest(BaseModel):
     )
 
 
+class DNSxScanRequest(BaseModel):
+    """HTTP request schema for DNSx scan"""
+    program_id: str = Field(..., description="Program UUID as string")
+    targets: Union[str, List[str]] = Field(..., description="Single domain or list of domains/hosts")
+    mode: str = Field(default="basic", description="Scan mode: basic or deep")
+    timeout: Optional[int] = Field(default=600, ge=1, le=3600)
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "targets": ["example.com", "api.example.com"],
+                "mode": "basic",
+                "timeout": 600
+            }
+        }
+    )
+
+
 # Response Schemas
 class ScanResponse(BaseModel):
     """Generic scan response wrapper"""

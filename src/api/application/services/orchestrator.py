@@ -16,6 +16,7 @@ from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
 from api.infrastructure.ingestors.mantra_ingestor import MantraResultIngestor
 from api.infrastructure.ingestors.ffuf_ingestor import FFUFResultIngestor
+from api.infrastructure.ingestors.dnsx_ingestor import DNSxResultIngestor
 from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,12 @@ class Orchestrator:
         )
         asyncio.create_task(
             self.bus.subscribe(EventType.FFUF_RESULTS_BATCH, self.handle_ffuf_results_batch)
+        )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.DNSX_BASIC_RESULTS_BATCH, self.handle_dnsx_basic_results_batch)
+        )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.DNSX_DEEP_RESULTS_BATCH, self.handle_dnsx_deep_results_batch)
         )
 
     async def handle_service_event(self, event: Dict[str, Any]):
@@ -305,3 +312,31 @@ class Orchestrator:
                 logger.info(f"FFUF results ingested successfully: program={program_id} count={len(results)}")
         except Exception as exc:
             logger.error(f"Failed to ingest FFUF results: error={exc}", exc_info=True)
+
+    async def handle_dnsx_basic_results_batch(self, event: Dict[str, Any]):
+        """Handle batched DNSx basic scan results"""
+        try:
+            async with self.container() as request_container:
+                ingestor = await request_container.get(DNSxResultIngestor)
+                program_id = UUID(event["program_id"])
+                results = event["results"]
+
+                logger.info(f"Ingesting DNSx basic results batch: program={program_id} count={len(results)}")
+                await ingestor.ingest(program_id, results)
+                logger.info(f"DNSx basic results ingested successfully: program={program_id} count={len(results)}")
+        except Exception as exc:
+            logger.error(f"Failed to ingest DNSx basic results: error={exc}", exc_info=True)
+
+    async def handle_dnsx_deep_results_batch(self, event: Dict[str, Any]):
+        """Handle batched DNSx deep scan results"""
+        try:
+            async with self.container() as request_container:
+                ingestor = await request_container.get(DNSxResultIngestor)
+                program_id = UUID(event["program_id"])
+                results = event["results"]
+
+                logger.info(f"Ingesting DNSx deep results batch: program={program_id} count={len(results)}")
+                await ingestor.ingest(program_id, results)
+                logger.info(f"DNSx deep results ingested successfully: program={program_id} count={len(results)}")
+        except Exception as exc:
+            logger.error(f"Failed to ingest DNSx deep results: error={exc}", exc_info=True)

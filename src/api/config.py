@@ -47,10 +47,15 @@ class Settings(BaseSettings):
     KATANA_BATCH_MAX: int = 100
     KATANA_BATCH_TIMEOUT: float = 10.0
 
+    DNSX_BATCH_MIN: int = 100
+    DNSX_BATCH_MAX: int = 300
+    DNSX_BATCH_TIMEOUT: float = 10.0
+
     # Ingestor settings
     HTTPX_INGESTOR_BATCH_SIZE: int = 50
     HTTPX_NEW_HOST_BATCH_SIZE: int = 50
     KATANA_INGESTOR_BATCH_SIZE: int = 50
+    DNSX_INGESTOR_BATCH_SIZE: int = 100
 
     # FFUF settings
     FFUF_WORDLIST: str = "/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt"

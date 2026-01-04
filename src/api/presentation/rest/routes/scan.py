@@ -11,6 +11,7 @@ from api.presentation.schemas import (
     LinkFinderScanRequest,
     MantraScanRequest,
     FFUFScanRequest,
+    DNSxScanRequest,
     ScanResponse
 )
 from api.application.services.subfinder import SubfinderScanService
@@ -20,6 +21,7 @@ from api.application.services.katana import KatanaScanService
 from api.application.services.linkfinder import LinkFinderScanService
 from api.application.services.mantra import MantraScanService
 from api.application.services.ffuf import FFUFScanService
+from api.application.services.dnsx import DNSxScanService
 
 
 router = APIRouter(route_class=DishkaRoute)
@@ -283,6 +285,45 @@ async def scan_ffuf(
         result = await ffuf_service.execute(
             program_id=UUID(request.program_id),
             targets=targets
+        )
+
+        return ScanResponse(
+            status="success",
+            message=result.message,
+            results=result.model_dump()
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
+
+
+@router.post(
+    "/scan/dnsx",
+    response_model=ScanResponse,
+    summary="Run DNSx Scan",
+    description="Starts DNSx DNS enumeration (basic or deep mode). Returns after scan completes.",
+    tags=["Scans"]
+)
+async def scan_dnsx(
+    request: DNSxScanRequest,
+    dnsx_service: FromDishka[DNSxScanService],
+) -> ScanResponse:
+    """
+    Start DNSx scan to enumerate DNS records for hosts.
+
+    - **program_id**: Program UUID
+    - **targets**: Single domain/host or list of domains/hosts to scan
+    - **mode**: Scan mode - 'basic' (A/AAAA/CNAME) or 'deep' (all records including MX/TXT/NS/SOA)
+    - **timeout**: Scan timeout in seconds (default: 600)
+
+    Returns after scan completes. Discovered DNS records are ingested into database.
+    """
+    try:
+        targets = request.targets if isinstance(request.targets, list) else [request.targets]
+
+        result = await dnsx_service.execute(
+            program_id=UUID(request.program_id),
+            targets=targets,
+            mode=request.mode
         )
 
         return ScanResponse(

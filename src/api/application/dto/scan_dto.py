@@ -282,6 +282,62 @@ class FFUFScanOutputDTO(BaseModel):
     )
 
 
+class DNSxScanInputDTO(BaseModel):
+    """Input DTO for DNSx scan service"""
+    program_id: UUID = Field(..., description="Program UUID")
+    targets: Union[str, List[str]] = Field(..., description="Single target or list of targets")
+    mode: str = Field(default="basic", description="Scan mode: basic or deep")
+    timeout: Optional[int] = Field(default=600, description="Scan timeout in seconds", ge=1, le=3600)
+
+    @field_validator('targets')
+    @classmethod
+    def validate_targets(cls, v):
+        """Ensure targets is always a list"""
+        if isinstance(v, str):
+            return [v]
+        return v
+
+    @field_validator('mode')
+    @classmethod
+    def validate_mode(cls, v):
+        """Validate scan mode"""
+        if v not in ["basic", "deep"]:
+            raise ValueError("Mode must be 'basic' or 'deep'")
+        return v
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "targets": ["example.com", "api.example.com"],
+                "mode": "basic",
+                "timeout": 600
+            }
+        }
+    )
+
+
+class DNSxScanOutputDTO(BaseModel):
+    """Output DTO for DNSx scan service"""
+    status: str = Field(..., description="Scan status")
+    message: str = Field(..., description="Status message")
+    scanner: str = Field(..., description="Scanner name")
+    targets_count: int = Field(..., description="Number of targets to scan")
+    mode: str = Field(..., description="Scan mode (basic/deep)")
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "status": "completed",
+                "message": "DNSx basic scan completed for 10 targets",
+                "scanner": "dnsx",
+                "targets_count": 10,
+                "mode": "basic"
+            }
+        }
+    )
+
+
 class ScanResultDTO(BaseModel):
     """Generic scan result wrapper"""
     status: str = Field(..., description="Scan status (success/error)")
