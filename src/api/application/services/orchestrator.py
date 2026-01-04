@@ -12,6 +12,7 @@ from api.application.services.httpx import HTTPXScanService
 from api.application.services.katana import KatanaScanService
 from api.application.services.linkfinder import LinkFinderScanService
 from api.application.services.mantra import MantraScanService
+from api.application.services.dnsx import DNSxScanService
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
 from api.infrastructure.ingestors.mantra_ingestor import MantraResultIngestor
@@ -86,6 +87,9 @@ class Orchestrator:
         asyncio.create_task(
             self.bus.subscribe(EventType.DNSX_DEEP_RESULTS_BATCH, self.handle_dnsx_deep_results_batch)
         )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.DNSX_FILTERED_HOSTS, self.handle_dnsx_filtered_hosts)
+        )
 
     async def handle_service_event(self, event: Dict[str, Any]):
         async with self.container() as request_container:
@@ -97,18 +101,35 @@ class Orchestrator:
             await getattr(httpx_service, action)(**kwargs)
 
     async def handle_scan_results_batch(self, event: Dict[str, Any]):
-        """Handle batched HTTPX scan results"""
+        """
+        Handle HTTPX results: ingest, publish live hosts for DNSx Deep.
+        Pipeline step 3: Subfinder -> DNSx Basic -> HTTPX -> DNSx Deep
+        """
+        program_id = UUID(event["program_id"])
+        results = event["results"]
+
+        logger.info(f"Ingesting HTTPX results batch: program={program_id} count={len(results)}")
+
         async with self.container() as request_container:
             ingestor = await request_container.get(HTTPXResultIngestor)
-            program_id = UUID(event["program_id"])
-            results = event["results"]
-
-            logger.info(f"Ingesting HTTPX results batch: program={program_id} count={len(results)}")
             await ingestor.ingest(program_id, results)
+
+        live_hosts = list({r.get("host") for r in results if r.get("host") and r.get("status_code")})
+
+        if live_hosts:
+            logger.info(f"Publishing live hosts for DNSx Deep: program={program_id} count={len(live_hosts)}")
+            await self.bus.publish(
+                EventType.HOST_DISCOVERED,
+                {
+                    "program_id": str(program_id),
+                    "hosts": live_hosts,
+                    "source": "httpx_for_dnsx_deep"
+                }
+            )
 
     async def handle_subdomain_discovered(self, event: Dict[str, Any]):
         """
-        Handle subdomain discovery events by triggering HTTPX scans for the batch.
+        Handle subdomain discovery events by triggering DNSx Basic (wildcard filter) then HTTPX.
         Creates background task to avoid blocking queue processing.
         """
         program_id = event["program_id"]
@@ -122,7 +143,7 @@ class Orchestrator:
 
     async def _process_subdomain_batch(self, program_id: str, targets: list[str]):
         """
-        Process subdomain batch with semaphore to limit concurrent scans.
+        Process subdomain batch: DNSx Basic (wildcard filter) -> filter -> HTTPX.
         Filters subdomains by scope before scanning.
         """
         program_uuid = UUID(program_id)
@@ -140,11 +161,11 @@ class Orchestrator:
 
         async with self._scan_semaphore:
             async with self.container() as request_container:
-                httpx_service = await request_container.get(HTTPXScanService)
+                dnsx_service = await request_container.get(DNSxScanService)
 
-                logger.info(f"Starting HTTPX scan for program {program_id}: {len(in_scope)} targets")
+                logger.info(f"Starting DNSx Basic scan for program {program_id}: {len(in_scope)} targets")
 
-                await httpx_service.execute(program_id=program_id, targets=in_scope)
+                await dnsx_service.execute(program_id=program_uuid, targets=in_scope, mode="basic")
 
     async def handle_gau_discovered(self, event: Dict[str, Any]):
         """
@@ -216,15 +237,20 @@ class Orchestrator:
 
     async def handle_host_discovered(self, event: Dict[str, Any]):
         """
-        Handle new host discovery events by triggering Katana crawls.
+        Handle new host discovery events by triggering Katana crawls or DNSx Deep.
         Creates background task to avoid blocking queue processing.
         """
         program_id = event["program_id"]
         hosts = event["hosts"]
+        source = event.get("source", "httpx")
 
-        logger.info(f"Received new hosts for program {program_id}: {len(hosts)} hosts")
+        logger.info(f"Received new hosts for program {program_id}: {len(hosts)} hosts source={source}")
 
-        task = asyncio.create_task(self._process_host_batch(program_id, hosts))
+        if source == "httpx_for_dnsx_deep":
+            task = asyncio.create_task(self._process_dnsx_deep_batch(program_id, hosts))
+        else:
+            task = asyncio.create_task(self._process_host_batch(program_id, hosts))
+
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
 
@@ -314,21 +340,46 @@ class Orchestrator:
             logger.error(f"Failed to ingest FFUF results: error={exc}", exc_info=True)
 
     async def handle_dnsx_basic_results_batch(self, event: Dict[str, Any]):
-        """Handle batched DNSx basic scan results"""
+        """
+        Handle DNSx Basic results: ingest, filter wildcard, publish filtered hosts for HTTPX.
+        Pipeline step 2: Subfinder -> DNSx Basic -> HTTPX
+        """
         try:
+            program_id = UUID(event["program_id"])
+            results = event["results"]
+
+            logger.info(f"Processing DNSx basic results batch: program={program_id} count={len(results)}")
+
             async with self.container() as request_container:
                 ingestor = await request_container.get(DNSxResultIngestor)
-                program_id = UUID(event["program_id"])
-                results = event["results"]
-
-                logger.info(f"Ingesting DNSx basic results batch: program={program_id} count={len(results)}")
                 await ingestor.ingest(program_id, results)
-                logger.info(f"DNSx basic results ingested successfully: program={program_id} count={len(results)}")
+
+            non_wildcard_hosts = [
+                r["host"] for r in results
+                if not r.get("wildcard", False) and r.get("host")
+            ]
+
+            wildcard_count = len(results) - len(non_wildcard_hosts)
+
+            logger.info(
+                f"DNSx Basic filtering: program={program_id} "
+                f"total={len(results)} wildcard={wildcard_count} real={len(non_wildcard_hosts)}"
+            )
+
+            if non_wildcard_hosts:
+                await self.bus.publish(
+                    EventType.DNSX_FILTERED_HOSTS,
+                    {
+                        "program_id": str(program_id),
+                        "hosts": non_wildcard_hosts
+                    }
+                )
+
         except Exception as exc:
-            logger.error(f"Failed to ingest DNSx basic results: error={exc}", exc_info=True)
+            logger.error(f"Failed to process DNSx basic results: error={exc}", exc_info=True)
 
     async def handle_dnsx_deep_results_batch(self, event: Dict[str, Any]):
-        """Handle batched DNSx deep scan results"""
+        """Handle batched DNSx deep scan results - final pipeline step"""
         try:
             async with self.container() as request_container:
                 ingestor = await request_container.get(DNSxResultIngestor)
@@ -340,3 +391,41 @@ class Orchestrator:
                 logger.info(f"DNSx deep results ingested successfully: program={program_id} count={len(results)}")
         except Exception as exc:
             logger.error(f"Failed to ingest DNSx deep results: error={exc}", exc_info=True)
+
+    async def handle_dnsx_filtered_hosts(self, event: Dict[str, Any]):
+        """
+        Handle DNSx filtered hosts by triggering HTTPX scan.
+        Pipeline step 2.5: DNSx Basic -> HTTPX
+        """
+        program_id = event["program_id"]
+        hosts = event["hosts"]
+
+        logger.info(f"Received DNSx filtered hosts for program {program_id}: {len(hosts)} hosts")
+
+        task = asyncio.create_task(self._process_filtered_hosts_batch(program_id, hosts))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+
+    async def _process_filtered_hosts_batch(self, program_id: str, hosts: list[str]):
+        """Process DNSx filtered hosts by launching HTTPX scan"""
+        async with self._scan_semaphore:
+            async with self.container() as request_container:
+                httpx_service = await request_container.get(HTTPXScanService)
+
+                logger.info(f"Starting HTTPX scan for filtered hosts: program={program_id} hosts={len(hosts)}")
+
+                await httpx_service.execute(program_id=program_id, targets=hosts)
+
+    async def _process_dnsx_deep_batch(self, program_id: str, hosts: list[str]):
+        """Process live hosts by launching DNSx Deep scan"""
+        async with self._scan_semaphore:
+            async with self.container() as request_container:
+                dnsx_service = await request_container.get(DNSxScanService)
+
+                logger.info(f"Starting DNSx Deep scan for live hosts: program={program_id} hosts={len(hosts)}")
+
+                await dnsx_service.execute(
+                    program_id=UUID(program_id),
+                    targets=hosts,
+                    mode="deep"
+                )
