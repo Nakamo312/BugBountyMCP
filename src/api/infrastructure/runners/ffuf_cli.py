@@ -48,7 +48,7 @@ class FFUFCliRunner:
             "-sf",
             "-ac",
             "-rate", str(self.rate_limit),
-            "-timeout", "10",
+            "-timeout", "1",
         ]
 
         executor = CommandExecutor(command=command, timeout=self.timeout)
