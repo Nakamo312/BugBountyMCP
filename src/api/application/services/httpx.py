@@ -1,5 +1,4 @@
 """HTTPX Scan Service - Event-driven architecture"""
-import asyncio
 import logging
 from typing import List, Dict, Any
 from uuid import UUID
@@ -27,22 +26,22 @@ class HTTPXScanService:
     async def execute(self, program_id: UUID, targets: List[str]) -> HTTPXScanOutputDTO:
         """
         Execute HTTPX scan and publish results.
-        Returns immediately, scan runs in background.
+        Blocks until scan completes to properly hold orchestrator semaphore.
 
         Args:
             program_id: Program identifier
             targets: List of URLs or hosts to scan
 
         Returns:
-            Immediate response that scan has started
+            Response after scan has completed
         """
         logger.info(f"Starting HTTPX scan: program={program_id} targets={len(targets)}")
 
-        asyncio.create_task(self._run_scan(program_id, targets))
+        await self._run_scan(program_id, targets)
 
         return HTTPXScanOutputDTO(
-            status="started",
-            message=f"HTTPX scan started for {len(targets)} targets",
+            status="completed",
+            message=f"HTTPX scan completed for {len(targets)} targets",
             scanner="httpx",
             targets_count=len(targets)
         )
