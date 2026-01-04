@@ -7,6 +7,7 @@ class EventType(str, Enum):
 
     SERVICE_EVENTS = "service_events"
     SUBDOMAIN_DISCOVERED = "subdomain_discovered"
+    DNSX_FILTERED_HOSTS = "dnsx_filtered_hosts"
     SCAN_RESULTS_BATCH = "scan_results_batch"
     GAU_DISCOVERED = "gau_discovered"
     KATANA_RESULTS_BATCH = "katana_results_batch"
