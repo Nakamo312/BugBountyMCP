@@ -54,7 +54,6 @@ class KatanaCliRunner:
         "-timeout", "15",
         "-tech-detect",
         "-known-files", "sitemapxml",
-        "-filter-regex", r"\*",
         "-ef", "png,jpg,jpeg,gif,svg,ico,css,woff,woff2,ttf,eot,otf,mp4,mp3,avi,webm,flv,wav,pdf,zip,tar,gz,rar,7z,exe,dll,bin,dmg,iso",
     ]
 
