@@ -52,21 +52,32 @@ class FFUFScanService:
         )
 
     async def _run_scan(self, program_id: UUID, targets: List[str]):
-        """Background task for FFUF execution"""
+        """Background task for FFUF execution with parallel processing"""
+        max_concurrent = 5
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def scan_target(target: str):
+            async with semaphore:
+                try:
+                    results = []
+
+                    async for event in self.runner.run(target):
+                        if event.type == "stdout" and event.payload:
+                            parsed = self._parse_ffuf_jsonline(event.payload)
+                            if parsed:
+                                results.append(parsed)
+
+                    if results:
+                        filtered = self._filter_static_files(results)
+                        if filtered:
+                            await self._publish_results(program_id, filtered)
+
+                    logger.info(f"FFUF scan completed for target: {target}")
+                except Exception as e:
+                    logger.error(f"FFUF scan failed for {target}: {e}")
+
         try:
-            for target in targets:
-                results = []
-
-                async for event in self.runner.run(target):
-                    if event.type == "stdout" and event.payload:
-                        parsed = self._parse_ffuf_jsonline(event.payload)
-                        if parsed:
-                            results.append(parsed)
-
-                if results:
-                    filtered = self._filter_static_files(results)
-                    if filtered:
-                        await self._publish_results(program_id, filtered)
+            await asyncio.gather(*[scan_target(target) for target in targets])
 
             logger.info(
                 f"FFUF scan completed: program={program_id} targets={len(targets)}"
