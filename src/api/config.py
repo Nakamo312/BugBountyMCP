@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "INFO"
     TOOLS_PATH_PREFIX: str = "/usr/local"
-    ORCHESTRATOR_MAX_CONCURRENT: int = 2
+    ORCHESTRATOR_MAX_CONCURRENT: int = 5
     ORCHESTRATOR_SCAN_DELAY: float = 30.0
 
     # Batch processing settings
