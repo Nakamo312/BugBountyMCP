@@ -13,23 +13,27 @@ from api.application.services.katana import KatanaScanService
 from api.application.services.linkfinder import LinkFinderScanService
 from api.application.services.mantra import MantraScanService
 from api.application.services.ffuf import FFUFScanService
+from api.application.services.dnsx import DNSxScanService
 from api.application.services.batch_processor import (
     HTTPXBatchProcessor,
     SubfinderBatchProcessor,
     GAUBatchProcessor,
     KatanaBatchProcessor,
+    DNSxBatchProcessor,
 )
 from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOfWork
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
 from api.infrastructure.unit_of_work.adapters.katana import SQLAlchemyKatanaUnitOfWork
 from api.infrastructure.unit_of_work.adapters.linkfinder import SQLAlchemyLinkFinderUnitOfWork
 from api.infrastructure.unit_of_work.adapters.mantra import SQLAlchemyMantraUnitOfWork
+from api.infrastructure.unit_of_work.adapters.dnsx import SQLAlchemyDNSxUnitOfWork
 from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
 from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIngestor
 from api.infrastructure.ingestors.mantra_ingestor import MantraResultIngestor
 from api.infrastructure.ingestors.ffuf_ingestor import FFUFResultIngestor
+from api.infrastructure.ingestors.dnsx_ingestor import DNSxResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 from api.infrastructure.runners.gau_cli import GAUCliRunner
@@ -37,6 +41,7 @@ from api.infrastructure.runners.katana_cli import KatanaCliRunner
 from api.infrastructure.runners.linkfinder_cli import LinkFinderCliRunner
 from api.infrastructure.runners.mantra_cli import MantraCliRunner
 from api.infrastructure.runners.ffuf_cli import FFUFCliRunner
+from api.infrastructure.runners.dnsx_cli import DNSxCliRunner
 from api.infrastructure.events.event_bus import EventBus
 from dishka import AsyncContainer
 
@@ -82,6 +87,10 @@ class UnitOfWorkProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def get_mantra_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyMantraUnitOfWork:
         return SQLAlchemyMantraUnitOfWork(session_factory)
+
+    @provide(scope=Scope.REQUEST)
+    def get_dnsx_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyDNSxUnitOfWork:
+        return SQLAlchemyDNSxUnitOfWork(session_factory)
 
 
 class CLIRunnerProvider(Provider):
@@ -140,6 +149,13 @@ class CLIRunnerProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
+    def get_dnsx_runner(self, settings: Settings) -> DNSxCliRunner:
+        return DNSxCliRunner(
+            dnsx_path=settings.get_tool_path("dnsx"),
+            timeout=600,
+        )
+
+    @provide(scope=Scope.APP)
     def get_event_bus(self, settings: Settings) -> EventBus:
         return EventBus(settings)
 
@@ -163,6 +179,10 @@ class BatchProcessorProvider(Provider):
     @provide(scope=Scope.APP)
     def get_katana_processor(self, settings: Settings) -> KatanaBatchProcessor:
         return KatanaBatchProcessor(settings)
+
+    @provide(scope=Scope.APP)
+    def get_dnsx_processor(self, settings: Settings) -> DNSxBatchProcessor:
+        return DNSxBatchProcessor(settings)
 
 
 class IngestorProvider(Provider):
@@ -208,6 +228,15 @@ class IngestorProvider(Provider):
         scan_uow: SQLAlchemyHTTPXUnitOfWork
     ) -> FFUFResultIngestor:
         return FFUFResultIngestor(uow=scan_uow)
+
+    @provide(scope=Scope.REQUEST)
+    def get_dnsx_ingestor(
+        self,
+        dnsx_uow: SQLAlchemyDNSxUnitOfWork,
+        event_bus: EventBus,
+        settings: Settings
+    ) -> DNSxResultIngestor:
+        return DNSxResultIngestor(uow=dnsx_uow, bus=event_bus, settings=settings)
 
 
 class ServiceProvider(Provider):
@@ -299,6 +328,19 @@ class ServiceProvider(Provider):
     ) -> FFUFScanService:
         return FFUFScanService(
             runner=ffuf_runner,
+            bus=event_bus
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_dnsx_service(
+        self,
+        dnsx_runner: DNSxCliRunner,
+        dnsx_processor: DNSxBatchProcessor,
+        event_bus: EventBus
+    ) -> DNSxScanService:
+        return DNSxScanService(
+            runner=dnsx_runner,
+            processor=dnsx_processor,
             bus=event_bus
         )
 
