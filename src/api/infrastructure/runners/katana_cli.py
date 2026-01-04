@@ -43,24 +43,24 @@ class KatanaCliRunner:
         stdin_input = "\n".join(targets)
 
         command = [
-            self.katana_path,
-            "-list", "-",
-            "-d", str(depth),
-            "-silent",
-            "-jsonl",
-            "-c", "10",
-            "-p", "5",
-            "-rl", "300",         # Увеличил rate limit
-            "-timeout", "15",     # Увеличил таймаут
-            "-jc",                # ✅ ВАЖНО: парсинг JS файлов
-            "-hl",                # ✅ ВАЖНО: headless режим для JS
-            "-system-chrome",     # Использовать системный Chrome
-            "-aff",               # Автозаполнение форм
-            "-fx",                # Экстракция форм в вывод
-            "-xhr",               # Перехват XHR запросов
-            "-tech-detect",       # Определение технологий
-            "-known-files", "all", # Краулинг известных файлов
-            "-ef", "png,jpg,jpeg,gif,svg,ico,css,woff,woff2,ttf,eot,otf,mp4,mp3,avi,webm,flv,wav,pdf,zip,tar,gz,rar,7z,exe,dll,bin,dmg,iso",
+           self.katana_path,
+           "-list", "-",
+           "-d", str(depth),
+           "-silent",
+           "-jsonl",
+           "-c", "5",              
+           "-p", "3",              
+           "-rl", "100",           
+           "-timeout", "30",       
+           "-jc",                     
+           "-no-sandbox",          
+           "-aff",                 
+           "-fx",                  
+           "-xhr",                 
+           "-tech-detect",         
+           "-known-files", "sitemapxml",  
+           "-filter-regex", "\\*|\\(|\\)|\\$",  
+           "-ef", "png,jpg,jpeg,gif,svg,ico,css,woff,woff2,ttf,eot,otf,mp4,mp3,avi,webm,flv,wav,pdf,zip,tar,gz,rar,7z,exe,dll,bin,dmg,iso",
         ]
 
         if js_crawl:
