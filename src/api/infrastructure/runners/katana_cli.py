@@ -43,27 +43,21 @@ class KatanaCliRunner:
         stdin_input = "\n".join(targets)
 
         command = [
-            self.katana_path,
-            "-list", "-",
-            "-d", "3",
-            "-silent",
-            "-jsonl",
-            "-c", "5",
-            "-p", "3",
-            "-rl", "100",
-            "-timeout", "30",
-            "-jc",                    
-            "-hl",                   
-            "-no-sandbox",  
-            "-system-chrome",           
-            "-aff",
-            "-fx",
-            "-xhr",
-            "-tech-detect",
-            "-known-files", "sitemapxml",
-            "-filter-regex", r"\*|\(|\)|\$",  
-            "-ef", "png,jpg,jpeg,gif,svg,ico,css,woff,woff2,ttf,eot,otf,mp4,mp3,avi,webm,flv,wav,pdf,zip,tar,gz,rar,7z,exe,dll,bin,dmg,iso",
-        ]
+        "/host_root/usr_local_bin/katana",
+        "-list", "-",
+        "-d", "3",
+        "-silent",
+        "-jsonl", 
+        "-c", "10",
+        "-p", "5",
+        "-rl", "150",
+        "-timeout", "15",
+        "-jc",
+        "-tech-detect",
+        "-known-files", "sitemapxml",
+        "-filter-regex", r"\*",
+        "-ef", "png,jpg,jpeg,gif,svg,ico,css,woff,woff2,ttf,eot,otf,mp4,mp3,avi,webm,flv,wav,pdf,zip,tar,gz,rar,7z,exe,dll,bin,dmg,iso",
+    ]
 
         if js_crawl:
             command.append("-jc")
