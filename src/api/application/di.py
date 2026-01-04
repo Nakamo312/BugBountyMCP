@@ -43,6 +43,7 @@ from api.infrastructure.runners.linkfinder_cli import LinkFinderCliRunner
 from api.infrastructure.runners.mantra_cli import MantraCliRunner
 from api.infrastructure.runners.ffuf_cli import FFUFCliRunner
 from api.infrastructure.runners.dnsx_cli import DNSxCliRunner
+from api.infrastructure.runners.subjack_cli import SubjackCliRunner
 from api.infrastructure.events.event_bus import EventBus
 from dishka import AsyncContainer
 
@@ -157,8 +158,7 @@ class CLIRunnerProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
-    def get_subjack_runner(self, settings: Settings):
-        from api.infrastructure.runners.subjack_cli import SubjackCliRunner
+    def get_subjack_runner(self, settings: Settings) -> SubjackCliRunner:
         return SubjackCliRunner(
             subjack_path=settings.get_tool_path("subjack"),
             fingerprints_path=settings.SUBJACK_FINGERPRINTS,
