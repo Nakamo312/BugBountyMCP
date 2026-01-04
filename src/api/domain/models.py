@@ -166,7 +166,7 @@ class ScannerTemplateModel(AbstractModel):
 @dataclass
 class ScannerExecutionModel(AbstractModel):
     """Scan execution record"""
-    program_id: str
+    program_id: UUID
     status: ScanStatus
     template_id: Optional[UUID]
     endpoint_id: UUID
@@ -206,4 +206,16 @@ class LeakModel(AbstractModel):
     content: str
     verified: bool = False
     false_positive: bool = False
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass
+class DNSRecordModel(AbstractModel):
+    """DNS record"""
+    host_id: UUID
+    record_type: str
+    value: str
+    ttl: Optional[int] = None
+    priority: Optional[int] = None
+    is_wildcard: bool = False
     id: UUID = field(default_factory=uuid4)

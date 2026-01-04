@@ -205,13 +205,12 @@ scanner_executions = Table(
     'scanner_executions',
     metadata,
     Column('id', UUID(), primary_key=True, default=uuid.uuid4),
-    Column('program_id', String(36), nullable=False, index=True),  # UUID как строка
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
     Column('status', String(20), nullable=False, index=True),
     Column('template_id', UUID(), ForeignKey('scanner_templates.id', ondelete='CASCADE'), nullable=True, index=True),
     Column('endpoint_id', UUID(), ForeignKey('endpoints.id', ondelete='CASCADE'), nullable=False, index=True),
     Column('error_message', Text, nullable=True),
     Index('idx_scanner_executions_program', 'program_id'),
-    CheckConstraint("program_id != ''", name='ck_scanner_executions_program_id_not_empty'),
     CheckConstraint(
         "status IN ('pending', 'running', 'completed', 'failed', 'cancelled')",
         name='ck_scanner_executions_status_valid'
@@ -264,4 +263,20 @@ leaks = Table(
     UniqueConstraint('program_id', 'content', 'endpoint_id', name='uq_leaks_program_id_content_endpoint_id'),
     CheckConstraint("content != ''", name='ck_leaks_content_not_empty'),
     CheckConstraint("NOT (verified = true AND false_positive = true)", name='ck_leaks_state_exclusive'),
+)
+
+dns_records = Table(
+    'dns_records',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('host_id', UUID(), ForeignKey('hosts.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('record_type', String(10), nullable=False),
+    Column('value', Text, nullable=False),
+    Column('ttl', Integer, nullable=True),
+    Column('priority', Integer, nullable=True),
+    Column('is_wildcard', Boolean, default=False, nullable=False),
+    UniqueConstraint('host_id', 'record_type', 'value', name='uq_dns_records_host_type_value'),
+    Index('idx_dns_records_lookup', 'host_id', 'record_type'),
+    CheckConstraint("record_type IN ('A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'PTR')", name='ck_dns_records_type_valid'),
+    CheckConstraint("value != ''", name='ck_dns_records_value_not_empty'),
 )
