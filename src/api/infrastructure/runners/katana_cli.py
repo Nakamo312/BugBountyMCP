@@ -52,7 +52,6 @@ class KatanaCliRunner:
         "-p", "5",
         "-rl", "150",
         "-timeout", "15",
-        "-jc",
         "-tech-detect",
         "-known-files", "sitemapxml",
         "-filter-regex", r"\*",
