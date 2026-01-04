@@ -90,6 +90,12 @@ class Orchestrator:
         asyncio.create_task(
             self.bus.subscribe(EventType.DNSX_FILTERED_HOSTS, self.handle_dnsx_filtered_hosts)
         )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.CNAME_DISCOVERED, self.handle_cname_discovered)
+        )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.SUBJACK_RESULTS_BATCH, self.handle_subjack_results_batch)
+        )
 
     async def handle_service_event(self, event: Dict[str, Any]):
         async with self.container() as request_container:
@@ -379,7 +385,7 @@ class Orchestrator:
             logger.error(f"Failed to process DNSx basic results: error={exc}", exc_info=True)
 
     async def handle_dnsx_deep_results_batch(self, event: Dict[str, Any]):
-        """Handle batched DNSx deep scan results - final pipeline step"""
+        """Handle batched DNSx deep scan results and trigger Subjack for CNAME records"""
         try:
             async with self.container() as request_container:
                 ingestor = await request_container.get(DNSxResultIngestor)
@@ -389,6 +395,23 @@ class Orchestrator:
                 logger.info(f"Ingesting DNSx deep results batch: program={program_id} count={len(results)}")
                 await ingestor.ingest(program_id, results)
                 logger.info(f"DNSx deep results ingested successfully: program={program_id} count={len(results)}")
+
+                cname_hosts = []
+                for result in results:
+                    if result.get("cname") and not result.get("wildcard", False):
+                        host = result.get("host")
+                        if host:
+                            cname_hosts.append(host)
+
+                if cname_hosts:
+                    logger.info(f"Publishing CNAME hosts for Subjack: program={program_id} count={len(cname_hosts)}")
+                    await self.bus.publish(
+                        EventType.CNAME_DISCOVERED,
+                        {
+                            "program_id": str(program_id),
+                            "hosts": cname_hosts
+                        }
+                    )
         except Exception as exc:
             logger.error(f"Failed to ingest DNSx deep results: error={exc}", exc_info=True)
 
@@ -429,3 +452,46 @@ class Orchestrator:
                     targets=hosts,
                     mode="deep"
                 )
+
+    async def handle_cname_discovered(self, event: Dict[str, Any]):
+        """
+        Handle CNAME records by triggering Subjack scan for subdomain takeover.
+        Pipeline step: DNSx Deep -> Subjack
+        """
+        program_id = event["program_id"]
+        hosts = event["hosts"]
+
+        logger.info(f"CNAME records discovered, launching Subjack: program={program_id} hosts={len(hosts)}")
+
+        task = asyncio.create_task(self._process_subjack_batch(program_id, hosts))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+
+    async def _process_subjack_batch(self, program_id: str, hosts: list[str]):
+        """Process CNAME hosts by launching Subjack scan"""
+        async with self._scan_semaphore:
+            async with self.container() as request_container:
+                from api.application.services.subjack import SubjackScanService
+                subjack_service = await request_container.get(SubjackScanService)
+
+                logger.info(f"Starting Subjack scan for CNAME hosts: program={program_id} hosts={len(hosts)}")
+
+                await subjack_service.execute(
+                    program_id=UUID(program_id),
+                    targets=hosts
+                )
+
+    async def handle_subjack_results_batch(self, event: Dict[str, Any]):
+        """Handle batched Subjack subdomain takeover results"""
+        try:
+            async with self.container() as request_container:
+                from api.infrastructure.ingestors.subjack_ingestor import SubjackResultIngestor
+                ingestor = await request_container.get(SubjackResultIngestor)
+                program_id = UUID(event["program_id"])
+                results = event["results"]
+
+                logger.info(f"Ingesting Subjack results batch: program={program_id} count={len(results)}")
+                await ingestor.ingest(program_id, results)
+                logger.info(f"Subjack results ingested successfully: program={program_id} count={len(results)}")
+        except Exception as exc:
+            logger.error(f"Failed to ingest Subjack results: error={exc}", exc_info=True)
