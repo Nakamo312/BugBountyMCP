@@ -49,6 +49,7 @@ class SubjackCliRunner:
                 "-timeout", "30",
                 "-ssl",
                 "-a",
+                "-m",
             ]
 
             if self.fingerprints_path:
