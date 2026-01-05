@@ -1,7 +1,8 @@
 """Subjack CLI runner for subdomain takeover detection"""
-import json
 import logging
-from typing import AsyncIterator
+import tempfile
+from pathlib import Path
+from typing import AsyncIterator, Optional
 
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.schemas.models.process_event import ProcessEvent
@@ -15,18 +16,17 @@ class SubjackCliRunner:
     Detects subdomain takeovers by analyzing CNAME records.
     """
 
-    def __init__(self, subjack_path: str, fingerprints_path: str, timeout: int = 300):
+    def __init__(self, subjack_path: str, fingerprints_path: Optional[str] = None, timeout: int = 300):
         self.subjack_path = subjack_path
         self.fingerprints_path = fingerprints_path
         self.timeout = timeout
 
-    async def run(self, targets: list[str] | str, output_json: bool = True) -> AsyncIterator[ProcessEvent]:
+    async def run(self, targets: list[str] | str) -> AsyncIterator[ProcessEvent]:
         """
         Execute subjack to detect subdomain takeovers.
 
         Args:
             targets: Single domain or list of domains to check
-            output_json: Return results in JSON format (default: True)
 
         Yields:
             ProcessEvent with type="result" and payload=vulnerability_data
@@ -34,78 +34,76 @@ class SubjackCliRunner:
         if isinstance(targets, str):
             targets = [targets]
 
-        stdin_input = "\n".join(targets)
-        output_file = "-" if not output_json else "/dev/stdout"
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as tmp:
+            tmp.write('\n'.join(targets))
+            tmp.flush()
+            wordlist_path = tmp.name
 
-        if output_json:
-            output_file = "-"
+        try:
+            command = [
+                self.subjack_path,
+                "-w", wordlist_path,
+                "-t", "100",
+                "-timeout", "30",
+                "-ssl",
+                "-a",
+            ]
 
-        command = [
-            self.subjack_path,
-            "-w", "-",
-            "-t", "100",
-            "-timeout", "30",
-            "-ssl",
-            "-a",
-            "-c", self.fingerprints_path,
-        ]
+            if self.fingerprints_path:
+                command.extend(["-c", self.fingerprints_path])
 
-        if output_json:
-            command.extend(["-o", "results.json"])
-        else:
-            command.extend(["-o", "-"])
+            logger.info("Starting Subjack: targets=%d wordlist=%s", len(targets), wordlist_path)
 
-        logger.info("Starting Subjack: targets=%d json=%s", len(targets), output_json)
+            executor = CommandExecutor(command, timeout=self.timeout)
 
-        executor = CommandExecutor(command, stdin=stdin_input, timeout=self.timeout)
+            result_count = 0
+            async for event in executor.run():
+                if event.type == "stderr" and event.payload:
+                    logger.debug("Subjack stderr: %s", event.payload)
 
-        result_count = 0
-        async for event in executor.run():
-            if event.type == "stderr" and event.payload:
-                logger.debug("Subjack stderr: %s", event.payload)
-
-            if event.type != "stdout":
-                continue
-
-            if not event.payload:
-                continue
-
-            line = event.payload.strip()
-            if not line:
-                continue
-
-            if output_json:
-                try:
-                    data = json.loads(line)
-                    result_count += 1
-                    yield ProcessEvent(type="result", payload=data)
-                except json.JSONDecodeError:
-                    logger.debug("Non-JSON line skipped: %r", line[:200])
-            else:
-                if line.startswith("["):
+                if event.type != "stdout":
                     continue
 
-                parts = line.split()
-                if len(parts) < 2 or "[" not in line:
+                if not event.payload:
                     continue
 
-                try:
-                    subdomain = parts[0]
-                    service = line[line.find("[")+1:line.find("]")]
-                    vulnerable = "Takeover Possible" in line or "possible takeover" in line.lower()
+                line = event.payload.strip()
+                if not line:
+                    continue
 
-                    if vulnerable:
-                        result_count += 1
-                        yield ProcessEvent(
-                            type="result",
-                            payload={
-                                "subdomain": subdomain,
-                                "service": service,
-                                "vulnerable": vulnerable,
-                                "cname": parts[1] if len(parts) > 1 else None
-                            }
-                        )
-                except (IndexError, ValueError) as e:
-                    logger.debug("Failed to parse Subjack line: %r - %s", line, e)
+                if line.startswith("[") and "Not Vulnerable" not in line:
+                    parts = line.split()
+                    if len(parts) < 2:
+                        continue
 
-        logger.info("Subjack completed: vulnerabilities=%d", result_count)
+                    try:
+                        subdomain = parts[0]
+                        service_start = line.find("[")
+                        service_end = line.find("]")
+                        service = line[service_start+1:service_end] if service_start != -1 and service_end != -1 else "unknown"
+
+                        vulnerable = "Takeover Possible" in line or "possible takeover" in line.lower()
+
+                        if vulnerable:
+                            cname = None
+                            for part in parts[1:]:
+                                if "." in part and not part.startswith("["):
+                                    cname = part
+                                    break
+
+                            result_count += 1
+                            yield ProcessEvent(
+                                type="result",
+                                payload={
+                                    "subdomain": subdomain,
+                                    "service": service,
+                                    "vulnerable": True,
+                                    "cname": cname
+                                }
+                            )
+                    except (IndexError, ValueError) as e:
+                        logger.debug("Failed to parse Subjack line: %r - %s", line, e)
+
+            logger.info("Subjack completed: vulnerabilities=%d", result_count)
+        finally:
+            Path(wordlist_path).unlink(missing_ok=True)

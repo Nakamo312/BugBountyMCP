@@ -163,7 +163,7 @@ class CLIRunnerProvider(Provider):
     def get_subjack_runner(self, settings: Settings) -> SubjackCliRunner:
         return SubjackCliRunner(
             subjack_path=settings.get_tool_path("subjack"),
-            fingerprints_path=settings.SUBJACK_FINGERPRINTS,
+            fingerprints_path=None,
             timeout=300,
         )
 
@@ -378,7 +378,7 @@ class ServiceProvider(Provider):
     ) -> SubjackScanService:
         subjack_runner = SubjackCliRunner(
             subjack_path=settings.get_tool_path("subjack"),
-            fingerprints_path=settings.SUBJACK_FINGERPRINTS,
+            fingerprints_path=None,
             timeout=300
         )
         return SubjackScanService(
