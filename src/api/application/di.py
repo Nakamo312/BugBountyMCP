@@ -14,6 +14,7 @@ from api.application.services.linkfinder import LinkFinderScanService
 from api.application.services.mantra import MantraScanService
 from api.application.services.ffuf import FFUFScanService
 from api.application.services.dnsx import DNSxScanService
+from api.application.services.subjack import SubjackScanService
 from api.application.services.batch_processor import (
     HTTPXBatchProcessor,
     SubfinderBatchProcessor,
@@ -35,6 +36,7 @@ from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIng
 from api.infrastructure.ingestors.mantra_ingestor import MantraResultIngestor
 from api.infrastructure.ingestors.ffuf_ingestor import FFUFResultIngestor
 from api.infrastructure.ingestors.dnsx_ingestor import DNSxResultIngestor
+from api.infrastructure.ingestors.subjack_ingestor import SubjackResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 from api.infrastructure.runners.gau_cli import GAUCliRunner
@@ -258,8 +260,7 @@ class IngestorProvider(Provider):
         httpx_uow: SQLAlchemyHTTPXUnitOfWork,
         event_bus: EventBus,
         settings: Settings
-    ):
-        from api.infrastructure.ingestors.subjack_ingestor import SubjackResultIngestor
+    ) -> SubjackResultIngestor:
         return SubjackResultIngestor(uow=httpx_uow, bus=event_bus, settings=settings)
 
 
@@ -374,9 +375,7 @@ class ServiceProvider(Provider):
         subjack_processor: SubjackBatchProcessor,
         event_bus: EventBus,
         settings: Settings
-    ):
-        from api.application.services.subjack import SubjackScanService
-        from api.infrastructure.runners.subjack_cli import SubjackCliRunner
+    ) -> SubjackScanService:
         subjack_runner = SubjackCliRunner(
             subjack_path=settings.get_tool_path("subjack"),
             fingerprints_path=settings.SUBJACK_FINGERPRINTS,
