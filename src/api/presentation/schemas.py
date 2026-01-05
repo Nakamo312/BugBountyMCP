@@ -154,6 +154,23 @@ class DNSxScanRequest(BaseModel):
     )
 
 
+class SubjackScanRequest(BaseModel):
+    """HTTP request schema for Subjack scan"""
+    program_id: str = Field(..., description="Program UUID as string")
+    targets: Union[str, List[str]] = Field(..., description="Single domain or list of domains to check for subdomain takeover")
+    timeout: Optional[int] = Field(default=300, ge=1, le=3600)
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "targets": ["vulnerable.example.com", "test.example.com"],
+                "timeout": 300
+            }
+        }
+    )
+
+
 # Response Schemas
 class ScanResponse(BaseModel):
     """Generic scan response wrapper"""

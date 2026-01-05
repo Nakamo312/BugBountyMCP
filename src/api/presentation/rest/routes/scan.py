@@ -12,6 +12,7 @@ from api.presentation.schemas import (
     MantraScanRequest,
     FFUFScanRequest,
     DNSxScanRequest,
+    SubjackScanRequest,
     ScanResponse
 )
 from api.application.services.subfinder import SubfinderScanService
@@ -22,6 +23,7 @@ from api.application.services.linkfinder import LinkFinderScanService
 from api.application.services.mantra import MantraScanService
 from api.application.services.ffuf import FFUFScanService
 from api.application.services.dnsx import DNSxScanService
+from api.application.services.subjack import SubjackScanService
 
 
 router = APIRouter(route_class=DishkaRoute)
@@ -324,6 +326,43 @@ async def scan_dnsx(
             program_id=UUID(request.program_id),
             targets=targets,
             mode=request.mode
+        )
+
+        return ScanResponse(
+            status="success",
+            message=result.message,
+            results=result.model_dump()
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
+
+
+@router.post(
+    "/scan/subjack",
+    response_model=ScanResponse,
+    summary="Run Subjack Scan",
+    description="Starts Subjack subdomain takeover detection. Returns immediately, scan runs in background.",
+    tags=["Scans"]
+)
+async def scan_subjack(
+    request: SubjackScanRequest,
+    subjack_service: FromDishka[SubjackScanService],
+) -> ScanResponse:
+    """
+    Start Subjack scan to detect subdomain takeover vulnerabilities.
+
+    - **program_id**: Program UUID
+    - **targets**: Single domain or list of domains to check for takeover
+    - **timeout**: Scan timeout in seconds (default: 300)
+
+    Returns immediately. Discovered vulnerabilities are published to EventBus and stored as findings.
+    """
+    try:
+        targets = request.targets if isinstance(request.targets, list) else [request.targets]
+
+        result = await subjack_service.execute(
+            program_id=UUID(request.program_id),
+            targets=targets
         )
 
         return ScanResponse(
