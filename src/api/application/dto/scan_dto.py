@@ -338,6 +338,25 @@ class DNSxScanOutputDTO(BaseModel):
     )
 
 
+class SubjackScanOutputDTO(BaseModel):
+    """Output DTO for Subjack scan service"""
+    status: str = Field(..., description="Scan status")
+    message: str = Field(..., description="Status message")
+    scanner: str = Field(..., description="Scanner name")
+    target: str = Field(..., description="Target description")
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "status": "started",
+                "message": "Subjack scan started for example.com",
+                "scanner": "subjack",
+                "target": "example.com"
+            }
+        }
+    )
+
+
 class ScanResultDTO(BaseModel):
     """Generic scan result wrapper"""
     status: str = Field(..., description="Scan status (success/error)")
