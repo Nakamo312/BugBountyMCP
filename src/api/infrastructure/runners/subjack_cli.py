@@ -40,6 +40,8 @@ class SubjackCliRunner:
             wordlist_path = tmp.name
 
         try:
+            logger.info("Subjack wordlist content: %s", '\n'.join(targets))
+
             command = [
                 self.subjack_path,
                 "-w", wordlist_path,
@@ -52,14 +54,14 @@ class SubjackCliRunner:
             if self.fingerprints_path:
                 command.extend(["-c", self.fingerprints_path])
 
-            logger.info("Starting Subjack: targets=%d wordlist=%s", len(targets), wordlist_path)
+            logger.info("Starting Subjack: targets=%d wordlist=%s command=%s", len(targets), wordlist_path, ' '.join(command))
 
             executor = CommandExecutor(command, timeout=self.timeout)
 
             result_count = 0
             async for event in executor.run():
                 if event.type == "stderr" and event.payload:
-                    logger.debug("Subjack stderr: %s", event.payload)
+                    logger.warning("Subjack stderr: %s", event.payload)
 
                 if event.type != "stdout":
                     continue
@@ -70,6 +72,8 @@ class SubjackCliRunner:
                 line = event.payload.strip()
                 if not line:
                     continue
+
+                logger.info("Subjack stdout line: %r", line)
 
                 if line.startswith("[") and "Not Vulnerable" not in line:
                     parts = line.split()
