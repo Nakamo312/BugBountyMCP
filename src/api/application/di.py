@@ -1,4 +1,5 @@
 # api/application/container_base.py
+import os
 from typing import AsyncIterable
 from dishka import Provider, Scope, from_context, provide
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -161,9 +162,10 @@ class CLIRunnerProvider(Provider):
 
     @provide(scope=Scope.APP)
     def get_subjack_runner(self, settings: Settings) -> SubjackCliRunner:
+        fingerprints = settings.SUBJACK_FINGERPRINTS if os.path.exists(settings.SUBJACK_FINGERPRINTS) else None
         return SubjackCliRunner(
             subjack_path=settings.get_tool_path("subjack"),
-            fingerprints_path=None,
+            fingerprints_path=fingerprints,
             timeout=300,
         )
 
@@ -376,9 +378,10 @@ class ServiceProvider(Provider):
         event_bus: EventBus,
         settings: Settings
     ) -> SubjackScanService:
+        fingerprints = settings.SUBJACK_FINGERPRINTS if os.path.exists(settings.SUBJACK_FINGERPRINTS) else None
         subjack_runner = SubjackCliRunner(
             subjack_path=settings.get_tool_path("subjack"),
-            fingerprints_path=None,
+            fingerprints_path=fingerprints,
             timeout=300
         )
         return SubjackScanService(
