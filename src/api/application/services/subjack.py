@@ -7,7 +7,7 @@ from api.infrastructure.runners.subjack_cli import SubjackCliRunner
 from api.application.services.batch_processor import BaseBatchProcessor
 from api.infrastructure.events.event_bus import EventBus
 from api.infrastructure.events.event_types import EventType
-from api.application.dto.scan_dto import ScanOutputDTO
+from api.application.dto.scan_dto import SubjackScanOutputDTO
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class SubjackScanService:
         self,
         program_id: UUID,
         targets: list[str] | str,
-    ) -> ScanOutputDTO:
+    ) -> SubjackScanOutputDTO:
         """
         Execute Subjack subdomain takeover scan.
 
@@ -46,7 +46,7 @@ class SubjackScanService:
         asyncio.create_task(self._run_scan(program_id, targets))
 
         target_desc = targets[0] if len(targets) == 1 else f"{len(targets)} targets"
-        return ScanOutputDTO(
+        return SubjackScanOutputDTO(
             status="started",
             message=f"Subjack scan started for {target_desc}",
             scanner="subjack",
