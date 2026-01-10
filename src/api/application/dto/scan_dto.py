@@ -422,6 +422,27 @@ class NaabuScanOutputDTO(BaseModel):
     )
 
 
+class TLSxScanOutputDTO(BaseModel):
+    """Output DTO for TLSx service"""
+    status: str = Field(..., description="Scan status")
+    message: str = Field(..., description="Status message")
+    scanner: str = Field(..., description="Scanner name")
+    mode: str = Field(..., description="Scan mode: default or sni_brute")
+    targets_count: int = Field(..., description="Number of targets scanned")
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "status": "completed",
+                "message": "TLSx default scan completed for 20 targets",
+                "scanner": "tlsx",
+                "mode": "default",
+                "targets_count": 20
+            }
+        }
+    )
+
+
 class ScanResultDTO(BaseModel):
     """Generic scan result wrapper"""
     status: str = Field(..., description="Scan status (success/error)")

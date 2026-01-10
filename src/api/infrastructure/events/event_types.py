@@ -27,3 +27,5 @@ class EventType(str, Enum):
     CIDR_SLICED = "cidr_sliced"
     IPS_AGGREGATED = "ips_aggregated"
     NAABU_RESULTS_BATCH = "naabu_results_batch"
+    TLSX_RESULTS_BATCH = "tlsx_results_batch"
+    CERT_SAN_DISCOVERED = "cert_san_discovered"
