@@ -406,7 +406,7 @@ async def scan_asnmap(
     try:
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
-        result = await asnmap_service.execute(
+        asnmap_service.execute(
             program_id=UUID(request.program_id),
             targets=targets,
             mode=request.mode
@@ -414,8 +414,8 @@ async def scan_asnmap(
 
         return ScanResponse(
             status="success",
-            message=result.message,
-            results=result.model_dump()
+            message="",
+            results=""
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
