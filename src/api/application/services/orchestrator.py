@@ -115,6 +115,12 @@ class Orchestrator:
         asyncio.create_task(
             self.bus.subscribe(EventType.NAABU_RESULTS_BATCH, self.handle_naabu_results_batch)
         )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.TLSX_RESULTS_BATCH, self.handle_tlsx_results_batch)
+        )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.CERT_SAN_DISCOVERED, self.handle_cert_san_discovered)
+        )
 
     async def handle_service_event(self, event: Dict[str, Any]):
         async with self.container() as request_container:
@@ -583,15 +589,15 @@ class Orchestrator:
 
     async def handle_ips_expanded(self, event: Dict[str, Any]):
         """
-        Handle IPS_EXPANDED event by triggering parallel HTTPx probe + Naabu port scan.
-        Pipeline: MapCIDR expand -> HTTPx + Naabu (parallel)
+        Handle IPS_EXPANDED event by triggering HTTPx probe on all IPs.
+        Pipeline: MapCIDR expand -> HTTPx (always scan all IPs)
         """
         program_id = event["program_id"]
         ips = event["ips"]
         source_cidrs = event.get("source_cidrs", [])
 
         logger.info(
-            f"IPs expanded from CIDRs, launching parallel HTTPx + Naabu: "
+            f"IPs expanded from CIDRs, launching HTTPx scan: "
             f"program={program_id} ips={len(ips)} source_cidrs={len(source_cidrs)}"
         )
 
@@ -601,37 +607,23 @@ class Orchestrator:
 
     async def _process_expanded_ips(self, program_id: str, ips: list[str]):
         """
-        Process expanded IPs with parallel HTTPx probe and Naabu port scan.
-        Both tools run simultaneously on the same IP list.
+        Process expanded IPs with TLSx and HTTPx.
+        Pipeline: IPs -> TLSx (default cert) -> HTTPx (service probe)
         """
-        program_uuid = UUID(program_id)
-
         async with self._scan_semaphore:
             async with self.container() as request_container:
+                from api.application.services.tlsx import TLSxScanService
+
+                tlsx_service = await request_container.get(TLSxScanService)
                 httpx_service = await request_container.get(HTTPXScanService)
-                from api.application.services.naabu import NaabuScanService
-                naabu_service = await request_container.get(NaabuScanService)
 
-                logger.info(
-                    f"Starting parallel HTTPx + Naabu scans: program={program_id} ips={len(ips)}"
-                )
+                logger.info(f"Starting TLSx default cert scan on IPs: program={program_id} ips={len(ips)}")
+                await tlsx_service.execute_default(program_id=UUID(program_id), targets=ips)
+                logger.info(f"TLSx scan completed: program={program_id} ips={len(ips)}")
 
-                await asyncio.gather(
-                    httpx_service.execute(program_id=program_id, targets=ips),
-                    naabu_service.execute(
-                        program_id=program_uuid,
-                        hosts=ips,
-                        top_ports="1000",
-                        rate=1000,
-                        scan_type="c",
-                        exclude_cdn=True
-                    ),
-                    return_exceptions=True
-                )
-
-                logger.info(
-                    f"Parallel HTTPx + Naabu scans completed: program={program_id} ips={len(ips)}"
-                )
+                logger.info(f"Starting HTTPx scan on IPs: program={program_id} ips={len(ips)}")
+                await httpx_service.execute(program_id=program_id, targets=ips)
+                logger.info(f"HTTPx scan completed: program={program_id} ips={len(ips)}")
 
     async def handle_naabu_results_batch(self, event: Dict[str, Any]):
         """Handle batched Naabu port scan results"""
@@ -654,3 +646,93 @@ class Orchestrator:
                 )
         except Exception as exc:
             logger.error(f"Failed to ingest Naabu results: error={exc}", exc_info=True)
+
+    async def handle_tlsx_results_batch(self, event: Dict[str, Any]):
+        """
+        Handle batched TLSx certificate scan results.
+        Extract SAN/CN domains and publish CERT_SAN_DISCOVERED event.
+        """
+        try:
+            program_id = UUID(event["program_id"])
+            results = event["results"]
+
+            logger.info(f"Processing TLSx results batch: program={program_id} count={len(results)}")
+
+            discovered_domains = set()
+
+            for result in results:
+                subject_an = result.get("subject_an", [])
+                if subject_an:
+                    for domain in subject_an:
+                        if domain and isinstance(domain, str):
+                            discovered_domains.add(domain)
+
+                subject_cn = result.get("subject_cn")
+                if subject_cn and isinstance(subject_cn, str):
+                    discovered_domains.add(subject_cn)
+
+            if discovered_domains:
+                logger.info(
+                    f"Discovered domains from TLS certificates: "
+                    f"program={program_id} domains={len(discovered_domains)}"
+                )
+
+                await self.bus.publish(
+                    EventType.CERT_SAN_DISCOVERED,
+                    {
+                        "program_id": str(program_id),
+                        "domains": list(discovered_domains),
+                    },
+                )
+
+        except Exception as exc:
+            logger.error(f"Failed to process TLSx results: error={exc}", exc_info=True)
+
+    async def handle_cert_san_discovered(self, event: Dict[str, Any]):
+        """
+        Handle CERT_SAN_DISCOVERED event.
+        Trigger DNSx validation and HTTPx probe for discovered domains.
+        """
+        program_id = UUID(event["program_id"])
+        domains = event["domains"]
+
+        logger.info(
+            f"Certificate SAN domains discovered, triggering DNSx validation: "
+            f"program={program_id} domains={len(domains)}"
+        )
+
+        in_scope, out_of_scope = await self._filter_by_scope(program_id, domains)
+
+        if out_of_scope:
+            logger.info(
+                f"Filtered out-of-scope domains from cert SAN: "
+                f"program={program_id} out_of_scope={len(out_of_scope)}"
+            )
+
+        if in_scope:
+            task = asyncio.create_task(
+                self._process_cert_san_domains(program_id, in_scope)
+            )
+            self.tasks.add(task)
+            task.add_done_callback(self.tasks.discard)
+
+    async def _process_cert_san_domains(self, program_id: UUID, domains: list[str]):
+        """
+        Process domains discovered from TLS certificates.
+        Pipeline: Cert SAN -> DNSx (validation) -> HTTPx (probe)
+        """
+        async with self._scan_semaphore:
+            async with self.container() as request_container:
+                dnsx_service = await request_container.get(DNSxScanService)
+
+                logger.info(
+                    f"Starting DNSx validation for cert SAN domains: "
+                    f"program={program_id} domains={len(domains)}"
+                )
+
+                await dnsx_service.execute_basic(program_id=program_id, targets=domains)
+
+                logger.info(
+                    f"DNSx validation completed for cert SAN domains: "
+                    f"program={program_id} domains={len(domains)}"
+                )

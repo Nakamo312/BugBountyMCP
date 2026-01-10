@@ -9,6 +9,7 @@ from .scan_dto import (
     DNSxScanOutputDTO,
     MapCIDRScanOutputDTO,
     NaabuScanOutputDTO,
+    TLSxScanOutputDTO,
 )
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     'DNSxScanOutputDTO',
     'MapCIDRScanOutputDTO',
     'NaabuScanOutputDTO',
+    'TLSxScanOutputDTO',
 ]

@@ -19,6 +19,7 @@ from api.application.services.subjack import SubjackScanService
 from api.application.services.asnmap import ASNMapScanService
 from api.application.services.mapcidr import MapCIDRService
 from api.application.services.naabu import NaabuScanService
+from api.application.services.tlsx import TLSxScanService
 from api.application.services.batch_processor import (
     HTTPXBatchProcessor,
     SubfinderBatchProcessor,
@@ -28,6 +29,7 @@ from api.application.services.batch_processor import (
     SubjackBatchProcessor,
     ASNMapBatchProcessor,
     NaabuBatchProcessor,
+    TLSxBatchProcessor,
 )
 from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOfWork
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
@@ -59,6 +61,7 @@ from api.infrastructure.runners.subjack_cli import SubjackCliRunner
 from api.infrastructure.runners.asnmap_cli import ASNMapCliRunner
 from api.infrastructure.runners.mapcidr_cli import MapCIDRCliRunner
 from api.infrastructure.runners.naabu_cli import NaabuCliRunner
+from api.infrastructure.runners.tlsx_cli import TLSxCliRunner
 from api.infrastructure.events.event_bus import EventBus
 from dishka import AsyncContainer
 
@@ -211,6 +214,13 @@ class CLIRunnerProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
+    def get_tlsx_runner(self, settings: Settings) -> TLSxCliRunner:
+        return TLSxCliRunner(
+            tlsx_path=settings.get_tool_path("tlsx"),
+            timeout=300,
+        )
+
+    @provide(scope=Scope.APP)
     def get_event_bus(self, settings: Settings) -> EventBus:
         return EventBus(settings)
 
@@ -250,6 +260,10 @@ class BatchProcessorProvider(Provider):
     @provide(scope=Scope.APP)
     def get_naabu_processor(self, settings: Settings) -> NaabuBatchProcessor:
         return NaabuBatchProcessor(settings)
+
+    @provide(scope=Scope.APP)
+    def get_tlsx_processor(self, settings: Settings) -> TLSxBatchProcessor:
+        return TLSxBatchProcessor(settings)
 
 
 class IngestorProvider(Provider):
@@ -490,6 +504,19 @@ class ServiceProvider(Provider):
         return NaabuScanService(
             runner=naabu_runner,
             processor=naabu_processor,
+            bus=event_bus
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_tlsx_service(
+        self,
+        tlsx_runner: TLSxCliRunner,
+        tlsx_processor: TLSxBatchProcessor,
+        event_bus: EventBus
+    ) -> TLSxScanService:
+        return TLSxScanService(
+            runner=tlsx_runner,
+            processor=tlsx_processor,
             bus=event_bus
         )
 
