@@ -66,6 +66,7 @@ services:
 
       LOG_LEVEL: ${LOG_LEVEL}
       TOOLS_PATH_PREFIX: ${TOOLS_PATH_PREFIX}
+      PDCP_API_KEY: ${PDCP_API_KEY}
     ports:
       - "${API_PORT}:8000"
     volumes:
