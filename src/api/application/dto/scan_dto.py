@@ -357,11 +357,76 @@ class SubjackScanOutputDTO(BaseModel):
     )
 
 
+class ASNMapScanOutputDTO(BaseModel):
+    """Output DTO for ASNMap scan service"""
+    status: str = Field(..., description="Scan status")
+    message: str = Field(..., description="Status message")
+    scanner: str = Field(..., description="Scanner name")
+    mode: str = Field(..., description="Scan mode: domain, asn, or organization")
+    targets_count: int = Field(..., description="Number of targets scanned")
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "status": "completed",
+                "message": "ASNMap scan completed for 2 targets",
+                "scanner": "asnmap",
+                "mode": "domain",
+                "targets_count": 2
+            }
+        }
+    )
+
+
+class MapCIDRScanOutputDTO(BaseModel):
+    """Output DTO for MapCIDR service"""
+    status: str = Field(..., description="Scan status")
+    message: str = Field(..., description="Status message")
+    scanner: str = Field(..., description="Scanner name")
+    operation: str = Field(..., description="Operation performed: expand, slice_count, slice_host, count, aggregate")
+    input_count: int = Field(..., description="Number of input CIDRs/IPs")
+    output_count: int = Field(default=0, description="Number of results produced")
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "status": "completed",
+                "message": "MapCIDR expand completed for 5 CIDRs",
+                "scanner": "mapcidr",
+                "operation": "expand",
+                "input_count": 5,
+                "output_count": 1280
+            }
+        }
+    )
+
+
+class NaabuScanOutputDTO(BaseModel):
+    """Output DTO for Naabu service"""
+    status: str = Field(..., description="Scan status")
+    message: str = Field(..., description="Status message")
+    scanner: str = Field(..., description="Scanner name")
+    targets_count: int = Field(..., description="Number of targets scanned")
+    scan_mode: str = Field(..., description="Scan mode: active, passive, nmap")
+
+    model_config = ConfigDict(
+        json_schema_extra = {
+            "example": {
+                "status": "completed",
+                "message": "Naabu port scan completed for 10 hosts",
+                "scanner": "naabu",
+                "targets_count": 10,
+                "scan_mode": "active"
+            }
+        }
+    )
+
+
 class ScanResultDTO(BaseModel):
     """Generic scan result wrapper"""
     status: str = Field(..., description="Scan status (success/error)")
     message: str = Field(..., description="Human-readable message")
-    data: Union[HTTPXScanOutputDTO, SubfinderScanOutputDTO, GAUScanOutputDTO, KatanaScanOutputDTO, LinkFinderScanOutputDTO] = Field(..., description="Scan results")
+    data: Union[HTTPXScanOutputDTO, SubfinderScanOutputDTO, GAUScanOutputDTO, KatanaScanOutputDTO, LinkFinderScanOutputDTO, ASNMapScanOutputDTO, MapCIDRScanOutputDTO, NaabuScanOutputDTO] = Field(..., description="Scan results")
 
     model_config = ConfigDict(
         json_schema_extra = {

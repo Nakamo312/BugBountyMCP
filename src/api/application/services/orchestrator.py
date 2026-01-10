@@ -18,6 +18,7 @@ from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
 from api.infrastructure.ingestors.mantra_ingestor import MantraResultIngestor
 from api.infrastructure.ingestors.ffuf_ingestor import FFUFResultIngestor
 from api.infrastructure.ingestors.dnsx_ingestor import DNSxResultIngestor
+from api.infrastructure.ingestors.asnmap_ingestor import ASNMapResultIngestor
 from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,9 @@ class Orchestrator:
             self.bus.subscribe(EventType.DNSX_DEEP_RESULTS_BATCH, self.handle_dnsx_deep_results_batch)
         )
         asyncio.create_task(
+            self.bus.subscribe(EventType.DNSX_PTR_RESULTS_BATCH, self.handle_dnsx_ptr_results_batch)
+        )
+        asyncio.create_task(
             self.bus.subscribe(EventType.DNSX_FILTERED_HOSTS, self.handle_dnsx_filtered_hosts)
         )
         asyncio.create_task(
@@ -95,6 +99,21 @@ class Orchestrator:
         )
         asyncio.create_task(
             self.bus.subscribe(EventType.SUBJACK_RESULTS_BATCH, self.handle_subjack_results_batch)
+        )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.ASNMAP_RESULTS_BATCH, self.handle_asnmap_results_batch)
+        )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.ASN_DISCOVERED, self.handle_asn_discovered)
+        )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.CIDR_DISCOVERED, self.handle_cidr_discovered)
+        )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.IPS_EXPANDED, self.handle_ips_expanded)
+        )
+        asyncio.create_task(
+            self.bus.subscribe(EventType.NAABU_RESULTS_BATCH, self.handle_naabu_results_batch)
         )
 
     async def handle_service_event(self, event: Dict[str, Any]):
@@ -415,6 +434,41 @@ class Orchestrator:
         except Exception as exc:
             logger.error(f"Failed to ingest DNSx deep results: error={exc}", exc_info=True)
 
+    async def handle_dnsx_ptr_results_batch(self, event: Dict[str, Any]):
+        """
+        Handle batched DNSx PTR (reverse DNS) scan results.
+        Discovers new hosts from IP addresses and publishes them for further processing.
+        Pipeline: CIDR expansion -> DNSx PTR -> New hosts discovered
+        """
+        try:
+            async with self.container() as request_container:
+                ingestor = await request_container.get(DNSxResultIngestor)
+                program_id = UUID(event["program_id"])
+                results = event["results"]
+
+                logger.info(f"Ingesting DNSx PTR results batch: program={program_id} count={len(results)}")
+                await ingestor.ingest(program_id, results)
+                logger.info(f"DNSx PTR results ingested successfully: program={program_id} count={len(results)}")
+
+                discovered_hosts = []
+                for result in results:
+                    ptr_records = result.get("ptr", [])
+                    for ptr in ptr_records:
+                        if ptr and ptr not in discovered_hosts:
+                            discovered_hosts.append(ptr)
+
+                if discovered_hosts:
+                    logger.info(f"Publishing PTR-discovered hosts: program={program_id} count={len(discovered_hosts)}")
+                    await self.bus.publish(
+                        EventType.SUBDOMAIN_DISCOVERED,
+                        {
+                            "program_id": str(program_id),
+                            "subdomains": discovered_hosts
+                        }
+                    )
+        except Exception as exc:
+            logger.error(f"Failed to ingest DNSx PTR results: error={exc}", exc_info=True)
+
     async def handle_dnsx_filtered_hosts(self, event: Dict[str, Any]):
         """
         Handle DNSx filtered hosts by triggering HTTPX scan.
@@ -495,3 +549,103 @@ class Orchestrator:
                 logger.info(f"Subjack results ingested successfully: program={program_id} count={len(results)}")
         except Exception as exc:
             logger.error(f"Failed to ingest Subjack results: error={exc}", exc_info=True)
+
+    async def handle_asnmap_results_batch(self, event: Dict[str, Any]):
+        """Handle batched ASNMap results"""
+        try:
+            async with self.container() as request_container:
+                ingestor = await request_container.get(ASNMapResultIngestor)
+                program_id = UUID(event["program_id"])
+                results = event["results"]
+
+                logger.info(f"Ingesting ASNMap results batch: program={program_id} count={len(results)}")
+                await ingestor.ingest(program_id, results)
+                logger.info(f"ASNMap results ingested successfully: program={program_id} count={len(results)}")
+        except Exception as exc:
+            logger.error(f"Failed to ingest ASNMap results: error={exc}", exc_info=True)
+
+    async def handle_asn_discovered(self, event: Dict[str, Any]):
+        """Handle ASN discovered - future: trigger additional ASN queries"""
+        program_id = UUID(event["program_id"])
+        asns = event["asns"]
+        logger.info(f"ASN discovered event received: program={program_id} count={len(asns)}")
+
+    async def handle_cidr_discovered(self, event: Dict[str, Any]):
+        """Handle CIDR discovered - future: trigger mapcidr IP expansion"""
+        program_id = UUID(event["program_id"])
+        cidrs = event["cidrs"]
+        logger.info(f"CIDR discovered event received: program={program_id} count={len(cidrs)}")
+
+    async def handle_ips_expanded(self, event: Dict[str, Any]):
+        """
+        Handle IPS_EXPANDED event by triggering parallel HTTPx probe + Naabu port scan.
+        Pipeline: MapCIDR expand -> HTTPx + Naabu (parallel)
+        """
+        program_id = event["program_id"]
+        ips = event["ips"]
+        source_cidrs = event.get("source_cidrs", [])
+
+        logger.info(
+            f"IPs expanded from CIDRs, launching parallel HTTPx + Naabu: "
+            f"program={program_id} ips={len(ips)} source_cidrs={len(source_cidrs)}"
+        )
+
+        task = asyncio.create_task(self._process_expanded_ips(program_id, ips))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+
+    async def _process_expanded_ips(self, program_id: str, ips: list[str]):
+        """
+        Process expanded IPs with parallel HTTPx probe and Naabu port scan.
+        Both tools run simultaneously on the same IP list.
+        """
+        program_uuid = UUID(program_id)
+
+        async with self._scan_semaphore:
+            async with self.container() as request_container:
+                httpx_service = await request_container.get(HTTPXScanService)
+                from api.application.services.naabu import NaabuScanService
+                naabu_service = await request_container.get(NaabuScanService)
+
+                logger.info(
+                    f"Starting parallel HTTPx + Naabu scans: program={program_id} ips={len(ips)}"
+                )
+
+                await asyncio.gather(
+                    httpx_service.execute(program_id=program_id, targets=ips),
+                    naabu_service.execute(
+                        program_id=program_uuid,
+                        hosts=ips,
+                        top_ports="1000",
+                        rate=1000,
+                        scan_type="c",
+                        exclude_cdn=True
+                    ),
+                    return_exceptions=True
+                )
+
+                logger.info(
+                    f"Parallel HTTPx + Naabu scans completed: program={program_id} ips={len(ips)}"
+                )
+
+    async def handle_naabu_results_batch(self, event: Dict[str, Any]):
+        """Handle batched Naabu port scan results"""
+        try:
+            async with self.container() as request_container:
+                from api.infrastructure.ingestors.naabu_ingestor import NaabuResultIngestor
+                ingestor = await request_container.get(NaabuResultIngestor)
+                program_id = UUID(event["program_id"])
+                results = event["results"]
+                scan_mode = event.get("scan_mode", "active")
+
+                logger.info(
+                    f"Ingesting Naabu results batch: program={program_id} "
+                    f"count={len(results)} mode={scan_mode}"
+                )
+                await ingestor.ingest(results, program_id)
+                logger.info(
+                    f"Naabu results ingested successfully: program={program_id} "
+                    f"count={len(results)} mode={scan_mode}"
+                )
+        except Exception as exc:
+            logger.error(f"Failed to ingest Naabu results: error={exc}", exc_info=True)

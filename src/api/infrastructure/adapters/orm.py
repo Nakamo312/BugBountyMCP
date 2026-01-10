@@ -282,3 +282,44 @@ dns_records = Table(
     CheckConstraint("record_type IN ('A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'PTR')", name='ck_dns_records_type_valid'),
     CheckConstraint("value != ''", name='ck_dns_records_value_not_empty'),
 )
+
+organizations = Table(
+    'organizations',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('name', String(500), nullable=False),
+    Column('metadata', JSONType(), default=dict, nullable=False),
+    UniqueConstraint('program_id', 'name', name='uq_organizations_program_name'),
+    Index('idx_organizations_program', 'program_id'),
+)
+
+asns = Table(
+    'asns',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('organization_id', UUID(), ForeignKey('organizations.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('asn_number', Integer, nullable=False),
+    Column('organization_name', String(500), nullable=False),
+    Column('country_code', String(2), nullable=True),
+    Column('description', Text, nullable=True),
+    UniqueConstraint('program_id', 'asn_number', name='uq_asns_program_asn'),
+    Index('idx_asns_program', 'program_id'),
+    Index('idx_asns_asn_number', 'asn_number'),
+)
+
+cidrs = Table(
+    'cidrs',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('asn_id', UUID(), ForeignKey('asns.id', ondelete='CASCADE'), nullable=True, index=True),
+    Column('cidr', String(50), nullable=False),
+    Column('ip_count', Integer, nullable=True),
+    Column('expanded', Boolean, default=False, nullable=False),
+    Column('in_scope', Boolean, default=True, nullable=False),
+    UniqueConstraint('program_id', 'cidr', name='uq_cidrs_program_cidr'),
+    Index('idx_cidrs_program', 'program_id'),
+    Index('idx_cidrs_asn', 'asn_id'),
+)

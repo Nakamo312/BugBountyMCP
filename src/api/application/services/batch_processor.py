@@ -217,3 +217,37 @@ class SubjackBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
         if event.type == "result" and event.payload:
             return event.payload
         return None
+
+
+class ASNMapBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
+    """Batch processor for ASNMap results"""
+
+    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
+        return {
+            'min': settings.ASNMAP_BATCH_MIN,
+            'max': settings.ASNMAP_BATCH_MAX,
+            'timeout': settings.ASNMAP_BATCH_TIMEOUT
+        }
+
+    def _extract_item(self, event) -> Dict[str, Any] | None:
+        """Extract ASNMap result from event"""
+        if event.type == "result" and event.payload:
+            return event.payload
+        return None
+
+
+class NaabuBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
+    """Batch processor for Naabu port scan results"""
+
+    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
+        return {
+            'min': settings.NAABU_BATCH_MIN,
+            'max': settings.NAABU_BATCH_MAX,
+            'timeout': settings.NAABU_BATCH_TIMEOUT
+        }
+
+    def _extract_item(self, event) -> Dict[str, Any] | None:
+        """Extract Naabu result from event"""
+        if event.type == "result" and event.payload:
+            return event.payload
+        return None

@@ -51,11 +51,23 @@ class Settings(BaseSettings):
     DNSX_BATCH_MAX: int = 300
     DNSX_BATCH_TIMEOUT: float = 10.0
 
+    # ASNMap batch settings
+    ASNMAP_BATCH_MIN: int = 10
+    ASNMAP_BATCH_MAX: int = 50
+    ASNMAP_BATCH_TIMEOUT: float = 5.0
+
+    # Naabu batch settings
+    NAABU_BATCH_MIN: int = 50
+    NAABU_BATCH_MAX: int = 200
+    NAABU_BATCH_TIMEOUT: float = 15.0
+
     # Ingestor settings
     HTTPX_INGESTOR_BATCH_SIZE: int = 50
     HTTPX_NEW_HOST_BATCH_SIZE: int = 50
     KATANA_INGESTOR_BATCH_SIZE: int = 50
     DNSX_INGESTOR_BATCH_SIZE: int = 100
+    ASNMAP_INGESTOR_BATCH_SIZE: int = 50
+    NAABU_INGESTOR_BATCH_SIZE: int = 100
 
     # FFUF settings
     FFUF_WORDLIST: str = "/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt"
