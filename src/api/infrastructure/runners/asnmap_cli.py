@@ -52,6 +52,7 @@ class ASNMapCliRunner:
             self.asnmap_path,
             "-json",
             "-silent",
+            "-duc",
         ]
 
         for domain in domains:
@@ -101,6 +102,7 @@ class ASNMapCliRunner:
             self.asnmap_path,
             "-json",
             "-silent",
+            "-duc",
         ]
 
         for asn in asns:
@@ -150,6 +152,7 @@ class ASNMapCliRunner:
             self.asnmap_path,
             "-json",
             "-silent",
+            "-duc",
         ]
 
         for org in organizations:
