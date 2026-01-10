@@ -16,6 +16,9 @@ from api.application.services.mantra import MantraScanService
 from api.application.services.ffuf import FFUFScanService
 from api.application.services.dnsx import DNSxScanService
 from api.application.services.subjack import SubjackScanService
+from api.application.services.asnmap import ASNMapScanService
+from api.application.services.mapcidr import MapCIDRService
+from api.application.services.naabu import NaabuScanService
 from api.application.services.batch_processor import (
     HTTPXBatchProcessor,
     SubfinderBatchProcessor,
@@ -23,6 +26,8 @@ from api.application.services.batch_processor import (
     KatanaBatchProcessor,
     DNSxBatchProcessor,
     SubjackBatchProcessor,
+    ASNMapBatchProcessor,
+    NaabuBatchProcessor,
 )
 from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOfWork
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
@@ -30,6 +35,8 @@ from api.infrastructure.unit_of_work.adapters.katana import SQLAlchemyKatanaUnit
 from api.infrastructure.unit_of_work.adapters.linkfinder import SQLAlchemyLinkFinderUnitOfWork
 from api.infrastructure.unit_of_work.adapters.mantra import SQLAlchemyMantraUnitOfWork
 from api.infrastructure.unit_of_work.adapters.dnsx import SQLAlchemyDNSxUnitOfWork
+from api.infrastructure.unit_of_work.adapters.asnmap import SQLAlchemyASNMapUnitOfWork
+from api.infrastructure.unit_of_work.adapters.naabu import SQLAlchemyNaabuUnitOfWork
 from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
@@ -38,6 +45,8 @@ from api.infrastructure.ingestors.mantra_ingestor import MantraResultIngestor
 from api.infrastructure.ingestors.ffuf_ingestor import FFUFResultIngestor
 from api.infrastructure.ingestors.dnsx_ingestor import DNSxResultIngestor
 from api.infrastructure.ingestors.subjack_ingestor import SubjackResultIngestor
+from api.infrastructure.ingestors.asnmap_ingestor import ASNMapResultIngestor
+from api.infrastructure.ingestors.naabu_ingestor import NaabuResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 from api.infrastructure.runners.gau_cli import GAUCliRunner
@@ -47,6 +56,9 @@ from api.infrastructure.runners.mantra_cli import MantraCliRunner
 from api.infrastructure.runners.ffuf_cli import FFUFCliRunner
 from api.infrastructure.runners.dnsx_cli import DNSxCliRunner
 from api.infrastructure.runners.subjack_cli import SubjackCliRunner
+from api.infrastructure.runners.asnmap_cli import ASNMapCliRunner
+from api.infrastructure.runners.mapcidr_cli import MapCIDRCliRunner
+from api.infrastructure.runners.naabu_cli import NaabuCliRunner
 from api.infrastructure.events.event_bus import EventBus
 from dishka import AsyncContainer
 
@@ -96,6 +108,14 @@ class UnitOfWorkProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def get_dnsx_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyDNSxUnitOfWork:
         return SQLAlchemyDNSxUnitOfWork(session_factory)
+
+    @provide(scope=Scope.REQUEST)
+    def get_asnmap_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyASNMapUnitOfWork:
+        return SQLAlchemyASNMapUnitOfWork(session_factory)
+
+    @provide(scope=Scope.REQUEST)
+    def get_naabu_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyNaabuUnitOfWork:
+        return SQLAlchemyNaabuUnitOfWork(session_factory)
 
 
 class CLIRunnerProvider(Provider):
@@ -170,6 +190,27 @@ class CLIRunnerProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
+    def get_asnmap_runner(self, settings: Settings) -> ASNMapCliRunner:
+        return ASNMapCliRunner(
+            asnmap_path=settings.get_tool_path("asnmap"),
+            timeout=300,
+        )
+
+    @provide(scope=Scope.APP)
+    def get_mapcidr_runner(self, settings: Settings) -> MapCIDRCliRunner:
+        return MapCIDRCliRunner(
+            mapcidr_path=settings.get_tool_path("mapcidr"),
+            timeout=300,
+        )
+
+    @provide(scope=Scope.APP)
+    def get_naabu_runner(self, settings: Settings) -> NaabuCliRunner:
+        return NaabuCliRunner(
+            naabu_path=settings.get_tool_path("naabu"),
+            timeout=600,
+        )
+
+    @provide(scope=Scope.APP)
     def get_event_bus(self, settings: Settings) -> EventBus:
         return EventBus(settings)
 
@@ -201,6 +242,14 @@ class BatchProcessorProvider(Provider):
     @provide(scope=Scope.APP)
     def get_subjack_processor(self, settings: Settings) -> SubjackBatchProcessor:
         return SubjackBatchProcessor(settings)
+
+    @provide(scope=Scope.APP)
+    def get_asnmap_processor(self, settings: Settings) -> ASNMapBatchProcessor:
+        return ASNMapBatchProcessor(settings)
+
+    @provide(scope=Scope.APP)
+    def get_naabu_processor(self, settings: Settings) -> NaabuBatchProcessor:
+        return NaabuBatchProcessor(settings)
 
 
 class IngestorProvider(Provider):
@@ -264,6 +313,23 @@ class IngestorProvider(Provider):
         settings: Settings
     ) -> SubjackResultIngestor:
         return SubjackResultIngestor(uow=httpx_uow, bus=event_bus, settings=settings)
+
+    @provide(scope=Scope.REQUEST)
+    def get_asnmap_ingestor(
+        self,
+        asnmap_uow: SQLAlchemyASNMapUnitOfWork,
+        event_bus: EventBus,
+        settings: Settings
+    ) -> ASNMapResultIngestor:
+        return ASNMapResultIngestor(uow=asnmap_uow, bus=event_bus, settings=settings)
+
+    @provide(scope=Scope.REQUEST)
+    def get_naabu_ingestor(
+        self,
+        naabu_uow: SQLAlchemyNaabuUnitOfWork,
+        settings: Settings
+    ) -> NaabuResultIngestor:
+        return NaabuResultIngestor(uow=naabu_uow, settings=settings)
 
 
 class ServiceProvider(Provider):
@@ -387,6 +453,43 @@ class ServiceProvider(Provider):
         return SubjackScanService(
             runner=subjack_runner,
             processor=subjack_processor,
+            bus=event_bus
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_asnmap_service(
+        self,
+        asnmap_runner: ASNMapCliRunner,
+        asnmap_processor: ASNMapBatchProcessor,
+        event_bus: EventBus
+    ) -> ASNMapScanService:
+        return ASNMapScanService(
+            runner=asnmap_runner,
+            processor=asnmap_processor,
+            bus=event_bus
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_mapcidr_service(
+        self,
+        mapcidr_runner: MapCIDRCliRunner,
+        event_bus: EventBus
+    ) -> MapCIDRService:
+        return MapCIDRService(
+            runner=mapcidr_runner,
+            bus=event_bus
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_naabu_service(
+        self,
+        naabu_runner: NaabuCliRunner,
+        naabu_processor: NaabuBatchProcessor,
+        event_bus: EventBus
+    ) -> NaabuScanService:
+        return NaabuScanService(
+            runner=naabu_runner,
+            processor=naabu_processor,
             bus=event_bus
         )
 

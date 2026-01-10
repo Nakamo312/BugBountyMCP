@@ -13,6 +13,9 @@ from api.presentation.schemas import (
     FFUFScanRequest,
     DNSxScanRequest,
     SubjackScanRequest,
+    ASNMapScanRequest,
+    MapCIDRScanRequest,
+    NaabuScanRequest,
     ScanResponse
 )
 from api.application.services.subfinder import SubfinderScanService
@@ -24,6 +27,9 @@ from api.application.services.mantra import MantraScanService
 from api.application.services.ffuf import FFUFScanService
 from api.application.services.dnsx import DNSxScanService
 from api.application.services.subjack import SubjackScanService
+from api.application.services.asnmap import ASNMapScanService
+from api.application.services.mapcidr import MapCIDRService
+from api.application.services.naabu import NaabuScanService
 
 
 router = APIRouter(route_class=DishkaRoute)
@@ -302,7 +308,7 @@ async def scan_ffuf(
     "/scan/dnsx",
     response_model=ScanResponse,
     summary="Run DNSx Scan",
-    description="Starts DNSx DNS enumeration (basic or deep mode). Returns after scan completes.",
+    description="Starts DNSx DNS enumeration (basic, deep, or ptr mode). Returns after scan completes.",
     tags=["Scans"]
 )
 async def scan_dnsx(
@@ -310,14 +316,15 @@ async def scan_dnsx(
     dnsx_service: FromDishka[DNSxScanService],
 ) -> ScanResponse:
     """
-    Start DNSx scan to enumerate DNS records for hosts.
+    Start DNSx scan to enumerate DNS records for hosts or reverse lookup for IPs.
 
     - **program_id**: Program UUID
-    - **targets**: Single domain/host or list of domains/hosts to scan
-    - **mode**: Scan mode - 'basic' (A/AAAA/CNAME) or 'deep' (all records including MX/TXT/NS/SOA)
+    - **targets**: Single domain/host or list of domains/hosts (for basic/deep), OR IP addresses (for ptr mode)
+    - **mode**: Scan mode - 'basic' (A/AAAA/CNAME), 'deep' (all records including MX/TXT/NS/SOA), or 'ptr' (reverse DNS)
     - **timeout**: Scan timeout in seconds (default: 600)
 
     Returns after scan completes. Discovered DNS records are ingested into database.
+    PTR mode discovers new hosts from IP addresses and triggers subdomain enumeration pipeline.
     """
     try:
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
@@ -364,6 +371,183 @@ async def scan_subjack(
             program_id=UUID(request.program_id),
             targets=targets
         )
+
+        return ScanResponse(
+            status="success",
+            message=result.message,
+            results=result.model_dump()
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
+
+
+@router.post(
+    "/scan/asnmap",
+    response_model=ScanResponse,
+    summary="Run ASNMap Scan",
+    description="Starts ASNMap ASN/CIDR enumeration. Returns immediately, scan runs in background.",
+    tags=["Scans"]
+)
+async def scan_asnmap(
+    request: ASNMapScanRequest,
+    asnmap_service: FromDishka[ASNMapScanService],
+) -> ScanResponse:
+    """
+    Start ASNMap scan to enumerate ASN and CIDR ranges.
+
+    - **program_id**: Program UUID
+    - **targets**: Domains (mode=domain), ASN numbers (mode=asn), or organization names (mode=organization)
+    - **mode**: Scan mode - 'domain', 'asn', or 'organization' (default: domain)
+    - **timeout**: Scan timeout in seconds (default: 300)
+
+    Returns immediately. Discovered ASNs and CIDR blocks are ingested into database.
+    Publishes ASN_DISCOVERED and CIDR_DISCOVERED events for further processing.
+    """
+    try:
+        targets = request.targets if isinstance(request.targets, list) else [request.targets]
+
+        result = await asnmap_service.execute(
+            program_id=UUID(request.program_id),
+            targets=targets,
+            mode=request.mode
+        )
+
+        return ScanResponse(
+            status="success",
+            message=result.message,
+            results=result.model_dump()
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
+
+
+@router.post(
+    "/scan/mapcidr",
+    response_model=ScanResponse,
+    summary="Run MapCIDR Operation",
+    description="Performs CIDR operations (expand, slice, aggregate). Returns immediately.",
+    tags=["Scans"]
+)
+async def scan_mapcidr(
+    request: MapCIDRScanRequest,
+    mapcidr_service: FromDishka[MapCIDRService],
+) -> ScanResponse:
+    """
+    Perform MapCIDR operations on CIDR blocks.
+
+    - **program_id**: Program UUID
+    - **cidrs**: Single CIDR or list of CIDRs to process
+    - **operation**: Operation type - 'expand', 'slice_count', 'slice_host', 'aggregate'
+    - **count**: For slice_count - number of subnets to create
+    - **host_count**: For slice_host - target hosts per subnet
+    - **skip_base**: Skip base IPs ending in .0
+    - **skip_broadcast**: Skip broadcast IPs ending in .255
+    - **shuffle**: Shuffle IPs in random order
+    - **timeout**: Scan timeout in seconds (default: 300)
+
+    Returns immediately. Results published to EventBus for further processing.
+    """
+    try:
+        cidrs = request.cidrs if isinstance(request.cidrs, list) else [request.cidrs]
+        program_id = UUID(request.program_id)
+
+        if request.operation == "expand":
+            result = await mapcidr_service.expand(
+                program_id=program_id,
+                cidrs=cidrs,
+                skip_base=request.skip_base,
+                skip_broadcast=request.skip_broadcast,
+                shuffle=request.shuffle
+            )
+        elif request.operation == "slice_count":
+            if not request.count:
+                raise ValueError("count parameter required for slice_count operation")
+            result = await mapcidr_service.slice_by_count(
+                program_id=program_id,
+                cidrs=cidrs,
+                count=request.count
+            )
+        elif request.operation == "slice_host":
+            if not request.host_count:
+                raise ValueError("host_count parameter required for slice_host operation")
+            result = await mapcidr_service.slice_by_host_count(
+                program_id=program_id,
+                cidrs=cidrs,
+                host_count=request.host_count
+            )
+        elif request.operation == "aggregate":
+            result = await mapcidr_service.aggregate(
+                program_id=program_id,
+                ips=cidrs
+            )
+        else:
+            raise ValueError(f"Invalid operation: {request.operation}")
+
+        return ScanResponse(
+            status="success",
+            message=result.message,
+            results=result.model_dump()
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
+
+
+@router.post(
+    "/scan/naabu",
+    response_model=ScanResponse,
+    summary="Run Naabu Port Scan",
+    description="Starts Naabu port scanning (active, passive, or nmap mode). Returns immediately, scan runs in background.",
+    tags=["Scans"]
+)
+async def scan_naabu(
+    request: NaabuScanRequest,
+    naabu_service: FromDishka[NaabuScanService],
+) -> ScanResponse:
+    """
+    Start Naabu port scan to discover open ports and services.
+
+    - **program_id**: Program UUID
+    - **targets**: Single host/IP or list of hosts/IPs to scan
+    - **scan_mode**: Scan mode - 'active' (default), 'passive', or 'nmap'
+    - **ports**: Port specification (e.g., "80,443,8080-8090") or None for top-ports
+    - **top_ports**: Top ports preset - "100", "1000" (default), "full"
+    - **rate**: Packets per second (default: 1000)
+    - **scan_type**: Scan type - "s" (SYN) or "c" (CONNECT, default)
+    - **exclude_cdn**: Skip full port scans for CDN/WAF, only scan 80,443 (default: true)
+    - **nmap_cli**: Nmap command for service detection (nmap mode only, default: "nmap -sV")
+    - **timeout**: Scan timeout in seconds (default: 600)
+
+    Returns immediately. Discovered open ports are published to EventBus and ingested into database.
+    """
+    try:
+        targets = request.targets if isinstance(request.targets, list) else [request.targets]
+        program_id = UUID(request.program_id)
+
+        if request.scan_mode == "active":
+            result = await naabu_service.execute(
+                program_id=program_id,
+                hosts=targets,
+                ports=request.ports,
+                top_ports=request.top_ports,
+                rate=request.rate,
+                scan_type=request.scan_type,
+                exclude_cdn=request.exclude_cdn
+            )
+        elif request.scan_mode == "passive":
+            result = await naabu_service.execute_passive(
+                program_id=program_id,
+                hosts=targets
+            )
+        elif request.scan_mode == "nmap":
+            result = await naabu_service.execute_with_nmap(
+                program_id=program_id,
+                hosts=targets,
+                nmap_cli=request.nmap_cli,
+                top_ports=request.top_ports,
+                rate=request.rate
+            )
+        else:
+            raise ValueError(f"Invalid scan_mode: {request.scan_mode}. Must be 'active', 'passive', or 'nmap'")
 
         return ScanResponse(
             status="success",

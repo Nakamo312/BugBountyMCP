@@ -1,0 +1,18 @@
+"""Naabu Unit of Work Interface"""
+
+from abc import ABC
+from api.infrastructure.repositories.interfaces.ip_address import IPAddressRepository
+from api.infrastructure.repositories.interfaces.service import ServiceRepository
+
+
+class AbstractNaabuUnitOfWork(ABC):
+    """
+    Unit of Work interface for Naabu port scan ingestion.
+
+    Provides access to:
+    - ip_addresses: IP address repository
+    - services: Service repository
+    """
+
+    ip_addresses: IPAddressRepository
+    services: ServiceRepository

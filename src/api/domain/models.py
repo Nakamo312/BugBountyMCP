@@ -220,3 +220,36 @@ class DNSRecordModel(AbstractModel):
     priority: Optional[int] = None
     is_wildcard: bool = False
     id: UUID = field(default_factory=uuid4)
+
+
+@dataclass
+class OrganizationModel(AbstractModel):
+    """Organization/Company"""
+    program_id: UUID
+    name: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass
+class ASNModel(AbstractModel):
+    """Autonomous System Number"""
+    program_id: UUID
+    asn_number: int
+    organization_name: str
+    country_code: Optional[str] = None
+    description: Optional[str] = None
+    organization_id: Optional[UUID] = None
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass
+class CIDRModel(AbstractModel):
+    """CIDR IP range"""
+    program_id: UUID
+    cidr: str
+    asn_id: Optional[UUID] = None
+    ip_count: Optional[int] = None
+    expanded: bool = False
+    in_scope: bool = True
+    id: UUID = field(default_factory=uuid4)

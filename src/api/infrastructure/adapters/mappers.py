@@ -1,16 +1,19 @@
 """Mapper configuration for SQLAlchemy Core tables to domain models"""
 from sqlalchemy.orm import registry, relationship
 
-from api.domain.models import (DNSRecordModel, EndpointModel, FindingModel,
-                               HeaderModel, HostIPModel, HostModel,
-                               InputParameterModel, IPAddressModel, LeakModel,
-                               PayloadModel, ProgramModel, RootInputModel,
-                               ScannerExecutionModel, ScannerTemplateModel,
-                               ScopeRuleModel, ServiceModel, VulnTypeModel)
-from api.infrastructure.adapters.orm import (dns_records, endpoints, findings,
-                                             headers, host_ips, hosts,
-                                             input_parameters, ip_addresses,
-                                             leaks, metadata, payloads, programs,
+from api.domain.models import (ASNModel, CIDRModel, DNSRecordModel,
+                               EndpointModel, FindingModel, HeaderModel,
+                               HostIPModel, HostModel, InputParameterModel,
+                               IPAddressModel, LeakModel,
+                               OrganizationModel, PayloadModel, ProgramModel,
+                               RootInputModel, ScannerExecutionModel,
+                               ScannerTemplateModel, ScopeRuleModel,
+                               ServiceModel, VulnTypeModel)
+from api.infrastructure.adapters.orm import (asns, cidrs, dns_records,
+                                             endpoints, findings, headers,
+                                             host_ips, hosts, input_parameters,
+                                             ip_addresses, leaks, metadata,
+                                             organizations, payloads, programs,
                                              root_inputs, scanner_executions,
                                              scanner_templates, scope_rules,
                                              services, vuln_types)
@@ -282,6 +285,37 @@ def start_mappers():
     mapper_registry.map_imperatively(
         class_=DNSRecordModel,
         local_table=dns_records
+    )
+
+    mapper_registry.map_imperatively(
+        class_=OrganizationModel,
+        local_table=organizations,
+        properties={
+            'asns': relationship(
+                ASNModel,
+                backref='organization',
+                cascade='all, delete-orphan',
+                lazy='select'
+            ),
+        }
+    )
+
+    mapper_registry.map_imperatively(
+        class_=ASNModel,
+        local_table=asns,
+        properties={
+            'cidrs': relationship(
+                CIDRModel,
+                backref='asn',
+                cascade='all, delete-orphan',
+                lazy='select'
+            ),
+        }
+    )
+
+    mapper_registry.map_imperatively(
+        class_=CIDRModel,
+        local_table=cidrs
     )
 
 def get_mapped_classes():

@@ -15,7 +15,7 @@ class DNSxScanService:
     """
     Event-driven service for DNSx scans.
     Batches results before publishing to EventBus for better performance.
-    Supports two modes: basic (A/AAAA/CNAME) and deep (all records).
+    Supports three modes: basic (A/AAAA/CNAME), deep (all records), ptr (reverse DNS).
     """
 
     def __init__(self, runner: DNSxCliRunner, processor: DNSxBatchProcessor, bus: EventBus):
@@ -30,8 +30,8 @@ class DNSxScanService:
 
         Args:
             program_id: Program identifier
-            targets: List of domains/hosts to scan
-            mode: Scan mode - 'basic' or 'deep'
+            targets: List of domains/hosts (for basic/deep) or IPs (for ptr) to scan
+            mode: Scan mode - 'basic', 'deep', or 'ptr'
 
         Returns:
             Response after scan has completed
@@ -56,6 +56,8 @@ class DNSxScanService:
         try:
             if mode == "basic":
                 stream = self.runner.run_basic(targets)
+            elif mode == "ptr":
+                stream = self.runner.run_ptr(targets)
             else:
                 stream = self.runner.run_deep(targets)
 
@@ -74,7 +76,12 @@ class DNSxScanService:
 
     async def _publish_batch(self, program_id: UUID, results: list[dict], mode: str):
         """Publish batch of results to EventBus"""
-        event_type = EventType.DNSX_BASIC_RESULTS_BATCH if mode == "basic" else EventType.DNSX_DEEP_RESULTS_BATCH
+        if mode == "basic":
+            event_type = EventType.DNSX_BASIC_RESULTS_BATCH
+        elif mode == "ptr":
+            event_type = EventType.DNSX_PTR_RESULTS_BATCH
+        else:
+            event_type = EventType.DNSX_DEEP_RESULTS_BATCH
 
         await self.bus.publish(
             event_type,
