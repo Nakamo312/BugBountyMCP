@@ -571,10 +571,15 @@ class Orchestrator:
         logger.info(f"ASN discovered event received: program={program_id} count={len(asns)}")
 
     async def handle_cidr_discovered(self, event: Dict[str, Any]):
-        """Handle CIDR discovered - future: trigger mapcidr IP expansion"""
+        """Handle CIDR discovered - trigger mapcidr IP expansion"""
         program_id = UUID(event["program_id"])
         cidrs = event["cidrs"]
         logger.info(f"CIDR discovered event received: program={program_id} count={len(cidrs)}")
+
+        async with self.container() as request_container:
+            from api.application.services.mapcidr import MapCIDRService
+            mapcidr_service = await request_container.get(MapCIDRService)
+            await mapcidr_service.expand(program_id=program_id, cidrs=cidrs)
 
     async def handle_ips_expanded(self, event: Dict[str, Any]):
         """
