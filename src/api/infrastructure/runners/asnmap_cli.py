@@ -64,8 +64,6 @@ class ASNMapCliRunner:
 
         result_count = 0
         async for event in executor.run():
-            logger.info("asnmap event: type=%s payload=%r", event.type, event.payload)
-
             if event.type == "stderr" and event.payload:
                 logger.warning("asnmap stderr: %s", event.payload)
 
@@ -114,8 +112,6 @@ class ASNMapCliRunner:
 
         result_count = 0
         async for event in executor.run():
-            logger.info("asnmap event: type=%s payload=%r", event.type, event.payload)
-
             if event.type == "stderr" and event.payload:
                 logger.warning("asnmap stderr: %s", event.payload)
 
@@ -164,8 +160,6 @@ class ASNMapCliRunner:
 
         result_count = 0
         async for event in executor.run():
-            logger.info("asnmap event: type=%s payload=%r", event.type, event.payload)
-
             if event.type == "stderr" and event.payload:
                 logger.warning("asnmap stderr: %s", event.payload)
 
