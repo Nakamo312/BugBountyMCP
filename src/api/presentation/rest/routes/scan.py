@@ -1,4 +1,5 @@
 """REST API routes - Presentation layer"""
+import asyncio
 from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from dishka.integrations.fastapi import FromDishka, DishkaRoute
@@ -406,16 +407,20 @@ async def scan_asnmap(
     try:
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
-        asnmap_service.execute(
-            program_id=UUID(request.program_id),
-            targets=targets,
-            mode=request.mode
-        )
+        async def run_scan():
+            async for batch in asnmap_service.execute(
+                program_id=UUID(request.program_id),
+                targets=targets,
+                mode=request.mode
+            ):
+                ...
+
+        asyncio.create_task(run_scan())
 
         return ScanResponse(
             status="success",
-            message="",
-            results=""
+            message="ASNMap scan started",
+            results=[]
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
