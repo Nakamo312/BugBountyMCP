@@ -5,9 +5,6 @@ from typing import Any, List
 from uuid import UUID
 
 from api.config import Settings
-from api.domain.models import ASNModel, CIDRModel, OrganizationModel
-from api.infrastructure.events.event_bus import EventBus
-from api.infrastructure.events.event_types import EventType
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 from api.infrastructure.unit_of_work.interfaces.asnmap import ASNMapUnitOfWork
 
@@ -38,25 +35,18 @@ class ASNMapResultIngestor(BaseResultIngestor):
     - CIDR_DISCOVERED (for each unique CIDR)
     """
 
-    def __init__(self, uow: ASNMapUnitOfWork, bus: EventBus, settings: Settings):
+    def __init__(self, uow: ASNMapUnitOfWork, settings: Settings):
         super().__init__(uow, settings.ASNMAP_INGESTOR_BATCH_SIZE)
-        self.bus = bus
         self.settings = settings
-        self._discovered_asns: set[str] = set()
-        self._discovered_cidrs: set[str] = set()
+        self.discovered_asns: set[str] = set()
+        self.discovered_cidrs: set[str] = set()
 
     async def ingest(self, program_id: UUID, results: List[dict[str, Any]]):
-        """Ingest ASNMap results and publish discovery events"""
-        self._discovered_asns = set()
-        self._discovered_cidrs = set()
+        """Ingest ASNMap results and track discovered ASNs/CIDRs"""
+        self.discovered_asns = set()
+        self.discovered_cidrs = set()
 
         await super().ingest(program_id, results)
-
-        if self._discovered_asns:
-            await self._publish_asn_discovered(program_id, list(self._discovered_asns))
-
-        if self._discovered_cidrs:
-            await self._publish_cidr_discovered(program_id, list(self._discovered_cidrs))
 
     async def _process_batch(self, uow: ASNMapUnitOfWork, program_id: UUID, batch: List[dict[str, Any]]):
         """Process batch of ASNMap results"""
@@ -114,7 +104,7 @@ class ASNMapResultIngestor(BaseResultIngestor):
             organization_id=organization_id
         )
 
-        self._discovered_asns.add(as_number_str)
+        self.discovered_asns.add(as_number_str)
 
         for cidr_str in as_ranges:
             if not cidr_str:
@@ -131,7 +121,7 @@ class ASNMapResultIngestor(BaseResultIngestor):
                 in_scope=True
             )
 
-            self._discovered_cidrs.add(cidr_str)
+            self.discovered_cidrs.add(cidr_str)
 
         logger.debug(
             f"Processed ASNMap result: asn={as_number_str} "
@@ -153,25 +143,3 @@ class ASNMapResultIngestor(BaseResultIngestor):
         except (ValueError, IndexError):
             logger.warning(f"Failed to calculate IP count for CIDR: {cidr}")
             return 0
-
-    async def _publish_asn_discovered(self, program_id: UUID, asns: list[str]):
-        """Publish ASN_DISCOVERED event"""
-        logger.info(f"Publishing ASN discovered event: program={program_id} count={len(asns)}")
-        await self.bus.publish(
-            EventType.ASN_DISCOVERED,
-            {
-                "program_id": str(program_id),
-                "asns": asns
-            }
-        )
-
-    async def _publish_cidr_discovered(self, program_id: UUID, cidrs: list[str]):
-        """Publish CIDR_DISCOVERED event"""
-        logger.info(f"Publishing CIDR discovered event: program={program_id} count={len(cidrs)}")
-        await self.bus.publish(
-            EventType.CIDR_DISCOVERED,
-            {
-                "program_id": str(program_id),
-                "cidrs": cidrs
-            }
-        )

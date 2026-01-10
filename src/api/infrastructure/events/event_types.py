@@ -5,7 +5,6 @@ from enum import Enum
 class EventType(str, Enum):
     """Application event type constants for EventBus messaging"""
 
-    SERVICE_EVENTS = "service_events"
     SUBDOMAIN_DISCOVERED = "subdomain_discovered"
     DNSX_FILTERED_HOSTS = "dnsx_filtered_hosts"
     SCAN_RESULTS_BATCH = "scan_results_batch"
@@ -24,8 +23,7 @@ class EventType(str, Enum):
     ASN_DISCOVERED = "asn_discovered"
     CIDR_DISCOVERED = "cidr_discovered"
     IPS_EXPANDED = "ips_expanded"
-    CIDR_SLICED = "cidr_sliced"
-    IPS_AGGREGATED = "ips_aggregated"
     NAABU_RESULTS_BATCH = "naabu_results_batch"
+    PORTS_DISCOVERED = "ports_discovered"
     TLSX_RESULTS_BATCH = "tlsx_results_batch"
     CERT_SAN_DISCOVERED = "cert_san_discovered"

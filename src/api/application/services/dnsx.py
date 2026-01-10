@@ -1,11 +1,9 @@
-"""DNSx Scan Service - Event-driven architecture"""
+"""DNSx Scan Service - Streaming results"""
 import logging
+from typing import AsyncIterator
 from uuid import UUID
 
-from api.application.dto import DNSxScanOutputDTO
 from api.application.services.batch_processor import DNSxBatchProcessor
-from api.infrastructure.events.event_bus import EventBus
-from api.infrastructure.events.event_types import EventType
 from api.infrastructure.runners.dnsx_cli import DNSxCliRunner
 
 logger = logging.getLogger(__name__)
@@ -13,45 +11,33 @@ logger = logging.getLogger(__name__)
 
 class DNSxScanService:
     """
-    Event-driven service for DNSx scans.
-    Batches results before publishing to EventBus for better performance.
+    Service for DNSx scans.
+    Streams batched results for pipeline node processing.
     Supports three modes: basic (A/AAAA/CNAME), deep (all records), ptr (reverse DNS).
     """
 
-    def __init__(self, runner: DNSxCliRunner, processor: DNSxBatchProcessor, bus: EventBus):
+    def __init__(self, runner: DNSxCliRunner, processor: DNSxBatchProcessor):
         self.runner = runner
         self.processor = processor
-        self.bus = bus
 
-    async def execute(self, program_id: UUID, targets: list[str], mode: str = "basic") -> DNSxScanOutputDTO:
+    async def execute(
+        self, program_id: UUID, targets: list[str], mode: str = "basic"
+    ) -> AsyncIterator[list[dict]]:
         """
-        Execute DNSx scan and publish results.
-        Blocks until scan completes to properly hold orchestrator semaphore.
+        Execute DNSx scan and yield batched results.
 
         Args:
             program_id: Program identifier
             targets: List of domains/hosts (for basic/deep) or IPs (for ptr) to scan
             mode: Scan mode - 'basic', 'deep', or 'ptr'
 
-        Returns:
-            Response after scan has completed
+        Yields:
+            Batches of DNS results
         """
         logger.info(f"Starting DNSx {mode} scan: program={program_id} targets={len(targets)}")
 
-        await self._run_scan(program_id, targets, mode)
-
-        return DNSxScanOutputDTO(
-            status="completed",
-            message=f"DNSx {mode} scan completed for {len(targets)} targets",
-            scanner="dnsx",
-            targets_count=len(targets),
-            mode=mode
-        )
-
-    async def _run_scan(self, program_id: UUID, targets: list[str], mode: str):
-        """Run the actual scan with result batching"""
+        batches_yielded = 0
         results_count = 0
-        batches_published = 0
 
         try:
             if mode == "basic":
@@ -63,31 +49,15 @@ class DNSxScanService:
 
             async for batch in self.processor.batch_stream(stream):
                 if batch:
-                    await self._publish_batch(program_id, batch, mode)
-                    batches_published += 1
+                    batches_yielded += 1
                     results_count += len(batch)
+                    logger.debug(f"DNSx {mode} batch ready: program={program_id} count={len(batch)}")
+                    yield batch
 
             logger.info(
                 f"DNSx {mode} scan completed: program={program_id} "
-                f"results={results_count} batches={batches_published}"
+                f"results={results_count} batches={batches_yielded}"
             )
         except Exception as e:
             logger.error(f"DNSx {mode} scan failed: program={program_id} error={e}", exc_info=True)
-
-    async def _publish_batch(self, program_id: UUID, results: list[dict], mode: str):
-        """Publish batch of results to EventBus"""
-        if mode == "basic":
-            event_type = EventType.DNSX_BASIC_RESULTS_BATCH
-        elif mode == "ptr":
-            event_type = EventType.DNSX_PTR_RESULTS_BATCH
-        else:
-            event_type = EventType.DNSX_DEEP_RESULTS_BATCH
-
-        await self.bus.publish(
-            event_type,
-            {
-                "program_id": str(program_id),
-                "results": results,
-            },
-        )
-        logger.debug(f"Published DNSx {mode} results batch: program={program_id} count={len(results)}")
+            raise

@@ -5,8 +5,6 @@ import logging
 from api.config import Settings
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
-from api.infrastructure.events.event_bus import EventBus
-from api.infrastructure.events.event_types import EventType
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 from api.application.services.base_service import ScopeCheckMixin
 from api.domain.models import ScopeRuleModel
@@ -18,46 +16,46 @@ class HTTPXResultIngestor(BaseResultIngestor):
     """
     Handles batch ingestion of HTTPX scan results into domain entities.
     Uses savepoints to allow partial success without rolling back entire transaction.
-    Publishes events for newly discovered hosts with active services.
-    Detects live JS files and publishes them for LinkFinder analysis.
+    Tracks newly discovered hosts and JS files per batch for event publishing.
     """
 
-    def __init__(self, uow: HTTPXUnitOfWork, bus: EventBus, settings: Settings):
+    def __init__(self, uow: HTTPXUnitOfWork, settings: Settings):
         super().__init__(uow, settings.HTTPX_INGESTOR_BATCH_SIZE)
-        self.bus = bus
         self.settings = settings
-        self._new_hosts: Set[str] = set()
+        self.discovered_hosts_batches: List[List[str]] = []
+        self.discovered_js_files_batches: List[List[str]] = []
         self._seen_hosts: Set[str] = set()
-        self._js_files: List[str] = []
         self._scope_rules: List[ScopeRuleModel] = []
 
     async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]):
-        self._new_hosts = set()
+        self.discovered_hosts_batches = []
+        self.discovered_js_files_batches = []
         self._seen_hosts = set()
-        self._js_files = []
 
         async with self.uow as uow:
             self._scope_rules = await uow.scope_rules.find_by_program(program_id)
 
         await super().ingest(program_id, results)
 
-        if self._new_hosts:
-            await self._publish_new_hosts(program_id, list(self._new_hosts))
-
-        if self._js_files:
-            await self._publish_js_files(program_id, self._js_files)
-
     async def _process_batch(self, uow: HTTPXUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
-        """Process a batch of HTTPX results and collect live JS files"""
+        """Process a batch of HTTPX results and collect discovered hosts and JS files"""
+        batch_hosts = []
+        batch_js_files = []
+
         for data in batch:
             host_url, is_new = await self._process_record(uow, program_id, data, self._seen_hosts)
             if host_url and is_new:
-                self._new_hosts.add(host_url)
+                batch_hosts.append(host_url)
 
             url = data.get("url")
             status_code = data.get("status_code")
             if url and status_code == 200 and self._is_js_file(url):
-                self._js_files.append(url)
+                batch_js_files.append(url)
+
+        if batch_hosts:
+            self.discovered_hosts_batches.append(batch_hosts)
+        if batch_js_files:
+            self.discovered_js_files_batches.append(batch_js_files)
 
     async def _process_record(
         self,
@@ -171,30 +169,7 @@ class HTTPXResultIngestor(BaseResultIngestor):
                 example_value=value,
             )
 
-    async def _publish_new_hosts(self, program_id: UUID, hosts: List[str]):
-        """Publish newly discovered active hosts to EventBus for Katana crawling"""
-        for batch in self._chunks(hosts, self.settings.HTTPX_NEW_HOST_BATCH_SIZE):
-            await self.bus.publish(
-                EventType.HOST_DISCOVERED,
-                {
-                    "program_id": str(program_id),
-                    "hosts": batch,
-                },
-            )
-            logger.info(f"Published new hosts batch: program={program_id} count={len(batch)}")
-
     def _is_js_file(self, url: str) -> bool:
         """Check if URL points to a JavaScript file"""
         url_lower = url.lower()
         return url_lower.endswith('.js') or '.js?' in url_lower
-
-    async def _publish_js_files(self, program_id: UUID, js_files: List[str]):
-        """Publish discovered live JS files for LinkFinder analysis"""
-        await self.bus.publish(
-            EventType.JS_FILES_DISCOVERED,
-            {
-                "program_id": str(program_id),
-                "js_files": js_files,
-            },
-        )
-        logger.info(f"Published JS files for LinkFinder: program={program_id} count={len(js_files)}")

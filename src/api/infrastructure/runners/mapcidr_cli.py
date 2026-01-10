@@ -59,8 +59,7 @@ class MapCIDRCliRunner:
 
         logger.info(
             f"Starting mapcidr expand: cidrs={len(cidrs)} "
-            f"skip_base={skip_base} skip_broadcast={skip_broadcast} shuffle={shuffle} "
-            f"input={cidrs}"
+            f"skip_base={skip_base} skip_broadcast={skip_broadcast} shuffle={shuffle}"
         )
 
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)

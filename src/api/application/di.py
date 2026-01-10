@@ -274,19 +274,17 @@ class IngestorProvider(Provider):
     def get_httpx_ingestor(
         self,
         scan_uow: SQLAlchemyHTTPXUnitOfWork,
-        event_bus: EventBus,
         settings: Settings
     ) -> HTTPXResultIngestor:
-        return HTTPXResultIngestor(uow=scan_uow, bus=event_bus, settings=settings)
+        return HTTPXResultIngestor(uow=scan_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
     def get_katana_ingestor(
         self,
         katana_uow: SQLAlchemyKatanaUnitOfWork,
-        settings: Settings,
-        event_bus: EventBus
+        settings: Settings
     ) -> KatanaResultIngestor:
-        return KatanaResultIngestor(uow=katana_uow, settings=settings, bus=event_bus)
+        return KatanaResultIngestor(uow=katana_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
     def get_linkfinder_ingestor(
@@ -314,28 +312,25 @@ class IngestorProvider(Provider):
     def get_dnsx_ingestor(
         self,
         dnsx_uow: SQLAlchemyDNSxUnitOfWork,
-        event_bus: EventBus,
         settings: Settings
     ) -> DNSxResultIngestor:
-        return DNSxResultIngestor(uow=dnsx_uow, bus=event_bus, settings=settings)
+        return DNSxResultIngestor(uow=dnsx_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
     def get_subjack_ingestor(
         self,
         httpx_uow: SQLAlchemyHTTPXUnitOfWork,
-        event_bus: EventBus,
         settings: Settings
     ) -> SubjackResultIngestor:
-        return SubjackResultIngestor(uow=httpx_uow, bus=event_bus, settings=settings)
+        return SubjackResultIngestor(uow=httpx_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
     def get_asnmap_ingestor(
         self,
         asnmap_uow: SQLAlchemyASNMapUnitOfWork,
-        event_bus: EventBus,
         settings: Settings
     ) -> ASNMapResultIngestor:
-        return ASNMapResultIngestor(uow=asnmap_uow, bus=event_bus, settings=settings)
+        return ASNMapResultIngestor(uow=asnmap_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
     def get_naabu_ingestor(
@@ -357,13 +352,11 @@ class ServiceProvider(Provider):
     def get_httpx_service(
         self,
         httpx_runner: HTTPXCliRunner,
-        httpx_processor: HTTPXBatchProcessor,
-        event_bus: EventBus
+        httpx_processor: HTTPXBatchProcessor
     ) -> HTTPXScanService:
         return HTTPXScanService(
             runner=httpx_runner,
-            processor=httpx_processor,
-            bus=event_bus
+            processor=httpx_processor
         )
 
     @provide(scope=Scope.REQUEST)
@@ -383,79 +376,60 @@ class ServiceProvider(Provider):
     def get_gau_service(
         self,
         gau_runner: GAUCliRunner,
-        gau_processor: GAUBatchProcessor,
-        event_bus: EventBus
+        gau_processor: GAUBatchProcessor
     ) -> GAUScanService:
         return GAUScanService(
             runner=gau_runner,
-            processor=gau_processor,
-            bus=event_bus
+            processor=gau_processor
         )
 
     @provide(scope=Scope.REQUEST)
     def get_katana_service(
         self,
         katana_runner: KatanaCliRunner,
-        katana_processor: KatanaBatchProcessor,
-        event_bus: EventBus
+        katana_processor: KatanaBatchProcessor
     ) -> KatanaScanService:
         return KatanaScanService(
             runner=katana_runner,
-            processor=katana_processor,
-            bus=event_bus
+            processor=katana_processor
         )
 
     @provide(scope=Scope.REQUEST)
     def get_linkfinder_service(
         self,
-        linkfinder_runner: LinkFinderCliRunner,
-        event_bus: EventBus
+        linkfinder_runner: LinkFinderCliRunner
     ) -> LinkFinderScanService:
-        return LinkFinderScanService(
-            runner=linkfinder_runner,
-            bus=event_bus
-        )
+        return LinkFinderScanService(runner=linkfinder_runner)
 
     @provide(scope=Scope.REQUEST)
     def get_mantra_service(
         self,
-        mantra_runner: MantraCliRunner,
-        event_bus: EventBus
+        mantra_runner: MantraCliRunner
     ) -> MantraScanService:
-        return MantraScanService(
-            runner=mantra_runner,
-            bus=event_bus
-        )
+        return MantraScanService(runner=mantra_runner)
 
     @provide(scope=Scope.REQUEST)
     def get_ffuf_service(
         self,
-        ffuf_runner: FFUFCliRunner,
-        event_bus: EventBus
+        ffuf_runner: FFUFCliRunner
     ) -> FFUFScanService:
-        return FFUFScanService(
-            runner=ffuf_runner,
-            bus=event_bus
-        )
+        return FFUFScanService(runner=ffuf_runner)
 
     @provide(scope=Scope.REQUEST)
     def get_dnsx_service(
         self,
         dnsx_runner: DNSxCliRunner,
-        dnsx_processor: DNSxBatchProcessor,
-        event_bus: EventBus
+        dnsx_processor: DNSxBatchProcessor
     ) -> DNSxScanService:
         return DNSxScanService(
             runner=dnsx_runner,
-            processor=dnsx_processor,
-            bus=event_bus
+            processor=dnsx_processor
         )
 
     @provide(scope=Scope.REQUEST)
     def get_subjack_service(
         self,
         subjack_processor: SubjackBatchProcessor,
-        event_bus: EventBus,
         settings: Settings
     ) -> SubjackScanService:
         fingerprints = settings.SUBJACK_FINGERPRINTS if os.path.exists(settings.SUBJACK_FINGERPRINTS) else None
@@ -466,58 +440,49 @@ class ServiceProvider(Provider):
         )
         return SubjackScanService(
             runner=subjack_runner,
-            processor=subjack_processor,
-            bus=event_bus
+            processor=subjack_processor
         )
 
     @provide(scope=Scope.REQUEST)
     def get_asnmap_service(
         self,
         asnmap_runner: ASNMapCliRunner,
-        asnmap_processor: ASNMapBatchProcessor,
-        event_bus: EventBus
+        asnmap_processor: ASNMapBatchProcessor
     ) -> ASNMapScanService:
         return ASNMapScanService(
             runner=asnmap_runner,
-            processor=asnmap_processor,
-            bus=event_bus
+            processor=asnmap_processor
         )
 
     @provide(scope=Scope.REQUEST)
     def get_mapcidr_service(
         self,
-        mapcidr_runner: MapCIDRCliRunner,
-        event_bus: EventBus
+        mapcidr_runner: MapCIDRCliRunner
     ) -> MapCIDRService:
         return MapCIDRService(
-            runner=mapcidr_runner,
-            bus=event_bus
+            runner=mapcidr_runner
         )
 
     @provide(scope=Scope.REQUEST)
     def get_naabu_service(
         self,
         naabu_runner: NaabuCliRunner,
-        naabu_processor: NaabuBatchProcessor,
-        event_bus: EventBus
+        naabu_processor: NaabuBatchProcessor
     ) -> NaabuScanService:
         return NaabuScanService(
             runner=naabu_runner,
-            processor=naabu_processor,
-            bus=event_bus
+            processor=naabu_processor
         )
 
     @provide(scope=Scope.REQUEST)
     def get_tlsx_service(
         self,
         tlsx_runner: TLSxCliRunner,
-        tlsx_processor: TLSxBatchProcessor,
-        event_bus: EventBus
+        tlsx_processor: TLSxBatchProcessor
     ) -> TLSxScanService:
         return TLSxScanService(
             runner=tlsx_runner,
-            processor=tlsx_processor,
-            bus=event_bus
+            processor=tlsx_processor
         )
 
 

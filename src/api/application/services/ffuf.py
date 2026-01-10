@@ -2,13 +2,11 @@ import asyncio
 import json
 import logging
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, AsyncIterator
 from urllib.parse import urlparse
 from uuid import UUID
 
 from api.application.dto.scan_dto import FFUFScanOutputDTO
-from api.infrastructure.events.event_bus import EventBus
-from api.infrastructure.events.event_types import EventType
 from api.infrastructure.runners.ffuf_cli import FFUFCliRunner
 
 logger = logging.getLogger(__name__)
@@ -25,11 +23,10 @@ class FFUFScanService:
     Discovers hidden endpoints through fuzzing with wordlists.
     """
 
-    def __init__(self, runner: FFUFCliRunner, bus: EventBus):
+    def __init__(self, runner: FFUFCliRunner):
         self.runner = runner
-        self.bus = bus
 
-    async def execute(self, program_id: UUID, targets: List[str]) -> FFUFScanOutputDTO:
+    async def execute(self, program_id: UUID, targets: List[str]) -> AsyncIterator[List[Dict[str, Any]]]:
         """
         Execute FFUF fuzzing on target URLs.
 
@@ -37,22 +34,11 @@ class FFUFScanService:
             program_id: Target program ID
             targets: List of base URLs to fuzz
 
-        Returns:
-            DTO with scan status
+        Yields:
+            Batches of discovered endpoints
         """
         logger.info(f"Starting FFUF scan: program={program_id} targets={len(targets)}")
 
-        asyncio.create_task(self._run_scan(program_id, targets))
-
-        return FFUFScanOutputDTO(
-            status="started",
-            message=f"FFUF scan started for {len(targets)} target{'s' if len(targets) != 1 else ''}",
-            scanner="ffuf",
-            targets_count=len(targets),
-        )
-
-    async def _run_scan(self, program_id: UUID, targets: List[str]):
-        """Background task for FFUF execution with parallel processing"""
         max_concurrent = 5
         semaphore = asyncio.Semaphore(max_concurrent)
 
@@ -70,14 +56,20 @@ class FFUFScanService:
                     if results:
                         filtered = self._filter_static_files(results)
                         if filtered:
-                            await self._publish_results(program_id, filtered)
+                            return filtered
 
                     logger.info(f"FFUF scan completed for target: {target}")
                 except Exception as e:
                     logger.error(f"FFUF scan failed for {target}: {e}")
+                    return []
+            return []
 
         try:
-            await asyncio.gather(*[scan_target(target) for target in targets])
+            all_results = await asyncio.gather(*[scan_target(target) for target in targets])
+
+            for batch in all_results:
+                if batch:
+                    yield batch
 
             logger.info(
                 f"FFUF scan completed: program={program_id} targets={len(targets)}"
@@ -127,14 +119,3 @@ class FFUFScanService:
                 filtered.append(result)
 
         return filtered
-
-    async def _publish_results(self, program_id: UUID, results: List[Dict[str, Any]]):
-        """Publish discovered endpoints for ingestion"""
-        await self.bus.publish(
-            EventType.FFUF_RESULTS_BATCH,
-            {
-                "program_id": str(program_id),
-                "results": results,
-            },
-        )
-        logger.info(f"Published FFUF results: program={program_id} count={len(results)}")

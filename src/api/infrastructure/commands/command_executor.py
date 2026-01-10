@@ -50,9 +50,11 @@ class CommandExecutor:
         # write stdin if provided
         if self.stdin and self.process.stdin:
             try:
-                self.process.stdin.write(self.stdin.encode())
+                stdin_data = self.stdin.encode()
+                self.process.stdin.write(stdin_data)
                 await self.process.stdin.drain()
-                self.process.stdin.write_eof()
+                self.process.stdin.close()
+                await self.process.stdin.wait_closed()
             except Exception as exc:
                 logger.warning("Failed to write stdin: %s", exc)
 
