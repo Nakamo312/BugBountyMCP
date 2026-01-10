@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     # Subjack settings
     SUBJACK_FINGERPRINTS: str = "/usr/share/subjack/fingerprints.json"
 
+    # PDCP (ProjectDiscovery Cloud Platform) API key
+    PDCP_API_KEY: str = "05a12907-ea8e-4dfe-ac38-995bf1e7c8be"
+
     @property
     def postgres_dsn(self) -> str:
         return (
