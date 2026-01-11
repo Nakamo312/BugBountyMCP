@@ -81,6 +81,8 @@ class NodeRegistry:
             f"{len(self._event_to_nodes)} event types, "
             f"{len(QueueConfig.get_all_queues())} queues"
         )
+        logger.info(f"Registered nodes: {list(self._nodes.keys())}")
+        logger.info(f"Event mappings: {dict(self._event_to_nodes)}")
 
     async def stop(self):
         """Stop all nodes and await their completion"""
