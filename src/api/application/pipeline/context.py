@@ -37,20 +37,42 @@ class PipelineContext:
         self._container = container
         self._settings = settings
 
-    async def emit(self, event_type: EventType, payload: Dict[str, Any]):
+    async def emit(
+        self,
+        event_name: str,
+        target: Any,
+        program_id: UUID,
+        source: Optional[str] = None,
+        confidence: float = 0.5,
+        **extra_data
+    ):
         """
-        Emit event to EventBus.
+        Emit event to EventBus in standardized format.
 
         Args:
-            event_type: Type of event to publish
-            payload: Event payload
+            event_name: Event name string (e.g., "host_discovered")
+            target: Primary target (subdomain, URL, IP, etc.)
+            program_id: Program UUID
+            source: Source node ID (defaults to context node_id)
+            confidence: Event confidence 0.0-1.0 (default: 0.5)
+            **extra_data: Additional event fields
 
         Raises:
             RuntimeError: If EventBus not available in context
         """
         if not self._bus:
             raise RuntimeError("EventBus not available in context")
-        await self._bus.publish(event_type, payload)
+
+        event = {
+            "event": event_name,
+            "target": target,
+            "source": source or self.node_id,
+            "confidence": confidence,
+            "program_id": str(program_id),
+            **extra_data
+        }
+
+        await self._bus.publish(event)
 
     async def get_service(self, service_type: Type[T]) -> T:
         """

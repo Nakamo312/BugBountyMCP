@@ -617,6 +617,7 @@ class PipelineProvider(Provider):
         katana_node = NodeFactory.create_scan_node(
             node_id="katana",
             event_in={
+                EventType.KATANA_SCAN_REQUESTED,
                 EventType.HOST_DISCOVERED,
             },
             event_out={
@@ -633,6 +634,7 @@ class PipelineProvider(Provider):
         linkfinder_node = NodeFactory.create_scan_node(
             node_id="linkfinder",
             event_in={
+                EventType.LINKFINDER_SCAN_REQUESTED,
                 EventType.JS_FILES_DISCOVERED,
             },
             event_out={
@@ -649,6 +651,7 @@ class PipelineProvider(Provider):
         mantra_node = NodeFactory.create_scan_node(
             node_id="mantra",
             event_in={
+                EventType.MANTRA_SCAN_REQUESTED,
                 EventType.JS_FILES_DISCOVERED,
             },
             event_out={},
@@ -695,6 +698,7 @@ class PipelineProvider(Provider):
         subjack_node = NodeFactory.create_scan_node(
             node_id="subjack",
             event_in={
+                EventType.SUBJACK_SCAN_REQUESTED,
                 EventType.SUBDOMAIN_DISCOVERED,
             },
             event_out={},
@@ -709,6 +713,7 @@ class PipelineProvider(Provider):
         ffuf_node = NodeFactory.create_scan_node(
             node_id="ffuf",
             event_in={
+                EventType.FFUF_SCAN_REQUESTED,
                 EventType.HOST_DISCOVERED,
             },
             event_out={},
@@ -740,6 +745,7 @@ class PipelineProvider(Provider):
         naabu_node = NodeFactory.create_scan_node(
             node_id="naabu",
             event_in={
+                EventType.NAABU_SCAN_REQUESTED,
                 EventType.IPS_EXPANDED,
             },
             event_out={},

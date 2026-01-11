@@ -59,11 +59,17 @@ class QueueConfig:
         "cert_san_discovered": ANALYSIS_QUEUE,
         "gau_scan_requested": ANALYSIS_QUEUE,
         "gau_discovered": ANALYSIS_QUEUE,
+        "katana_scan_requested": ANALYSIS_QUEUE,
         "katana_results_batch": ANALYSIS_QUEUE,
         "js_files_discovered": ANALYSIS_QUEUE,
+        "linkfinder_scan_requested": ANALYSIS_QUEUE,
+        "mantra_scan_requested": ANALYSIS_QUEUE,
         "mantra_results_batch": ANALYSIS_QUEUE,
+        "ffuf_scan_requested": ANALYSIS_QUEUE,
         "ffuf_results_batch": ANALYSIS_QUEUE,
+        "subjack_scan_requested": ANALYSIS_QUEUE,
         "subjack_results_batch": ANALYSIS_QUEUE,
+        "naabu_scan_requested": ANALYSIS_QUEUE,
         "naabu_results_batch": ANALYSIS_QUEUE,
     }
 

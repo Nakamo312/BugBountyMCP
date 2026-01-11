@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 from api.infrastructure.events.event_bus import EventBus
-from api.infrastructure.events.event_types import EventType
+from api.infrastructure.events.queue_config import QueueConfig
 from api.application.pipeline.node import Node
 from api.config import Settings
 
@@ -15,6 +15,9 @@ class NodeRegistry:
     """
     Thin dispatcher that routes events to registered nodes.
     Replaces monolithic Orchestrator with declarative subscription model.
+
+    Subscribes to fixed queues (discovery, enumeration, validation, analysis)
+    and routes events to nodes based on event type strings.
     """
 
     def __init__(self, bus: EventBus, settings: Settings, container=None):
@@ -30,7 +33,7 @@ class NodeRegistry:
         self.settings = settings
         self.container = container
         self._nodes: Dict[str, Node] = {}
-        self._event_to_nodes: Dict[EventType, Set[str]] = {}
+        self._event_to_nodes: Dict[str, Set[str]] = {}
 
     def register(self, node: Node):
         """
@@ -45,35 +48,38 @@ class NodeRegistry:
         if node.node_id in self._nodes:
             raise ValueError(f"Node already registered: {node.node_id}")
 
-        # Inject context dependencies if node supports it (ScanNode)
         if hasattr(node, 'set_context_factory'):
             node.set_context_factory(self.bus, self.container, self.settings)
 
         self._nodes[node.node_id] = node
 
         for event_type in node.event_in:
-            if event_type not in self._event_to_nodes:
-                self._event_to_nodes[event_type] = set()
-            self._event_to_nodes[event_type].add(node.node_id)
+            event_str = event_type.value if hasattr(event_type, 'value') else str(event_type)
+            if event_str not in self._event_to_nodes:
+                self._event_to_nodes[event_str] = set()
+            self._event_to_nodes[event_str].add(node.node_id)
+
+        event_in_str = [e.value if hasattr(e, 'value') else str(e) for e in node.event_in]
+        event_out_str = [e.value if hasattr(e, 'value') else str(e) for e in node.event_out]
 
         logger.info(
             f"Registered node: {node.node_id} "
-            f"(in={[e.value for e in node.event_in]}, "
-            f"out={[e.value for e in node.event_out]})"
+            f"(in={event_in_str}, out={event_out_str})"
         )
 
     async def start(self):
-        """Start EventBus subscriptions for all registered event types"""
+        """Start EventBus subscriptions for all fixed queues"""
         await self.bus.connect()
 
-        for event_type in self._event_to_nodes.keys():
+        for queue_name in QueueConfig.get_all_queues():
             asyncio.create_task(
-                self.bus.subscribe(event_type.value, self._dispatch_event)
+                self.bus.subscribe(queue_name, self._dispatch_event)
             )
 
         logger.info(
             f"NodeRegistry started: {len(self._nodes)} nodes, "
-            f"{len(self._event_to_nodes)} event types"
+            f"{len(self._event_to_nodes)} event types, "
+            f"{len(QueueConfig.get_all_queues())} queues"
         )
 
     async def stop(self):
@@ -89,23 +95,26 @@ class NodeRegistry:
         """
         Dispatch event to all nodes subscribed to its type.
 
+        Event format:
+        {
+            "event": "host_discovered",
+            "target": "admin.example.com",
+            "source": "dnsx",
+            "confidence": 0.7,
+            "program_id": 42
+        }
+
         Args:
-            event: Event payload
+            event: Event dictionary
         """
-        event_type_str = event.get("_event_type")
-        if not event_type_str:
-            logger.warning("Event missing _event_type field")
+        event_name = event.get("event")
+        if not event_name:
+            logger.warning("Event missing 'event' field")
             return
 
-        try:
-            event_type = EventType(event_type_str)
-        except ValueError:
-            logger.warning(f"Unknown event type: {event_type_str}")
-            return
-
-        node_ids = self._event_to_nodes.get(event_type, set())
+        node_ids = self._event_to_nodes.get(event_name, set())
         if not node_ids:
-            logger.debug(f"No nodes registered for event: {event_type_str}")
+            logger.debug(f"No nodes registered for event: {event_name}")
             return
 
         for node_id in node_ids:
@@ -129,20 +138,24 @@ class NodeRegistry:
         edges = []
 
         for node_id, node in self._nodes.items():
+            event_in_str = [e.value if hasattr(e, 'value') else str(e) for e in node.event_in]
+            event_out_str = [e.value if hasattr(e, 'value') else str(e) for e in node.event_out]
+
             nodes.append({
                 "id": node_id,
-                "event_in": [e.value for e in node.event_in],
-                "event_out": [e.value for e in node.event_out],
+                "event_in": event_in_str,
+                "event_out": event_out_str,
                 "max_parallelism": node.max_parallelism,
             })
 
             for out_event in node.event_out:
-                target_nodes = self._event_to_nodes.get(out_event, set())
+                out_event_str = out_event.value if hasattr(out_event, 'value') else str(out_event)
+                target_nodes = self._event_to_nodes.get(out_event_str, set())
                 for target_id in target_nodes:
                     edges.append({
                         "from": node_id,
                         "to": target_id,
-                        "event": out_event.value,
+                        "event": out_event_str,
                     })
 
         return {"nodes": nodes, "edges": edges}

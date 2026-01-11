@@ -19,19 +19,8 @@ from api.presentation.schemas import (
     NaabuScanRequest,
     ScanResponse
 )
-from api.application.services.subfinder import SubfinderScanService
-from api.application.services.gau import GAUScanService
-from api.application.services.katana import KatanaScanService
-from api.application.services.linkfinder import LinkFinderScanService
-from api.application.services.mantra import MantraScanService
-from api.application.services.ffuf import FFUFScanService
-from api.application.services.dnsx import DNSxScanService
-from api.application.services.subjack import SubjackScanService
-from api.application.services.asnmap import ASNMapScanService
 from api.application.services.mapcidr import MapCIDRService
-from api.application.services.naabu import NaabuScanService
 from api.infrastructure.events.event_bus import EventBus
-from api.infrastructure.events.event_types import EventType
 
 
 router = APIRouter(route_class=DishkaRoute)
@@ -52,8 +41,8 @@ async def health_check():
 )
 async def scan_subfinder(
     request: SubfinderScanRequest,
-    subfinder_service: FromDishka[SubfinderScanService],
-) -> ScanResponse:
+    event_bus: FromDishka[EventBus],
+):
     """
     Start Subfinder scan to discover subdomains.
 
@@ -61,18 +50,24 @@ async def scan_subfinder(
     - **domain**: Target domain to scan
     - **timeout**: Scan timeout in seconds (default: 600)
 
-    Returns immediately. Discovered subdomains are published to EventBus for HTTPX processing.
+    Returns 202 Accepted immediately. Scan executes asynchronously via SubfinderNode.
     """
     try:
-        result = await subfinder_service.execute(
-            program_id=UUID(request.program_id),
-            domain=request.domain
-        )
+        await event_bus.publish({
+            "event": "subfinder_scan_requested",
+            "target": request.domain,
+            "source": "api",
+            "confidence": 0.5,
+            "program_id": request.program_id,
+            "domain": request.domain,
+        })
 
-        return ScanResponse(
-            status="success",
-            message=result.message,
-            results=result.model_dump()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"Subfinder scan queued for domain {request.domain}",
+            },
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
@@ -102,14 +97,14 @@ async def scan_httpx(
     try:
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
-        await event_bus.publish(
-            EventType.HTTPX_SCAN_REQUESTED.value,
-            {
-                "_event_type": EventType.HTTPX_SCAN_REQUESTED.value,
-                "program_id": request.program_id,
-                "targets": targets,
-            },
-        )
+        await event_bus.publish({
+            "event": "httpx_scan_requested",
+            "target": targets[0] if targets else "",
+            "source": "api",
+            "confidence": 0.5,
+            "program_id": request.program_id,
+            "targets": targets,
+        })
 
         return JSONResponse(
             status_code=202,
@@ -131,8 +126,8 @@ async def scan_httpx(
 )
 async def scan_gau(
     request: GAUScanRequest,
-    gau_service: FromDishka[GAUScanService],
-) -> ScanResponse:
+    event_bus: FromDishka[EventBus],
+):
     """
     Start GAU (GetAllURLs) scan to discover historical URLs.
 
@@ -141,19 +136,25 @@ async def scan_gau(
     - **include_subs**: Include subdomains in discovery (default: true)
     - **timeout**: Scan timeout in seconds (default: 600)
 
-    Returns immediately. Discovered URLs are published to EventBus for HTTPX processing.
+    Returns 202 Accepted immediately. Scan executes asynchronously via GAUNode.
     """
     try:
-        result = await gau_service.execute(
-            program_id=UUID(request.program_id),
-            domain=request.domain,
-            include_subs=request.include_subs
-        )
+        await event_bus.publish({
+            "event": "gau_scan_requested",
+            "target": request.domain,
+            "source": "api",
+            "confidence": 0.5,
+            "program_id": request.program_id,
+            "domain": request.domain,
+            "include_subs": request.include_subs,
+        })
 
-        return ScanResponse(
-            status="success",
-            message=result.message,
-            results=result.model_dump()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"GAU scan queued for domain {request.domain}",
+            },
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
@@ -168,8 +169,8 @@ async def scan_gau(
 )
 async def scan_katana(
     request: KatanaScanRequest,
-    katana_service: FromDishka[KatanaScanService],
-) -> ScanResponse:
+    event_bus: FromDishka[EventBus],
+):
     """
     Start Katana crawl to discover URLs via active web crawling.
 
@@ -180,23 +181,29 @@ async def scan_katana(
     - **headless**: Enable headless browser mode (default: false)
     - **timeout**: Scan timeout in seconds (default: 600)
 
-    Returns immediately. Discovered URLs are published to EventBus for HTTPX processing.
+    Returns 202 Accepted immediately. Scan executes asynchronously via KatanaNode.
     """
     try:
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
-        result = await katana_service.execute(
-            program_id=UUID(request.program_id),
-            targets=targets,
-            depth=request.depth,
-            js_crawl=request.js_crawl,
-            headless=request.headless
-        )
+        await event_bus.publish({
+            "event": "katana_scan_requested",
+            "target": targets[0] if targets else "",
+            "source": "api",
+            "confidence": 0.5,
+            "program_id": request.program_id,
+            "targets": targets,
+            "depth": request.depth,
+            "js_crawl": request.js_crawl,
+            "headless": request.headless,
+        })
 
-        return ScanResponse(
-            status="success",
-            message=result.message,
-            results=result.model_dump()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"Katana scan queued for {len(targets)} targets",
+            },
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
@@ -211,8 +218,8 @@ async def scan_katana(
 )
 async def scan_linkfinder(
     request: LinkFinderScanRequest,
-    linkfinder_service: FromDishka[LinkFinderScanService],
-) -> ScanResponse:
+    event_bus: FromDishka[EventBus],
+):
     """
     Start LinkFinder scan to extract endpoints from JavaScript files.
 
@@ -220,20 +227,26 @@ async def scan_linkfinder(
     - **targets**: Single JS URL or list of JS URLs to analyze
     - **timeout**: Scan timeout per JS file in seconds (default: 15)
 
-    Returns immediately. Discovered URLs are validated against program scope and ingested as endpoints.
+    Returns 202 Accepted immediately. Scan executes asynchronously via LinkFinderNode.
     """
     try:
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
-        result = await linkfinder_service.execute(
-            program_id=UUID(request.program_id),
-            targets=targets
-        )
+        await event_bus.publish({
+            "event": "linkfinder_scan_requested",
+            "target": targets[0] if targets else "",
+            "source": "api",
+            "confidence": 0.5,
+            "program_id": request.program_id,
+            "targets": targets,
+        })
 
-        return ScanResponse(
-            status="success",
-            message=result.message,
-            results=result.model_dump()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"LinkFinder scan queued for {len(targets)} JS files",
+            },
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
@@ -248,8 +261,8 @@ async def scan_linkfinder(
 )
 async def scan_mantra(
     request: MantraScanRequest,
-    mantra_service: FromDishka[MantraScanService],
-) -> ScanResponse:
+    event_bus: FromDishka[EventBus],
+):
     """
     Start Mantra scan to discover leaked secrets and credentials in JavaScript files.
 
@@ -257,20 +270,26 @@ async def scan_mantra(
     - **targets**: Single JS URL or list of JS URLs to scan for secrets
     - **timeout**: Scan timeout in seconds (default: 300)
 
-    Returns immediately. Discovered secrets are published to EventBus and stored in leaks table with endpoint association.
+    Returns 202 Accepted immediately. Scan executes asynchronously via MantraNode.
     """
     try:
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
-        result = await mantra_service.execute(
-            program_id=UUID(request.program_id),
-            targets=targets
-        )
+        await event_bus.publish({
+            "event": "mantra_scan_requested",
+            "target": targets[0] if targets else "",
+            "source": "api",
+            "confidence": 0.5,
+            "program_id": request.program_id,
+            "targets": targets,
+        })
 
-        return ScanResponse(
-            status="success",
-            message=result.message,
-            results=result.model_dump()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"Mantra scan queued for {len(targets)} JS files",
+            },
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
@@ -285,8 +304,8 @@ async def scan_mantra(
 )
 async def scan_ffuf(
     request: FFUFScanRequest,
-    ffuf_service: FromDishka[FFUFScanService],
-) -> ScanResponse:
+    event_bus: FromDishka[EventBus],
+):
     """
     Start FFUF scan to discover hidden directories and files via fuzzing.
 
@@ -294,20 +313,26 @@ async def scan_ffuf(
     - **targets**: Single base URL or list of URLs to fuzz
     - **timeout**: Scan timeout in seconds (default: 600)
 
-    Returns immediately. Discovered endpoints are published to EventBus and ingested with scope validation.
+    Returns 202 Accepted immediately. Scan executes asynchronously via FFUFNode.
     """
     try:
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
-        result = await ffuf_service.execute(
-            program_id=UUID(request.program_id),
-            targets=targets
-        )
+        await event_bus.publish({
+            "event": "ffuf_scan_requested",
+            "target": targets[0] if targets else "",
+            "source": "api",
+            "confidence": 0.5,
+            "program_id": request.program_id,
+            "targets": targets,
+        })
 
-        return ScanResponse(
-            status="success",
-            message=result.message,
-            results=result.model_dump()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"FFUF scan queued for {len(targets)} targets",
+            },
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
@@ -322,8 +347,8 @@ async def scan_ffuf(
 )
 async def scan_dnsx(
     request: DNSxScanRequest,
-    dnsx_service: FromDishka[DNSxScanService],
-) -> ScanResponse:
+    event_bus: FromDishka[EventBus],
+):
     """
     Start DNSx scan to enumerate DNS records for hosts or reverse lookup for IPs.
 
@@ -332,22 +357,35 @@ async def scan_dnsx(
     - **mode**: Scan mode - 'basic' (A/AAAA/CNAME), 'deep' (all records including MX/TXT/NS/SOA), or 'ptr' (reverse DNS)
     - **timeout**: Scan timeout in seconds (default: 600)
 
-    Returns after scan completes. Discovered DNS records are ingested into database.
-    PTR mode discovers new hosts from IP addresses and triggers subdomain enumeration pipeline.
+    Returns 202 Accepted immediately. Scan executes asynchronously via DNSxNode (basic/deep/ptr).
     """
     try:
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
-        result = await dnsx_service.execute(
-            program_id=UUID(request.program_id),
-            targets=targets,
-            mode=request.mode
-        )
+        event_name_map = {
+            "basic": "dnsx_basic_scan_requested",
+            "deep": "dnsx_deep_scan_requested",
+            "ptr": "dnsx_ptr_scan_requested",
+        }
 
-        return ScanResponse(
-            status="success",
-            message=result.message,
-            results=result.model_dump()
+        event_name = event_name_map.get(request.mode, "dnsx_basic_scan_requested")
+
+        await event_bus.publish({
+            "event": event_name,
+            "target": targets[0] if targets else "",
+            "source": "api",
+            "confidence": 0.5,
+            "program_id": request.program_id,
+            "targets": targets,
+            "mode": request.mode,
+        })
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"DNSx {request.mode} scan queued for {len(targets)} targets",
+            },
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
@@ -362,8 +400,8 @@ async def scan_dnsx(
 )
 async def scan_subjack(
     request: SubjackScanRequest,
-    subjack_service: FromDishka[SubjackScanService],
-) -> ScanResponse:
+    event_bus: FromDishka[EventBus],
+):
     """
     Start Subjack scan to detect subdomain takeover vulnerabilities.
 
@@ -371,20 +409,26 @@ async def scan_subjack(
     - **targets**: Single domain or list of domains to check for takeover
     - **timeout**: Scan timeout in seconds (default: 300)
 
-    Returns immediately. Discovered vulnerabilities are published to EventBus and stored as findings.
+    Returns 202 Accepted immediately. Scan executes asynchronously via SubjackNode.
     """
     try:
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
-        result = await subjack_service.execute(
-            program_id=UUID(request.program_id),
-            targets=targets
-        )
+        await event_bus.publish({
+            "event": "subjack_scan_requested",
+            "target": targets[0] if targets else "",
+            "source": "api",
+            "confidence": 0.5,
+            "program_id": request.program_id,
+            "targets": targets,
+        })
 
-        return ScanResponse(
-            status="success",
-            message=result.message,
-            results=result.model_dump()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"Subjack scan queued for {len(targets)} domains",
+            },
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
@@ -399,8 +443,8 @@ async def scan_subjack(
 )
 async def scan_asnmap(
     request: ASNMapScanRequest,
-    asnmap_service: FromDishka[ASNMapScanService],
-) -> ScanResponse:
+    event_bus: FromDishka[EventBus],
+):
     """
     Start ASNMap scan to enumerate ASN and CIDR ranges.
 
@@ -409,22 +453,27 @@ async def scan_asnmap(
     - **mode**: Scan mode - 'domain', 'asn', or 'organization' (default: domain)
     - **timeout**: Scan timeout in seconds (default: 300)
 
-    Returns immediately. Discovered ASNs and CIDR blocks are ingested into database.
-    Publishes ASN_DISCOVERED and CIDR_DISCOVERED events for further processing.
+    Returns 202 Accepted immediately. Scan executes asynchronously via ASNMapNode.
     """
     try:
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
-        result = await asnmap_service.execute(
-            program_id=UUID(request.program_id),
-            targets=targets,
-            mode=request.mode
-        )
+        await event_bus.publish({
+            "event": "asnmap_scan_requested",
+            "target": targets[0] if targets else "",
+            "source": "api",
+            "confidence": 0.5,
+            "program_id": request.program_id,
+            "targets": targets,
+            "mode": request.mode,
+        })
 
-        return ScanResponse(
-            status="success",
-            message=result.message,
-            results=result.model_dump()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"ASNMap scan queued for {len(targets)} targets",
+            },
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
@@ -439,36 +488,71 @@ async def scan_asnmap(
 )
 async def scan_mapcidr(
     request: MapCIDRScanRequest,
-    mapcidr_service: FromDishka[MapCIDRService],
-) -> ScanResponse:
+    event_bus: FromDishka[EventBus],
+):
     """
     Perform MapCIDR operations on CIDR blocks.
 
     - **program_id**: Program UUID
     - **cidrs**: Single CIDR or list of CIDRs to process
-    - **operation**: Operation type - 'expand', 'slice_count', 'slice_host', 'aggregate'
-    - **count**: For slice_count - number of subnets to create
-    - **host_count**: For slice_host - target hosts per subnet
+    - **operation**: Operation type - 'expand' (only expand supported via node pipeline)
     - **skip_base**: Skip base IPs ending in .0
     - **skip_broadcast**: Skip broadcast IPs ending in .255
     - **shuffle**: Shuffle IPs in random order
     - **timeout**: Scan timeout in seconds (default: 300)
 
-    Returns immediately. Results published to EventBus for further processing.
+    Returns 202 Accepted immediately. Scan executes asynchronously via MapCIDRNode.
+    """
+    try:
+        cidrs = request.cidrs if isinstance(request.cidrs, list) else [request.cidrs]
+
+        if request.operation != "expand":
+            raise ValueError("Only 'expand' operation is supported via node pipeline")
+
+        await event_bus.publish({
+            "event": "mapcidr_scan_requested",
+            "target": cidrs[0] if cidrs else "",
+            "source": "api",
+            "confidence": 0.5,
+            "program_id": request.program_id,
+            "cidrs": cidrs,
+            "skip_base": request.skip_base,
+            "skip_broadcast": request.skip_broadcast,
+            "shuffle": request.shuffle,
+        })
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"MapCIDR expand queued for {len(cidrs)} CIDRs",
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
+
+
+@router.post(
+    "/scan/mapcidr/slice",
+    response_model=ScanResponse,
+    summary="Run MapCIDR Slice Operations (Legacy)",
+    description="Legacy endpoint for slice/aggregate operations. Use with caution.",
+    tags=["Scans"],
+    deprecated=True
+)
+async def scan_mapcidr_legacy(
+    request: MapCIDRScanRequest,
+    mapcidr_service: FromDishka[MapCIDRService],
+) -> ScanResponse:
+    """
+    Legacy MapCIDR endpoint for slice_count, slice_host, aggregate operations.
+    This endpoint calls the service directly and is not part of the node pipeline.
     """
     try:
         cidrs = request.cidrs if isinstance(request.cidrs, list) else [request.cidrs]
         program_id = UUID(request.program_id)
 
-        if request.operation == "expand":
-            result = await mapcidr_service.expand(
-                program_id=program_id,
-                cidrs=cidrs,
-                skip_base=request.skip_base,
-                skip_broadcast=request.skip_broadcast,
-                shuffle=request.shuffle
-            )
-        elif request.operation == "slice_count":
+        if request.operation == "slice_count":
             if not request.count:
                 raise ValueError("count parameter required for slice_count operation")
             result = await mapcidr_service.slice_by_count(
@@ -510,8 +594,8 @@ async def scan_mapcidr(
 )
 async def scan_naabu(
     request: NaabuScanRequest,
-    naabu_service: FromDishka[NaabuScanService],
-) -> ScanResponse:
+    event_bus: FromDishka[EventBus],
+):
     """
     Start Naabu port scan to discover open ports and services.
 
@@ -526,42 +610,33 @@ async def scan_naabu(
     - **nmap_cli**: Nmap command for service detection (nmap mode only, default: "nmap -sV")
     - **timeout**: Scan timeout in seconds (default: 600)
 
-    Returns immediately. Discovered open ports are published to EventBus and ingested into database.
+    Returns 202 Accepted immediately. Scan executes asynchronously via NaabuNode.
     """
     try:
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
-        program_id = UUID(request.program_id)
 
-        if request.scan_mode == "active":
-            result = await naabu_service.execute(
-                program_id=program_id,
-                hosts=targets,
-                ports=request.ports,
-                top_ports=request.top_ports,
-                rate=request.rate,
-                scan_type=request.scan_type,
-                exclude_cdn=request.exclude_cdn
-            )
-        elif request.scan_mode == "passive":
-            result = await naabu_service.execute_passive(
-                program_id=program_id,
-                hosts=targets
-            )
-        elif request.scan_mode == "nmap":
-            result = await naabu_service.execute_with_nmap(
-                program_id=program_id,
-                hosts=targets,
-                nmap_cli=request.nmap_cli,
-                top_ports=request.top_ports,
-                rate=request.rate
-            )
-        else:
-            raise ValueError(f"Invalid scan_mode: {request.scan_mode}. Must be 'active', 'passive', or 'nmap'")
+        await event_bus.publish({
+            "event": "naabu_scan_requested",
+            "target": targets[0] if targets else "",
+            "source": "api",
+            "confidence": 0.5,
+            "program_id": request.program_id,
+            "targets": targets,
+            "scan_mode": request.scan_mode,
+            "ports": request.ports,
+            "top_ports": request.top_ports,
+            "rate": request.rate,
+            "scan_type": request.scan_type,
+            "exclude_cdn": request.exclude_cdn,
+            "nmap_cli": request.nmap_cli,
+        })
 
-        return ScanResponse(
-            status="success",
-            message=result.message,
-            results=result.model_dump()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"Naabu {request.scan_mode} scan queued for {len(targets)} targets",
+            },
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
