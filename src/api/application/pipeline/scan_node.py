@@ -104,13 +104,12 @@ class ScanNode(Node):
                         data = getattr(ingest_result, result_key, [])
                         if data:
                             event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
-                            for item in data:
-                                await ctx.emit(
-                                    event_name=event_name,
-                                    target=item,
-                                    program_id=program_id,
-                                    confidence=0.7
-                                )
+                            await ctx.emit(
+                                event_name=event_name,
+                                targets=data,
+                                program_id=program_id,
+                                confidence=0.7
+                            )
                             self.logger.debug(
                                 f"Emitted {event_name}: {len(data)} items"
                             )
@@ -118,13 +117,12 @@ class ScanNode(Node):
                     for event_type, result_key in self.event_out_map.items():
                         if batch:
                             event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
-                            for item in batch:
-                                await ctx.emit(
-                                    event_name=event_name,
-                                    target=item,
-                                    program_id=program_id,
-                                    confidence=0.5
-                                )
+                            await ctx.emit(
+                                event_name=event_name,
+                                targets=batch,
+                                program_id=program_id,
+                                confidence=0.5
+                            )
                             self.logger.debug(
                                 f"Emitted {event_name}: {len(batch)} items"
                             )
@@ -171,19 +169,12 @@ class ScanNode(Node):
     @staticmethod
     def _default_target_extractor(event: Dict[str, Any]) -> List[str]:
         """
-        Default target extractor for various event types.
+        Default target extractor - expects 'targets' field.
 
         Args:
-            event: Event payload
+            event: Event payload with 'targets' list
 
         Returns:
-            List of targets (URLs, hosts, IPs, etc.)
+            List of targets (URLs, hosts, IPs, subdomains, etc.)
         """
-        return (
-            event.get("subdomains") or
-            event.get("urls") or
-            event.get("hosts") or
-            event.get("ips") or
-            event.get("targets") or
-            []
-        )
+        return event.get("targets", [])
