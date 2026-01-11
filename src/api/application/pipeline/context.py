@@ -40,22 +40,20 @@ class PipelineContext:
     async def emit(
         self,
         event_name: str,
-        target: Any,
+        targets: list,
         program_id: UUID,
         source: Optional[str] = None,
-        confidence: float = 0.5,
-        **extra_data
+        confidence: float = 0.5
     ):
         """
         Emit event to EventBus in standardized format.
 
         Args:
             event_name: Event name string (e.g., "host_discovered")
-            target: Primary target (subdomain, URL, IP, etc.)
+            targets: List of targets (hosts, URLs, IPs, subdomains, etc.)
             program_id: Program UUID
             source: Source node ID (defaults to context node_id)
             confidence: Event confidence 0.0-1.0 (default: 0.5)
-            **extra_data: Additional event fields
 
         Raises:
             RuntimeError: If EventBus not available in context
@@ -65,11 +63,10 @@ class PipelineContext:
 
         event = {
             "event": event_name,
-            "target": target,
+            "targets": targets,
             "source": source or self.node_id,
             "confidence": confidence,
             "program_id": str(program_id),
-            **extra_data
         }
 
         await self._bus.publish(event)

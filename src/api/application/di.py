@@ -626,7 +626,6 @@ class PipelineProvider(Provider):
             runner_type=KatanaCliRunner,
             processor_type=KatanaBatchProcessor,
             ingestor_type=KatanaResultIngestor,
-            target_extractor=lambda event: [event["target"]] if event.get("target") else event.get("targets", []),
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
             execution_delay=settings.ORCHESTRATOR_SCAN_DELAY
         )
@@ -644,7 +643,6 @@ class PipelineProvider(Provider):
             runner_type=LinkFinderCliRunner,
             processor_type=type(None),
             ingestor_type=LinkFinderResultIngestor,
-            target_extractor=lambda event: event.get("js_files", []),
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(linkfinder_node)
@@ -659,7 +657,6 @@ class PipelineProvider(Provider):
             runner_type=MantraCliRunner,
             processor_type=type(None),
             ingestor_type=MantraResultIngestor,
-            target_extractor=lambda event: event.get("js_files", []),
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(mantra_node)
@@ -675,7 +672,6 @@ class PipelineProvider(Provider):
             runner_type=SubfinderCliRunner,
             processor_type=SubfinderBatchProcessor,
             ingestor_type=None,
-            target_extractor=lambda event: [event.get("domain")],
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(subfinder_node)
@@ -691,7 +687,6 @@ class PipelineProvider(Provider):
             runner_type=GAUCliRunner,
             processor_type=GAUBatchProcessor,
             ingestor_type=None,
-            target_extractor=lambda event: [event.get("domain")],
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(gau_node)
@@ -706,7 +701,6 @@ class PipelineProvider(Provider):
             runner_type=SubjackCliRunner,
             processor_type=SubjackBatchProcessor,
             ingestor_type=SubjackResultIngestor,
-            target_extractor=lambda event: event.get("subdomains", []),
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(subjack_node)
@@ -721,7 +715,6 @@ class PipelineProvider(Provider):
             runner_type=FFUFCliRunner,
             processor_type=type(None),
             ingestor_type=FFUFResultIngestor,
-            target_extractor=lambda event: [event["target"]] if event.get("target") else event.get("targets", []),
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(ffuf_node)
@@ -738,7 +731,6 @@ class PipelineProvider(Provider):
             runner_type=ASNMapCliRunner,
             processor_type=ASNMapBatchProcessor,
             ingestor_type=ASNMapResultIngestor,
-            target_extractor=lambda event: [event.get("domain")],
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(asnmap_node)
@@ -753,7 +745,6 @@ class PipelineProvider(Provider):
             runner_type=NaabuCliRunner,
             processor_type=NaabuBatchProcessor,
             ingestor_type=NaabuResultIngestor,
-            target_extractor=lambda event: event.get("ips", []),
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(naabu_node)
@@ -770,7 +761,6 @@ class PipelineProvider(Provider):
             runner_type=MapCIDRExpandRunner,
             processor_type=MapCIDRBatchProcessor,
             ingestor_type=None,
-            target_extractor=lambda event: event.get("cidrs", []),
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(mapcidr_expand_node)
@@ -788,7 +778,6 @@ class PipelineProvider(Provider):
             runner_type=TLSxDefaultRunner,
             processor_type=TLSxBatchProcessor,
             ingestor_type=TLSxResultIngestor,
-            target_extractor=lambda event: event.get("ips", []),
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(tlsx_default_node)
@@ -805,7 +794,6 @@ class PipelineProvider(Provider):
             runner_type=DNSxBasicRunner,
             processor_type=DNSxBatchProcessor,
             ingestor_type=DNSxResultIngestor,
-            target_extractor=lambda event: event.get("subdomains", []),
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(dnsx_basic_node)
@@ -820,7 +808,6 @@ class PipelineProvider(Provider):
             runner_type=DNSxDeepRunner,
             processor_type=DNSxBatchProcessor,
             ingestor_type=DNSxResultIngestor,
-            target_extractor=lambda event: event.get("subdomains", []),
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(dnsx_deep_node)
@@ -835,7 +822,6 @@ class PipelineProvider(Provider):
             runner_type=DNSxPtrRunner,
             processor_type=DNSxBatchProcessor,
             ingestor_type=DNSxResultIngestor,
-            target_extractor=lambda event: event.get("ips", []),
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(dnsx_ptr_node)
