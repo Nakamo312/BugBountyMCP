@@ -373,7 +373,7 @@ class IngestorProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def get_tlsx_ingestor(
         self,
-        program_uow: SQLAlchemyProgramUnitOfWork,
+        program_uow: ProgramUnitOfWork,
         settings: Settings
     ) -> TLSxResultIngestor:
         return TLSxResultIngestor(uow=program_uow, settings=settings)
