@@ -9,6 +9,7 @@ from api.application.di import (
     CLIRunnerProvider,
     BatchProcessorProvider,
     IngestorProvider,
+    PipelineProvider,
 )
 
 
@@ -21,6 +22,7 @@ def create_container(context: dict):
         BatchProcessorProvider(),
         IngestorProvider(),
         ServiceProvider(),
+        PipelineProvider(),
         OrchestratorProvider(),
         context=context,
     )
