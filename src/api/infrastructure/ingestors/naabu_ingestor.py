@@ -35,15 +35,15 @@ class NaabuResultIngestor:
 
     async def ingest(
         self,
-        results: list[dict[str, Any]],
-        program_id: UUID
+        program_id: UUID,
+        results: list[dict[str, Any]]
     ) -> None:
         """
         Ingest Naabu port scan results into database.
 
         Args:
-            results: List of Naabu JSON results
             program_id: Program UUID for scope association
+            results: List of Naabu JSON results
         """
         if not results:
             logger.info("No Naabu results to ingest")

@@ -6,7 +6,6 @@ from uuid import UUID
 from api.config import Settings
 from api.domain.models import FindingModel, VulnTypeModel
 from api.domain.enums import Severity
-from api.infrastructure.events.event_bus import EventBus
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
 
@@ -21,9 +20,8 @@ class SubjackResultIngestor(BaseResultIngestor):
     Creates findings for vulnerable subdomains with host_id reference.
     """
 
-    def __init__(self, uow: HTTPXUnitOfWork, bus: EventBus, settings: Settings):
+    def __init__(self, uow: HTTPXUnitOfWork, settings: Settings):
         super().__init__(uow, settings.HTTPX_INGESTOR_BATCH_SIZE)
-        self.bus = bus
         self.settings = settings
 
     async def _process_batch(self, uow: HTTPXUnitOfWork, program_id: UUID, batch: list[dict[str, Any]]):

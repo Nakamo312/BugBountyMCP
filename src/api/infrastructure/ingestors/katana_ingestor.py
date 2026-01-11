@@ -7,8 +7,7 @@ from api.config import Settings
 from api.infrastructure.unit_of_work.interfaces.katana import KatanaUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
-from api.infrastructure.events.event_bus import EventBus
-from api.infrastructure.events.event_types import EventType
+from api.infrastructure.ingestors.ingest_result import IngestResult
 
 logger = logging.getLogger(__name__)
 
@@ -17,26 +16,38 @@ class KatanaResultIngestor(BaseResultIngestor):
     """
     Handles batch ingestion of Katana crawl results into domain entities.
     Uses savepoints to allow partial success without rolling back entire transaction.
-    Detects JS files and publishes them for LinkFinder analysis.
+    Returns JS files discovered during crawling.
     """
 
-    def __init__(self, uow: KatanaUnitOfWork, settings: Settings, bus: EventBus):
+    def __init__(self, uow: KatanaUnitOfWork, settings: Settings):
         super().__init__(uow, settings.KATANA_INGESTOR_BATCH_SIZE)
-        self.bus = bus
+        self._js_files = []
+
+    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
+        """
+        Ingest Katana results and return discovered JS files.
+
+        Args:
+            program_id: Program UUID
+            results: List of Katana JSON results
+
+        Returns:
+            IngestResult with js_files list
+        """
+        self._js_files = []
+
+        await super().ingest(program_id, results)
+
+        return IngestResult(js_files=list(set(self._js_files)))
 
     async def _process_batch(self, uow: KatanaUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
         """Process a batch of Katana results and collect JS files"""
-        js_files = []
-
         for data in batch:
             await self._process_record(uow, program_id, data)
 
             endpoint_url = data.get("request", {}).get("endpoint")
             if endpoint_url and self._is_js_file(endpoint_url):
-                js_files.append(endpoint_url)
-
-        if js_files:
-            await self._publish_js_files(program_id, js_files)
+                self._js_files.append(endpoint_url)
 
     async def _process_record(
         self,
@@ -149,14 +160,3 @@ class KatanaResultIngestor(BaseResultIngestor):
         """Check if URL points to a JavaScript file"""
         url_lower = url.lower()
         return url_lower.endswith('.js') or '.js?' in url_lower
-
-    async def _publish_js_files(self, program_id: UUID, js_files: List[str]):
-        """Publish discovered JS files for LinkFinder analysis"""
-        await self.bus.publish(
-            EventType.JS_FILES_DISCOVERED,
-            {
-                "program_id": str(program_id),
-                "js_files": js_files,
-            },
-        )
-        logger.debug(f"Published JS files for LinkFinder: program={program_id} count={len(js_files)}")

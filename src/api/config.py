@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     ORCHESTRATOR_MAX_CONCURRENT: int = 5
     ORCHESTRATOR_SCAN_DELAY: float = 30.0
 
+    # Pipeline feature flag
+    USE_NODE_PIPELINE: bool = False
+
     # Batch processing settings
     SUBFINDER_BATCH_MIN: int = 50
     SUBFINDER_BATCH_MAX: int = 200
@@ -61,6 +64,16 @@ class Settings(BaseSettings):
     NAABU_BATCH_MAX: int = 200
     NAABU_BATCH_TIMEOUT: float = 15.0
 
+    # MapCIDR batch settings
+    MAPCIDR_BATCH_MIN: int = 50
+    MAPCIDR_BATCH_MAX: int = 200
+    MAPCIDR_BATCH_TIMEOUT: float = 10.0
+
+    # TLSx batch settings
+    TLSX_BATCH_MIN: int = 50
+    TLSX_BATCH_MAX: int = 200
+    TLSX_BATCH_TIMEOUT: float = 15.0
+
     # Ingestor settings
     HTTPX_INGESTOR_BATCH_SIZE: int = 50
     HTTPX_NEW_HOST_BATCH_SIZE: int = 50
@@ -68,6 +81,7 @@ class Settings(BaseSettings):
     DNSX_INGESTOR_BATCH_SIZE: int = 100
     ASNMAP_INGESTOR_BATCH_SIZE: int = 50
     NAABU_INGESTOR_BATCH_SIZE: int = 100
+    TLSX_INGESTOR_BATCH_SIZE: int = 50
 
     # FFUF settings
     FFUF_WORDLIST: str = "/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt"

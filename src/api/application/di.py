@@ -30,6 +30,7 @@ from api.application.services.batch_processor import (
     ASNMapBatchProcessor,
     NaabuBatchProcessor,
     TLSxBatchProcessor,
+    MapCIDRBatchProcessor,
 )
 from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOfWork
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
@@ -66,6 +67,7 @@ from api.infrastructure.events.event_bus import EventBus
 from dishka import AsyncContainer
 
 from api.application.services.orchestrator import Orchestrator
+from api.application.pipeline.registry import NodeRegistry
 
 class DatabaseProvider(Provider):
     scope = Scope.APP
@@ -221,6 +223,31 @@ class CLIRunnerProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
+    def get_mapcidr_expand_runner(self, mapcidr_runner: MapCIDRCliRunner) -> "MapCIDRExpandRunner":
+        from api.infrastructure.runners.mapcidr_runners import MapCIDRExpandRunner
+        return MapCIDRExpandRunner(mapcidr_runner)
+
+    @provide(scope=Scope.APP)
+    def get_tlsx_default_runner(self, tlsx_runner: TLSxCliRunner) -> "TLSxDefaultRunner":
+        from api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
+        return TLSxDefaultRunner(tlsx_runner)
+
+    @provide(scope=Scope.APP)
+    def get_dnsx_basic_runner(self, dnsx_runner: DNSxCliRunner) -> "DNSxBasicRunner":
+        from api.infrastructure.runners.dnsx_runners import DNSxBasicRunner
+        return DNSxBasicRunner(dnsx_runner)
+
+    @provide(scope=Scope.APP)
+    def get_dnsx_deep_runner(self, dnsx_runner: DNSxCliRunner) -> "DNSxDeepRunner":
+        from api.infrastructure.runners.dnsx_runners import DNSxDeepRunner
+        return DNSxDeepRunner(dnsx_runner)
+
+    @provide(scope=Scope.APP)
+    def get_dnsx_ptr_runner(self, dnsx_runner: DNSxCliRunner) -> "DNSxPtrRunner":
+        from api.infrastructure.runners.dnsx_runners import DNSxPtrRunner
+        return DNSxPtrRunner(dnsx_runner)
+
+    @provide(scope=Scope.APP)
     def get_event_bus(self, settings: Settings) -> EventBus:
         return EventBus(settings)
 
@@ -265,6 +292,10 @@ class BatchProcessorProvider(Provider):
     def get_tlsx_processor(self, settings: Settings) -> TLSxBatchProcessor:
         return TLSxBatchProcessor(settings)
 
+    @provide(scope=Scope.APP)
+    def get_mapcidr_processor(self, settings: Settings) -> MapCIDRBatchProcessor:
+        return MapCIDRBatchProcessor(settings)
+
 
 class IngestorProvider(Provider):
     scope = Scope.REQUEST
@@ -274,19 +305,17 @@ class IngestorProvider(Provider):
     def get_httpx_ingestor(
         self,
         scan_uow: SQLAlchemyHTTPXUnitOfWork,
-        event_bus: EventBus,
         settings: Settings
     ) -> HTTPXResultIngestor:
-        return HTTPXResultIngestor(uow=scan_uow, bus=event_bus, settings=settings)
+        return HTTPXResultIngestor(uow=scan_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
     def get_katana_ingestor(
         self,
         katana_uow: SQLAlchemyKatanaUnitOfWork,
         settings: Settings,
-        event_bus: EventBus
     ) -> KatanaResultIngestor:
-        return KatanaResultIngestor(uow=katana_uow, settings=settings, bus=event_bus)
+        return KatanaResultIngestor(uow=katana_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
     def get_linkfinder_ingestor(
@@ -314,28 +343,25 @@ class IngestorProvider(Provider):
     def get_dnsx_ingestor(
         self,
         dnsx_uow: SQLAlchemyDNSxUnitOfWork,
-        event_bus: EventBus,
         settings: Settings
     ) -> DNSxResultIngestor:
-        return DNSxResultIngestor(uow=dnsx_uow, bus=event_bus, settings=settings)
+        return DNSxResultIngestor(uow=dnsx_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
     def get_subjack_ingestor(
         self,
         httpx_uow: SQLAlchemyHTTPXUnitOfWork,
-        event_bus: EventBus,
         settings: Settings
     ) -> SubjackResultIngestor:
-        return SubjackResultIngestor(uow=httpx_uow, bus=event_bus, settings=settings)
+        return SubjackResultIngestor(uow=httpx_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
     def get_asnmap_ingestor(
         self,
         asnmap_uow: SQLAlchemyASNMapUnitOfWork,
-        event_bus: EventBus,
         settings: Settings
     ) -> ASNMapResultIngestor:
-        return ASNMapResultIngestor(uow=asnmap_uow, bus=event_bus, settings=settings)
+        return ASNMapResultIngestor(uow=asnmap_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
     def get_naabu_ingestor(
@@ -344,6 +370,15 @@ class IngestorProvider(Provider):
         settings: Settings
     ) -> NaabuResultIngestor:
         return NaabuResultIngestor(uow=naabu_uow, settings=settings)
+
+    @provide(scope=Scope.REQUEST)
+    def get_tlsx_ingestor(
+        self,
+        program_uow: SQLAlchemyProgramUnitOfWork,
+        settings: Settings
+    ):
+        from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
+        return TLSxResultIngestor(uow=program_uow, settings=settings)
 
 
 class ServiceProvider(Provider):
@@ -537,3 +572,286 @@ class OrchestratorProvider(Provider):
             container=container,
             settings=settings
         )
+
+
+class PipelineProvider(Provider):
+    """Provider for node-based pipeline architecture"""
+    scope = Scope.APP
+    settings = from_context(provides=Settings)
+
+    @provide(scope=Scope.APP)
+    def get_node_registry(
+        self,
+        bus: EventBus,
+        settings: Settings,
+        container: AsyncContainer,
+    ) -> NodeRegistry:
+        from api.application.pipeline.factory import NodeFactory
+        from api.infrastructure.events.event_types import EventType
+
+        registry = NodeRegistry(bus, settings, container)
+
+        if not settings.USE_NODE_PIPELINE:
+            return registry
+
+        # HTTPXNode - dependencies resolved from DI on each execution
+        httpx_node = NodeFactory.create_scan_node(
+            node_id="httpx",
+            event_in={
+                EventType.SUBDOMAIN_DISCOVERED,
+                EventType.GAU_DISCOVERED,
+                EventType.DNSX_FILTERED_HOSTS,
+                EventType.IPS_EXPANDED,
+                EventType.HTTPX_SCAN_REQUESTED,
+            },
+            event_out={
+                EventType.HOST_DISCOVERED: "new_hosts",
+                EventType.JS_FILES_DISCOVERED: "js_files",
+            },
+            runner_type=HTTPXCliRunner,
+            processor_type=HTTPXBatchProcessor,
+            ingestor_type=HTTPXResultIngestor,
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(httpx_node)
+
+        # KatanaNode - dependencies resolved from DI on each execution
+        katana_node = NodeFactory.create_scan_node(
+            node_id="katana",
+            event_in={
+                EventType.HOST_DISCOVERED,
+            },
+            event_out={
+                EventType.JS_FILES_DISCOVERED: "js_files",
+            },
+            runner_type=KatanaCliRunner,
+            processor_type=KatanaBatchProcessor,
+            ingestor_type=KatanaResultIngestor,
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
+            execution_delay=settings.ORCHESTRATOR_SCAN_DELAY
+        )
+        registry.register(katana_node)
+
+        linkfinder_node = NodeFactory.create_scan_node(
+            node_id="linkfinder",
+            event_in={
+                EventType.JS_FILES_DISCOVERED,
+            },
+            event_out={
+                EventType.GAU_DISCOVERED: "urls",
+            },
+            runner_type=LinkFinderCliRunner,
+            processor_type=type(None),
+            ingestor_type=LinkFinderResultIngestor,
+            target_extractor=lambda event: event.get("js_files", []),
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(linkfinder_node)
+
+        mantra_node = NodeFactory.create_scan_node(
+            node_id="mantra",
+            event_in={
+                EventType.JS_FILES_DISCOVERED,
+            },
+            event_out={},
+            runner_type=MantraCliRunner,
+            processor_type=type(None),
+            ingestor_type=MantraResultIngestor,
+            target_extractor=lambda event: event.get("js_files", []),
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(mantra_node)
+
+        subfinder_node = NodeFactory.create_scan_node(
+            node_id="subfinder",
+            event_in={
+                EventType.SUBFINDER_SCAN_REQUESTED,
+            },
+            event_out={
+                EventType.SUBDOMAIN_DISCOVERED: "subdomains",
+            },
+            runner_type=SubfinderCliRunner,
+            processor_type=SubfinderBatchProcessor,
+            ingestor_type=None,
+            target_extractor=lambda event: [event.get("domain")],
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(subfinder_node)
+
+        dnsx_node = NodeFactory.create_scan_node(
+            node_id="dnsx",
+            event_in={
+                EventType.SUBDOMAIN_DISCOVERED,
+            },
+            event_out={},
+            runner_type=DNSxCliRunner,
+            processor_type=DNSxBatchProcessor,
+            ingestor_type=DNSxResultIngestor,
+            target_extractor=lambda event: event.get("subdomains", []),
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(dnsx_node)
+
+        gau_node = NodeFactory.create_scan_node(
+            node_id="gau",
+            event_in={
+                EventType.GAU_SCAN_REQUESTED,
+            },
+            event_out={
+                EventType.GAU_DISCOVERED: "urls",
+            },
+            runner_type=GAUCliRunner,
+            processor_type=GAUBatchProcessor,
+            ingestor_type=None,
+            target_extractor=lambda event: [event.get("domain")],
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(gau_node)
+
+        subjack_node = NodeFactory.create_scan_node(
+            node_id="subjack",
+            event_in={
+                EventType.SUBDOMAIN_DISCOVERED,
+            },
+            event_out={},
+            runner_type=SubjackCliRunner,
+            processor_type=SubjackBatchProcessor,
+            ingestor_type=SubjackResultIngestor,
+            target_extractor=lambda event: event.get("subdomains", []),
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(subjack_node)
+
+        ffuf_node = NodeFactory.create_scan_node(
+            node_id="ffuf",
+            event_in={
+                EventType.HOST_DISCOVERED,
+            },
+            event_out={},
+            runner_type=FFUFCliRunner,
+            processor_type=type(None),
+            ingestor_type=FFUFResultIngestor,
+            target_extractor=lambda event: event.get("new_hosts", []),
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(ffuf_node)
+
+        asnmap_node = NodeFactory.create_scan_node(
+            node_id="asnmap",
+            event_in={
+                EventType.ASNMAP_SCAN_REQUESTED,
+            },
+            event_out={
+                EventType.ASN_DISCOVERED: "asns",
+                EventType.CIDR_DISCOVERED: "cidrs",
+            },
+            runner_type=ASNMapCliRunner,
+            processor_type=ASNMapBatchProcessor,
+            ingestor_type=ASNMapResultIngestor,
+            target_extractor=lambda event: [event.get("domain")],
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(asnmap_node)
+
+        naabu_node = NodeFactory.create_scan_node(
+            node_id="naabu",
+            event_in={
+                EventType.IPS_EXPANDED,
+            },
+            event_out={},
+            runner_type=NaabuCliRunner,
+            processor_type=NaabuBatchProcessor,
+            ingestor_type=NaabuResultIngestor,
+            target_extractor=lambda event: event.get("ips", []),
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(naabu_node)
+
+        from api.infrastructure.runners.mapcidr_runners import MapCIDRExpandRunner
+        from api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
+        from api.infrastructure.runners.dnsx_runners import DNSxBasicRunner, DNSxDeepRunner, DNSxPtrRunner
+        from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
+
+        mapcidr_expand_node = NodeFactory.create_scan_node(
+            node_id="mapcidr_expand",
+            event_in={
+                EventType.CIDR_DISCOVERED,
+                EventType.MAPCIDR_SCAN_REQUESTED,
+            },
+            event_out={
+                EventType.IPS_EXPANDED: "ips",
+            },
+            runner_type=MapCIDRExpandRunner,
+            processor_type=MapCIDRBatchProcessor,
+            ingestor_type=None,
+            target_extractor=lambda event: event.get("cidrs", []),
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(mapcidr_expand_node)
+
+        tlsx_default_node = NodeFactory.create_scan_node(
+            node_id="tlsx_default",
+            event_in={
+                EventType.IPS_EXPANDED,
+                EventType.TLSX_SCAN_REQUESTED,
+            },
+            event_out={
+                EventType.HOST_DISCOVERED: "urls",
+                EventType.CERT_SAN_DISCOVERED: "new_hosts",
+            },
+            runner_type=TLSxDefaultRunner,
+            processor_type=TLSxBatchProcessor,
+            ingestor_type=TLSxResultIngestor,
+            target_extractor=lambda event: event.get("ips", []),
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(tlsx_default_node)
+
+        dnsx_basic_node = NodeFactory.create_scan_node(
+            node_id="dnsx_basic",
+            event_in={
+                EventType.SUBDOMAIN_DISCOVERED,
+                EventType.DNSX_BASIC_SCAN_REQUESTED,
+            },
+            event_out={
+                EventType.DNSX_FILTERED_HOSTS: "hosts",
+            },
+            runner_type=DNSxBasicRunner,
+            processor_type=DNSxBatchProcessor,
+            ingestor_type=DNSxResultIngestor,
+            target_extractor=lambda event: event.get("subdomains", []),
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(dnsx_basic_node)
+
+        dnsx_deep_node = NodeFactory.create_scan_node(
+            node_id="dnsx_deep",
+            event_in={
+                EventType.SUBDOMAIN_DISCOVERED,
+                EventType.DNSX_DEEP_SCAN_REQUESTED,
+            },
+            event_out={},
+            runner_type=DNSxDeepRunner,
+            processor_type=DNSxBatchProcessor,
+            ingestor_type=DNSxResultIngestor,
+            target_extractor=lambda event: event.get("subdomains", []),
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(dnsx_deep_node)
+
+        dnsx_ptr_node = NodeFactory.create_scan_node(
+            node_id="dnsx_ptr",
+            event_in={
+                EventType.IPS_EXPANDED,
+                EventType.DNSX_PTR_SCAN_REQUESTED,
+            },
+            event_out={},
+            runner_type=DNSxPtrRunner,
+            processor_type=DNSxBatchProcessor,
+            ingestor_type=DNSxResultIngestor,
+            target_extractor=lambda event: event.get("ips", []),
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(dnsx_ptr_node)
+
+        return registry
