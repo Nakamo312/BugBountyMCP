@@ -626,6 +626,7 @@ class PipelineProvider(Provider):
             runner_type=KatanaCliRunner,
             processor_type=KatanaBatchProcessor,
             ingestor_type=KatanaResultIngestor,
+            target_extractor=lambda event: [event["target"]] if event.get("target") else event.get("targets", []),
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
             execution_delay=settings.ORCHESTRATOR_SCAN_DELAY
         )
@@ -720,7 +721,7 @@ class PipelineProvider(Provider):
             runner_type=FFUFCliRunner,
             processor_type=type(None),
             ingestor_type=FFUFResultIngestor,
-            target_extractor=lambda event: event.get("new_hosts", []),
+            target_extractor=lambda event: [event["target"]] if event.get("target") else event.get("targets", []),
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(ffuf_node)
