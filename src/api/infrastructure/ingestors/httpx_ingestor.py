@@ -5,9 +5,8 @@ import logging
 from api.config import Settings
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
-from api.infrastructure.events.event_bus import EventBus
-from api.infrastructure.events.event_types import EventType
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
+from api.infrastructure.ingestors.ingest_result import IngestResult
 from api.application.services.base_service import ScopeCheckMixin
 from api.domain.models import ScopeRuleModel
 
@@ -18,20 +17,28 @@ class HTTPXResultIngestor(BaseResultIngestor):
     """
     Handles batch ingestion of HTTPX scan results into domain entities.
     Uses savepoints to allow partial success without rolling back entire transaction.
-    Publishes events for newly discovered hosts with active services.
-    Detects live JS files and publishes them for LinkFinder analysis.
+    Returns IngestResult with NEW entities only (no duplicates from DB).
     """
 
-    def __init__(self, uow: HTTPXUnitOfWork, bus: EventBus, settings: Settings):
+    def __init__(self, uow: HTTPXUnitOfWork, settings: Settings):
         super().__init__(uow, settings.HTTPX_INGESTOR_BATCH_SIZE)
-        self.bus = bus
         self.settings = settings
         self._new_hosts: Set[str] = set()
         self._seen_hosts: Set[str] = set()
         self._js_files: List[str] = []
         self._scope_rules: List[ScopeRuleModel] = []
 
-    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]):
+    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
+        """
+        Ingest HTTPX results and return only NEW entities.
+
+        Args:
+            program_id: Program UUID
+            results: List of HTTPX result dicts
+
+        Returns:
+            IngestResult with new_hosts and js_files
+        """
         self._new_hosts = set()
         self._seen_hosts = set()
         self._js_files = []
@@ -41,11 +48,10 @@ class HTTPXResultIngestor(BaseResultIngestor):
 
         await super().ingest(program_id, results)
 
-        if self._new_hosts:
-            await self._publish_new_hosts(program_id, list(self._new_hosts))
-
-        if self._js_files:
-            await self._publish_js_files(program_id, self._js_files)
+        return IngestResult(
+            new_hosts=list(self._new_hosts),
+            js_files=self._js_files
+        )
 
     async def _process_batch(self, uow: HTTPXUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
         """Process a batch of HTTPX results and collect live JS files"""
@@ -171,30 +177,7 @@ class HTTPXResultIngestor(BaseResultIngestor):
                 example_value=value,
             )
 
-    async def _publish_new_hosts(self, program_id: UUID, hosts: List[str]):
-        """Publish newly discovered active hosts to EventBus for Katana crawling"""
-        for batch in self._chunks(hosts, self.settings.HTTPX_NEW_HOST_BATCH_SIZE):
-            await self.bus.publish(
-                EventType.HOST_DISCOVERED,
-                {
-                    "program_id": str(program_id),
-                    "hosts": batch,
-                },
-            )
-            logger.info(f"Published new hosts batch: program={program_id} count={len(batch)}")
-
     def _is_js_file(self, url: str) -> bool:
         """Check if URL points to a JavaScript file"""
         url_lower = url.lower()
         return url_lower.endswith('.js') or '.js?' in url_lower
-
-    async def _publish_js_files(self, program_id: UUID, js_files: List[str]):
-        """Publish discovered live JS files for LinkFinder analysis"""
-        await self.bus.publish(
-            EventType.JS_FILES_DISCOVERED,
-            {
-                "program_id": str(program_id),
-                "js_files": js_files,
-            },
-        )
-        logger.info(f"Published JS files for LinkFinder: program={program_id} count={len(js_files)}")

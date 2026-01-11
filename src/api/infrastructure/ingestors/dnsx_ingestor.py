@@ -3,7 +3,6 @@ from typing import Any
 from uuid import UUID
 
 from api.config import Settings
-from api.infrastructure.events.event_bus import EventBus
 from api.infrastructure.ingestors.base_result_ingestor import \
     BaseResultIngestor
 from api.infrastructure.unit_of_work.interfaces.dnsx import DNSxUnitOfWork
@@ -17,9 +16,8 @@ class DNSxResultIngestor(BaseResultIngestor):
     Uses savepoints to allow partial success without rolling back entire transaction.
     """
 
-    def __init__(self, uow: DNSxUnitOfWork, bus: EventBus, settings: Settings):
+    def __init__(self, uow: DNSxUnitOfWork, settings: Settings):
         super().__init__(uow, settings.DNSX_INGESTOR_BATCH_SIZE)
-        self.bus = bus
         self.settings = settings
 
     async def _process_batch(self, uow: DNSxUnitOfWork, program_id: UUID, batch: list[dict[str, Any]]):

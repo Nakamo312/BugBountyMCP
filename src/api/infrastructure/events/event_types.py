@@ -6,6 +6,18 @@ class EventType(str, Enum):
     """Application event type constants for EventBus messaging"""
 
     SERVICE_EVENTS = "service_events"
+
+    # Scan request events (published from REST API to initiate scans)
+    HTTPX_SCAN_REQUESTED = "httpx_scan_requested"
+    SUBFINDER_SCAN_REQUESTED = "subfinder_scan_requested"
+    GAU_SCAN_REQUESTED = "gau_scan_requested"
+    ASNMAP_SCAN_REQUESTED = "asnmap_scan_requested"
+    MAPCIDR_SCAN_REQUESTED = "mapcidr_scan_requested"
+    TLSX_SCAN_REQUESTED = "tlsx_scan_requested"
+    DNSX_BASIC_SCAN_REQUESTED = "dnsx_basic_scan_requested"
+    DNSX_DEEP_SCAN_REQUESTED = "dnsx_deep_scan_requested"
+    DNSX_PTR_SCAN_REQUESTED = "dnsx_ptr_scan_requested"
+
     SUBDOMAIN_DISCOVERED = "subdomain_discovered"
     DNSX_FILTERED_HOSTS = "dnsx_filtered_hosts"
     SCAN_RESULTS_BATCH = "scan_results_batch"

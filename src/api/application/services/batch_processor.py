@@ -84,6 +84,23 @@ class BaseBatchProcessor(ABC, Generic[T]):
         pass
 
 
+class MapCIDRBatchProcessor(BaseBatchProcessor[str]):
+    """Batch processor for MapCIDR results"""
+
+    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
+        return {
+            'min': settings.MAPCIDR_BATCH_MIN,
+            'max': settings.MAPCIDR_BATCH_MAX,
+            'timeout': settings.MAPCIDR_BATCH_TIMEOUT
+        }
+
+    def _extract_item(self, event) -> str | None:
+        """Extract IP/CIDR string from event"""
+        if event.type == "result" and event.payload:
+            return event.payload
+        return None
+
+
 class HTTPXBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
     """Batch processor for HTTPX results"""
 
@@ -258,9 +275,9 @@ class TLSxBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
 
     def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
         return {
-            'min': settings.HTTPX_BATCH_MIN,
-            'max': settings.HTTPX_BATCH_MAX,
-            'timeout': settings.HTTPX_BATCH_TIMEOUT
+            'min': settings.TLSX_BATCH_MIN,
+            'max': settings.TLSX_BATCH_MAX,
+            'timeout': settings.TLSX_BATCH_TIMEOUT
         }
 
     def _extract_item(self, event) -> Dict[str, Any] | None:

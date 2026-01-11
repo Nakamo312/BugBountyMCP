@@ -1,6 +1,7 @@
 """REST API routes - Presentation layer"""
 from uuid import UUID
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from dishka.integrations.fastapi import FromDishka, DishkaRoute
 
 from api.presentation.schemas import (
@@ -19,7 +20,6 @@ from api.presentation.schemas import (
     ScanResponse
 )
 from api.application.services.subfinder import SubfinderScanService
-from api.application.services.httpx import HTTPXScanService
 from api.application.services.gau import GAUScanService
 from api.application.services.katana import KatanaScanService
 from api.application.services.linkfinder import LinkFinderScanService
@@ -30,6 +30,8 @@ from api.application.services.subjack import SubjackScanService
 from api.application.services.asnmap import ASNMapScanService
 from api.application.services.mapcidr import MapCIDRService
 from api.application.services.naabu import NaabuScanService
+from api.infrastructure.events.event_bus import EventBus
+from api.infrastructure.events.event_types import EventType
 
 
 router = APIRouter(route_class=DishkaRoute)
@@ -78,36 +80,43 @@ async def scan_subfinder(
 
 @router.post(
     "/scan/httpx",
-    response_model=ScanResponse,
     summary="Run HTTPX Scan",
-    description="Starts HTTPX probing. Returns immediately, scan runs in background.",
-    tags=["Scans"]
+    description="Starts HTTPX probing. Returns 202 Accepted immediately, scan runs asynchronously via node pipeline.",
+    tags=["Scans"],
+    status_code=202
 )
 async def scan_httpx(
     request: HTTPXScanRequest,
-    httpx_service: FromDishka[HTTPXScanService],
-) -> ScanResponse:
+    event_bus: FromDishka[EventBus],
+) -> JSONResponse:
     """
-    Start HTTPX scan.
+    Start HTTPX scan asynchronously via node pipeline.
 
     - **program_id**: Program UUID
     - **targets**: Single target or list of targets (URLs or domains)
     - **timeout**: Scan timeout in seconds (default: 600)
 
-    Returns immediately. Results are published to EventBus for ingestion.
+    Returns 202 Accepted immediately. Scan executes asynchronously via HTTPXNode.
+    Results are ingested into database and trigger subsequent pipeline events.
     """
     try:
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
-        result = await httpx_service.execute(
-            program_id=UUID(request.program_id),
-            targets=targets
+        await event_bus.publish(
+            EventType.HTTPX_SCAN_REQUESTED.value,
+            {
+                "_event_type": EventType.HTTPX_SCAN_REQUESTED.value,
+                "program_id": request.program_id,
+                "targets": targets,
+            },
         )
 
-        return ScanResponse(
-            status="success",
-            message=result.message,
-            results=result.model_dump()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"HTTPX scan queued for {len(targets)} targets",
+            },
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
