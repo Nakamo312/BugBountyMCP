@@ -103,24 +103,30 @@ class ScanNode(Node):
                     for event_type, result_key in self.event_out_map.items():
                         data = getattr(ingest_result, result_key, [])
                         if data:
-                            await ctx.emit(event_type, {
-                                "_event_type": event_type.value,
-                                "program_id": str(program_id),
-                                result_key: data
-                            })
+                            event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
+                            for item in data:
+                                await ctx.emit(
+                                    event_name=event_name,
+                                    target=item,
+                                    program_id=program_id,
+                                    confidence=0.7
+                                )
                             self.logger.debug(
-                                f"Emitted {event_type.value}: {len(data)} items"
+                                f"Emitted {event_name}: {len(data)} items"
                             )
                 else:
                     for event_type, result_key in self.event_out_map.items():
                         if batch:
-                            await ctx.emit(event_type, {
-                                "_event_type": event_type.value,
-                                "program_id": str(program_id),
-                                result_key: batch
-                            })
+                            event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
+                            for item in batch:
+                                await ctx.emit(
+                                    event_name=event_name,
+                                    target=item,
+                                    program_id=program_id,
+                                    confidence=0.5
+                                )
                             self.logger.debug(
-                                f"Emitted {event_type.value}: {len(batch)} items"
+                                f"Emitted {event_name}: {len(batch)} items"
                             )
 
             self.logger.info(
