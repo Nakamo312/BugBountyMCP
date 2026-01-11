@@ -25,6 +25,27 @@ class ASNMapCliRunner:
         self.asnmap_path = asnmap_path
         self.timeout = timeout
 
+    async def run(self, targets: list[str] | str) -> AsyncIterator[ProcessEvent]:
+        """
+        Auto-detect target type and run appropriate method.
+
+        Args:
+            targets: Single target or list of targets (domain, ASN, org, IP)
+
+        Yields:
+            ProcessEvent with type="result" and payload=asn_data
+        """
+        if isinstance(targets, str):
+            targets = [targets]
+
+        for target in targets:
+            if target.startswith("AS"):
+                async for event in self.run_asn(target):
+                    yield event
+            else:
+                async for event in self.run_domain(target):
+                    yield event
+
     async def run_domain(self, domains: list[str] | str) -> AsyncIterator[ProcessEvent]:
         """
         Enumerate ASN from domain names.

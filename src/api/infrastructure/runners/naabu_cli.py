@@ -25,6 +25,19 @@ class NaabuCliRunner:
         self.naabu_path = naabu_path
         self.timeout = timeout
 
+    async def run(self, hosts: list[str] | str) -> AsyncIterator[ProcessEvent]:
+        """
+        Default run method for pipeline compatibility.
+
+        Args:
+            hosts: Single host/IP or list of hosts/IPs to scan
+
+        Yields:
+            ProcessEvent with type="result" and payload=dict with naabu JSON output
+        """
+        async for event in self.scan(hosts):
+            yield event
+
     async def scan(
         self,
         hosts: list[str] | str,

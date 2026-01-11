@@ -23,6 +23,19 @@ class TLSxCliRunner:
         self.tlsx_path = tlsx_path
         self.timeout = timeout
 
+    async def run(self, targets: list[str] | str) -> AsyncIterator[ProcessEvent]:
+        """
+        Default run method for pipeline compatibility.
+
+        Args:
+            targets: Single target or list of targets (IPs, domains, IP:PORT)
+
+        Yields:
+            ProcessEvent with type="result" and payload=cert_data
+        """
+        async for event in self.scan_default_certs(targets):
+            yield event
+
     async def scan_default_certs(
         self,
         targets: list[str] | str,

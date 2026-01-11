@@ -24,6 +24,19 @@ class MapCIDRCliRunner:
         self.mapcidr_path = mapcidr_path
         self.timeout = timeout
 
+    async def run(self, cidrs: list[str] | str) -> AsyncIterator[ProcessEvent]:
+        """
+        Default run method for pipeline compatibility.
+
+        Args:
+            cidrs: Single CIDR or list of CIDRs to expand
+
+        Yields:
+            ProcessEvent with type="result" and payload=IP address string
+        """
+        async for event in self.expand(cidrs):
+            yield event
+
     async def expand(
         self,
         cidrs: list[str] | str,
