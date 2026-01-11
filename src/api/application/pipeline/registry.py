@@ -112,10 +112,14 @@ class NodeRegistry:
             logger.warning("Event missing 'event' field")
             return
 
+        logger.info(f"Received event: {event_name}, target={event.get('target', 'N/A')}")
+
         node_ids = self._event_to_nodes.get(event_name, set())
         if not node_ids:
-            logger.debug(f"No nodes registered for event: {event_name}")
+            logger.info(f"No nodes registered for event: {event_name}")
             return
+
+        logger.info(f"Dispatching {event_name} to nodes: {node_ids}")
 
         for node_id in node_ids:
             node = self._nodes[node_id]

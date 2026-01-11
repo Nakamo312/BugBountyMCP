@@ -96,9 +96,9 @@ class EventBus:
             routing_key=routing_key
         )
 
-        logger.debug(
+        logger.info(
             f"Published event: {event_name} "
-            f"(routing_key={routing_key}, priority={priority})"
+            f"(routing_key={routing_key}, priority={priority}, target={event.get('target', 'N/A')})"
         )
 
     async def subscribe(
