@@ -17,8 +17,6 @@ from api.presentation.rest.handlers import (
 )
 from api.presentation.rest.routes import router
 from src.api.application.exceptions import ScanExecutionError, ToolNotFoundError
-from api.application.services.orchestrator import Orchestrator
-from api.infrastructure.events.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +30,9 @@ async def lifespan(app: FastAPI):
         await db_connection.create_tables()
         start_mappers()
 
-        orchestrator: Orchestrator = await container.get(Orchestrator)
-        await orchestrator.start()  
+        from api.application.pipeline.registry import NodeRegistry
+        registry: NodeRegistry = await container.get(NodeRegistry)
+        await registry.start()  
 
         logger.info("Application startup complete")
     except Exception as e:
