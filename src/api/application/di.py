@@ -68,9 +68,10 @@ from dishka import AsyncContainer
 
 from api.application.services.orchestrator import Orchestrator
 from api.application.pipeline.registry import NodeRegistry
-from src.api.infrastructure.runners.dnsx_runners import DNSxBasicRunner, DNSxDeepRunner, DNSxPtrRunner
-from src.api.infrastructure.runners.mapcidr_runners import MapCIDRExpandRunner
-from src.api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
+from api.infrastructure.runners.dnsx_runners import DNSxBasicRunner, DNSxDeepRunner, DNSxPtrRunner
+from api.infrastructure.runners.mapcidr_runners import MapCIDRExpandRunner
+from api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
+from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
 
 class DatabaseProvider(Provider):
     scope = Scope.APP
@@ -374,8 +375,7 @@ class IngestorProvider(Provider):
         self,
         program_uow: SQLAlchemyProgramUnitOfWork,
         settings: Settings
-    ):
-        from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
+    ) -> TLSxResultIngestor:
         return TLSxResultIngestor(uow=program_uow, settings=settings)
 
 
@@ -676,20 +676,6 @@ class PipelineProvider(Provider):
         )
         registry.register(subfinder_node)
 
-        dnsx_node = NodeFactory.create_scan_node(
-            node_id="dnsx",
-            event_in={
-                EventType.SUBDOMAIN_DISCOVERED,
-            },
-            event_out={},
-            runner_type=DNSxCliRunner,
-            processor_type=DNSxBatchProcessor,
-            ingestor_type=DNSxResultIngestor,
-            target_extractor=lambda event: event.get("subdomains", []),
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
-        )
-        registry.register(dnsx_node)
-
         gau_node = NodeFactory.create_scan_node(
             node_id="gau",
             event_in={
@@ -764,11 +750,6 @@ class PipelineProvider(Provider):
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(naabu_node)
-
-        from api.infrastructure.runners.mapcidr_runners import MapCIDRExpandRunner
-        from api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
-        from api.infrastructure.runners.dnsx_runners import DNSxBasicRunner, DNSxDeepRunner, DNSxPtrRunner
-        from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
 
         mapcidr_expand_node = NodeFactory.create_scan_node(
             node_id="mapcidr_expand",
