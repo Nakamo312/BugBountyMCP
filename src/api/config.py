@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     ORCHESTRATOR_SCAN_DELAY: float = 30.0
 
     # Pipeline feature flag
-    USE_NODE_PIPELINE: bool = False
+    USE_NODE_PIPELINE: bool = True
 
     # Batch processing settings
     SUBFINDER_BATCH_MIN: int = 50
