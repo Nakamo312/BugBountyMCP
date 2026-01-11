@@ -64,10 +64,11 @@ async def scan_subfinder(
     """
     try:
         async def run_scan():
-            await subfinder_service.execute(
+            async for batch in subfinder_service.execute(
                 program_id=UUID(request.program_id),
                 domain=request.domain
-            )
+            ):
+                pass
 
         asyncio.create_task(run_scan())
 
@@ -104,10 +105,11 @@ async def scan_httpx(
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
         async def run_scan():
-            await httpx_service.execute(
+            async for batch in httpx_service.execute(
                 program_id=UUID(request.program_id),
                 targets=targets
-            )
+            ):
+                pass
 
         asyncio.create_task(run_scan())
 
@@ -143,11 +145,12 @@ async def scan_gau(
     """
     try:
         async def run_scan():
-            await gau_service.execute(
+            async for batch in gau_service.execute(
                 program_id=UUID(request.program_id),
                 domain=request.domain,
                 include_subs=request.include_subs
-            )
+            ):
+                pass
 
         asyncio.create_task(run_scan())
 
@@ -187,13 +190,14 @@ async def scan_katana(
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
         async def run_scan():
-            await katana_service.execute(
+            async for batch in katana_service.execute(
                 program_id=UUID(request.program_id),
                 targets=targets,
                 depth=request.depth,
                 js_crawl=request.js_crawl,
                 headless=request.headless
-            )
+            ):
+                pass
 
         asyncio.create_task(run_scan())
 
@@ -230,10 +234,11 @@ async def scan_linkfinder(
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
         async def run_scan():
-            await linkfinder_service.execute(
+            async for batch in linkfinder_service.execute(
                 program_id=UUID(request.program_id),
                 targets=targets
-            )
+            ):
+                pass
 
         asyncio.create_task(run_scan())
 
@@ -270,10 +275,11 @@ async def scan_mantra(
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
         async def run_scan():
-            await mantra_service.execute(
+            async for batch in mantra_service.execute(
                 program_id=UUID(request.program_id),
                 targets=targets
-            )
+            ):
+                pass
 
         asyncio.create_task(run_scan())
 
@@ -310,10 +316,11 @@ async def scan_ffuf(
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
         async def run_scan():
-            await ffuf_service.execute(
+            async for batch in ffuf_service.execute(
                 program_id=UUID(request.program_id),
                 targets=targets
-            )
+            ):
+                pass
 
         asyncio.create_task(run_scan())
 
@@ -352,11 +359,12 @@ async def scan_dnsx(
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
         async def run_scan():
-            await dnsx_service.execute(
+            async for batch in dnsx_service.execute(
                 program_id=UUID(request.program_id),
                 targets=targets,
                 mode=request.mode
-            )
+            ):
+                pass
 
         asyncio.create_task(run_scan())
 
@@ -393,10 +401,11 @@ async def scan_subjack(
         targets = request.targets if isinstance(request.targets, list) else [request.targets]
 
         async def run_scan():
-            await subjack_service.execute(
+            async for batch in subjack_service.execute(
                 program_id=UUID(request.program_id),
                 targets=targets
-            )
+            ):
+                pass
 
         asyncio.create_task(run_scan())
 
@@ -440,7 +449,7 @@ async def scan_asnmap(
                 targets=targets,
                 mode=request.mode
             ):
-                ...
+                pass
 
         asyncio.create_task(run_scan())
 
@@ -485,43 +494,47 @@ async def scan_mapcidr(
 
         if request.operation == "expand":
             async def run_expand():
-                await mapcidr_service.expand(
+                async for batch in mapcidr_service.expand(
                     program_id=program_id,
                     cidrs=cidrs,
                     skip_base=request.skip_base,
                     skip_broadcast=request.skip_broadcast,
                     shuffle=request.shuffle
-                )
+                ):
+                    pass
             asyncio.create_task(run_expand())
 
         elif request.operation == "slice_count":
             if not request.count:
                 raise ValueError("count parameter required for slice_count operation")
             async def run_slice_count():
-                await mapcidr_service.slice_by_count(
+                async for batch in mapcidr_service.slice_by_count(
                     program_id=program_id,
                     cidrs=cidrs,
                     count=request.count
-                )
+                ):
+                    pass
             asyncio.create_task(run_slice_count())
 
         elif request.operation == "slice_host":
             if not request.host_count:
                 raise ValueError("host_count parameter required for slice_host operation")
             async def run_slice_host():
-                await mapcidr_service.slice_by_host_count(
+                async for batch in mapcidr_service.slice_by_host_count(
                     program_id=program_id,
                     cidrs=cidrs,
                     host_count=request.host_count
-                )
+                ):
+                    pass
             asyncio.create_task(run_slice_host())
 
         elif request.operation == "aggregate":
             async def run_aggregate():
-                await mapcidr_service.aggregate(
+                async for batch in mapcidr_service.aggregate(
                     program_id=program_id,
                     ips=cidrs
-                )
+                ):
+                    pass
             asyncio.create_task(run_aggregate())
 
         else:
@@ -569,7 +582,7 @@ async def scan_naabu(
 
         if request.scan_mode == "active":
             async def run_active():
-                await naabu_service.execute(
+                async for batch in naabu_service.execute(
                     program_id=program_id,
                     hosts=targets,
                     ports=request.ports,
@@ -577,26 +590,29 @@ async def scan_naabu(
                     rate=request.rate,
                     scan_type=request.scan_type,
                     exclude_cdn=request.exclude_cdn
-                )
+                ):
+                    pass
             asyncio.create_task(run_active())
 
         elif request.scan_mode == "passive":
             async def run_passive():
-                await naabu_service.execute_passive(
+                async for batch in naabu_service.execute_passive(
                     program_id=program_id,
                     hosts=targets
-                )
+                ):
+                    pass
             asyncio.create_task(run_passive())
 
         elif request.scan_mode == "nmap":
             async def run_nmap():
-                await naabu_service.execute_with_nmap(
+                async for batch in naabu_service.execute_with_nmap(
                     program_id=program_id,
                     hosts=targets,
                     nmap_cli=request.nmap_cli,
                     top_ports=request.top_ports,
                     rate=request.rate
-                )
+                ):
+                    pass
             asyncio.create_task(run_nmap())
 
         else:
