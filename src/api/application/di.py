@@ -68,6 +68,9 @@ from dishka import AsyncContainer
 
 from api.application.services.orchestrator import Orchestrator
 from api.application.pipeline.registry import NodeRegistry
+from src.api.infrastructure.runners.dnsx_runners import DNSxBasicRunner, DNSxDeepRunner, DNSxPtrRunner
+from src.api.infrastructure.runners.mapcidr_runners import MapCIDRExpandRunner
+from src.api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
 
 class DatabaseProvider(Provider):
     scope = Scope.APP
@@ -223,28 +226,23 @@ class CLIRunnerProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
-    def get_mapcidr_expand_runner(self, mapcidr_runner: MapCIDRCliRunner) -> "MapCIDRExpandRunner":
-        from api.infrastructure.runners.mapcidr_runners import MapCIDRExpandRunner
+    def get_mapcidr_expand_runner(self, mapcidr_runner: MapCIDRCliRunner) -> MapCIDRExpandRunner:
         return MapCIDRExpandRunner(mapcidr_runner)
 
     @provide(scope=Scope.APP)
-    def get_tlsx_default_runner(self, tlsx_runner: TLSxCliRunner) -> "TLSxDefaultRunner":
-        from api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
+    def get_tlsx_default_runner(self, tlsx_runner: TLSxCliRunner) -> TLSxDefaultRunner:
         return TLSxDefaultRunner(tlsx_runner)
 
     @provide(scope=Scope.APP)
-    def get_dnsx_basic_runner(self, dnsx_runner: DNSxCliRunner) -> "DNSxBasicRunner":
-        from api.infrastructure.runners.dnsx_runners import DNSxBasicRunner
+    def get_dnsx_basic_runner(self, dnsx_runner: DNSxCliRunner) -> DNSxBasicRunner:
         return DNSxBasicRunner(dnsx_runner)
 
     @provide(scope=Scope.APP)
-    def get_dnsx_deep_runner(self, dnsx_runner: DNSxCliRunner) -> "DNSxDeepRunner":
-        from api.infrastructure.runners.dnsx_runners import DNSxDeepRunner
+    def get_dnsx_deep_runner(self, dnsx_runner: DNSxCliRunner) -> DNSxDeepRunner:
         return DNSxDeepRunner(dnsx_runner)
 
     @provide(scope=Scope.APP)
-    def get_dnsx_ptr_runner(self, dnsx_runner: DNSxCliRunner) -> "DNSxPtrRunner":
-        from api.infrastructure.runners.dnsx_runners import DNSxPtrRunner
+    def get_dnsx_ptr_runner(self, dnsx_runner: DNSxCliRunner) -> DNSxPtrRunner:
         return DNSxPtrRunner(dnsx_runner)
 
     @provide(scope=Scope.APP)
