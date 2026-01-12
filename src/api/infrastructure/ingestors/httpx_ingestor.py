@@ -95,7 +95,7 @@ class HTTPXResultIngestor(BaseResultIngestor):
         await self._process_query_params(uow, endpoint, service, data)
 
         status_code = data.get("status_code")
-        if status_code and 200 <= status_code < 400 and is_new_host:
+        if  is_new_host:
             scheme = data.get("scheme", "http")
             port = int(data.get("port", 80 if scheme == "http" else 443))
 

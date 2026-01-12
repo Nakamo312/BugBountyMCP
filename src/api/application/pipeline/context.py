@@ -39,7 +39,7 @@ class PipelineContext:
 
     async def emit(
         self,
-        event_name: str,
+        event: str,
         targets: list,
         program_id: UUID,
         source: Optional[str] = None,
@@ -62,7 +62,7 @@ class PipelineContext:
             raise RuntimeError("EventBus not available in context")
 
         event = {
-            "event": event_name,
+            "event": event,
             "targets": targets,
             "source": source or self.node_id,
             "confidence": confidence,
