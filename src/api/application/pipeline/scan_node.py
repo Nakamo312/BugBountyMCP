@@ -85,7 +85,9 @@ class ScanNode(Node):
         )
 
         runner = await ctx.get_service(self.runner_type)
-        processor = await ctx.get_service(self.processor_type) if self.processor_type else None
+        processor = None
+        if self.processor_type is not None and self.processor_type is not type(None):
+            processor = await ctx.get_service(self.processor_type)
         ingestor = await ctx.get_service(self.ingestor_type) if self.ingestor_type else None
 
         batch_count = 0
