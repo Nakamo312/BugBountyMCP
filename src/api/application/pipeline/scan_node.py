@@ -108,7 +108,7 @@ class ScanNode(Node):
                             if data:
                                 event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
                                 await ctx.emit(
-                                    event_name=event_name,
+                                    event=event_name,
                                     targets=data,
                                     program_id=program_id,
                                     confidence=0.7
@@ -121,7 +121,7 @@ class ScanNode(Node):
                             if batch:
                                 event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
                                 await ctx.emit(
-                                    event_name=event_name,
+                                    event=event_name,
                                     targets=batch,
                                     program_id=program_id,
                                     confidence=0.5
@@ -146,7 +146,7 @@ class ScanNode(Node):
                             if data:
                                 event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
                                 await ctx.emit(
-                                    event_name=event_name,
+                                    event=event_name,
                                     targets=data,
                                     program_id=program_id,
                                     confidence=0.7
