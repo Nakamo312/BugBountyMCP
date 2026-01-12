@@ -85,47 +85,75 @@ class ScanNode(Node):
         )
 
         runner = await ctx.get_service(self.runner_type)
-        processor = await ctx.get_service(self.processor_type)
+        processor = await ctx.get_service(self.processor_type) if self.processor_type else None
         ingestor = await ctx.get_service(self.ingestor_type) if self.ingestor_type else None
 
         batch_count = 0
 
         try:
-            async for batch in processor.batch_stream(runner.run(targets)):
-                if not batch:
-                    continue
+            stream = runner.run(targets)
 
-                batch_count += 1
+            if processor:
+                async for batch in processor.batch_stream(stream):
+                    if not batch:
+                        continue
 
-                if ingestor:
-                    ingest_result = await ingestor.ingest(program_id, batch)
+                    batch_count += 1
 
-                    for event_type, result_key in self.event_out_map.items():
-                        data = getattr(ingest_result, result_key, [])
-                        if data:
-                            event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
-                            await ctx.emit(
-                                event_name=event_name,
-                                targets=data,
-                                program_id=program_id,
-                                confidence=0.7
-                            )
-                            self.logger.debug(
-                                f"Emitted {event_name}: {len(data)} items"
-                            )
-                else:
-                    for event_type, result_key in self.event_out_map.items():
-                        if batch:
-                            event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
-                            await ctx.emit(
-                                event_name=event_name,
-                                targets=batch,
-                                program_id=program_id,
-                                confidence=0.5
-                            )
-                            self.logger.debug(
-                                f"Emitted {event_name}: {len(batch)} items"
-                            )
+                    if ingestor:
+                        ingest_result = await ingestor.ingest(program_id, batch)
+
+                        for event_type, result_key in self.event_out_map.items():
+                            data = getattr(ingest_result, result_key, [])
+                            if data:
+                                event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
+                                await ctx.emit(
+                                    event_name=event_name,
+                                    targets=data,
+                                    program_id=program_id,
+                                    confidence=0.7
+                                )
+                                self.logger.debug(
+                                    f"Emitted {event_name}: {len(data)} items"
+                                )
+                    else:
+                        for event_type, result_key in self.event_out_map.items():
+                            if batch:
+                                event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
+                                await ctx.emit(
+                                    event_name=event_name,
+                                    targets=batch,
+                                    program_id=program_id,
+                                    confidence=0.5
+                                )
+                                self.logger.debug(
+                                    f"Emitted {event_name}: {len(batch)} items"
+                                )
+            else:
+                results = []
+                async for event in stream:
+                    if event.type == "result" and event.payload:
+                        results.append(event.payload)
+
+                if results:
+                    batch_count = 1
+
+                    if ingestor:
+                        ingest_result = await ingestor.ingest(program_id, results)
+
+                        for event_type, result_key in self.event_out_map.items():
+                            data = getattr(ingest_result, result_key, [])
+                            if data:
+                                event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
+                                await ctx.emit(
+                                    event_name=event_name,
+                                    targets=data,
+                                    program_id=program_id,
+                                    confidence=0.7
+                                )
+                                self.logger.debug(
+                                    f"Emitted {event_name}: {len(data)} items"
+                                )
 
             self.logger.info(
                 f"Scan completed: node={self.node_id} program={program_id} batches={batch_count}"

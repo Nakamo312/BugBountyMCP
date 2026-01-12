@@ -76,8 +76,7 @@ class TLSxCliRunner:
             "-json",
             "-silent",
             "-san",
-            "-cn",
-            "-so"
+            "-cn"
         ]
 
         for port in ports:
@@ -140,8 +139,7 @@ class TLSxCliRunner:
             "-json",
             "-silent",
             "-san",
-            "-cn",
-            "-so"
+            "-cn"
         ]
 
         for port in ports:
@@ -212,8 +210,7 @@ class TLSxCliRunner:
             "-json",
             "-silent",
             "-san",
-            "-cn",
-            "-so"
+            "-cn"
         ]
 
         for port in ports:
