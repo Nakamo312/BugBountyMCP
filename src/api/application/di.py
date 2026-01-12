@@ -592,7 +592,6 @@ class PipelineProvider(Provider):
         if not settings.USE_NODE_PIPELINE:
             return registry
 
-        # HTTPXNode - dependencies resolved from DI on each execution
         httpx_node = NodeFactory.create_scan_node(
             node_id="httpx",
             event_in={
