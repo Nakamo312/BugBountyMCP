@@ -640,7 +640,7 @@ class PipelineProvider(Provider):
                 EventType.GAU_DISCOVERED: "urls",
             },
             runner_type=LinkFinderCliRunner,
-            processor_type=type(None),
+            processor_type=None,
             ingestor_type=LinkFinderResultIngestor,
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
@@ -654,7 +654,7 @@ class PipelineProvider(Provider):
             },
             event_out={},
             runner_type=MantraCliRunner,
-            processor_type=type(None),
+            processor_type=None,
             ingestor_type=MantraResultIngestor,
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
@@ -712,7 +712,7 @@ class PipelineProvider(Provider):
             },
             event_out={},
             runner_type=FFUFCliRunner,
-            processor_type=type(None),
+            processor_type=None,
             ingestor_type=FFUFResultIngestor,
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
