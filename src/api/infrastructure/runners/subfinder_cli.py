@@ -18,7 +18,7 @@ class SubfinderCliRunner:
         self.subfinder_path = subfinder_path
         self.timeout = timeout
 
-    async def run(self, domain: str) -> AsyncIterator[ProcessEvent]:
+    async def run(self, targets: List[str]) -> AsyncIterator[ProcessEvent]:
         """
         Execute subfinder for the given domain.
 
@@ -28,24 +28,25 @@ class SubfinderCliRunner:
         Yields:
             ProcessEvent with type="subdomain" and payload=discovered_subdomain
         """
-        command = [
-            self.subfinder_path,
-            "-d", domain,
-            "-silent",
-            "-all"
-        ]
+        for domain in targets:
+            command = [
+                self.subfinder_path,
+                "-d", domain,
+                "-silent",
+                "-all"
+            ]
 
-        logger.info("Starting Subfinder command: %s", " ".join(command))
+            logger.info("Starting Subfinder command: %s", " ".join(command))
 
-        executor = CommandExecutor(command, stdin=None, timeout=self.timeout)
+            executor = CommandExecutor(command, stdin=None, timeout=self.timeout)
 
-        async for event in executor.run():
-            if event.type != "stdout":
-                continue
+            async for event in executor.run():
+                if event.type != "stdout":
+                    continue
 
-            if not event.payload:
-                continue
+                if not event.payload:
+                    continue
 
-            subdomain = event.payload.strip()
-            if subdomain:
-                yield ProcessEvent(type="subdomain", payload=subdomain)
+                subdomain = event.payload.strip()
+                if subdomain:
+                    yield ProcessEvent(type="subdomain", payload=subdomain)
