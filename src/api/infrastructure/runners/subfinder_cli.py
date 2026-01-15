@@ -18,7 +18,7 @@ class SubfinderCliRunner:
         self.subfinder_path = subfinder_path
         self.timeout = timeout
 
-    async def run(self, targets: List[str]) -> AsyncIterator[ProcessEvent]:
+    async def run(self, targets:  list[str]) -> AsyncIterator[ProcessEvent]:
         """
         Execute subfinder for the given domain.
 
