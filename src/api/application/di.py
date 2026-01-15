@@ -784,7 +784,7 @@ class PipelineProvider(Provider):
         dnsx_basic_node = NodeFactory.create_scan_node(
             node_id="dnsx_basic",
             event_in={
-                EventType.SUBDOMAIN_DISCOVERED,
+                EventType.HOST_DISCOVERED,
                 EventType.DNSX_BASIC_SCAN_REQUESTED,
             },
             event_out={
