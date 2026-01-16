@@ -43,6 +43,24 @@ class SmapNode(Node):
         )
         self.logger = logging.getLogger(f"node.{node_id}")
 
+    def set_context_factory(self, bus, container, settings):
+        """
+        Set dependencies for context creation.
+        Called by NodeRegistry after node creation.
+        """
+        self._bus = bus
+        self._container = container
+        self._settings = settings
+
+    async def _create_context(self) -> PipelineContext:
+        """Create context with EventBus/DI/Settings injected."""
+        return PipelineContext(
+            node_id=self.node_id,
+            bus=getattr(self, '_bus', None),
+            container=getattr(self, '_container', None),
+            settings=getattr(self, '_settings', None)
+        )
+
     async def execute(self, event: Dict[str, Any], ctx: PipelineContext):
         """
         Execute smap scan on CIDRs and emit discovered entities.
