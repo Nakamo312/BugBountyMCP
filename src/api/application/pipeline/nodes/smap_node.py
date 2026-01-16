@@ -121,7 +121,7 @@ class SmapNode(Node):
 
             if discovered_ips:
                 await ctx.emit(
-                    event=EventType.IPS_EXPANDED,
+                    event=EventType.IPS_EXPANDED.value,
                     targets=discovered_ips,
                     program_id=program_id,
                     confidence=0.95
@@ -130,16 +130,18 @@ class SmapNode(Node):
 
             if discovered_hostnames:
                 await ctx.emit(
-                    event=EventType.SUBDOMAIN_DISCOVERED,
+                    event=EventType.SUBDOMAIN_DISCOVERED.value,
                     targets=discovered_hostnames,
                     program_id=program_id,
                     confidence=0.9
                 )
-                self.logger.debug(f"Emitted SUBDOMAIN_DISCOVERED: {len(discovered_hostnames)} hostnames")
+                self.logger.debug(
+                    f"Emitted SUBDOMAIN_DISCOVERED: {len(discovered_hostnames)} hostnames"
+                )
 
             if full_results:
                 await ctx.emit(
-                    event=EventType.SMAP_RESULTS,
+                    event=EventType.SMAP_RESULTS.value,
                     targets=full_results,
                     program_id=program_id,
                     confidence=0.95
