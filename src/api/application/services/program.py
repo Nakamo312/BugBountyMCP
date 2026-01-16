@@ -1,4 +1,5 @@
 # api/application/services/program_service.py
+from dataclasses import replace
 from typing import List, Optional
 from uuid import UUID, uuid4
 from xml.dom import NotFoundErr
@@ -144,7 +145,7 @@ class ProgramService:
                 raise NotFoundErr(f"Program {program_id} not found")
 
             if dto.name is not None:
-                updated_program = program.copy(update={"name": dto.name})
+                updated_program = replace(program, name=dto.name)
                 program = await uow.programs.update(program_id, updated_program)
 
             if dto.scope_rules is not None:
@@ -207,7 +208,7 @@ class ProgramService:
             if not program:
                 raise NotFoundErr(f"Program {program_id} not found")
 
-            updated_program = program.copy(update={"name": new_name})
+            updated_program = replace(program, name=new_name)
             result = await uow.programs.update(program_id, updated_program)
 
             await uow.commit()
