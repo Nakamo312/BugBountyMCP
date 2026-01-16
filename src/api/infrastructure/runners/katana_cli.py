@@ -22,8 +22,6 @@ class KatanaCliRunner:
         self,
         targets: list[str] | str,
         depth: int = 3,
-        js_crawl: bool = True,
-        headless: bool = False,
     ) -> AsyncIterator[ProcessEvent]:
         """
         Execute katana crawler for the given targets.
@@ -31,11 +29,9 @@ class KatanaCliRunner:
         Args:
             targets: Single target URL or list of target URLs to crawl
             depth: Maximum crawl depth (default: 3)
-            js_crawl: Enable JavaScript endpoint parsing (default: True)
-            headless: Enable headless browser crawling (default: False)
 
         Yields:
-            ProcessEvent with type="url" and payload=discovered_url
+            ProcessEvent with type="result" and payload=json_data
         """
         if isinstance(targets, str):
             targets = [targets]
@@ -48,27 +44,21 @@ class KatanaCliRunner:
             "-d", str(depth),
             "-silent",
             "-jsonl",
-            "-c", "10",
-            "-p", "5",
-            "-rl", "150",
-            "-timeout", "15",
+            "-hl",  # Headless mode
+            "-aff",  # Automatic form filling
+            "-xhr",  # Extract XHR requests
+            "-jc",  # JavaScript crawling
+            "-time-stable", "10",  # Wait time for page to be stable
+            "-mfc", "100",  # Max form count
+            "-nos",  # No screenshots
+            "-c", "1",  # Concurrency
+            "-p", "1",  # Parallelism
+            "-j",  # JSON output format with request/response details
             "-tech-detect",
             "-known-files", "sitemapxml",
             "-f", "qurl",
             "-ef", "png,jpg,jpeg,gif,svg,ico,css,woff,woff2,ttf,eot,otf,mp4,mp3,avi,webm,flv,wav,pdf,zip,tar,gz,rar,7z,exe,dll,bin,dmg,iso",
-            "-j",  # JSON output format with request/response details
         ]
-
-        if js_crawl:
-            command.append("-jc")
-
-        if headless:
-            command.extend([
-                "-hl",  # Headless mode
-                "-aff",  # Automatic form filling
-                "-xhr",  # Extract XHR requests
-                "-nos",  # No screenshots
-            ])
 
         logger.info("Starting Katana command for %d targets: %s", len(targets), " ".join(command))
 
