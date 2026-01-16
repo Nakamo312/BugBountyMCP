@@ -88,6 +88,7 @@ class KatanaResultIngestor(BaseResultIngestor):
         endpoint = await self._ensure_endpoint(uow, host, service, request, response, path)
 
         await self._process_query_params(uow, endpoint, service, query_string)
+        await self._process_body_params(uow, endpoint, request)
         await self._process_headers(uow, endpoint, response)
 
     async def _ensure_endpoint(
@@ -136,6 +137,21 @@ class KatanaResultIngestor(BaseResultIngestor):
                 location="query",
                 example_value=example_value,
             )
+
+    async def _process_body_params(
+        self,
+        uow: KatanaUnitOfWork,
+        endpoint,
+        request: Dict[str, Any]
+    ):
+        body = request.get("body")
+        if not body:
+            return
+
+        await uow.raw_bodies.ensure(
+            endpoint_id=endpoint.id,
+            body_content=body,
+        )
 
     async def _process_headers(
         self,

@@ -51,3 +51,11 @@ class ProgramFullResponseDTO(BaseModel):
     program: ProgramResponseDTO
     scope_rules: List[ScopeRuleResponseDTO]
     root_inputs: List[RootInputResponseDTO]
+
+
+class ProgramUpdateDTO(BaseModel):
+    """DTO for updating program - all fields optional"""
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = None
+    scope_rules: List[ScopeRuleCreateDTO] | None = None
+    root_inputs: List[RootInputCreateDTO] | None = None

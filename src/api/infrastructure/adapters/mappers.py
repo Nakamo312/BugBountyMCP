@@ -6,7 +6,7 @@ from api.domain.models import (ASNModel, CIDRModel, DNSRecordModel,
                                HostIPModel, HostModel, InputParameterModel,
                                IPAddressModel, LeakModel,
                                OrganizationModel, PayloadModel, ProgramModel,
-                               RootInputModel, ScannerExecutionModel,
+                               RawBodyModel, RootInputModel, ScannerExecutionModel,
                                ScannerTemplateModel, ScopeRuleModel,
                                ServiceModel, VulnTypeModel)
 from api.infrastructure.adapters.orm import (asns, cidrs, dns_records,
@@ -14,7 +14,7 @@ from api.infrastructure.adapters.orm import (asns, cidrs, dns_records,
                                              host_ips, hosts, input_parameters,
                                              ip_addresses, leaks, metadata,
                                              organizations, payloads, programs,
-                                             root_inputs, scanner_executions,
+                                             raw_body, root_inputs, scanner_executions,
                                              scanner_templates, scope_rules,
                                              services, vuln_types)
 
@@ -175,6 +175,12 @@ def start_mappers():
                 cascade='all, delete-orphan',
                 lazy='select'
             ),
+            'raw_bodies': relationship(
+                RawBodyModel,
+                backref='endpoint',
+                cascade='all, delete-orphan',
+                lazy='select'
+            ),
             'findings': relationship(
                 FindingModel,
                 backref='endpoint',
@@ -212,6 +218,11 @@ def start_mappers():
     mapper_registry.map_imperatively(
         class_=HeaderModel,
         local_table=headers
+    )
+
+    mapper_registry.map_imperatively(
+        class_=RawBodyModel,
+        local_table=raw_body
     )
 
     mapper_registry.map_imperatively(

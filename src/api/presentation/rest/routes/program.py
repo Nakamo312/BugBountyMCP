@@ -7,7 +7,8 @@ from fastapi import APIRouter, HTTPException, status
 
 from api.application.dto.program import (ProgramCreateDTO,
                                          ProgramFullResponseDTO,
-                                         ProgramResponseDTO)
+                                         ProgramResponseDTO,
+                                         ProgramUpdateDTO)
 from api.application.services.program import ProgramService
 
 router = APIRouter(prefix="/programs", tags=["Programs"], route_class=DishkaRoute)
@@ -95,17 +96,49 @@ async def list_programs(
 
 
 @router.patch(
+    "/{program_id}",
+    response_model=ProgramFullResponseDTO,
+    summary="Update program",
+    description="Update program name, scope rules, and/or root inputs. All fields are optional."
+)
+async def update_program(
+    program_id: UUID,
+    update_dto: ProgramUpdateDTO,
+    program_service: FromDishka[ProgramService]
+) -> ProgramFullResponseDTO:
+    """
+    Update program with optional fields.
+
+    - **name**: New program name (optional)
+    - **scope_rules**: New scope rules (replaces all existing, optional)
+    - **root_inputs**: New root inputs (replaces all existing, optional)
+    """
+    try:
+        return await program_service.update_program(program_id, update_dto)
+    except NotFoundErr:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Program {program_id} not found"
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.patch(
     "/{program_id}/name",
     response_model=ProgramResponseDTO,
-    summary="Update program name",
-    description="Update program name only."
+    summary="Update program name only",
+    description="Update program name only (legacy endpoint, use PATCH /{program_id} instead)."
 )
 async def update_program_name(
     program_id: UUID,
     new_name: str,
     program_service: FromDishka[ProgramService]
 ) -> ProgramResponseDTO:
-    """Update program name"""
+    """Update program name (legacy)"""
     try:
         return await program_service.update_program_name(program_id, new_name)
     except NotFoundErr:

@@ -56,13 +56,19 @@ class KatanaCliRunner:
             "-known-files", "sitemapxml",
             "-f", "qurl",
             "-ef", "png,jpg,jpeg,gif,svg,ico,css,woff,woff2,ttf,eot,otf,mp4,mp3,avi,webm,flv,wav,pdf,zip,tar,gz,rar,7z,exe,dll,bin,dmg,iso",
+            "-j",  # JSON output format with request/response details
         ]
 
         if js_crawl:
             command.append("-jc")
 
         if headless:
-            command.extend(["-hl", "-nos", "-aff"])
+            command.extend([
+                "-hl",  # Headless mode
+                "-aff",  # Automatic form filling
+                "-xhr",  # Extract XHR requests
+                "-nos",  # No screenshots
+            ])
 
         logger.info("Starting Katana command for %d targets: %s", len(targets), " ".join(command))
 

@@ -166,6 +166,15 @@ headers = Table(
     CheckConstraint("value != ''", name='ck_headers_value_not_empty'),
 )
 
+raw_body = Table(
+    'raw_body',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('endpoint_id', UUID(), ForeignKey('endpoints.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('body_content', Text, nullable=False),
+    Index('idx_raw_body_endpoint', 'endpoint_id'),
+)
+
 # ==================== TYPE TABLES ====================
 
 vuln_types = Table(
