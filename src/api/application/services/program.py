@@ -28,7 +28,8 @@ class ProgramService:
                     id=uuid4(),
                     program_id=created_program.id,
                     rule_type=rule_dto.rule_type,
-                    pattern=rule_dto.pattern
+                    pattern=rule_dto.pattern,
+                    action=rule_dto.action
                 )
                 created_rule = await uow.scope_rules.create(rule)
                 scope_rules.append(created_rule)
@@ -56,7 +57,8 @@ class ProgramService:
                         id=rule.id,
                         program_id=rule.program_id,
                         rule_type=rule.rule_type,
-                        pattern=rule.pattern
+                        pattern=rule.pattern,
+                        action=rule.action
                     ) for rule in scope_rules
                 ],
                 root_inputs=[
@@ -88,7 +90,8 @@ class ProgramService:
                         id=rule.id,
                         program_id=rule.program_id,
                         rule_type=rule.rule_type,
-                        pattern=rule.pattern
+                        pattern=rule.pattern,
+                        action=rule.action
                     ) for rule in scope_rules
                 ],
                 root_inputs=[
@@ -161,17 +164,19 @@ class ProgramService:
                 id=uuid4(),
                 program_id=program_id,
                 rule_type=rule_dto.rule_type,
-                pattern=rule_dto.pattern
+                pattern=rule_dto.pattern,
+                action=rule_dto.action
             )
             created_rule = await uow.scope_rules.create(rule)
-            
+
             await uow.commit()
-            
+
             return ScopeRuleResponseDTO(
                 id=created_rule.id,
                 program_id=created_rule.program_id,
                 rule_type=created_rule.rule_type,
-                pattern=created_rule.pattern
+                pattern=created_rule.pattern,
+                action=created_rule.action
             )
     
     async def add_root_input(self, program_id: UUID, input_dto) -> RootInputResponseDTO:
