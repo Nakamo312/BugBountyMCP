@@ -84,7 +84,6 @@ class KatanaCliRunner:
                 import json
                 json_data = json.loads(line)
                 result_count += 1
-                logger.info("Katana completed: results=%d", result_count)
                 yield ProcessEvent(type="result", payload=json_data)
             except json.JSONDecodeError:
                 logger.warning("Non-JSON stdout line skipped: %r", line[:200])
