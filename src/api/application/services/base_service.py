@@ -286,7 +286,13 @@ class ScopeCheckMixin:
             True if matches
         """
         if rule.rule_type == RuleType.DOMAIN:
-            return domain == rule.pattern or domain.endswith(f".{rule.pattern}")
+            pattern = rule.pattern
+
+            if pattern.startswith("*."):
+                base_domain = pattern[2:]
+                return domain == base_domain or domain.endswith(f".{base_domain}")
+
+            return domain == pattern or domain.endswith(f".{pattern}")
 
         elif rule.rule_type == RuleType.REGEX:
             return bool(re.match(rule.pattern, target))

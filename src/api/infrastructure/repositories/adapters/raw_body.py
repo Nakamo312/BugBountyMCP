@@ -11,7 +11,7 @@ class SQLAlchemyRawBodyRepository(SQLAlchemyAbstractRepository, AbstractReposito
     """Repository for raw HTTP request bodies"""
 
     model = RawBodyModel
-    unique_fields = []
+    unique_fields = [("endpoint_id", "body_content")]
 
     async def ensure(
         self,
@@ -23,4 +23,8 @@ class SQLAlchemyRawBodyRepository(SQLAlchemyAbstractRepository, AbstractReposito
             body_content=body_content
         )
 
-        return await self.create(entity)
+        return await self.upsert(
+            entity,
+            conflict_fields=["endpoint_id", "body_content"],
+            update_fields=[]
+        )
