@@ -285,3 +285,43 @@ class TLSxBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
         if event.type == "result" and event.payload:
             return event.payload
         return None
+
+
+class SmapBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
+    """Batch processor for Smap port scan results"""
+
+    def __init__(self, settings: Settings):
+        super().__init__(settings)
+
+    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
+        return {
+            'min': 10,
+            'max': 100,
+            'timeout': 20.0
+        }
+
+    def _extract_item(self, event) -> Dict[str, Any] | None:
+        """Extract Smap result from event"""
+        if event.type == "result" and event.payload:
+            return event.payload
+        return None
+
+
+class Hakip2HostBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
+    """Batch processor for hakip2host reverse DNS/SSL results"""
+
+    def __init__(self, settings: Settings):
+        super().__init__(settings)
+
+    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
+        return {
+            'min': 50,
+            'max': 200,
+            'timeout': 15.0
+        }
+
+    def _extract_item(self, event) -> Dict[str, Any] | None:
+        """Extract hakip2host result from event"""
+        if event.type == "result" and event.payload:
+            return event.payload
+        return None

@@ -42,6 +42,7 @@ class QueueConfig:
         "ips_expanded": ENUMERATION_QUEUE,
         "cidr_sliced": ENUMERATION_QUEUE,
         "ips_aggregated": ENUMERATION_QUEUE,
+        "hakip2host_scan_requested": ENUMERATION_QUEUE,
 
         "dnsx_basic_scan_requested": VALIDATION_QUEUE,
         "dnsx_deep_scan_requested": VALIDATION_QUEUE,
@@ -71,6 +72,9 @@ class QueueConfig:
         "subjack_results_batch": ANALYSIS_QUEUE,
         "naabu_scan_requested": ANALYSIS_QUEUE,
         "naabu_results_batch": ANALYSIS_QUEUE,
+        "smap_scan_requested": ENUMERATION_QUEUE,
+        "smap_results": ENUMERATION_QUEUE,
+        "ports_discovered": ENUMERATION_QUEUE,
     }
 
     @classmethod

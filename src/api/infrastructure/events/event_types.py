@@ -23,6 +23,8 @@ class EventType(str, Enum):
     DNSX_BASIC_SCAN_REQUESTED = "dnsx_basic_scan_requested"
     DNSX_DEEP_SCAN_REQUESTED = "dnsx_deep_scan_requested"
     DNSX_PTR_SCAN_REQUESTED = "dnsx_ptr_scan_requested"
+    SMAP_SCAN_REQUESTED = "smap_scan_requested"
+    HAKIP2HOST_SCAN_REQUESTED = "hakip2host_scan_requested"
 
     SUBDOMAIN_DISCOVERED = "subdomain_discovered"
     DNSX_FILTERED_HOSTS = "dnsx_filtered_hosts"
@@ -47,3 +49,5 @@ class EventType(str, Enum):
     NAABU_RESULTS_BATCH = "naabu_results_batch"
     TLSX_RESULTS_BATCH = "tlsx_results_batch"
     CERT_SAN_DISCOVERED = "cert_san_discovered"
+    SMAP_RESULTS = "smap_results"
+    PORTS_DISCOVERED = "ports_discovered"

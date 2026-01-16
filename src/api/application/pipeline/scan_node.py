@@ -128,7 +128,7 @@ class ScanNode(Node):
                                     event=event_name,
                                     targets=batch,
                                     program_id=program_id,
-                                    confidence=0.5
+                                    confidence=0.9
                                 )
                                 self.logger.debug(
                                     f"Emitted {event_name}: {len(batch)} items"

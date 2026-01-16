@@ -31,6 +31,8 @@ from api.application.services.batch_processor import (
     NaabuBatchProcessor,
     TLSxBatchProcessor,
     MapCIDRBatchProcessor,
+    SmapBatchProcessor,
+    Hakip2HostBatchProcessor,
 )
 from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOfWork
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
@@ -63,6 +65,8 @@ from api.infrastructure.runners.asnmap_cli import ASNMapCliRunner
 from api.infrastructure.runners.mapcidr_cli import MapCIDRCliRunner
 from api.infrastructure.runners.naabu_cli import NaabuCliRunner
 from api.infrastructure.runners.tlsx_cli import TLSxCliRunner
+from api.infrastructure.runners.smap_cli import SmapCliRunner
+from api.infrastructure.runners.hakip2host_cli import Hakip2HostCliRunner
 from api.infrastructure.events.event_bus import EventBus
 from dishka import AsyncContainer
 
@@ -72,6 +76,8 @@ from api.infrastructure.runners.dnsx_runners import DNSxBasicRunner, DNSxDeepRun
 from api.infrastructure.runners.mapcidr_runners import MapCIDRExpandRunner
 from api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
 from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
+from api.application.pipeline.nodes.smap_node import SmapNode
+from api.application.pipeline.nodes.hakip2host_node import Hakip2HostNode
 
 class DatabaseProvider(Provider):
     scope = Scope.APP
@@ -227,6 +233,20 @@ class CLIRunnerProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
+    def get_smap_runner(self, settings: Settings) -> SmapCliRunner:
+        return SmapCliRunner(
+            smap_path=settings.get_tool_path("smap"),
+            timeout=600,
+        )
+
+    @provide(scope=Scope.APP)
+    def get_hakip2host_runner(self, settings: Settings) -> Hakip2HostCliRunner:
+        return Hakip2HostCliRunner(
+            hakip2host_path=settings.get_tool_path("hakip2host"),
+            timeout=300,
+        )
+
+    @provide(scope=Scope.APP)
     def get_mapcidr_expand_runner(self, mapcidr_runner: MapCIDRCliRunner) -> MapCIDRExpandRunner:
         return MapCIDRExpandRunner(mapcidr_runner)
 
@@ -294,6 +314,14 @@ class BatchProcessorProvider(Provider):
     @provide(scope=Scope.APP)
     def get_mapcidr_processor(self, settings: Settings) -> MapCIDRBatchProcessor:
         return MapCIDRBatchProcessor(settings)
+
+    @provide(scope=Scope.APP)
+    def get_smap_processor(self, settings: Settings) -> SmapBatchProcessor:
+        return SmapBatchProcessor(settings)
+
+    @provide(scope=Scope.APP)
+    def get_hakip2host_processor(self, settings: Settings) -> Hakip2HostBatchProcessor:
+        return Hakip2HostBatchProcessor(settings)
 
 
 class IngestorProvider(Provider):
@@ -738,7 +766,6 @@ class PipelineProvider(Provider):
             node_id="naabu",
             event_in={
                 EventType.NAABU_SCAN_REQUESTED,
-                EventType.IPS_EXPANDED,
             },
             event_out={},
             runner_type=NaabuCliRunner,
@@ -814,7 +841,6 @@ class PipelineProvider(Provider):
         dnsx_ptr_node = NodeFactory.create_scan_node(
             node_id="dnsx_ptr",
             event_in={
-                EventType.IPS_EXPANDED,
                 EventType.DNSX_PTR_SCAN_REQUESTED,
             },
             event_out={},
@@ -824,5 +850,25 @@ class PipelineProvider(Provider):
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(dnsx_ptr_node)
+
+        smap_node = SmapNode(
+            node_id="smap",
+            event_in={
+                EventType.SMAP_SCAN_REQUESTED,
+                EventType.CIDR_DISCOVERED,
+            },
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(smap_node)
+
+        hakip2host_node = Hakip2HostNode(
+            node_id="hakip2host",
+            event_in={
+                EventType.HAKIP2HOST_SCAN_REQUESTED,
+                EventType.IPS_EXPANDED,
+            },
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        registry.register(hakip2host_node)
 
         return registry
