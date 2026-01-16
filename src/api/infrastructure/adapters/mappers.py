@@ -127,15 +127,15 @@ def start_mappers():
         properties={
             'host': relationship(
                 HostModel,
-                backref='host_ip_links',
+                foreign_keys=[host_ips.c.host_id],
                 lazy='select',
-                overlaps="hosts,ips"
+                overlaps="host_ip_links,hosts,ips"
             ),
             'ip': relationship(
                 IPAddressModel,
-                backref='host_ip_links',
+                foreign_keys=[host_ips.c.ip_id],
                 lazy='select',
-                overlaps="hosts,ips"
+                overlaps="host_ip_links,hosts,ips"
             ),
         }
     )
