@@ -1,13 +1,14 @@
 from pydantic import BaseModel, ConfigDict
 from typing import List
 from uuid import UUID
-from api.domain.models import RuleType, InputType
+from api.domain.models import RuleType, InputType, ScopeAction
 
 
 class ScopeRuleCreateDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
     rule_type: RuleType
     pattern: str
+    action: ScopeAction = ScopeAction.INCLUDE
 
 
 class RootInputCreateDTO(BaseModel):
@@ -35,6 +36,7 @@ class ScopeRuleResponseDTO(BaseModel):
     program_id: UUID
     rule_type: RuleType
     pattern: str
+    action: ScopeAction
 
 
 class RootInputResponseDTO(BaseModel):
