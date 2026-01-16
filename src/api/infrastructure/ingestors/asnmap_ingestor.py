@@ -117,6 +117,11 @@ class ASNMapResultIngestor(BaseResultIngestor):
             if not cidr_str:
                 continue
 
+            # Skip IPv6 CIDRs (too large to scan)
+            if ":" in cidr_str:
+                logger.info(f"Skipping IPv6 CIDR (too large): {cidr_str}")
+                continue
+
             ip_count = self._calculate_ip_count(cidr_str)
 
             await uow.cidrs.ensure(
