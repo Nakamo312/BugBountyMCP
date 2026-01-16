@@ -52,6 +52,7 @@ from api.infrastructure.ingestors.dnsx_ingestor import DNSxResultIngestor
 from api.infrastructure.ingestors.subjack_ingestor import SubjackResultIngestor
 from api.infrastructure.ingestors.asnmap_ingestor import ASNMapResultIngestor
 from api.infrastructure.ingestors.naabu_ingestor import NaabuResultIngestor
+from api.infrastructure.ingestors.smap_ingestor import SmapResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 from api.infrastructure.runners.gau_cli import GAUCliRunner
@@ -76,7 +77,6 @@ from api.infrastructure.runners.dnsx_runners import DNSxBasicRunner, DNSxDeepRun
 from api.infrastructure.runners.mapcidr_runners import MapCIDRExpandRunner
 from api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
 from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
-from api.application.pipeline.nodes.smap_node import SmapNode
 from api.application.pipeline.nodes.hakip2host_node import Hakip2HostNode
 from api.application.pipeline.nodes.ffuf_node import FFUFNode
 
@@ -398,6 +398,14 @@ class IngestorProvider(Provider):
         settings: Settings
     ) -> NaabuResultIngestor:
         return NaabuResultIngestor(uow=naabu_uow, settings=settings)
+
+    @provide(scope=Scope.REQUEST)
+    def get_smap_ingestor(
+        self,
+        naabu_uow: SQLAlchemyNaabuUnitOfWork,
+        settings: Settings
+    ) -> SmapResultIngestor:
+        return SmapResultIngestor(uow=naabu_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
     def get_tlsx_ingestor(
@@ -848,12 +856,19 @@ class PipelineProvider(Provider):
         )
         registry.register(dnsx_ptr_node)
 
-        smap_node = SmapNode(
+        smap_node = NodeFactory.create_scan_node(
             node_id="smap",
             event_in={
                 EventType.SMAP_SCAN_REQUESTED,
                 EventType.CIDR_DISCOVERED,
             },
+            event_out={
+                EventType.IPS_EXPANDED: "ips",
+                EventType.SUBDOMAIN_DISCOVERED: "hostnames",
+            },
+            runner_type=SmapCliRunner,
+            processor_type=SmapBatchProcessor,
+            ingestor_type=SmapResultIngestor,
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
         registry.register(smap_node)
