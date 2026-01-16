@@ -105,7 +105,7 @@ class Hakip2HostNode(Node):
 
             if discovered_hostnames:
                 await ctx.emit(
-                    event=EventType.SUBDOMAIN_DISCOVERED,
+                    event=EventType.SUBDOMAIN_DISCOVERED.value,
                     targets=discovered_hostnames,
                     program_id=program_id,
                     confidence=0.85

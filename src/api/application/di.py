@@ -626,7 +626,6 @@ class PipelineProvider(Provider):
                 EventType.SUBDOMAIN_DISCOVERED,
                 EventType.GAU_DISCOVERED,
                 EventType.DNSX_FILTERED_HOSTS,
-                EventType.IPS_EXPANDED,
                 EventType.HTTPX_SCAN_REQUESTED,
             },
             event_out={
