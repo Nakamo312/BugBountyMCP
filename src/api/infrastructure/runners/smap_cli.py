@@ -49,7 +49,7 @@ class SmapCliRunner:
         command = [
             self.smap_path,
             "-iL", "-",
-            "-oJ -"
+            "-oJ", "-"
         ]
 
         stdin = "\n".join(targets)
