@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from api.domain.models import ScopeRuleModel
 from api.infrastructure.exception.exceptions import EntityNotFound
@@ -48,3 +48,9 @@ class SQLAlchemyScopeRuleRepository(SQLAlchemyAbstractRepository, ScopeRuleRepos
             select(self.model).where(self.model.program_id == program_id)
         )
         return list(result.scalars().all())
+
+    async def delete_by_program(self, program_id: UUID) -> None:
+        await self.session.execute(
+            delete(self.model).where(self.model.program_id == program_id)
+        )
+        await self.session.flush()
