@@ -142,6 +142,13 @@ class HeaderModel(AbstractModel):
     id: UUID = field(default_factory=uuid4)
 
 
+@dataclass
+class RawBodyModel(AbstractModel):
+    """Raw HTTP request body"""
+    endpoint_id: UUID
+    body_content: str
+    id: UUID = field(default_factory=uuid4)
+
 
 @dataclass
 class VulnTypeModel(AbstractModel):

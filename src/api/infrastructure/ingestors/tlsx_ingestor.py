@@ -72,6 +72,8 @@ class TLSxResultIngestor(BaseResultIngestor):
 
     async def _process_batch(self, uow: ProgramUnitOfWork, program_id: UUID, batch: List[dict[str, Any]]):
         """Process batch of TLSx results with scope filtering"""
+        from api.domain.models import HostModel
+
         for data in batch:
             ip_host = data.get("host") or data.get("ip")
             if not ip_host:
@@ -98,6 +100,15 @@ class TLSxResultIngestor(BaseResultIngestor):
 
                 if in_scope_domains:
                     self._in_scope_ips.add(ip_host)
+
+                    host_model = HostModel(
+                        host=ip_host,
+                        program_id=program_id,
+                        source="tlsx",
+                        discovery_method="cert_scan"
+                    )
+                    await uow.hosts.ensure(host_model, unique_fields=["host", "program_id"])
+
                     logger.debug(
                         f"IP {ip_host} is in-scope (cert domains: {in_scope_domains})"
                     )

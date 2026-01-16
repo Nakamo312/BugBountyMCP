@@ -6,6 +6,7 @@ from xml.dom import NotFoundErr
 from api.application.dto.program import (ProgramCreateDTO,
                                          ProgramFullResponseDTO,
                                          ProgramResponseDTO,
+                                         ProgramUpdateDTO,
                                          RootInputResponseDTO,
                                          ScopeRuleResponseDTO)
 from api.domain.models import ProgramModel, RootInputModel, ScopeRuleModel
@@ -126,17 +127,91 @@ class ProgramService:
                 ) for program in programs
             ]
     
+    async def update_program(self, program_id: UUID, dto: ProgramUpdateDTO) -> ProgramFullResponseDTO:
+        """
+        Update program with optional fields.
+
+        Args:
+            program_id: Program UUID
+            dto: Update DTO with optional name, scope_rules, root_inputs
+
+        Returns:
+            Updated program with all relations
+        """
+        async with self.uow as uow:
+            program = await uow.programs.get(program_id)
+            if not program:
+                raise NotFoundErr(f"Program {program_id} not found")
+
+            if dto.name is not None:
+                updated_program = program.copy(update={"name": dto.name})
+                program = await uow.programs.update(program_id, updated_program)
+
+            if dto.scope_rules is not None:
+                await uow.scope_rules.delete_by_program(program_id)
+
+                for rule_dto in dto.scope_rules:
+                    rule = ScopeRuleModel(
+                        id=uuid4(),
+                        program_id=program_id,
+                        rule_type=rule_dto.rule_type,
+                        pattern=rule_dto.pattern,
+                        action=rule_dto.action
+                    )
+                    await uow.scope_rules.create(rule)
+
+            if dto.root_inputs is not None:
+                await uow.root_inputs.delete_by_program(program_id)
+
+                for input_dto in dto.root_inputs:
+                    root_input = RootInputModel(
+                        id=uuid4(),
+                        program_id=program_id,
+                        value=input_dto.value,
+                        input_type=input_dto.input_type
+                    )
+                    await uow.root_inputs.create(root_input)
+
+            await uow.commit()
+
+            scope_rules = await uow.scope_rules.find_by_program(program_id)
+            root_inputs = await uow.root_inputs.find_by_program(program_id)
+
+            return ProgramFullResponseDTO(
+                program=ProgramResponseDTO(
+                    id=program.id,
+                    name=program.name
+                ),
+                scope_rules=[
+                    ScopeRuleResponseDTO(
+                        id=rule.id,
+                        program_id=rule.program_id,
+                        rule_type=rule.rule_type,
+                        pattern=rule.pattern,
+                        action=rule.action
+                    ) for rule in scope_rules
+                ],
+                root_inputs=[
+                    RootInputResponseDTO(
+                        id=input.id,
+                        program_id=input.program_id,
+                        value=input.value,
+                        input_type=input.input_type
+                    ) for input in root_inputs
+                ]
+            )
+
     async def update_program_name(self, program_id: UUID, new_name: str) -> ProgramResponseDTO:
         async with self.uow as uow:
             program = await uow.programs.get(program_id)
             if not program:
                 raise NotFoundErr(f"Program {program_id} not found")
-            
+
             updated_program = program.copy(update={"name": new_name})
             result = await uow.programs.update(program_id, updated_program)
-            
+
             await uow.commit()
-            
+
             return ProgramResponseDTO(
                 id=result.id,
                 name=result.name
