@@ -70,8 +70,14 @@ class SmapCliRunner:
 
             try:
                 data = json.loads(event.payload)
-                result_count += 1
-                yield ProcessEvent(type="result", payload=data)
+
+                if isinstance(data, list):
+                    for item in data:
+                        result_count += 1
+                        yield ProcessEvent(type="result", payload=item)
+                else:
+                    result_count += 1
+                    yield ProcessEvent(type="result", payload=data)
             except json.JSONDecodeError:
                 logger.debug(f"Non-JSON stdout line skipped: {event.payload}")
                 continue
