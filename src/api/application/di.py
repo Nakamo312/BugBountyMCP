@@ -78,6 +78,7 @@ from api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
 from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
 from api.application.pipeline.nodes.smap_node import SmapNode
 from api.application.pipeline.nodes.hakip2host_node import Hakip2HostNode
+from api.application.pipeline.nodes.ffuf_node import FFUFNode
 
 class DatabaseProvider(Provider):
     scope = Scope.APP
@@ -731,18 +732,15 @@ class PipelineProvider(Provider):
         )
         registry.register(subjack_node)
 
-        ffuf_node = NodeFactory.create_scan_node(
+        ffuf_node = FFUFNode(
             node_id="ffuf",
             event_in={
                 EventType.FFUF_SCAN_REQUESTED,
                 EventType.HOST_DISCOVERED,
             },
-            event_out={},
-            runner_type=FFUFCliRunner,
-            processor_type=None,
-            ingestor_type=FFUFResultIngestor,
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
         )
+        ffuf_node.set_context_factory(bus, container, settings)
         registry.register(ffuf_node)
 
         asnmap_node = NodeFactory.create_scan_node(
@@ -826,7 +824,7 @@ class PipelineProvider(Provider):
         dnsx_deep_node = NodeFactory.create_scan_node(
             node_id="dnsx_deep",
             event_in={
-                EventType.SUBDOMAIN_DISCOVERED,
+                EventType.HOST_DISCOVERED,
                 EventType.DNSX_DEEP_SCAN_REQUESTED,
             },
             event_out={},

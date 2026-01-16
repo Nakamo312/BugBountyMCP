@@ -32,6 +32,14 @@ class BaseResultIngestor(ABC):
             program_id: Target program identifier
             results: List of raw result dictionaries from scanner
         """
+        total_results = len(results)
+        successful_batches = 0
+        failed_batches = 0
+
+        logger.info(
+            f"{self.__class__.__name__}: Starting ingestion program={program_id} total_results={total_results}"
+        )
+
         async with self.uow as uow:
             for batch_index, batch in enumerate(self._chunks(results, self.batch_size)):
                 savepoint_name = f"batch_{batch_index}"
@@ -40,10 +48,19 @@ class BaseResultIngestor(ABC):
                 try:
                     await self._process_batch(uow, program_id, batch)
                     await uow.release_savepoint(savepoint_name)
+                    successful_batches += 1
                 except Exception as exc:
                     await uow.rollback_to_savepoint(savepoint_name)
-                    logger.error("Batch %d failed: %s", batch_index, exc)
+                    failed_batches += 1
+                    logger.error(
+                        f"{self.__class__.__name__}: Batch {batch_index} failed (size={len(batch)}): {exc}"
+                    )
             await uow.commit()
+
+        logger.info(
+            f"{self.__class__.__name__}: Ingestion completed program={program_id} "
+            f"total={total_results} batches_ok={successful_batches} batches_failed={failed_batches}"
+        )
 
     @abstractmethod
     async def _process_batch(self, uow, program_id: UUID, batch: List[Dict[str, Any]]):
