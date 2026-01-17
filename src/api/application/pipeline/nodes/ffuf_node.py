@@ -1,5 +1,6 @@
 """FFUF Node - directory/file fuzzing"""
 
+import asyncio
 import logging
 from typing import Dict, Any, Set
 from uuid import UUID
@@ -25,7 +26,8 @@ class FFUFNode(Node):
         self,
         node_id: str,
         event_in: Set[EventType],
-        max_parallelism: int = 1
+        max_parallelism: int = 1,
+        max_concurrent_scans: int = 5
     ):
         event_out = set()
         super().__init__(
@@ -35,6 +37,7 @@ class FFUFNode(Node):
             max_parallelism=max_parallelism
         )
         self.logger = logging.getLogger(f"node.{node_id}")
+        self._scan_semaphore = asyncio.Semaphore(max_concurrent_scans)
 
     def set_context_factory(self, bus, container, settings):
         """
@@ -76,14 +79,13 @@ class FFUFNode(Node):
         runner = await ctx.get_service(FFUFCliRunner)
         ingestor = await ctx.get_service(FFUFResultIngestor)
 
-        total_results = 0
+        async def fuzz_single_target(target_url: str) -> int:
+            """Fuzz a single target and return result count"""
+            if not isinstance(target_url, str):
+                self.logger.warning(f"Skipping non-string target: {target_url}")
+                return 0
 
-        try:
-            for target_url in targets:
-                if not isinstance(target_url, str):
-                    self.logger.warning(f"Skipping non-string target: {target_url}")
-                    continue
-
+            async with self._scan_semaphore:
                 self.logger.info(f"Fuzzing target: {target_url}")
 
                 results = []
@@ -93,12 +95,23 @@ class FFUFNode(Node):
 
                 if results:
                     await ingestor.ingest(program_id, results)
-                    total_results += len(results)
                     self.logger.info(f"Ingested {len(results)} results for {target_url}")
+                    return len(results)
+                return 0
+
+        try:
+            # Run all targets in parallel
+            result_counts = await asyncio.gather(
+                *[fuzz_single_target(url) for url in targets],
+                return_exceptions=True
+            )
+
+            total_results = sum(r for r in result_counts if isinstance(r, int))
+            failed = sum(1 for r in result_counts if isinstance(r, Exception))
 
             self.logger.info(
                 f"Fuzzing completed: node={self.node_id} program={program_id} "
-                f"urls={len(targets)} total_results={total_results}"
+                f"urls={len(targets)} total_results={total_results} failed={failed}"
             )
 
         except Exception as exc:

@@ -6,6 +6,7 @@ from typing import Any
 
 from api.domain.models import IPAddressModel, ServiceModel
 from api.infrastructure.unit_of_work.interfaces.naabu import AbstractNaabuUnitOfWork
+from api.infrastructure.ingestors.ingest_result import IngestResult
 from api.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -37,17 +38,20 @@ class NaabuResultIngestor:
         self,
         program_id: UUID,
         results: list[dict[str, Any]]
-    ) -> None:
+    ) -> IngestResult:
         """
         Ingest Naabu port scan results into database.
 
         Args:
             program_id: Program UUID for scope association
             results: List of Naabu JSON results
+
+        Returns:
+            IngestResult (empty for naabu)
         """
         if not results:
             logger.info("No Naabu results to ingest")
-            return
+            return IngestResult()
 
         logger.info(
             f"Starting Naabu ingestion: program={program_id} results={len(results)} "
@@ -94,6 +98,8 @@ class NaabuResultIngestor:
             f"processed={processed} skipped={skipped} failed={failed} total={len(results)}"
         )
 
+        return IngestResult()
+
     async def _process_batch(
         self,
         batch: list[dict[str, Any]],
@@ -123,13 +129,10 @@ class NaabuResultIngestor:
                     skipped += 1
                     continue
 
-                ip_model = IPAddressModel(
-                    address=ip_address,
-                    program_id=program_id
-                )
                 ip_obj = await self.uow.ip_addresses.ensure(
-                    ip_model,
-                    unique_fields=["address", "program_id"]
+                    program_id=program_id,
+                    address=ip_address,
+                    in_scope=True
                 )
 
                 # Map protocol to scheme: https for port 443, http for others

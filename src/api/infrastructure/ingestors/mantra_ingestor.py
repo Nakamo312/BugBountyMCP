@@ -4,6 +4,7 @@ from uuid import UUID
 from urllib.parse import urlparse
 
 from api.infrastructure.unit_of_work.interfaces.mantra import MantraUnitOfWork
+from api.infrastructure.ingestors.ingest_result import IngestResult
 
 logger = logging.getLogger(__name__)
 
@@ -17,13 +18,16 @@ class MantraResultIngestor:
     def __init__(self, uow: MantraUnitOfWork):
         self.uow = uow
 
-    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]):
+    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
         """
         Ingest Mantra results batch.
 
         Args:
             program_id: Target program ID
             results: List of dicts with 'url' and 'secret' keys
+
+        Returns:
+            IngestResult (empty - secrets stored in DB)
         """
         async with self.uow:
             try:
@@ -53,6 +57,8 @@ class MantraResultIngestor:
                     f"Mantra ingestion completed: program={program_id} "
                     f"ingested={ingested} skipped={skipped}"
                 )
+
+                return IngestResult()
 
             except Exception as e:
                 logger.error(f"Mantra ingestion failed: program={program_id} error={e}")

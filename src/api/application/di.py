@@ -24,6 +24,7 @@ from api.application.services.batch_processor import (
     HTTPXBatchProcessor,
     SubfinderBatchProcessor,
     GAUBatchProcessor,
+    WaymoreBatchProcessor,
     KatanaBatchProcessor,
     DNSxBatchProcessor,
     SubjackBatchProcessor,
@@ -53,9 +54,11 @@ from api.infrastructure.ingestors.subjack_ingestor import SubjackResultIngestor
 from api.infrastructure.ingestors.asnmap_ingestor import ASNMapResultIngestor
 from api.infrastructure.ingestors.naabu_ingestor import NaabuResultIngestor
 from api.infrastructure.ingestors.smap_ingestor import SmapResultIngestor
+from api.infrastructure.ingestors.waymore_ingestor import WaymoreResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 from api.infrastructure.runners.gau_cli import GAUCliRunner
+from api.infrastructure.runners.waymore_cli import WaymoreCliRunner
 from api.infrastructure.runners.katana_cli import KatanaCliRunner
 from api.infrastructure.runners.linkfinder_cli import LinkFinderCliRunner
 from api.infrastructure.runners.mantra_cli import MantraCliRunner
@@ -726,6 +729,21 @@ class PipelineProvider(Provider):
         )
         registry.register(gau_node)
 
+        waymore_node = NodeFactory.create_scan_node(
+            node_id="waymore",
+            event_in={
+                EventType.SUBDOMAIN_DISCOVERED,
+            },
+            event_out={
+                EventType.GAU_DISCOVERED: "urls",
+            },
+            runner_type=WaymoreCliRunner,
+            processor_type=WaymoreBatchProcessor,
+            ingestor_type=WaymoreResultIngestor,
+            max_parallelism=2
+        )
+        registry.register(waymore_node)
+
         subjack_node = NodeFactory.create_scan_node(
             node_id="subjack",
             event_in={
@@ -746,7 +764,8 @@ class PipelineProvider(Provider):
                 EventType.FFUF_SCAN_REQUESTED,
                 EventType.HOST_DISCOVERED,
             },
-            max_parallelism=3
+            max_parallelism=3,
+            max_concurrent_scans=5
         )
         ffuf_node.set_context_factory(bus, container, settings)
         registry.register(ffuf_node)

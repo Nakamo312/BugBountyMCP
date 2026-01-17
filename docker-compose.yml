@@ -76,7 +76,8 @@ services:
       - ${HOST_SECLISTS:-/usr/share/seclists}:/usr/share/seclists:ro
       - ${HOST_WORDLISTS:-/usr/share/wordlists}:/usr/share/wordlists:ro
       - ${HOST_USER_CONFIG:-/home/appuser/.config}:/home/appuser/.config:ro
-      - ${HOST_SUBJACK:-/usr/share/subjack}:/usr/share/subjack:ro  
+      - ${HOST_SUBJACK:-/usr/share/subjack}:/usr/share/subjack:ro
+      - katana_browsers:/home/appuser/.config/katana  
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,3 +87,4 @@ services:
 
 volumes:
   postgres_data:
+  katana_browsers:
