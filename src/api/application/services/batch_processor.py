@@ -118,23 +118,6 @@ class LinkFinderBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
         return None
 
 
-class WaymoreBatchProcessor(BaseBatchProcessor[str]):
-    """Batch processor for Waymore URL results"""
-
-    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
-        return {
-            'min': 100,
-            'max': 500,
-            'timeout': 10.0
-        }
-
-    def _extract_item(self, event) -> str | None:
-        """Extract URL string from event"""
-        if event.type == "result" and event.payload:
-            return event.payload
-        return None
-
-
 class MapCIDRBatchProcessor(BaseBatchProcessor[str]):
     """Batch processor for MapCIDR results"""
 
@@ -225,7 +208,7 @@ class GAUBatchProcessor(BaseBatchProcessor[str]):
 
     def _extract_item(self, event, seen_urls: Set[str]) -> str | None:
         """Extract URL from event with deduplication"""
-        if event.type != "url":
+        if event.type != "result":
             return None
 
         url = event.payload
@@ -309,7 +292,7 @@ class WaymoreBatchProcessor(BaseBatchProcessor[str]):
 
     def _extract_item(self, event, seen_urls: Set[str]) -> str | None:
         """Extract URL from event with deduplication"""
-        if event.type != "url":
+        if event.type != "result":
             return None
 
         url = event.payload
