@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
+from api.infrastructure.ingestors.ingest_result import IngestResult
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ class FFUFResultIngestor:
     def __init__(self, uow: HTTPXUnitOfWork):
         self.uow = uow
 
-    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]):
+    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
         """
         Ingest FFUF results batch.
 
@@ -105,6 +106,8 @@ class FFUFResultIngestor:
                     f"FFUF ingestion completed: program={program_id} "
                     f"ingested={ingested} skipped={skipped}"
                 )
+
+                return IngestResult()
 
             except Exception as e:
                 logger.error(f"FFUF ingestion failed: program={program_id} error={e}")
