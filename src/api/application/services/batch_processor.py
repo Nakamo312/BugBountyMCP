@@ -202,6 +202,23 @@ class KatanaBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
         return None
 
 
+class FFUFBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
+    """Batch processor for FFUF fuzzing results"""
+
+    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
+        return {
+            'min': 10,
+            'max': 50,
+            'timeout': 5.0
+        }
+
+    def _extract_item(self, event) -> Dict[str, Any] | None:
+        """Extract FFUF result from event"""
+        if event.type == "result" and event.payload:
+            return event.payload
+        return None
+
+
 class DNSxBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
     """Batch processor for DNSx results"""
 

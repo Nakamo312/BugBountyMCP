@@ -661,7 +661,7 @@ class PipelineProvider(Provider):
             runner_type=KatanaCliRunner,
             processor_type=KatanaBatchProcessor,
             ingestor_type=KatanaResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
+            max_parallelism=2,
             execution_delay=settings.ORCHESTRATOR_SCAN_DELAY
         )
         registry.register(katana_node)
@@ -678,7 +678,7 @@ class PipelineProvider(Provider):
             runner_type=LinkFinderCliRunner,
             processor_type=None,
             ingestor_type=LinkFinderResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+            max_parallelism=3
         )
         registry.register(linkfinder_node)
 
@@ -746,7 +746,7 @@ class PipelineProvider(Provider):
                 EventType.FFUF_SCAN_REQUESTED,
                 EventType.HOST_DISCOVERED,
             },
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+            max_parallelism=3
         )
         ffuf_node.set_context_factory(bus, container, settings)
         registry.register(ffuf_node)
