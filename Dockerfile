@@ -35,6 +35,8 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+RUN pip install --no-cache-dir waymore
+
 RUN git clone https://github.com/GerbenJavado/LinkFinder.git /opt/linkfinder && \
     cd /opt/linkfinder && \
     pip install -r requirements.txt && \

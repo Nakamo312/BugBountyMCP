@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package katana;
+
+service KatanaCrawler {
+  rpc CrawlURLs(stream CrawlRequest) returns (stream CrawlResult);
+}
+
+message CrawlRequest {
+  repeated string targets = 1;
+  int32 depth = 2;
+}
+
+message CrawlResult {
+  string type = 1;
+  string json_data = 2;
+  string error = 3;
+}

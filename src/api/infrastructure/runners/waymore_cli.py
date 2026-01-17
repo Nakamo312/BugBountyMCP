@@ -45,8 +45,11 @@ class WaymoreCliRunner:
             self.waymore_path,
             "-i", "-",
             "-mode", "U",
+            "-oU", "-",
             "--stream",
             "-xcc",
+            "-fc", "404,410,429,500,502,503",
+            "-t", "30",
         ]
 
         logger.info(
