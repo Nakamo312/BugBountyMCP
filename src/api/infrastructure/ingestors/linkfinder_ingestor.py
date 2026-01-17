@@ -1,6 +1,6 @@
 import re
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 from uuid import UUID
 from urllib.parse import urlparse, parse_qs
 
@@ -9,6 +9,7 @@ from api.domain.models import ScopeRuleModel
 from api.domain.enums import RuleType
 from api.infrastructure.unit_of_work.interfaces.linkfinder import LinkFinderUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
+from api.infrastructure.ingestors.ingest_result import IngestResult
 
 logger = logging.getLogger(__name__)
 
@@ -23,49 +24,49 @@ class LinkFinderResultIngestor:
         self.uow = uow
         self.settings = settings
 
-    async def ingest(self, program_id: UUID, result: Dict[str, Any]):
+    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
         """
-        Ingest LinkFinder result with scope validation.
+        Ingest LinkFinder results with scope validation.
 
         Args:
             program_id: Target program ID
-            result: LinkFinder result containing source_js, urls, host
+            results: List of LinkFinder results containing source_js, urls, host
         """
         async with self.uow:
             try:
                 scope_rules = await self.uow.scope_rules.find_by_program(program_id)
-
-                urls = result.get("urls", [])
-                host_name = result.get("host")
-
-                if not urls or not host_name:
-                    return
-
-                logger.debug(
-                    f"Processing LinkFinder result: program={program_id} "
-                    f"source={result.get('source_js')} urls={len(urls)}"
-                )
-
-                host = await self.uow.hosts.ensure(program_id=program_id, host=host_name)
-
-                host_ip_records = await self.uow.host_ips.find_many(filters={"host_id": host.id}, limit=1)
-                if not host_ip_records:
-                    logger.debug(f"No IP found for host {host_name}, skipping")
-                    return
-
-                ip = await self.uow.ips.get(host_ip_records[0].ip_id)
-                if not ip:
-                    return
-
                 in_scope_count = 0
                 out_of_scope_count = 0
 
-                for url in urls:
-                    if self._is_in_scope(url, scope_rules):
-                        await self._ingest_url(url, host, ip)
-                        in_scope_count += 1
-                    else:
-                        out_of_scope_count += 1
+                for result in results:
+                    urls = result.get("urls", [])
+                    host_name = result.get("host")
+
+                    if not urls or not host_name:
+                        continue
+
+                    logger.debug(
+                        f"Processing LinkFinder result: program={program_id} "
+                        f"source={result.get('source_js')} urls={len(urls)}"
+                    )
+
+                    host = await self.uow.hosts.ensure(program_id=program_id, host=host_name)
+
+                    host_ip_records = await self.uow.host_ips.find_many(filters={"host_id": host.id}, limit=1)
+                    if not host_ip_records:
+                        logger.debug(f"No IP found for host {host_name}, skipping")
+                        continue
+
+                    ip = await self.uow.ips.get(host_ip_records[0].ip_id)
+                    if not ip:
+                        continue
+
+                    for url in urls:
+                        if self._is_in_scope(url, scope_rules):
+                            await self._ingest_url(url, host, ip)
+                            in_scope_count += 1
+                        else:
+                            out_of_scope_count += 1
 
                 await self.uow.commit()
 
@@ -73,6 +74,8 @@ class LinkFinderResultIngestor:
                     f"LinkFinder ingestion completed: program={program_id} "
                     f"in_scope={in_scope_count} out_of_scope={out_of_scope_count}"
                 )
+
+                return IngestResult()
 
             except Exception as e:
                 logger.error(f"LinkFinder ingestion failed: program={program_id} error={e}")

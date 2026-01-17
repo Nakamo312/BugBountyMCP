@@ -148,9 +148,13 @@ class KatanaResultIngestor(BaseResultIngestor):
         if not body:
             return
 
+        import hashlib
+        body_hash = hashlib.sha256(body.encode()).hexdigest()
+
         await uow.raw_bodies.ensure(
             endpoint_id=endpoint.id,
             body_content=body,
+            body_hash=body_hash,
         )
 
     async def _process_headers(

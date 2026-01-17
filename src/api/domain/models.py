@@ -149,6 +149,7 @@ class RawBodyModel(AbstractModel):
     """Raw HTTP request body"""
     endpoint_id: UUID
     body_content: str
+    body_hash: str
     id: UUID = field(default_factory=uuid4)
 
 

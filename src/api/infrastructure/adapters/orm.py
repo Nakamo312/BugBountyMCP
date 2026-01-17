@@ -174,8 +174,9 @@ raw_body = Table(
     Column('id', UUID(), primary_key=True, default=uuid.uuid4),
     Column('endpoint_id', UUID(), ForeignKey('endpoints.id', ondelete='CASCADE'), nullable=False, index=True),
     Column('body_content', Text, nullable=False),
+    Column('body_hash', String(64), nullable=False),
     Index('idx_raw_body_endpoint', 'endpoint_id'),
-    UniqueConstraint('endpoint_id', 'body_content', name='uq_raw_body_endpoint_content'),
+    UniqueConstraint('endpoint_id', 'body_hash', name='uq_raw_body_endpoint_hash'),
 )
 
 # ==================== TYPE TABLES ====================
