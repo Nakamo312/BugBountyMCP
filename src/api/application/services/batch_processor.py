@@ -84,6 +84,57 @@ class BaseBatchProcessor(ABC, Generic[T]):
         pass
 
 
+class MantraBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
+    """Batch processor for Mantra secret scanning results"""
+
+    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
+        return {
+            'min': 10,
+            'max': 50,
+            'timeout': 5.0
+        }
+
+    def _extract_item(self, event) -> Dict[str, Any] | None:
+        """Extract secret result from event"""
+        if event.type == "result" and event.payload:
+            return event.payload
+        return None
+
+
+class LinkFinderBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
+    """Batch processor for LinkFinder URL discovery results"""
+
+    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
+        return {
+            'min': 5,
+            'max': 20,
+            'timeout': 10.0
+        }
+
+    def _extract_item(self, event) -> Dict[str, Any] | None:
+        """Extract LinkFinder result from event"""
+        if event.type == "result" and event.payload:
+            return event.payload
+        return None
+
+
+class WaymoreBatchProcessor(BaseBatchProcessor[str]):
+    """Batch processor for Waymore URL results"""
+
+    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
+        return {
+            'min': 100,
+            'max': 500,
+            'timeout': 10.0
+        }
+
+    def _extract_item(self, event) -> str | None:
+        """Extract URL string from event"""
+        if event.type == "result" and event.payload:
+            return event.payload
+        return None
+
+
 class MapCIDRBatchProcessor(BaseBatchProcessor[str]):
     """Batch processor for MapCIDR results"""
 
@@ -217,6 +268,56 @@ class FFUFBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
         if event.type == "result" and event.payload:
             return event.payload
         return None
+
+
+class WaymoreBatchProcessor(BaseBatchProcessor[str]):
+    """Batch processor for Waymore URLs with deduplication"""
+
+    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
+        return {
+            'min': 500,
+            'max': 1000,
+            'timeout': 20.0
+        }
+
+    async def batch_stream(self, stream: AsyncIterator) -> AsyncIterator[List[str]]:
+        """Collect URLs with per-scan deduplication"""
+        batch: List[str] = []
+        last_batch_time = asyncio.get_event_loop().time()
+        seen_urls: Set[str] = set()
+
+        async for event in stream:
+            item = self._extract_item(event, seen_urls)
+            if item is None:
+                continue
+
+            batch.append(item)
+            current_time = asyncio.get_event_loop().time()
+            time_elapsed = current_time - last_batch_time
+
+            if len(batch) >= self.batch_size_max:
+                yield batch
+                batch = []
+                last_batch_time = current_time
+            elif len(batch) >= self.batch_size_min and time_elapsed >= self.batch_timeout:
+                yield batch
+                batch = []
+                last_batch_time = current_time
+
+        if batch:
+            yield batch
+
+    def _extract_item(self, event, seen_urls: Set[str]) -> str | None:
+        """Extract URL from event with deduplication"""
+        if event.type != "url":
+            return None
+
+        url = event.payload
+        if url in seen_urls:
+            return None
+
+        seen_urls.add(url)
+        return url
 
 
 class DNSxBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):

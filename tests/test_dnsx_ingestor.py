@@ -40,8 +40,8 @@ def settings():
 
 
 @pytest.fixture
-def dnsx_ingestor(dnsx_uow, mock_bus, settings):
-    return DNSxResultIngestor(dnsx_uow, mock_bus, settings)
+def dnsx_ingestor(dnsx_uow, settings):
+    return DNSxResultIngestor(dnsx_uow, settings)
 
 
 @pytest.mark.asyncio

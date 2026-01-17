@@ -20,11 +20,11 @@ def mock_event_bus():
 
 
 @pytest.fixture
-def httpx_ingestor(mock_uow, mock_event_bus, settings):
+def httpx_ingestor(mock_uow, settings):
     mock_uow.hosts.get_by_fields = AsyncMock(return_value=None)
     mock_uow.scope_rules = AsyncMock()
     mock_uow.scope_rules.find_by_program = AsyncMock(return_value=[])
-    return HTTPXResultIngestor(uow=mock_uow, bus=mock_event_bus, settings=settings)
+    return HTTPXResultIngestor(uow=mock_uow, settings=settings)
 
 
 @pytest.mark.asyncio
@@ -259,18 +259,6 @@ async def test_process_record_skips_existing_host(httpx_ingestor, mock_uow, samp
 
 
 @pytest.mark.asyncio
-async def test_publish_new_hosts_publishes_events(httpx_ingestor, mock_event_bus, sample_program):
-    """Test _publish_new_hosts publishes events to EventBus"""
-    hosts = ["https://host1.com", "https://host2.com", "https://host3.com"]
-
-    await httpx_ingestor._publish_new_hosts(sample_program.id, hosts)
-
-    assert mock_event_bus.publish.called
-    # Should publish at least one batch
-    assert mock_event_bus.publish.call_count >= 1
-
-
-@pytest.mark.asyncio
 async def test_is_js_file_detects_js_extension(httpx_ingestor):
     """Test _is_js_file detects .js extension"""
     assert httpx_ingestor._is_js_file("https://example.com/app.js") is True
@@ -330,8 +318,8 @@ async def test_process_batch_publishes_live_js_files(httpx_ingestor, mock_uow, m
 
 
 @pytest.mark.asyncio
-async def test_ingest_publishes_js_files_after_processing(httpx_ingestor, mock_uow, mock_event_bus, sample_program, sample_host, sample_ip, sample_service):
-    """Test ingest publishes JS files after all batches processed"""
+async def test_ingest_returns_js_files_in_result(httpx_ingestor, mock_uow, sample_program, sample_host, sample_ip, sample_service):
+    """Test ingest returns discovered JS files in IngestResult"""
     endpoint = EndpointModel(id=uuid4(), host_id=sample_host.id, service_id=sample_service.id, path="/", normalized_path="/", methods=[])
 
     mock_uow.hosts.get_by_fields = AsyncMock(return_value=None)
@@ -344,6 +332,7 @@ async def test_ingest_publishes_js_files_after_processing(httpx_ingestor, mock_u
     mock_uow.commit = AsyncMock()
     mock_uow.create_savepoint = AsyncMock()
     mock_uow.release_savepoint = AsyncMock()
+    mock_uow.scope_rules.find_by_program = AsyncMock(return_value=[])
     mock_uow.__aenter__ = AsyncMock(return_value=mock_uow)
     mock_uow.__aexit__ = AsyncMock(return_value=None)
 
@@ -351,12 +340,7 @@ async def test_ingest_publishes_js_files_after_processing(httpx_ingestor, mock_u
         {"host": "example.com", "url": "https://example.com/app.js", "status_code": 200, "host_ip": "1.2.3.4", "scheme": "https", "port": 443, "path": "/app.js"},
     ]
 
-    await httpx_ingestor.ingest(sample_program.id, results)
+    ingest_result = await httpx_ingestor.ingest(sample_program.id, results)
 
-    # Check that JS files event was published
-    js_publish_calls = [
-        call for call in mock_event_bus.publish.call_args_list
-        if call[0][0].value == "js_files_discovered"
-    ]
-    assert len(js_publish_calls) == 1
-    assert js_publish_calls[0][0][1]["js_files"] == ["https://example.com/app.js"]
+    # Check that JS files are returned in IngestResult
+    assert "https://example.com/app.js" in ingest_result.js_files

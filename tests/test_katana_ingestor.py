@@ -46,8 +46,8 @@ def mock_event_bus():
 
 
 @pytest.fixture
-def katana_ingestor(mock_katana_uow, settings, mock_event_bus):
-    return KatanaResultIngestor(uow=mock_katana_uow, settings=settings, bus=mock_event_bus)
+def katana_ingestor(mock_katana_uow, settings):
+    return KatanaResultIngestor(uow=mock_katana_uow, settings=settings)
 
 
 @pytest.mark.asyncio
@@ -329,76 +329,3 @@ async def test_is_js_file_rejects_non_js_files(katana_ingestor):
     assert katana_ingestor._is_js_file("https://example.com/json") is False
 
 
-@pytest.mark.asyncio
-async def test_process_batch_publishes_js_files(katana_ingestor, mock_katana_uow, mock_event_bus, sample_program, sample_host, sample_ip, sample_service):
-    """Test _process_batch publishes discovered JS files"""
-    host_ip_model = HostIPModel(id=uuid4(), host_id=sample_host.id, ip_id=sample_ip.id, source="katana")
-    endpoint = EndpointModel(
-        id=uuid4(),
-        host_id=sample_host.id,
-        service_id=sample_service.id,
-        path="/app.js",
-        normalized_path="/app.js",
-        methods=[]
-    )
-
-    mock_katana_uow.hosts.ensure = AsyncMock(return_value=sample_host)
-    mock_katana_uow.host_ips.find_many = AsyncMock(return_value=[host_ip_model])
-    mock_katana_uow.ips.get = AsyncMock(return_value=sample_ip)
-    mock_katana_uow.services.get_by_fields = AsyncMock(return_value=sample_service)
-    mock_katana_uow.endpoints.ensure = AsyncMock(return_value=endpoint)
-    mock_katana_uow.input_parameters.ensure = AsyncMock()
-    mock_katana_uow.headers.ensure = AsyncMock()
-
-    batch = [
-        {
-            "request": {"endpoint": "https://example.com/app.js", "method": "GET"},
-            "response": {"status_code": 200, "headers": {}}
-        },
-        {
-            "request": {"endpoint": "https://example.com/bundle.js?v=1", "method": "GET"},
-            "response": {"status_code": 200, "headers": {}}
-        },
-        {
-            "request": {"endpoint": "https://example.com/api/users", "method": "GET"},
-            "response": {"status_code": 200, "headers": {}}
-        }
-    ]
-
-    await katana_ingestor._process_batch(mock_katana_uow, sample_program.id, batch)
-
-    mock_event_bus.publish.assert_called_once()
-    call_args = mock_event_bus.publish.call_args[0]
-    assert call_args[0].value == "js_files_discovered"
-    assert len(call_args[1]["js_files"]) == 2
-    assert "https://example.com/app.js" in call_args[1]["js_files"]
-    assert "https://example.com/bundle.js?v=1" in call_args[1]["js_files"]
-
-
-@pytest.mark.asyncio
-async def test_process_batch_does_not_publish_if_no_js_files(katana_ingestor, mock_katana_uow, mock_event_bus, sample_program, sample_host, sample_ip, sample_service):
-    """Test _process_batch does not publish if no JS files found"""
-    host_ip_model = HostIPModel(id=uuid4(), host_id=sample_host.id, ip_id=sample_ip.id, source="katana")
-
-    mock_katana_uow.hosts.ensure = AsyncMock(return_value=sample_host)
-    mock_katana_uow.host_ips.find_many = AsyncMock(return_value=[host_ip_model])
-    mock_katana_uow.ips.get = AsyncMock(return_value=sample_ip)
-    mock_katana_uow.services.get_by_fields = AsyncMock(return_value=sample_service)
-    mock_katana_uow.endpoints.ensure = AsyncMock()
-    mock_katana_uow.input_parameters.ensure = AsyncMock()
-    mock_katana_uow.headers.ensure = AsyncMock()
-
-    batch = [
-        {
-            "request": {"endpoint": "https://example.com/api/users", "method": "GET"},
-            "response": {"status_code": 200, "headers": {}}
-        },
-        {
-            "request": {"endpoint": "https://example.com/style.css", "method": "GET"},
-            "response": {"status_code": 200, "headers": {}}
-        }
-    ]
-
-    await katana_ingestor._process_batch(mock_katana_uow, sample_program.id, batch)
-
-    mock_event_bus.publish.assert_not_called()

@@ -209,7 +209,7 @@ async def test_is_in_scope_invalid_url(linkfinder_ingestor):
 @pytest.mark.asyncio
 async def test_ingest_filters_out_of_scope_urls(linkfinder_ingestor, mock_linkfinder_uow, sample_program, sample_host, sample_ip):
     """Test ingest filters URLs not matching scope"""
-    result = {
+    results = [{
         "source_js": "https://example.com/app.js",
         "urls": [
             "https://example.com/api/users",
@@ -217,7 +217,7 @@ async def test_ingest_filters_out_of_scope_urls(linkfinder_ingestor, mock_linkfi
             "https://api.example.com/products"
         ],
         "host": "example.com"
-    }
+    }]
 
     scope_rules = [
         ScopeRuleModel(
@@ -239,7 +239,7 @@ async def test_ingest_filters_out_of_scope_urls(linkfinder_ingestor, mock_linkfi
     mock_linkfinder_uow.endpoints.ensure = AsyncMock()
     mock_linkfinder_uow.input_parameters.ensure = AsyncMock()
 
-    await linkfinder_ingestor.ingest(sample_program.id, result)
+    await linkfinder_ingestor.ingest(sample_program.id, results)
 
     # Should only ingest 2 URLs (example.com and api.example.com), external.com filtered out
     assert mock_linkfinder_uow.endpoints.ensure.call_count == 2
@@ -248,14 +248,14 @@ async def test_ingest_filters_out_of_scope_urls(linkfinder_ingestor, mock_linkfi
 @pytest.mark.asyncio
 async def test_ingest_handles_missing_host(linkfinder_ingestor, mock_linkfinder_uow, sample_program):
     """Test ingest skips results without host"""
-    result = {
+    results = [{
         "source_js": "https://example.com/app.js",
         "urls": ["https://example.com/api"]
-    }
+    }]
 
     mock_linkfinder_uow.scope_rules.find_by_program = AsyncMock(return_value=[])
 
-    await linkfinder_ingestor.ingest(sample_program.id, result)
+    await linkfinder_ingestor.ingest(sample_program.id, results)
 
     mock_linkfinder_uow.hosts.ensure.assert_not_called()
 
@@ -263,14 +263,14 @@ async def test_ingest_handles_missing_host(linkfinder_ingestor, mock_linkfinder_
 @pytest.mark.asyncio
 async def test_ingest_handles_missing_urls(linkfinder_ingestor, mock_linkfinder_uow, sample_program):
     """Test ingest skips results without URLs"""
-    result = {
+    results = [{
         "source_js": "https://example.com/app.js",
         "host": "example.com"
-    }
+    }]
 
     mock_linkfinder_uow.scope_rules.find_by_program = AsyncMock(return_value=[])
 
-    await linkfinder_ingestor.ingest(sample_program.id, result)
+    await linkfinder_ingestor.ingest(sample_program.id, results)
 
     mock_linkfinder_uow.hosts.ensure.assert_not_called()
 
@@ -278,17 +278,17 @@ async def test_ingest_handles_missing_urls(linkfinder_ingestor, mock_linkfinder_
 @pytest.mark.asyncio
 async def test_ingest_skips_if_no_host_ip_mapping(linkfinder_ingestor, mock_linkfinder_uow, sample_program, sample_host):
     """Test ingest skips if host has no IP mapping"""
-    result = {
+    results = [{
         "source_js": "https://example.com/app.js",
         "urls": ["https://example.com/api"],
         "host": "example.com"
-    }
+    }]
 
     mock_linkfinder_uow.scope_rules.find_by_program = AsyncMock(return_value=[])
     mock_linkfinder_uow.hosts.ensure = AsyncMock(return_value=sample_host)
     mock_linkfinder_uow.host_ips.find_many = AsyncMock(return_value=[])
 
-    await linkfinder_ingestor.ingest(sample_program.id, result)
+    await linkfinder_ingestor.ingest(sample_program.id, results)
 
     mock_linkfinder_uow.ips.get.assert_not_called()
     mock_linkfinder_uow.endpoints.ensure.assert_not_called()
@@ -297,11 +297,11 @@ async def test_ingest_skips_if_no_host_ip_mapping(linkfinder_ingestor, mock_link
 @pytest.mark.asyncio
 async def test_ingest_commits_transaction(linkfinder_ingestor, mock_linkfinder_uow, sample_program, sample_host, sample_ip):
     """Test ingest commits transaction after processing"""
-    result = {
+    results = [{
         "source_js": "https://example.com/app.js",
         "urls": ["https://example.com/api"],
         "host": "example.com"
-    }
+    }]
 
     host_ip_model = HostIPModel(id=uuid4(), host_id=sample_host.id, ip_id=sample_ip.id, source="linkfinder")
 
@@ -313,7 +313,7 @@ async def test_ingest_commits_transaction(linkfinder_ingestor, mock_linkfinder_u
     mock_linkfinder_uow.endpoints.ensure = AsyncMock()
     mock_linkfinder_uow.input_parameters.ensure = AsyncMock()
 
-    await linkfinder_ingestor.ingest(sample_program.id, result)
+    await linkfinder_ingestor.ingest(sample_program.id, results)
 
     mock_linkfinder_uow.commit.assert_called_once()
 
@@ -321,15 +321,15 @@ async def test_ingest_commits_transaction(linkfinder_ingestor, mock_linkfinder_u
 @pytest.mark.asyncio
 async def test_ingest_rollback_on_error(linkfinder_ingestor, mock_linkfinder_uow, sample_program):
     """Test ingest rolls back transaction on error"""
-    result = {
+    results = [{
         "source_js": "https://example.com/app.js",
         "urls": ["https://example.com/api"],
         "host": "example.com"
-    }
+    }]
 
     mock_linkfinder_uow.scope_rules.find_by_program = AsyncMock(side_effect=Exception("Database error"))
 
     with pytest.raises(Exception):
-        await linkfinder_ingestor.ingest(sample_program.id, result)
+        await linkfinder_ingestor.ingest(sample_program.id, results)
 
     mock_linkfinder_uow.rollback.assert_called_once()

@@ -119,6 +119,22 @@ async def scan_gau(request: GAUScanRequest, event_bus: FromDishka[EventBus]):
     return await scan_endpoint(request, event_bus, "gau_scan_requested", extra=extra)
 
 
+@router.post("/scan/waymore", response_model=ScanResponse, summary="Run Waymore Scan", description="Starts Waymore URL discovery from multiple sources (Wayback, URLScan, AlienVault, VirusTotal). Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
+async def scan_waymore(request: SubfinderScanRequest, event_bus: FromDishka[EventBus]):
+    """
+    Start Waymore scan to discover historical URLs from multiple sources.
+
+    Sources: Wayback Machine, URLScan, Alien Vault OTX, Virus Total (Common Crawl excluded by default).
+
+    - **program_id**: Program UUID
+    - **targets**: List of target domains (subdomains will be automatically discovered)
+
+    Returns 202 Accepted immediately. Scan executes asynchronously via WaymoreNode.
+    URLs are sent to HTTPX for live probing.
+    """
+    return await scan_endpoint(request, event_bus, "subdomain_discovered")
+
+
 @router.post("/scan/katana", response_model=ScanResponse, summary="Run Katana Scan", description="Starts Katana web crawling. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
 async def scan_katana(request: KatanaScanRequest, event_bus: FromDishka[EventBus]):
     """
