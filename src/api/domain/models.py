@@ -99,9 +99,11 @@ class HostIPModel(AbstractModel):
 class ServiceModel(AbstractModel):
     """Network service (HTTP/HTTPS endpoint)"""
     ip_id: UUID
-    scheme: str  
+    scheme: str
     port: int
-    technologies: Dict[str, bool] = field(default_factory=dict)  
+    technologies: Dict[str, bool] = field(default_factory=dict)
+    favicon_hash: str | None = None
+    websocket: bool = False
     id: UUID = field(default_factory=uuid4)
 
 

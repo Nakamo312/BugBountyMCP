@@ -54,7 +54,7 @@ class HTTPXResultIngestor(BaseResultIngestor):
         )
 
     async def _process_batch(self, uow: HTTPXUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
-        """Process a batch of HTTPX results and collect live JS files"""
+        """Process a batch of HTTPX results and collect live JS files and extracted FQDNs"""
         for data in batch:
             host_url, is_new = await self._process_record(uow, program_id, data, self._seen_hosts)
             if host_url and is_new:
@@ -64,6 +64,12 @@ class HTTPXResultIngestor(BaseResultIngestor):
             status_code = data.get("status_code")
             if url and status_code == 200 and self._is_js_file(url):
                 self._js_files.append(url)
+
+            extracted_fqdns = data.get("extracted_results", [])
+            if extracted_fqdns:
+                for fqdn in extracted_fqdns:
+                    if fqdn and ScopeCheckMixin.is_in_scope(fqdn, self._scope_rules):
+                        self._new_hosts.add(fqdn)
 
     async def _process_record(
         self,
@@ -135,7 +141,16 @@ class HTTPXResultIngestor(BaseResultIngestor):
         scheme = data.get("scheme", "http")
         port = int(data.get("port", 80))
         technologies = {tech: True for tech in data.get("tech", [])}
-        return await uow.services.ensure(ip_id=ip.id, scheme=scheme, port=port, technologies=technologies)
+        favicon_hash = data.get("favicon")
+        websocket = data.get("websocket", False)
+        return await uow.services.ensure(
+            ip_id=ip.id,
+            scheme=scheme,
+            port=port,
+            technologies=technologies,
+            favicon_hash=favicon_hash,
+            websocket=websocket
+        )
 
     async def _ensure_endpoint(self, uow: HTTPXUnitOfWork, host, service, data: Dict[str, Any]):
         raw_path = data.get("path") or "/"

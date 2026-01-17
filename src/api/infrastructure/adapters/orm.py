@@ -94,6 +94,8 @@ services = Table(
     Column('scheme', String(20), nullable=False),  # http, https
     Column('port', Integer, nullable=False),
     Column('technologies', JSONType(), default=dict),
+    Column('favicon_hash', String(20), nullable=True, index=True),
+    Column('websocket', Boolean, nullable=True, default=False),
     UniqueConstraint('ip_id', 'port', name='uq_services_ip_port'),
     Index('idx_services_lookup', 'ip_id', 'port'),
     CheckConstraint("port > 0 AND port <= 65535", name='ck_services_port_range'),
