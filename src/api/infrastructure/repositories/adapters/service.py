@@ -16,19 +16,23 @@ class SQLAlchemyServiceRepository(SQLAlchemyAbstractRepository):
         scheme: str,
         port: int,
         technologies: dict,
+        favicon_hash: str | None = None,
+        websocket: bool = False,
     ) -> ServiceModel:
 
         entity = ServiceModel(
             ip_id=ip_id,
             scheme=scheme,
             port=port,
-            technologies=technologies
+            technologies=technologies,
+            favicon_hash=favicon_hash,
+            websocket=websocket
         )
 
         service = await self.upsert(
             entity,
             conflict_fields=["ip_id", "port"],
-            update_fields=["technologies"]
+            update_fields=["technologies", "favicon_hash", "websocket"]
         )
 
         if technologies:
