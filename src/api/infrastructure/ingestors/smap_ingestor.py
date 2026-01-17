@@ -152,13 +152,10 @@ class SmapResultIngestor:
                     skipped += 1
                     continue
 
-                ip_model = IPAddressModel(
-                    address=ip_address,
-                    program_id=program_id
-                )
                 ip_obj = await self.uow.ip_addresses.ensure(
-                    ip_model,
-                    unique_fields=["address", "program_id"]
+                    program_id=program_id,
+                    address=ip_address,
+                    in_scope=True
                 )
 
                 self._discovered_ips.add(ip_address)
