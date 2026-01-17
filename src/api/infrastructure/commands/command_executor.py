@@ -1,6 +1,8 @@
 # api/infrastructure/commands/command_executor.py
 import asyncio
 import logging
+import os
+import signal
 from typing import AsyncIterator, List, Optional
 
 from api.infrastructure.schemas.enums.process_state import ProcessState
@@ -38,6 +40,7 @@ class CommandExecutor:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 limit=1024 * 1024,
+                start_new_session=True,
             )
         except Exception as exc:
             self.state = ProcessState.FAILED
@@ -102,11 +105,21 @@ class CommandExecutor:
             return
 
         self.state = ProcessState.TERMINATING
-        self.process.terminate()
+
+        try:
+            if self.process.pid:
+                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            self.process.terminate()
+
         try:
             await asyncio.wait_for(self.process.wait(), timeout=5)
         except asyncio.TimeoutError:
-            self.process.kill()
+            try:
+                if self.process.pid:
+                    os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                self.process.kill()
             await self.process.wait()
 
     async def _stream_output(self) -> AsyncIterator[ProcessEvent]:
