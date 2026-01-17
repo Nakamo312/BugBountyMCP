@@ -52,7 +52,8 @@ RUN chmod +x entrypoint.sh
 
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 
-RUN mkdir -p /home/appuser/.config/katana && chown -R appuser:appuser /home/appuser/.config
+RUN mkdir -p /home/appuser/.config/katana /home/appuser/.cache/rod && \
+    chown -R appuser:appuser /home/appuser/.config /home/appuser/.cache
 
 USER appuser
 
