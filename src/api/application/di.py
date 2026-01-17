@@ -299,6 +299,10 @@ class BatchProcessorProvider(Provider):
         return GAUBatchProcessor(settings)
 
     @provide(scope=Scope.APP)
+    def get_waymore_processor(self, settings: Settings) -> WaymoreBatchProcessor:
+        return WaymoreBatchProcessor(settings)
+
+    @provide(scope=Scope.APP)
     def get_katana_processor(self, settings: Settings) -> KatanaBatchProcessor:
         return KatanaBatchProcessor(settings)
 
