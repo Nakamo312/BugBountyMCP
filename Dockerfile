@@ -51,6 +51,9 @@ COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh
 
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+
+RUN mkdir -p /home/appuser/.config/katana && chown -R appuser:appuser /home/appuser/.config
+
 USER appuser
 
 EXPOSE 8000
