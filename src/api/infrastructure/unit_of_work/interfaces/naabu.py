@@ -3,6 +3,7 @@
 from abc import ABC
 from api.infrastructure.repositories.interfaces.ip_address import IPAddressRepository
 from api.infrastructure.repositories.interfaces.service import ServiceRepository
+from api.infrastructure.repositories.interfaces.scope_rule import ScopeRuleRepository
 
 
 class AbstractNaabuUnitOfWork(ABC):
@@ -12,7 +13,9 @@ class AbstractNaabuUnitOfWork(ABC):
     Provides access to:
     - ip_addresses: IP address repository
     - services: Service repository
+    - scope_rules: Scope rule repository
     """
 
     ip_addresses: IPAddressRepository
     services: ServiceRepository
+    scope_rules: ScopeRuleRepository
