@@ -184,6 +184,13 @@ class CLIRunnerProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
+    def get_waymore_runner(self, settings: Settings) -> WaymoreCliRunner:
+        return WaymoreCliRunner(
+            waymore_path="waymore",
+            timeout=1800,
+        )
+
+    @provide(scope=Scope.APP)
     def get_ffuf_runner(self, settings: Settings) -> FFUFCliRunner:
         return FFUFCliRunner(
             ffuf_path=settings.get_tool_path("ffuf"),
