@@ -54,7 +54,6 @@ from api.infrastructure.ingestors.subjack_ingestor import SubjackResultIngestor
 from api.infrastructure.ingestors.asnmap_ingestor import ASNMapResultIngestor
 from api.infrastructure.ingestors.naabu_ingestor import NaabuResultIngestor
 from api.infrastructure.ingestors.smap_ingestor import SmapResultIngestor
-from api.infrastructure.ingestors.waymore_ingestor import WaymoreResultIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 from api.infrastructure.runners.gau_cli import GAUCliRunner
@@ -750,7 +749,7 @@ class PipelineProvider(Provider):
             },
             runner_type=WaymoreCliRunner,
             processor_type=WaymoreBatchProcessor,
-            ingestor_type=WaymoreResultIngestor,
+            ingestor_type=None,
             max_parallelism=2
         )
         registry.register(waymore_node)
