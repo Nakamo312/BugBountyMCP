@@ -266,6 +266,12 @@ class PlaywrightScanner:
             return
 
         parsed = urlparse(request.url)
+        start_domain = urlparse(self.start_url).netloc
+        request_domain = parsed.netloc
+
+        if start_domain != request_domain:
+            await route.continue_()
+            return
 
         result = {
             "request": {
@@ -380,23 +386,29 @@ class PlaywrightScanner:
     async def _replay_state(self, page: Page, start_url: str, action_path: List[Action], expected_fingerprint: tuple = None):
         """Replay action sequence to reach specific state with validation"""
         try:
-            await page.goto(start_url, wait_until="networkidle", timeout=30000)
+            await page.goto(start_url, wait_until="domcontentloaded", timeout=30000)
             await page.wait_for_timeout(1000)
 
             for action in action_path:
                 element = await self._find_element_by_action(page, action)
                 if element and await element.is_enabled():
                     await element.click(timeout=1000)
-                    await page.wait_for_load_state("networkidle", timeout=3000)
-                    await page.wait_for_timeout(300)
+                    try:
+                        await page.wait_for_load_state("domcontentloaded", timeout=5000)
+                    except:
+                        pass
+                    await page.wait_for_timeout(500)
                 else:
                     logger.warning(f"Replay failed: element not found for {action.text[:30]}")
                     return False
 
             if expected_fingerprint:
                 actual = await self._get_state_fingerprint(page)
-                if (page.url, actual[0], actual[1], actual[2]) != expected_fingerprint:
-                    logger.warning(f"Replay fingerprint mismatch")
+                url_match = page.url == expected_fingerprint[0]
+                dom_similar = actual[0][:8] == expected_fingerprint[1][:8]
+
+                if not (url_match and dom_similar):
+                    logger.warning(f"Replay mismatch: url={url_match} dom={dom_similar}")
                     return False
 
             return True
@@ -439,7 +451,10 @@ class PlaywrightScanner:
 
             new_fingerprint = (new_url, new_dom, new_cookies, new_storage)
 
-            if new_fingerprint not in self.visited_states and state.depth < self.max_depth and len(state.path) < self.max_path_length:
+            start_domain = urlparse(self.start_url).netloc
+            new_domain = urlparse(new_url).netloc
+
+            if new_fingerprint not in self.visited_states and state.depth < self.max_depth and len(state.path) < self.max_path_length and start_domain == new_domain:
                 new_state = State(
                     url=new_url,
                     dom_hash=new_dom,
