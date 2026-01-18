@@ -8,7 +8,7 @@ from api.domain.models import IPAddressModel, ScopeRuleModel
 from api.infrastructure.unit_of_work.interfaces.naabu import AbstractNaabuUnitOfWork
 from api.infrastructure.ingestors.ingest_result import IngestResult
 from api.config import Settings
-from api.application.services.base_service import ScopeCheckMixin
+from api.application.utils.scope_checker import ScopeChecker
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +162,7 @@ class SmapResultIngestor:
 
                 if hostnames:
                     for hostname in hostnames:
-                        if ScopeCheckMixin.is_in_scope(hostname, self._scope_rules):
+                        if ScopeChecker.is_in_scope(hostname, self._scope_rules):
                             self._discovered_hostnames.add(hostname)
 
                 for port_info in ports:
