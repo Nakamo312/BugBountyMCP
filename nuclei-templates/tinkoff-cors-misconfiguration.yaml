@@ -1,0 +1,47 @@
+id: tinkoff-cors-misconfiguration
+
+info:
+  name: Tinkoff - CORS Misconfiguration
+  author: bugbounty
+  severity: medium
+  description: CORS misconfiguration allowing arbitrary origins
+  tags: cors,tinkoff
+
+http:
+  - raw:
+      - |
+        GET /api/common/v1/session_info?platform=web&sessionid=test HTTP/1.1
+        Host: {{Hostname}}
+        Origin: https://evil.com
+
+      - |
+        GET /api/common/v1/mobile_info?platform=android HTTP/1.1
+        Host: {{Hostname}}
+        Origin: https://attacker.com
+
+      - |
+        GET /api/invest/portfolio/instruments/v2 HTTP/1.1
+        Host: {{Hostname}}
+        Origin: https://malicious.com
+
+      - |
+        GET /api/invest-gw/social/v1/post HTTP/1.1
+        Host: {{Hostname}}
+        Origin: https://evil.com
+
+    matchers-condition: and
+    matchers:
+      - type: word
+        part: header
+        words:
+          - "Access-Control-Allow-Origin"
+
+      - type: regex
+        part: header
+        regex:
+          - 'Access-Control-Allow-Origin: (https?://evil\.com|https?://attacker\.com|https?://malicious\.com|\*)'
+
+      - type: word
+        part: header
+        words:
+          - "Access-Control-Allow-Credentials: true"
