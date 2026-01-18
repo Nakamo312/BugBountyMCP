@@ -116,7 +116,7 @@ class PipelineContext:
             Tuple of (in_scope_targets, out_of_scope_targets)
         """
         from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
-        from api.application.services.base_service import ScopeCheckMixin
+        from api.application.utils.scope_checker import ScopeChecker
 
         if not self._container:
             raise RuntimeError("DI container not available in context")
@@ -125,4 +125,4 @@ class PipelineContext:
             program_uow = await request_container.get(ProgramUnitOfWork)
             async with program_uow:
                 scope_rules = await program_uow.scope_rules.find_by_program(program_id)
-                return ScopeCheckMixin.filter_in_scope(targets, scope_rules)
+                return ScopeChecker.filter_in_scope(targets, scope_rules)
