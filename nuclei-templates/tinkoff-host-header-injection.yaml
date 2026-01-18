@@ -1,0 +1,45 @@
+id: tinkoff-host-header-injection
+
+info:
+  name: Tinkoff - Host Header Injection
+  author: bugbounty
+  severity: medium
+  description: Host header injection for cache poisoning and password reset
+  tags: host-header,injection,tinkoff
+
+http:
+  - raw:
+      - |
+        GET /api/common/v1/session_info?platform=web&sessionid=test HTTP/1.1
+        Host: evil.com
+
+      - |
+        GET /api/common/v1/session_info?platform=web&sessionid=test HTTP/1.1
+        Host: {{Hostname}}
+        X-Forwarded-Host: evil.com
+
+      - |
+        GET /api/common/v1/mobile_info HTTP/1.1
+        Host: {{Hostname}}
+        X-Host: attacker.com
+
+      - |
+        GET /cards/debit-cards/tinkoff-black/ HTTP/1.1
+        Host: {{Hostname}}
+        X-Forwarded-Server: malicious.com
+
+    matchers-condition: or
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "evil.com"
+          - "attacker.com"
+          - "malicious.com"
+
+      - type: word
+        part: header
+        words:
+          - "Location: http://evil.com"
+          - "Location: https://evil.com"
+        condition: or

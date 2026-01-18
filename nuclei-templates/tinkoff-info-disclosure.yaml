@@ -1,0 +1,48 @@
+id: tinkoff-info-disclosure
+
+info:
+  name: Tinkoff - Information Disclosure
+  author: bugbounty
+  severity: medium
+  description: Information disclosure via error messages and debug data
+  tags: disclosure,info,tinkoff
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/api/common/v1/session_info?platform=<invalid>&sessionid=test"
+      - "{{BaseURL}}/api/common/v1/mobile_info?platform=test'\"&sessionid=admin"
+      - "{{BaseURL}}/api/invest/portfolio/instruments/v2?tickers=../../../../etc/passwd"
+      - "{{BaseURL}}/api/invest-gw/social/v1/post?id=-1"
+      - "{{BaseURL}}/api/common/v1/session_info"
+
+    matchers-condition: or
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "error"
+          - "exception"
+          - "stack trace"
+          - "debug"
+          - "SQL"
+          - "MongoDB"
+          - "traceback"
+          - "at line"
+          - "in file"
+
+      - type: regex
+        part: body
+        regex:
+          - '/[a-z]+/[a-z]+/[a-z]+\.(py|js|java|php)'
+          - 'at [A-Za-z]+\.[a-z]+\([A-Za-z]+\.java:[0-9]+\)'
+          - 'File "[^"]+", line [0-9]+'
+
+      - type: word
+        part: body
+        words:
+          - "sessionid"
+          - "token"
+          - "api_key"
+          - "secret"
+        condition: and

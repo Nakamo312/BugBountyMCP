@@ -1,0 +1,30 @@
+id: tinkoff-open-redirect
+
+info:
+  name: Tinkoff - Open Redirect Vulnerabilities
+  author: bugbounty
+  severity: medium
+  description: Open redirect vulnerabilities in various redirect parameters
+  tags: redirect,tinkoff
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/api/common/v1/session_info?platform=web&sessionid=test&origin=https://evil.com"
+      - "{{BaseURL}}/api/common/v1/mobile_info?platform=android&origin=https://evil.com"
+      - "{{BaseURL}}/invest/stocks?utm_source=evil.com&utm_medium=redirect"
+      - "{{BaseURL}}/cards/debit-cards/tinkoff-black/?utm_source=https://evil.com"
+
+    matchers-condition: or
+    matchers:
+      - type: regex
+        part: header
+        regex:
+          - '(?i)(Location|Refresh):\s*https?://evil\.com'
+
+      - type: word
+        part: body
+        words:
+          - 'https://evil.com'
+          - 'evil.com'
+        condition: and
