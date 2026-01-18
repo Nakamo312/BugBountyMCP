@@ -9,35 +9,11 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     git \
     wget \
-    # Chromium / Rod dependencies
-    libglib2.0-0 \
-    libgobject-2.0-0 \
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libasound2 \
-    libpangocairo-1.0-0 \
-    libpango-1.0-0 \
-    fonts-liberation \
-    \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-RUN pip install --no-cache-dir waymore
-
-RUN python -m playwright install --with-deps chromium
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir waymore
 
 RUN git clone https://github.com/GerbenJavado/LinkFinder.git /opt/linkfinder && \
     cd /opt/linkfinder && \
@@ -51,6 +27,8 @@ COPY main.py .
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 COPY entrypoint.sh .
+
+RUN python -m grpc_tools.protoc -I./src/api/infrastructure/proto --python_out=./src/api/infrastructure/runners --grpc_python_out=./src/api/infrastructure/runners ./src/api/infrastructure/proto/scanner.proto
 
 RUN chmod +x entrypoint.sh
 
