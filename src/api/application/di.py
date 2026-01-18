@@ -692,7 +692,7 @@ class PipelineProvider(Provider):
         # Playwright - interactive crawler with network interception
         playwright_node = NodeFactory.create_scan_node(
             node_id="playwright",
-            event_in={EventType.HOST_DISCOVERED},
+            event_in={EventType.PLAYWRIGHT_SCAN_REQUESTED, EventType.HOST_DISCOVERED},
             event_out={
                 EventType.JS_FILES_DISCOVERED: "js_files",
             },
