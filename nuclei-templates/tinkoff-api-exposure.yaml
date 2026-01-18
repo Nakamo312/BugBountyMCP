@@ -1,0 +1,38 @@
+id: tinkoff-api-exposure
+
+info:
+  name: Tinkoff - Sensitive API Exposure
+  author: bugbounty
+  severity: medium
+  description: Exposed sensitive API endpoints returning user data
+  tags: exposure,api,tinkoff
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/api/common/v1/session_info?platform=web&sessionid="
+      - "{{BaseURL}}/api/common/v1/mobile_info?platform=android&sessionid="
+      - "{{BaseURL}}/api/invest/portfolio/instruments/v2?tickers="
+      - "{{BaseURL}}/api/invest-gw/social/v1/post?id="
+      - "{{BaseURL}}/api/common/v1/session_info"
+
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+
+      - type: word
+        part: body
+        words:
+          - "session"
+          - "user"
+          - "token"
+          - "portfolio"
+          - "data"
+        condition: or
+
+      - type: word
+        part: content_type
+        words:
+          - "application/json"
