@@ -424,7 +424,12 @@ class PlaywrightScanner:
             if action in state.executed_actions or action in state.dead_actions:
                 continue
 
-            dom_hash, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
+            try:
+                dom_hash, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
+            except Exception as e:
+                logger.warning(f"Failed to get state fingerprint before action: {e}")
+                break
+
             initial_request_count = self.request_count
 
             success, _ = await self._execute_action(page, action)
@@ -434,8 +439,12 @@ class PlaywrightScanner:
 
             state.executed_actions.add(action)
 
-            new_dom, new_cookies, new_storage = await self._get_state_fingerprint(page)
-            new_url = page.url
+            try:
+                new_dom, new_cookies, new_storage = await self._get_state_fingerprint(page)
+                new_url = page.url
+            except Exception as e:
+                logger.warning(f"Failed to get state fingerprint after action (navigation?): {e}")
+                break
 
             request_delta = self.request_count - initial_request_count
             dom_changed = new_dom != dom_hash
@@ -455,18 +464,22 @@ class PlaywrightScanner:
             new_domain = urlparse(new_url).netloc
 
             if new_fingerprint not in self.visited_states and state.depth < self.max_depth and len(state.path) < self.max_path_length and start_domain == new_domain:
-                new_state = State(
-                    url=new_url,
-                    dom_hash=new_dom,
-                    cookies_hash=new_cookies,
-                    storage_hash=new_storage,
-                    depth=state.depth + 1,
-                    path=state.path + [action],
-                    actions=await self._extract_actions(page)
-                )
-                self.visited_states.add(new_fingerprint)
-                self.state_queue.append(new_state)
-                logger.info(f"New state: {new_url} (dom={new_dom[:8]}, path_len={len(new_state.path)})")
+                try:
+                    actions = await self._extract_actions(page)
+                    new_state = State(
+                        url=new_url,
+                        dom_hash=new_dom,
+                        cookies_hash=new_cookies,
+                        storage_hash=new_storage,
+                        depth=state.depth + 1,
+                        path=state.path + [action],
+                        actions=actions
+                    )
+                    self.visited_states.add(new_fingerprint)
+                    self.state_queue.append(new_state)
+                    logger.info(f"New state: {new_url} (dom={new_dom[:8]}, path_len={len(new_state.path)})")
+                except Exception as e:
+                    logger.warning(f"Failed to extract actions for new state: {e}")
 
             if new_fingerprint != state.get_fingerprint():
                 replay_success = await self._replay_state(page, self.start_url, state.path, state.get_fingerprint())
