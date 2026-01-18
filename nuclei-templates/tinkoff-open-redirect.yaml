@@ -1,30 +1,40 @@
 id: tinkoff-open-redirect
 
 info:
-  name: Tinkoff - Open Redirect Vulnerabilities
+  name: Tinkoff - Open Redirect via Origin Parameter
   author: bugbounty
   severity: medium
-  description: Open redirect vulnerabilities in various redirect parameters
+  description: Open redirect in origin parameter with header validation
   tags: redirect,tinkoff
+  reference:
+    - https://portswigger.net/web-security/dom-based/open-redirection
 
 http:
-  - method: GET
-    path:
-      - "{{BaseURL}}/api/common/v1/session_info?platform=web&sessionid=test&origin=https://evil.com"
-      - "{{BaseURL}}/api/common/v1/mobile_info?platform=android&origin=https://evil.com"
-      - "{{BaseURL}}/invest/stocks?utm_source=evil.com&utm_medium=redirect"
-      - "{{BaseURL}}/cards/debit-cards/tinkoff-black/?utm_source=https://evil.com"
+  - raw:
+      - |
+        GET /api/common/v1/session_info?platform=web&sessionid=test&origin=https://evil.com/callback HTTP/1.1
+        Host: {{Hostname}}
+        Accept: application/json
 
-    matchers-condition: or
+    matchers-condition: and
     matchers:
       - type: regex
         part: header
         regex:
-          - '(?i)(Location|Refresh):\s*https?://evil\.com'
+          - '(?i)^Location:\s*https?://evil\.com'
+          - '(?i)^Refresh:\s*0;\s*url=https?://evil\.com'
+        condition: or
 
-      - type: word
-        part: body
-        words:
-          - 'https://evil.com'
-          - 'evil.com'
-        condition: and
+      - type: status
+        status:
+          - 301
+          - 302
+          - 303
+          - 307
+          - 308
+
+    extractors:
+      - type: kval
+        part: header
+        kval:
+          - Location
