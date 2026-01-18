@@ -1,0 +1,37 @@
+id: alfabank-graphql-introspection
+
+info:
+  name: Alfabank - GraphQL Introspection Enabled
+  author: bugbounty
+  severity: low
+  description: GraphQL introspection query enabled exposing schema
+  tags: graphql,exposure,alfabank
+
+http:
+  - raw:
+      - |
+        POST /api/graphql HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/json
+
+        {"query":"query IntrospectionQuery{__schema{types{name}}}"}
+
+      - |
+        POST /graphql HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/json
+
+        {"query":"{__schema{queryType{name}}}"}
+
+    matchers-condition: and
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "__schema"
+          - "queryType"
+          - "types"
+
+      - type: status
+        status:
+          - 200

