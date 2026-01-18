@@ -15,6 +15,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir waymore
 
+COPY src/ ./src/
+
+RUN python -m grpc_tools.protoc -I./src/api/infrastructure/proto --python_out=./src/api/infrastructure/runners --grpc_python_out=./src/api/infrastructure/runners ./src/api/infrastructure/proto/scanner.proto
+
 RUN git clone https://github.com/GerbenJavado/LinkFinder.git /opt/linkfinder && \
     cd /opt/linkfinder && \
     pip install -r requirements.txt && \
@@ -22,13 +26,10 @@ RUN git clone https://github.com/GerbenJavado/LinkFinder.git /opt/linkfinder && 
     chmod +x /usr/local/bin/linkfinder && \
     chmod +x /opt/linkfinder/linkfinder.py
 
-COPY src/ ./src/
 COPY main.py .
 COPY alembic/ ./alembic/
 COPY alembic.ini .
 COPY entrypoint.sh .
-
-RUN python -m grpc_tools.protoc -I./src/api/infrastructure/proto --python_out=./src/api/infrastructure/runners --grpc_python_out=./src/api/infrastructure/runners ./src/api/infrastructure/proto/scanner.proto
 
 RUN chmod +x entrypoint.sh
 

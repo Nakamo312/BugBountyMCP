@@ -8,7 +8,7 @@ from api.config import Settings
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 from api.infrastructure.ingestors.ingest_result import IngestResult
 from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
-from api.application.services.base_service import ScopeCheckMixin
+from api.application.utils.scope_checker import ScopeChecker
 from api.domain.models import ScopeRuleModel
 
 logger = logging.getLogger(__name__)
@@ -94,7 +94,7 @@ class TLSxResultIngestor(BaseResultIngestor):
                 self._discovered_domains.add(subject_cn)
 
             if cert_domains:
-                in_scope_domains, _ = ScopeCheckMixin.filter_in_scope(
+                in_scope_domains, _ = ScopeChecker.filter_in_scope(
                     list(cert_domains), self._scope_rules
                 )
 
