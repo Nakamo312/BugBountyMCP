@@ -37,7 +37,8 @@ class PlaywrightCliRunner:
             targets = [targets]
 
         try:
-            from api.infrastructure.runners import scanner_pb2, scanner_pb2_grpc
+            import scanner_pb2
+            import scanner_pb2_grpc
         except ImportError as e:
             logger.error(f"gRPC import error: {e}")
             return
