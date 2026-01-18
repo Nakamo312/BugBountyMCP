@@ -4,9 +4,13 @@ Finds POST endpoints by interacting with all page elements
 """
 import asyncio
 import json
+import logging
 import sys
 from typing import Set, Dict, Any
 from urllib.parse import urlparse
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("playwright_scanner")
 
 try:
     from playwright.async_api import async_playwright, Page, Route, Response
@@ -69,18 +73,17 @@ class PlaywrightScanner:
         if url in self.pending_requests:
             result = self.pending_requests.pop(url)
 
-            # Add response data
             result["response"] = {
                 "status_code": response.status,
                 "headers": dict(response.headers),
             }
 
-            # Add timestamp
             result["timestamp"] = asyncio.get_event_loop().time()
 
             self.results.append(result)
             self.request_count += 1
 
+            logger.info(f"Found: {result['request']['method']} {result['request']['endpoint']} -> {response.status}")
             print(json.dumps(result), flush=True)
 
     async def interact_with_page(self, page: Page):
@@ -149,12 +152,12 @@ class PlaywrightScanner:
             return
 
         self.visited_urls.add(url)
+        logger.info(f"Crawling: {url} (depth={depth})")
 
         try:
             await page.goto(url, wait_until="networkidle", timeout=30000)
             await page.wait_for_timeout(2000)
 
-            # Auto-interact with everything
             await self.interact_with_page(page)
 
             # Get all same-origin links for deeper crawling
@@ -187,6 +190,8 @@ class PlaywrightScanner:
 
     async def scan(self):
         """Main scanning loop"""
+        logger.info(f"Starting scan: {self.start_url} (max_depth={self.max_depth})")
+
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
@@ -204,12 +209,13 @@ class PlaywrightScanner:
 
             page = await context.new_page()
 
-            # Intercept requests and responses
             await page.route("**/*", self.intercept_request)
             page.on("response", self.handle_response)
 
             await self.crawl_page(page, self.start_url)
             await browser.close()
+
+        logger.info(f"Scan completed: {self.request_count} requests found, {len(self.visited_urls)} pages visited")
 
 
 async def main():
