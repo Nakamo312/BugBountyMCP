@@ -37,7 +37,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 RUN pip install --no-cache-dir waymore
 
-RUN playwright install --with-deps chromium
+RUN python -m playwright install --with-deps chromium
 
 RUN git clone https://github.com/GerbenJavado/LinkFinder.git /opt/linkfinder && \
     cd /opt/linkfinder && \
