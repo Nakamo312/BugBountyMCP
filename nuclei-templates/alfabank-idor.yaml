@@ -4,8 +4,10 @@ info:
   name: Alfabank - IDOR Test
   author: bugbounty
   severity: high
-  description: Insecure Direct Object Reference vulnerabilities
+  description: Insecure Direct Object Reference in document access
   tags: idor,alfabank
+  reference:
+    - https://portswigger.net/web-security/access-control/idor
 
 http:
   - method: GET
@@ -23,14 +25,28 @@ http:
 
     attack: pitchfork
 
+    matchers-condition: and
     matchers:
       - type: status
         status:
           - 200
 
       - type: word
-        part: body
+        part: content_type
         words:
-          - "download"
-          - "receipt"
-          - "statement"
+          - "application/pdf"
+          - "application/octet-stream"
+          - "application/json"
+        condition: or
+
+      - type: dsl
+        dsl:
+          - 'len(body) > 500'
+
+      - type: regex
+        part: body
+        regex:
+          - '%PDF-'
+          - '"(id|orderId|receiptId)"?\s*:\s*"?[a-zA-Z0-9]+'
+          - 'Content-Disposition:.*attachment'
+        condition: or
