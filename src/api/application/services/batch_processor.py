@@ -426,3 +426,19 @@ class Hakip2HostBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
         if event.type == "result" and event.payload:
             return event.payload
         return None
+class PlaywrightBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
+    """Batch processor for Playwright crawl results (same format as Katana)"""
+
+    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
+        return {
+            "min": settings.KATANA_BATCH_MIN,
+            "max": settings.KATANA_BATCH_MAX,
+            "timeout": settings.KATANA_BATCH_TIMEOUT
+        }
+
+    def _extract_item(self, event) -> Dict[str, Any] | None:
+        """Extract Playwright result from event"""
+        if event.type == "result" and event.payload:
+            return event.payload
+        return None
+

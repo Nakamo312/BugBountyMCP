@@ -157,6 +157,25 @@ async def scan_katana(request: KatanaScanRequest, event_bus: FromDishka[EventBus
     return await scan_endpoint(request, event_bus, "katana_scan_requested", extra=extra)
 
 
+@router.post("/scan/playwright", response_model=ScanResponse, summary="Run Playwright Interactive Scan", description="Starts Playwright browser-based crawling with full HTTP network interception. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
+async def scan_playwright(request: KatanaScanRequest, event_bus: FromDishka[EventBus]):
+    """
+    Start Playwright interactive crawl with headless browser.
+
+    Automatically interacts with forms, buttons, and elements.
+    Intercepts ALL HTTP requests including AJAX, fetch, XHR.
+    Discovers POST endpoints and captures full request/response data.
+
+    - **program_id**: Program UUID
+    - **targets**: List of target URLs to crawl
+    - **depth**: Maximum crawl depth (default: 2)
+
+    Returns 202 Accepted immediately. Scan executes asynchronously via PlaywrightNode.
+    """
+    extra = {"depth": request.depth}
+    return await scan_endpoint(request, event_bus, "host_discovered", extra=extra)
+
+
 @router.post("/scan/linkfinder", response_model=ScanResponse, summary="Run LinkFinder Scan", description="Starts LinkFinder JS analysis to discover hidden endpoints. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
 async def scan_linkfinder(request: LinkFinderScanRequest, event_bus: FromDishka[EventBus]):
     """
