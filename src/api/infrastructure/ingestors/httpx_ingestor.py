@@ -7,7 +7,7 @@ from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 from api.infrastructure.ingestors.ingest_result import IngestResult
-from api.application.services.base_service import ScopeCheckMixin
+from api.application.utils.scope_checker import ScopeChecker
 from api.domain.models import ScopeRuleModel
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class HTTPXResultIngestor(BaseResultIngestor):
             extracted_fqdns = data.get("extracted_results", [])
             if extracted_fqdns:
                 for fqdn in extracted_fqdns:
-                    if fqdn and ScopeCheckMixin.is_in_scope(fqdn, self._scope_rules):
+                    if fqdn and ScopeChecker.is_in_scope(fqdn, self._scope_rules):
                         self._new_hosts.add(fqdn)
 
     async def _process_record(
@@ -117,7 +117,7 @@ class HTTPXResultIngestor(BaseResultIngestor):
         if not host_name:
             return None
 
-        in_scope = ScopeCheckMixin.is_in_scope(host_name, self._scope_rules)
+        in_scope = ScopeChecker.is_in_scope(host_name, self._scope_rules)
 
         if not in_scope:
             logger.info(f"Out-of-scope host: {host_name} program={program_id}")
