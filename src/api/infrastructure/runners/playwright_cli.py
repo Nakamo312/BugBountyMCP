@@ -1,9 +1,8 @@
-"""Playwright CLI runner for interactive web crawling"""
+"""Playwright gRPC client runner for interactive web crawling"""
 import logging
 from typing import AsyncIterator
-from pathlib import Path
+import grpc
 
-from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 logger = logging.getLogger(__name__)
@@ -12,12 +11,12 @@ logger = logging.getLogger(__name__)
 class PlaywrightCliRunner:
     """
     Runner for Playwright scanner.
-    Executes interactive web crawler and yields discovered requests.
+    Connects to gRPC service and streams discovered requests.
     """
 
-    def __init__(self, timeout: int = 600):
+    def __init__(self, timeout: int = 600, grpc_host: str = "playwright:50051"):
         self.timeout = timeout
-        self.scanner_script = Path(__file__).parent / "playwright_scanner.py"
+        self.grpc_host = grpc_host
 
     async def run(
         self,
@@ -25,7 +24,7 @@ class PlaywrightCliRunner:
         depth: int = 2,
     ) -> AsyncIterator[ProcessEvent]:
         """
-        Execute playwright scanner for given targets.
+        Execute playwright scanner for given targets via gRPC.
 
         Args:
             targets: Single target URL or list of target URLs to crawl
@@ -37,37 +36,53 @@ class PlaywrightCliRunner:
         if isinstance(targets, str):
             targets = [targets]
 
-        # Process one target at a time
-        for target in targets:
-            command = [
-                "python",
-                str(self.scanner_script),
-                target,
-                str(depth),
-            ]
+        try:
+            import scanner_pb2
+            import scanner_pb2_grpc
+        except ImportError:
+            logger.error("gRPC proto files not generated. Run: python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. scanner.proto")
+            return
 
-            logger.info(f"Starting Playwright scanner for {target}: {' '.join(command)}")
+        async with grpc.aio.insecure_channel(self.grpc_host) as channel:
+            stub = scanner_pb2_grpc.PlaywrightScannerStub(channel)
 
-            executor = CommandExecutor(command=command, timeout=self.timeout)
-            result_count = 0
+            for target in targets:
+                request = scanner_pb2.ScanRequest(url=target, max_depth=depth)
 
-            async for event in executor.run():
-                if event.type != "stdout":
-                    continue
+                logger.info(f"Starting Playwright scanner for {target} via gRPC")
 
-                if not event.payload:
-                    continue
-
-                line = event.payload.strip()
-                if not line:
-                    continue
+                result_count = 0
 
                 try:
-                    import json
-                    json_data = json.loads(line)
-                    result_count += 1
-                    yield ProcessEvent(type="result", payload=json_data)
-                except json.JSONDecodeError:
-                    logger.warning("Non-JSON stdout line skipped: %r", line[:200])
+                    async for response in stub.Scan(request, timeout=self.timeout):
+                        if response.HasField("error"):
+                            logger.error(f"Playwright error: {response.error.message}")
+                            continue
 
-            logger.info(f"Playwright scanner completed for {target}: {result_count} requests")
+                        if response.HasField("data"):
+                            katana_data = response.data
+
+                            json_data = {
+                                "request": {
+                                    "method": katana_data.request.method,
+                                    "endpoint": katana_data.request.endpoint,
+                                    "headers": dict(katana_data.request.headers),
+                                    "raw": katana_data.request.raw,
+                                },
+                                "response": {
+                                    "status_code": katana_data.response.status_code,
+                                    "headers": dict(katana_data.response.headers),
+                                },
+                                "timestamp": katana_data.timestamp,
+                            }
+
+                            if katana_data.request.body:
+                                json_data["request"]["body"] = katana_data.request.body
+
+                            result_count += 1
+                            yield ProcessEvent(type="result", payload=json_data)
+
+                except grpc.aio.AioRpcError as e:
+                    logger.error(f"gRPC error for {target}: {e.code()} - {e.details()}")
+
+                logger.info(f"Playwright scanner completed for {target}: {result_count} requests")

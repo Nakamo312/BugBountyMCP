@@ -173,7 +173,7 @@ async def scan_playwright(request: KatanaScanRequest, event_bus: FromDishka[Even
     Returns 202 Accepted immediately. Scan executes asynchronously via PlaywrightNode.
     """
     extra = {"depth": request.depth}
-    return await scan_endpoint(request, event_bus, "host_discovered", extra=extra)
+    return await scan_endpoint(request, event_bus, "playwright_scan_requested", extra=extra)
 
 
 @router.post("/scan/linkfinder", response_model=ScanResponse, summary="Run LinkFinder Scan", description="Starts LinkFinder JS analysis to discover hidden endpoints. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)

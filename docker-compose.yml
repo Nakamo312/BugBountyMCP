@@ -41,6 +41,18 @@ services:
       retries: 5
     restart: unless-stopped
 
+  playwright:
+    build:
+      context: ./playwright
+      dockerfile: Dockerfile
+    container_name: bb-playwright
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import grpc; channel = grpc.insecure_channel('localhost:50051'); channel.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: .
@@ -82,6 +94,8 @@ services:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      playwright:
         condition: service_healthy
     restart: unless-stopped
 
