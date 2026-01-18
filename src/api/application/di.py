@@ -34,6 +34,7 @@ from api.application.services.batch_processor import (
     MapCIDRBatchProcessor,
     SmapBatchProcessor,
     Hakip2HostBatchProcessor,
+    PlaywrightBatchProcessor,
 )
 from api.infrastructure.unit_of_work.adapters.httpx import SQLAlchemyHTTPXUnitOfWork
 from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
@@ -70,6 +71,7 @@ from api.infrastructure.runners.naabu_cli import NaabuCliRunner
 from api.infrastructure.runners.tlsx_cli import TLSxCliRunner
 from api.infrastructure.runners.smap_cli import SmapCliRunner
 from api.infrastructure.runners.hakip2host_cli import Hakip2HostCliRunner
+from api.infrastructure.runners.playwright_cli import PlaywrightCliRunner
 from api.infrastructure.events.event_bus import EventBus
 from dishka import AsyncContainer
 
@@ -257,6 +259,10 @@ class CLIRunnerProvider(Provider):
         )
 
     @provide(scope=Scope.APP)
+    def get_playwright_runner(self, settings: Settings) -> PlaywrightCliRunner:
+        return PlaywrightCliRunner(timeout=600)
+
+    @provide(scope=Scope.APP)
     def get_mapcidr_expand_runner(self, mapcidr_runner: MapCIDRCliRunner) -> MapCIDRExpandRunner:
         return MapCIDRExpandRunner(mapcidr_runner)
 
@@ -336,6 +342,10 @@ class BatchProcessorProvider(Provider):
     @provide(scope=Scope.APP)
     def get_hakip2host_processor(self, settings: Settings) -> Hakip2HostBatchProcessor:
         return Hakip2HostBatchProcessor(settings)
+
+    @provide(scope=Scope.APP)
+    def get_playwright_processor(self, settings: Settings) -> PlaywrightBatchProcessor:
+        return PlaywrightBatchProcessor(settings)
 
 
 class IngestorProvider(Provider):
@@ -678,6 +688,21 @@ class PipelineProvider(Provider):
             execution_delay=settings.ORCHESTRATOR_SCAN_DELAY
         )
         registry.register(katana_node)
+
+        # Playwright - interactive crawler with network interception
+        playwright_node = NodeFactory.create_scan_node(
+            node_id="playwright",
+            event_in={EventType.HOST_DISCOVERED},
+            event_out={
+                EventType.JS_FILES_DISCOVERED: "js_files",
+            },
+            runner_type=PlaywrightCliRunner,
+            processor_type=PlaywrightBatchProcessor,
+            ingestor_type=KatanaResultIngestor,
+            max_parallelism=1,
+            execution_delay=settings.ORCHESTRATOR_SCAN_DELAY
+        )
+        registry.register(playwright_node)
 
         linkfinder_node = NodeFactory.create_scan_node(
             node_id="linkfinder",

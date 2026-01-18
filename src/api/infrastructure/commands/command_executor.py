@@ -86,6 +86,8 @@ class CommandExecutor:
                         except asyncio.CancelledError:
                             pass
 
+                    await self._cleanup_process_group()
+
         except TimeoutError:
             self.state = ProcessState.TIMEOUT
             yield ProcessEvent(type="timeout")
@@ -99,6 +101,22 @@ class CommandExecutor:
             self.state = ProcessState.FAILED
             yield ProcessEvent(type="failed", payload=str(exc))
             await self._terminate()
+
+    async def _cleanup_process_group(self):
+        """Cleanup zombie processes in the process group"""
+        if not self.process or not self.process.pid:
+            return
+
+        try:
+            pgid = os.getpgid(self.process.pid)
+            import subprocess
+            subprocess.run(
+                ["pkill", "-SIGCHLD", "-g", str(pgid)],
+                capture_output=True,
+                timeout=1
+            )
+        except (ProcessLookupError, PermissionError, OSError, subprocess.TimeoutExpired):
+            pass
 
     async def _terminate(self):
         if not self.process or self.process.returncode is not None:
@@ -121,6 +139,8 @@ class CommandExecutor:
             except (ProcessLookupError, PermissionError, OSError):
                 self.process.kill()
             await self.process.wait()
+
+        await self._cleanup_process_group()
 
     async def _stream_output(self) -> AsyncIterator[ProcessEvent]:
         """Stream stdout and stderr simultaneously."""
