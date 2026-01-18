@@ -4,17 +4,27 @@ info:
   name: Alfabank/Tinkoff - Open Redirect
   author: bugbounty
   severity: medium
-  description: Open redirect vulnerability in redirect parameters
+  description: Open redirect with strict header validation
   tags: redirect,alfabank,tinkoff
+  reference:
+    - https://portswigger.net/web-security/dom-based/open-redirection
 
 http:
-  - method: GET
-    path:
-      - "{{BaseURL}}/authorized?fromUrl=https://evil.com"
-      - "{{BaseURL}}/password/reset?return_url=https://evil.com"
-      - "{{BaseURL}}/openid/authorize/newclick-web?redirect_to=https___evil.com/"
-      - "{{BaseURL}}/gate/oauth/authorize?redirect_uri=https://evil.com"
-      - "{{BaseURL}}/authentication/?service=https://evil.com"
+  - raw:
+      - |
+        GET /authorized?fromUrl=https://evil.com/callback HTTP/1.1
+        Host: {{Hostname}}
+        Accept: text/html
+
+      - |
+        GET /password/reset?return_url=https://evil.com/reset HTTP/1.1
+        Host: {{Hostname}}
+        Accept: text/html
+
+      - |
+        GET /gate/oauth/authorize?redirect_uri=https://evil.com/oauth HTTP/1.1
+        Host: {{Hostname}}
+        Accept: text/html
 
     matchers-condition: and
     matchers:
@@ -29,4 +39,12 @@ http:
       - type: regex
         part: header
         regex:
-          - 'Location:.*evil\.com'
+          - '(?i)^Location:\s*https?://evil\.com'
+        condition: and
+
+    extractors:
+      - type: kval
+        name: redirect_location
+        part: header
+        kval:
+          - Location
