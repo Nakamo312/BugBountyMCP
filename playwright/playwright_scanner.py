@@ -9,34 +9,8 @@ import sys
 from typing import Set, Dict, Any
 from urllib.parse import urlparse
 
-class Colors:
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    CYAN = '\033[96m'
-    RESET = '\033[0m'
-
-
-class ColorFormatter(logging.Formatter):
-    def format(self, record):
-        timestamp = self.formatTime(record, '%H:%M:%S')
-        level = record.levelname
-        if level == 'INFO':
-            level_color = Colors.GREEN
-        elif level == 'WARNING':
-            level_color = Colors.YELLOW
-        elif level == 'ERROR':
-            level_color = Colors.RED
-        else:
-            level_color = Colors.RESET
-        return f"[{timestamp}] [{level_color}{level}{Colors.RESET}] {record.getMessage()}"
-
-
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("playwright_scanner")
-logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-handler.setFormatter(ColorFormatter())
-logger.addHandler(handler)
 
 try:
     from playwright.async_api import async_playwright, Page, Route, Response
@@ -46,7 +20,7 @@ except ImportError:
 
 
 STATIC_EXTENSIONS = {
-    ".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp",
+    ".css", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp",
     ".woff", ".woff2", ".ttf", ".eot", ".otf",
     ".mp4", ".mp3", ".avi", ".webm", ".flv", ".wav", ".ogg",
     ".pdf", ".zip", ".tar", ".gz", ".rar", ".7z",
@@ -73,13 +47,9 @@ class PlaywrightScanner:
     async def intercept_request(self, route: Route):
         """Intercept and log all HTTP requests in Katana format"""
         request = route.request
-
-        if self._is_static_resource(request.url):
-            await route.continue_()
-            return
-
         parsed = urlparse(request.url)
 
+        # Build Katana-compatible format
         result = {
             "request": {
                 "method": request.method,
