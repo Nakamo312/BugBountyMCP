@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 
 COPY src/ ./src/
 
-RUN python -m grpc_tools.protoc -I./src/api/infrastructure/proto --python_out=./src/api/infrastructure/runners --grpc_python_out=./src/api/infrastructure/runners ./src/api/infrastructure/proto/scanner.proto
+RUN python -m grpc_tools.protoc -I./src/api/infrastructure/proto --python_out=./src --grpc_python_out=./src ./src/api/infrastructure/proto/scanner.proto
 
 RUN git clone https://github.com/GerbenJavado/LinkFinder.git /opt/linkfinder && \
     cd /opt/linkfinder && \
