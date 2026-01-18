@@ -4,30 +4,17 @@ info:
   name: Tinkoff - IDOR Vulnerabilities
   author: bugbounty
   severity: high
-  description: Insecure Direct Object Reference in posts, portfolios, and user data
+  description: Insecure Direct Object Reference in social posts API
   tags: idor,tinkoff
+  reference:
+    - https://portswigger.net/web-security/access-control/idor
 
 http:
   - raw:
       - |
-        GET /api/invest-gw/social/v1/post?id=1 HTTP/1.1
+        GET /api/invest-gw/social/v1/post?id={{randstr}} HTTP/1.1
         Host: {{Hostname}}
-
-      - |
-        GET /api/invest-gw/social/v1/post?id=2 HTTP/1.1
-        Host: {{Hostname}}
-
-      - |
-        GET /api/invest-gw/social/v1/post?id=99999 HTTP/1.1
-        Host: {{Hostname}}
-
-      - |
-        GET /api/invest/portfolio/instruments/v2?tickers=USER1_PORTFOLIO HTTP/1.1
-        Host: {{Hostname}}
-
-      - |
-        GET /api/common/v1/session_info?sessionid=00000000-0000-0000-0000-000000000001 HTTP/1.1
-        Host: {{Hostname}}
+        Accept: application/json
 
     matchers-condition: and
     matchers:
@@ -36,20 +23,31 @@ http:
           - 200
 
       - type: word
-        part: body
+        part: content_type
         words:
-          - "post"
-          - "portfolio"
-          - "user"
-          - "session"
-          - "data"
+          - "application/json"
+
+      - type: regex
+        part: body
+        regex:
+          - '"id"\s*:\s*"?[0-9a-f-]+"?'
+          - '"post"\s*:\s*\{'
+          - '"author"\s*:\s*\{'
         condition: or
 
       - type: word
         part: body
         words:
-          - "error"
-          - "not found"
-          - "unauthorized"
+          - '"error"'
+          - '"forbidden"'
+          - '"unauthorized"'
         condition: or
         negative: true
+
+    extractors:
+      - type: json
+        part: body
+        json:
+          - '.id'
+          - '.author'
+          - '.content'

