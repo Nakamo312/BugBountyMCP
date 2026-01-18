@@ -1,0 +1,34 @@
+id: alfabank-debug-endpoints
+
+info:
+  name: Alfabank - Debug/Test Endpoints Exposed
+  author: bugbounty
+  severity: medium
+  description: Exposed debug, test, and development endpoints
+  tags: exposure,debug,alfabank
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/TSPD/"
+      - "{{BaseURL}}/id-test.alfabank.ru/TSPD/"
+      - "{{BaseURL}}/testjmb.alfabank.ru/land/navigator/mobile-unauth"
+      - "{{BaseURL}}/grampus-int.alfabank.ru/secure/edi/ui/index.jsp"
+      - "{{BaseURL}}/grampus-uat.alfabank.ru/secure/edi/ui/index.jsp"
+      - "{{BaseURL}}/assets/config/config.json"
+      - "{{BaseURL}}/api/front/log/collect"
+
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+
+      - type: word
+        part: body
+        words:
+          - "test"
+          - "debug"
+          - "config"
+          - "TSPD"
+        condition: or

@@ -1,0 +1,36 @@
+id: alfabank-api-exposure
+
+info:
+  name: Alfabank - Sensitive API Exposure
+  author: bugbounty
+  severity: medium
+  description: Exposed internal API endpoints without authentication
+  tags: exposure,api,alfabank
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/api/public/users/getLocation?ipAddress=8.8.8.8"
+      - "{{BaseURL}}/api/v1/webuser/?ga_utma=test"
+      - "{{BaseURL}}/mportal/mvc/appinfo/contacts"
+      - "{{BaseURL}}/mportal/mvc/password/requirements"
+      - "{{BaseURL}}/payment/rest/getPaymentPageParams.do?login=test"
+      - "{{BaseURL}}/payment/rest/getPaymentSettings.do?login=test"
+      - "{{BaseURL}}/payment/webservices/merchant-ws?wsdl="
+      - "{{BaseURL}}/offers/api/generatePdf/SCHEDULE?accountNumber=test"
+
+    matchers-condition: and
+    matchers:
+      - type: status
+        status:
+          - 200
+
+      - type: word
+        part: body
+        words:
+          - "location"
+          - "contact"
+          - "password"
+          - "wsdl"
+          - "payment"
+        condition: or

