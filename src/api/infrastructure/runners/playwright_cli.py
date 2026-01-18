@@ -38,8 +38,8 @@ class PlaywrightCliRunner:
 
         try:
             from api.infrastructure.runners import scanner_pb2, scanner_pb2_grpc
-        except ImportError:
-            logger.error("gRPC proto files not generated. Run: python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. scanner.proto")
+        except ImportError as e:
+            logger.error(f"gRPC import error: {e}")
             return
 
         async with grpc.aio.insecure_channel(self.grpc_host) as channel:
