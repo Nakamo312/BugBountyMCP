@@ -19,6 +19,16 @@ except ImportError:
     sys.exit(1)
 
 
+STATIC_EXTENSIONS = {
+    ".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp",
+    ".woff", ".woff2", ".ttf", ".eot", ".otf",
+    ".mp4", ".mp3", ".avi", ".webm", ".flv", ".wav", ".ogg",
+    ".pdf", ".zip", ".tar", ".gz", ".rar", ".7z",
+    ".exe", ".dll", ".bin", ".dmg", ".iso",
+    ".map", ".min.js", ".min.css"
+}
+
+
 class PlaywrightScanner:
     def __init__(self, url: str, max_depth: int = 2, timeout: int = 300):
         self.start_url = url
@@ -29,12 +39,21 @@ class PlaywrightScanner:
         self.request_count = 0
         self.pending_requests: Dict[str, Dict[str, Any]] = {}
 
+    def _is_static_resource(self, url: str) -> bool:
+        """Check if URL is a static resource that should be skipped"""
+        lower_url = url.lower().split('?')[0]
+        return any(lower_url.endswith(ext) for ext in STATIC_EXTENSIONS)
+
     async def intercept_request(self, route: Route):
         """Intercept and log all HTTP requests in Katana format"""
         request = route.request
+
+        if self._is_static_resource(request.url):
+            await route.continue_()
+            return
+
         parsed = urlparse(request.url)
 
-        # Build Katana-compatible format
         result = {
             "request": {
                 "method": request.method,
