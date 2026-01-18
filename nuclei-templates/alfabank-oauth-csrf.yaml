@@ -1,0 +1,26 @@
+id: alfabank-oauth-csrf
+
+info:
+  name: Alfabank - OAuth State Parameter Missing/Weak
+  author: bugbounty
+  severity: medium
+  description: OAuth endpoints with weak or missing state parameter allowing CSRF
+  tags: oauth,csrf,alfabank
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/gate/oauth/authorize?state=&max_age=36000&client_id=alfapeople&redirect_uri={{interactsh-url}}"
+      - "{{BaseURL}}/auth/realms/users/protocol/openid-connect/auth?client_id=alfapeople&redirect_uri={{interactsh-url}}&response_type=code&state=test123"
+      - "{{BaseURL}}/passport/openid-blue/authorize?client_id=mobile-app&redirect_uri={{interactsh-url}}"
+
+    matchers:
+      - type: word
+        part: interactsh_protocol
+        words:
+          - "http"
+
+      - type: status
+        status:
+          - 302
+          - 200

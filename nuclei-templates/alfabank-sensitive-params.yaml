@@ -1,0 +1,32 @@
+id: alfabank-sensitive-param-exposure
+
+info:
+  name: Alfabank - Sensitive Parameters in URLs
+  author: bugbounty
+  severity: low
+  description: Sensitive data exposed in URL parameters (PII, tokens, keys)
+  tags: exposure,pii,alfabank
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/offers/api/generatePdf/SCHEDULE?firstName=test&lastName=test&middleName=test&dateOfBirth=1990-01-01&mobilePhone=79999999999&email=test@test.com"
+      - "{{BaseURL}}/newpartner?_token=test123"
+      - "{{BaseURL}}/navigator/mobile-unauth?device_id=test&device_uuid=test"
+      - "{{BaseURL}}/envelope/?sentry_key=test"
+      - "{{BaseURL}}/image_captcha?sid=test&ts=test"
+
+    matchers:
+      - type: status
+        status:
+          - 200
+          - 403
+          - 500
+
+    extractors:
+      - type: regex
+        part: body
+        regex:
+          - '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+          - '7[0-9]{10}'
+          - '"token":\s*"[^"]+"'

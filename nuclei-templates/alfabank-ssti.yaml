@@ -1,0 +1,26 @@
+id: alfabank-ssti
+
+info:
+  name: Alfabank - Server Side Template Injection
+  author: bugbounty
+  severity: critical
+  description: SSTI in template parameters
+  tags: ssti,rce,alfabank
+
+http:
+  - method: GET
+    path:
+      - "{{BaseURL}}/manager/template/quick-update?type={{7*7}}"
+      - "{{BaseURL}}/search/?text={{7*7}}"
+      - "{{BaseURL}}/404.html?page={{7*7}}"
+
+    matchers-condition: and
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "49"
+
+      - type: status
+        status:
+          - 200
