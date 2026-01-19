@@ -523,6 +523,20 @@ class PlaywrightScanner:
         except:
             pass
 
+        forms = await page.query_selector_all('form')
+        for form in forms:
+            try:
+                await self._fill_forms(page)
+                await page.wait_for_timeout(100)
+
+                submit_button = await form.query_selector('button[type="submit"], input[type="submit"], button:not([type="button"])')
+                if submit_button and await submit_button.is_visible() and await submit_button.is_enabled():
+                    await submit_button.click(timeout=1000)
+                    await page.wait_for_timeout(500)
+                    logger.info(f"Submitted form")
+            except Exception as e:
+                pass
+
         action_clusters = {}
         for action in state.actions:
             if action not in state.executed_actions and action not in state.dead_actions:
