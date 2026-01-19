@@ -294,21 +294,19 @@ class PlaywrightScanner:
     async def _execute_action(self, page: Page, action: Action) -> tuple[bool, bool]:
         """Execute single action and return (success, had_effect)"""
         try:
-            await self._fill_forms(page)
-            await page.wait_for_timeout(300)
-
             element = await page.query_selector(action.selector)
             if element and await element.is_visible() and await element.is_enabled():
                 initial_request_count = self.request_count
 
                 await element.scroll_into_view_if_needed()
-                await element.hover()
                 await element.click(timeout=1000)
 
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=3000)
+                    await page.wait_for_load_state("domcontentloaded", timeout=500)
                 except:
-                    await page.wait_for_timeout(1000)
+                    pass
+
+                await page.wait_for_timeout(200)
 
                 had_effect = self.request_count > initial_request_count
                 return True, had_effect
@@ -491,6 +489,8 @@ class PlaywrightScanner:
     async def _explore_state(self, page: Page, state: State):
         """Explore single state by executing representative actions from each cluster"""
         logger.info(f"Exploring state: {state.url} (depth={state.depth}, actions={len(state.actions)})")
+
+        await self._fill_forms(page)
 
         action_clusters = {}
         for action in state.actions:
@@ -677,7 +677,8 @@ class PlaywrightScanner:
                 state = self.state_queue.popleft()
 
                 try:
-                    await self._replay_state(page, self.start_url, state.path)
+                    if not state.is_volatile and state.path:
+                        await self._replay_state(page, self.start_url, state.path)
                     await self._explore_state(page, state)
                 except Exception as e:
                     logger.error(f"Error exploring {state.url}: {e}")
