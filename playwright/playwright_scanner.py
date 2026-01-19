@@ -372,6 +372,14 @@ class PlaywrightScanner:
 
             logger.info(f"Captured: {request.method} {parsed.path} {f'[body: {len(request.post_data)} bytes]' if request.post_data else ''}")
 
+            result["timestamp"] = asyncio.get_event_loop().time()
+            self.request_count += 1
+            self.unique_endpoints.add(request.url)
+            endpoint = f"{request.method} {parsed.path}"
+            self.unique_methods_paths.add(endpoint)
+
+            print(json.dumps(result), flush=True)
+
         await route.continue_()
 
     def _extract_json_keys(self, data: str) -> Set[str]:
