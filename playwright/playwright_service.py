@@ -21,6 +21,7 @@ class PlaywrightScannerService(scanner_pb2_grpc.PlaywrightScannerServicer):
         scanner = PlaywrightScanner(request.url, max_depth=request.max_depth)
 
         results_queue = asyncio.Queue()
+        pending_tasks = []
 
         original_print = print
 
@@ -28,7 +29,8 @@ class PlaywrightScannerService(scanner_pb2_grpc.PlaywrightScannerServicer):
             if args and isinstance(args[0], str):
                 try:
                     data = json.loads(args[0])
-                    asyncio.create_task(results_queue.put(data))
+                    task = asyncio.create_task(results_queue.put(data))
+                    pending_tasks.append(task)
                 except json.JSONDecodeError:
                     pass
 
@@ -37,6 +39,8 @@ class PlaywrightScannerService(scanner_pb2_grpc.PlaywrightScannerServicer):
             builtins.print = capture_print
             try:
                 await scanner.scan()
+                if pending_tasks:
+                    await asyncio.gather(*pending_tasks)
             except Exception as e:
                 await results_queue.put({"error": str(e)})
             finally:
