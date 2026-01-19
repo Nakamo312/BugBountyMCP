@@ -548,9 +548,8 @@ class PlaywrightScanner:
             initial_request_count = self.request_count
             initial_endpoints = self.unique_endpoints.copy()
 
-            if action.semantic in ['submit', 'interaction', 'auth']:
-                await self._fill_forms(page)
-                await page.wait_for_timeout(100)
+            await self._fill_forms(page)
+            await page.wait_for_timeout(100)
 
             success, _ = await self._execute_action(page, action)
 
