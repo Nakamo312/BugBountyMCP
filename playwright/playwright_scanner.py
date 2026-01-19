@@ -1,6 +1,6 @@
 """
 Playwright-based state-aware web crawler with BFS exploration
-Bug bounty optimized: safe callbacks, SPA-aware, maximal coverage
+Optimized for bug bounty: faster, SPA-aware, maximal surface
 """
 import asyncio
 import json
@@ -53,7 +53,7 @@ STATIC_EXTENSIONS = {
     ".map", ".min.js", ".min.css"
 }
 
-UNCLUSTERED = {"pagination", "data_loader"}
+UNCLUSTERED = {"pagination", "data_loader"}  # Execute all
 
 # -------------------- Data Classes --------------------
 @dataclass
@@ -85,14 +85,26 @@ class State:
     path: List[Action] = field(default_factory=list)
     actions: Set[Action] = field(default_factory=set)
     executed_actions: Set[Action] = field(default_factory=set)
+    dead_actions: Set[Action] = field(default_factory=set)
     executed_clusters: Set[str] = field(default_factory=set)
     discovered_endpoints: Set[str] = field(default_factory=set)
+    is_volatile: bool = False
+
+    def __hash__(self):
+        parsed = urlparse(self.url)
+        normalized_url = f"{parsed.netloc}{parsed.path}"
+        query_keys = frozenset(parse_qs(parsed.query).keys()) if parsed.query else frozenset()
+        return hash((normalized_url, query_keys, self.cookies_hash))
 
     def get_fingerprint(self):
         parsed = urlparse(self.url)
         normalized_url = f"{parsed.netloc}{parsed.path}"
         query_keys = frozenset(parse_qs(parsed.query).keys()) if parsed.query else frozenset()
         return (normalized_url, query_keys, self.cookies_hash)
+
+    def is_exhausted(self, no_new_endpoints: bool, no_new_clusters: bool) -> bool:
+        all_executed = len(self.executed_actions) >= len(self.actions)
+        return all_executed or (no_new_endpoints and no_new_clusters)
 
 # -------------------- Scanner --------------------
 class PlaywrightScanner:
@@ -103,11 +115,15 @@ class PlaywrightScanner:
 
         self.visited_states: Set[tuple] = set()
         self.state_queue: deque[State] = deque()
-        self.unique_endpoints: Set[str] = set()
+        self.results: list[Dict[str, Any]] = []
+
         self.seen_requests: Set[str] = set()
         self.request_count = 0
-        self.last_endpoint_count = 0
+
+        self.unique_endpoints: Set[str] = set()
+        self.unique_json_keys: Set[str] = set()
         self.stale_iterations = 0
+        self.last_endpoint_count = 0
 
     # -------------------- Helpers --------------------
     def _is_static_resource(self, url: str) -> bool:
@@ -115,19 +131,19 @@ class PlaywrightScanner:
         return any(lower_url.endswith(ext) for ext in STATIC_EXTENSIONS)
 
     def _classify_action_semantic(self, text: str, selector: str, tag: str) -> str:
-        t = text.lower()
-        s = selector.lower()
-        if any(k in t for k in ['next', 'prev', 'page', '»', '«', '>', '<']):
+        text_lower = text.lower()
+        selector_lower = selector.lower()
+        if any(k in text_lower for k in ['next', 'prev', 'page', '»', '«', '>', '<']):
             return 'pagination'
-        if any(k in t for k in ['filter', 'sort', 'search', 'apply', 'category', 'tag']):
+        if any(k in text_lower for k in ['filter', 'sort', 'search', 'apply', 'category', 'tag']):
             return 'filter'
-        if any(k in t for k in ['submit', 'send', 'save', 'post', 'create', 'delete', 'update']):
+        if any(k in text_lower for k in ['submit', 'send', 'save', 'post', 'create', 'delete', 'update']):
             return 'submit'
-        if any(k in t for k in ['login', 'signup', 'logout', 'register']):
+        if any(k in text_lower for k in ['login', 'signup', 'logout', 'register']):
             return 'auth'
-        if tag == 'a' or 'nav' in s or 'menu' in s:
+        if tag == 'a' or 'nav' in selector_lower or 'menu' in selector_lower:
             return 'navigation'
-        if any(k in t for k in ['load', 'more', 'show', 'expand', 'view']):
+        if any(k in text_lower for k in ['load', 'more', 'show', 'expand', 'view']):
             return 'data_loader'
         return 'interaction'
 
@@ -216,73 +232,52 @@ class PlaywrightScanner:
             el = await page.query_selector(action.selector)
             if el and await el.is_visible() and await el.is_enabled():
                 initial_request_count = self.request_count
-                initial_url = page.url
+                current_url = page.url
                 await el.scroll_into_view_if_needed()
                 await el.click(timeout=1000)
                 await page.wait_for_timeout(50)
-                had_effect = self.request_count > initial_request_count or page.url != initial_url
-                if had_effect:
-                    self.unique_endpoints.add(page.url)
+                had_effect = self.request_count > initial_request_count or page.url != current_url
                 return True, had_effect
         except:
             return False, False
         return False, False
 
-    # -------------------- Safe Callbacks --------------------
-    async def safe_intercept_request(self, route: Route):
+    # -------------------- Request / Response --------------------
+    async def handle_request(self, request):
         try:
-            await self.intercept_request(route)
+            if self._is_static_resource(request.url) or request.resource_type in ["beacon", "ping"]:
+                return
+            parsed = urlparse(request.url)
+            if parsed.netloc != urlparse(self.start_url).netloc:
+                return
+            key = f"{request.method}:{parsed.path}"
+            if key not in self.seen_requests:
+                self.seen_requests.add(key)
+                self.request_count += 1
         except Exception as e:
-            logger.warning(f"Intercept failed: {e}")
-            await route.continue_()
-
-    async def safe_handle_response(self, response: Response):
-        try:
-            await self.handle_response(response)
-        except Exception as e:
-            logger.warning(f"Response handling failed: {e}")
-
-    async def intercept_request(self, route: Route):
-        req = route.request
-        if self._is_static_resource(req.url) or req.resource_type in ["beacon", "ping"]:
-            await route.continue_()
-            return
-        parsed = urlparse(req.url)
-        if parsed.netloc != urlparse(self.start_url).netloc:
-            await route.continue_()
-            return
-        key = f"{req.method}:{parsed.path}"
-        if key not in self.seen_requests:
-            self.seen_requests.add(key)
-            self.request_count += 1
-        await route.continue_()
+            logger.warning(f"Request handling failed: {e}")
 
     async def handle_response(self, response: Response):
         try:
-            text = await response.text()
-            self._extract_json_keys_recursive(text)
+            body = await response.text()
+            self.unique_json_keys.update(self._extract_json_keys(body))
         except:
             pass
 
-    def _extract_json_keys_recursive(self, data: str):
+    def _extract_json_keys(self, data: str) -> Set[str]:
+        keys = set()
         try:
             obj = json.loads(data)
+            if isinstance(obj, dict):
+                keys.update(obj.keys())
         except:
-            return
-        def walk(d):
-            if isinstance(d, dict):
-                for k, v in d.items():
-                    self.unique_endpoints.add(k)
-                    walk(v)
-            elif isinstance(d, list):
-                for item in d:
-                    walk(item)
-        walk(obj)
+            pass
+        return keys
 
     # -------------------- Exploration --------------------
     async def _explore_state(self, page: Page, state: State):
         await self._fill_forms(page)
-        max_actions = 100 if state.depth==0 else 50
+        max_actions = 100 if state.depth==0 else 40
         actions = await self._extract_actions(page, max_actions=max_actions)
         state.actions.update(actions)
 
@@ -303,20 +298,24 @@ class PlaywrightScanner:
                 continue
             state.executed_actions.add(action)
             state.executed_clusters.add(cluster_key)
-            if had_effect and state.depth < self.max_depth:
-                dom_hash, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
-                new_state = State(
-                    url=page.url,
-                    dom_hash=dom_hash,
-                    cookies_hash=cookies_hash,
-                    storage_hash=storage_hash,
-                    depth=state.depth+1,
-                    path=state.path + [action]
-                )
-                fp = new_state.get_fingerprint()
-                if fp not in self.visited_states:
-                    self.visited_states.add(fp)
-                    self.state_queue.append(new_state)
+            if had_effect:
+                self.unique_endpoints.add(page.url)
+                state.discovered_endpoints.add(page.url)
+                if state.depth < self.max_depth:
+                    dom_hash, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
+                    new_state = State(
+                        url=page.url,
+                        dom_hash=dom_hash,
+                        cookies_hash=cookies_hash,
+                        storage_hash=storage_hash,
+                        depth=state.depth+1,
+                        path=state.path + [action],
+                        actions=set()
+                    )
+                    fp = new_state.get_fingerprint()
+                    if fp not in self.visited_states:
+                        self.visited_states.add(fp)
+                        self.state_queue.append(new_state)
 
     async def _check_convergence(self) -> bool:
         endpoints_delta = len(self.unique_endpoints) - self.last_endpoint_count
@@ -337,8 +336,9 @@ class PlaywrightScanner:
             browser = await p.chromium.launch(headless=True, args=['--no-sandbox','--disable-gpu'])
             context = await browser.new_context(ignore_https_errors=True, user_agent='Mozilla/5.0')
             page = await context.new_page()
-            page.on("request", lambda route: asyncio.create_task(self.safe_intercept_request(route)))
-            page.on("response", lambda response: asyncio.create_task(self.safe_handle_response(response)))
+            # Safe async callbacks
+            page.on("request", lambda req: asyncio.create_task(self.handle_request(req)))
+            page.on("response", lambda res: asyncio.create_task(self.handle_response(res)))
 
             await page.goto(self.start_url)
             await page.wait_for_timeout(50)
