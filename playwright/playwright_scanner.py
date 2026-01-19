@@ -8,7 +8,7 @@ import logging
 import sys
 import hashlib
 from typing import Set, Dict, Any, List
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from dataclasses import dataclass, field
 from collections import deque
 
@@ -65,12 +65,19 @@ class Action:
     text: str
     tag: str
     event_type: str = "click"
+    semantic: str = "unknown"
 
     def __hash__(self):
         return hash((self.selector, self.text, self.tag, self.event_type))
 
     def __eq__(self, other):
         return isinstance(other, Action) and hash(self) == hash(other)
+
+    def get_cluster_key(self) -> str:
+        """Get key for clustering similar actions"""
+        text_words = ''.join(c for c in self.text.lower() if c.isalnum() or c.isspace()).split()
+        text_sig = '_'.join(text_words[:3])
+        return f"{self.semantic}:{self.tag}:{text_sig}"
 
 
 @dataclass
@@ -84,12 +91,20 @@ class State:
     actions: Set[Action] = field(default_factory=set)
     executed_actions: Set[Action] = field(default_factory=set)
     dead_actions: Set[Action] = field(default_factory=set)
+    executed_clusters: Set[str] = field(default_factory=set)
+    discovered_endpoints: Set[str] = field(default_factory=set)
+    is_volatile: bool = False
 
     def __hash__(self):
         return hash((self.url, self.dom_hash, self.cookies_hash, self.storage_hash))
 
     def get_fingerprint(self):
         return (self.url, self.dom_hash, self.cookies_hash, self.storage_hash)
+
+    def is_exhausted(self, no_new_endpoints: bool, no_new_clusters: bool) -> bool:
+        """Check if state exploration is exhausted"""
+        all_executed = len(self.executed_actions) >= len(self.actions)
+        return all_executed or (no_new_endpoints and no_new_clusters)
 
 
 class PlaywrightScanner:
@@ -104,6 +119,7 @@ class PlaywrightScanner:
         self.state_queue: deque[State] = deque()
         self.results: list[Dict[str, Any]] = []
         self.pending_requests: Dict[str, Dict[str, Any]] = {}
+        self.seen_requests: Set[str] = set()
 
         self.unique_endpoints: Set[str] = set()
         self.unique_methods_paths: Set[str] = set()
@@ -121,15 +137,57 @@ class PlaywrightScanner:
         lower_url = url.lower().split('?')[0]
         return any(lower_url.endswith(ext) for ext in STATIC_EXTENSIONS)
 
+    def _classify_action_semantic(self, text: str, selector: str, tag: str) -> str:
+        """Classify action by semantic type"""
+        text_lower = text.lower()
+        selector_lower = selector.lower()
+
+        if any(k in text_lower for k in ['next', 'prev', 'page', '»', '«', '>', '<']):
+            return 'pagination'
+        if any(k in text_lower for k in ['filter', 'sort', 'search', 'apply', 'category', 'tag']):
+            return 'filter'
+        if any(k in text_lower for k in ['submit', 'send', 'save', 'post', 'create', 'delete', 'update']):
+            return 'submit'
+        if any(k in text_lower for k in ['login', 'signup', 'logout', 'register']):
+            return 'auth'
+        if tag == 'a' or 'nav' in selector_lower or 'menu' in selector_lower:
+            return 'navigation'
+        if any(k in text_lower for k in ['load', 'more', 'show', 'expand', 'view']):
+            return 'data_loader'
+
+        return 'interaction'
+
     def _make_request_key(self, method: str, url: str, body: str = None) -> str:
-        """Create unique key for request deduplication"""
-        body_hash = hash(body) if body else 0
-        return f"{method}:{url}:{body_hash}"
+        """Create normalized unique key for request deduplication"""
+        parsed = urlparse(url)
+        normalized_path = parsed.path or '/'
+
+        query_keys = sorted(parse_qs(parsed.query).keys()) if parsed.query else []
+        query_sig = ','.join(query_keys)
+
+        body_schema = ''
+        if body:
+            try:
+                body_obj = json.loads(body)
+                if isinstance(body_obj, dict):
+                    body_schema = ','.join(sorted(body_obj.keys()))
+            except:
+                body_schema = str(hash(body))[:8]
+
+        return f"{method}:{normalized_path}:{query_sig}:{body_schema}"
 
     async def _get_dom_hash(self, page: Page) -> str:
-        """Get hash of current DOM state"""
-        dom = await page.content()
-        return hashlib.sha256(dom.encode()).hexdigest()[:16]
+        """Get semantic DOM fingerprint ignoring dynamic content"""
+        fingerprint = await page.evaluate("""
+            () => {
+                const forms = [...document.querySelectorAll('form')].length;
+                const buttons = [...document.querySelectorAll('button,a,[role="button"]')].length;
+                const inputs = [...document.querySelectorAll('input')].map(i => i.name || i.type).sort().join(',');
+                const onclick = [...document.querySelectorAll('[onclick]')].length;
+                return `${location.pathname}|${forms}|${buttons}|${onclick}|${inputs}`;
+            }
+        """)
+        return hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
 
     async def _get_state_fingerprint(self, page: Page):
         """Get full state fingerprint including cookies and storage"""
@@ -162,9 +220,10 @@ class PlaywrightScanner:
                 text = (await el.text_content() or "").strip()[:50]
                 tag = await el.evaluate("el => el.tagName.toLowerCase()")
                 selector = await self._generate_selector(el)
+                semantic = self._classify_action_semantic(text, selector, tag)
 
                 if selector:
-                    actions.add(Action(selector=selector, text=text, tag=tag))
+                    actions.add(Action(selector=selector, text=text, tag=tag, semantic=semantic))
             except:
                 pass
 
@@ -272,6 +331,14 @@ class PlaywrightScanner:
         if start_domain != request_domain:
             await route.continue_()
             return
+
+        request_key = self._make_request_key(request.method, request.url, request.post_data)
+
+        if request_key in self.seen_requests:
+            await route.continue_()
+            return
+
+        self.seen_requests.add(request_key)
 
         result = {
             "request": {
@@ -403,12 +470,17 @@ class PlaywrightScanner:
                     return False
 
             if expected_fingerprint:
-                actual = await self._get_state_fingerprint(page)
                 url_match = page.url == expected_fingerprint[0]
-                dom_similar = actual[0][:8] == expected_fingerprint[1][:8]
+                if not url_match:
+                    logger.warning(f"Replay mismatch: URL changed {page.url} != {expected_fingerprint[0]}")
+                    return False
 
-                if not (url_match and dom_similar):
-                    logger.warning(f"Replay mismatch: url={url_match} dom={dom_similar}")
+                current_actions = await self._extract_actions(page)
+                action_signatures = {a.get_cluster_key() for a in current_actions}
+                has_similar_actions = len(action_signatures) > 0
+
+                if not has_similar_actions:
+                    logger.warning(f"Replay mismatch: no similar actions found")
                     return False
 
             return True
@@ -417,11 +489,23 @@ class PlaywrightScanner:
             return False
 
     async def _explore_state(self, page: Page, state: State):
-        """Explore single state by executing all unexecuted actions"""
+        """Explore single state by executing representative actions from each cluster"""
         logger.info(f"Exploring state: {state.url} (depth={state.depth}, actions={len(state.actions)})")
 
+        action_clusters = {}
         for action in state.actions:
-            if action in state.executed_actions or action in state.dead_actions:
+            if action not in state.executed_actions and action not in state.dead_actions:
+                cluster_key = action.get_cluster_key()
+                if cluster_key not in action_clusters:
+                    action_clusters[cluster_key] = action
+
+        logger.info(f"Action clusters: {len(action_clusters)} ({', '.join(k.split(':')[0] for k in action_clusters.keys())})")
+
+        initial_state_endpoints = len(state.discovered_endpoints)
+        initial_state_clusters = len(state.executed_clusters)
+
+        for cluster_key, action in action_clusters.items():
+            if cluster_key in state.executed_clusters:
                 continue
 
             try:
@@ -431,6 +515,7 @@ class PlaywrightScanner:
                 break
 
             initial_request_count = self.request_count
+            initial_endpoints = self.unique_endpoints.copy()
 
             success, _ = await self._execute_action(page, action)
 
@@ -438,6 +523,7 @@ class PlaywrightScanner:
                 continue
 
             state.executed_actions.add(action)
+            state.executed_clusters.add(cluster_key)
 
             try:
                 new_dom, new_cookies, new_storage = await self._get_state_fingerprint(page)
@@ -447,6 +533,7 @@ class PlaywrightScanner:
                 break
 
             request_delta = self.request_count - initial_request_count
+            new_endpoints = self.unique_endpoints - initial_endpoints
             dom_changed = new_dom != dom_hash
             cookies_changed = new_cookies != cookies_hash
             storage_changed = new_storage != storage_hash
@@ -455,15 +542,19 @@ class PlaywrightScanner:
 
             if not had_effect:
                 state.dead_actions.add(action)
-                logger.info(f"Dead action: {action.text[:30]} (no requests, no state change)")
+                logger.info(f"Dead action [{action.semantic}]: {action.text[:30]} (no requests, no state change)")
                 continue
+
+            state.discovered_endpoints.update(new_endpoints)
+            if new_endpoints:
+                logger.info(f"Action [{action.semantic}] discovered {len(new_endpoints)} new endpoints")
 
             new_fingerprint = (new_url, new_dom, new_cookies, new_storage)
 
             start_domain = urlparse(self.start_url).netloc
             new_domain = urlparse(new_url).netloc
 
-            if new_fingerprint not in self.visited_states and state.depth < self.max_depth and len(state.path) < self.max_path_length and start_domain == new_domain:
+            if new_fingerprint not in self.visited_states and state.depth < self.max_depth and len(state.path) < self.max_path_length and start_domain == new_domain and not state.is_volatile:
                 try:
                     actions = await self._extract_actions(page)
                     new_state = State(
@@ -481,11 +572,18 @@ class PlaywrightScanner:
                 except Exception as e:
                     logger.warning(f"Failed to extract actions for new state: {e}")
 
-            if new_fingerprint != state.get_fingerprint():
+            if new_fingerprint != state.get_fingerprint() and not state.is_volatile:
                 replay_success = await self._replay_state(page, self.start_url, state.path, state.get_fingerprint())
                 if not replay_success:
-                    logger.warning(f"Failed to replay state, skipping remaining actions")
+                    state.is_volatile = True
+                    logger.info(f"State marked as volatile (non-deterministic), explore once only")
                     break
+
+            new_endpoints_delta = len(state.discovered_endpoints) - initial_state_endpoints
+            new_clusters_delta = len(state.executed_clusters) - initial_state_clusters
+            if state.is_exhausted(new_endpoints_delta == 0, new_clusters_delta == 0):
+                logger.info(f"State exhausted: {len(state.executed_clusters)} clusters executed, {len(state.discovered_endpoints)} endpoints discovered")
+                break
 
     async def _check_convergence(self) -> bool:
         """Check if crawler has converged (no new discoveries)"""
