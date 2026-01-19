@@ -324,6 +324,10 @@ class PlaywrightScanner:
             await route.continue_()
             return
 
+        if request.resource_type in ["beacon", "ping"]:
+            await route.continue_()
+            return
+
         parsed = urlparse(request.url)
         start_domain = urlparse(self.start_url).netloc
         request_domain = parsed.netloc
@@ -332,19 +336,12 @@ class PlaywrightScanner:
             await route.continue_()
             return
 
-        request_key = self._make_request_key(request.method, request.url, request.post_data)
-
-        if request_key in self.seen_requests:
-            await route.continue_()
-            return
-
-        self.seen_requests.add(request_key)
-
         result = {
             "request": {
                 "method": request.method,
                 "endpoint": request.url,
                 "headers": dict(request.headers),
+                "resource_type": request.resource_type,
             }
         }
 
@@ -382,15 +379,24 @@ class PlaywrightScanner:
             pass
         return keys
 
-    def _extract_graphql_operation(self, data: str, content_type: str) -> str:
+    def _extract_graphql_operation(self, data: str, content_type: str, url: str) -> str:
         """Extract GraphQL operation name"""
+        if "graphql" in url.lower() or "application/graphql" in content_type.lower():
+            return "graphql_raw"
+
         if "application/json" not in content_type.lower():
             return None
 
         try:
             obj = json.loads(data)
-            if isinstance(obj, dict) and ("query" in obj or "mutation" in obj):
-                return obj.get("operationName", "anonymous")
+            if isinstance(obj, list):
+                if any("query" in item or "mutation" in item for item in obj if isinstance(item, dict)):
+                    return "graphql_batch"
+            elif isinstance(obj, dict):
+                if "query" in obj or "mutation" in obj:
+                    return obj.get("operationName", "anonymous")
+                if "id" in obj and "variables" in obj:
+                    return "graphql_persisted"
         except:
             pass
         return None
@@ -422,7 +428,7 @@ class PlaywrightScanner:
                 self.unique_json_keys.update(self._extract_json_keys(request.post_data))
 
                 content_type = request.headers.get("content-type", "")
-                graphql_op = self._extract_graphql_operation(request.post_data, content_type)
+                graphql_op = self._extract_graphql_operation(request.post_data, content_type, request.url)
                 if graphql_op:
                     self.unique_graphql_ops.add(graphql_op)
 
@@ -493,6 +499,12 @@ class PlaywrightScanner:
         logger.info(f"Exploring state: {state.url} (depth={state.depth}, actions={len(state.actions)})")
 
         await self._fill_forms(page)
+
+        try:
+            await page.mouse.wheel(0, 5000)
+            await page.wait_for_timeout(500)
+        except:
+            pass
 
         action_clusters = {}
         for action in state.actions:
@@ -627,10 +639,20 @@ class PlaywrightScanner:
 
             context = await browser.new_context(
                 ignore_https_errors=True,
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                service_workers='block'
             )
 
             page = await context.new_page()
+
+            def log_request(request):
+                if not self._is_static_resource(request.url) and request.resource_type not in ["beacon", "ping"]:
+                    parsed = urlparse(request.url)
+                    start_domain = urlparse(self.start_url).netloc
+                    if parsed.netloc == start_domain:
+                        logger.info(f"Request: {request.method} {request.url}")
+
+            page.on("request", log_request)
 
             await page.add_init_script("""
                 (() => {
