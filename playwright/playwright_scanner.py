@@ -96,12 +96,16 @@ class State:
     is_volatile: bool = False
 
     def __hash__(self):
-        action_sig = frozenset(a.get_cluster_key() for a in self.actions)
-        return hash((self.url, action_sig))
+        parsed = urlparse(self.url)
+        normalized_url = f"{parsed.netloc}{parsed.path}"
+        query_keys = frozenset(parse_qs(parsed.query).keys()) if parsed.query else frozenset()
+        return hash((normalized_url, query_keys, self.cookies_hash))
 
     def get_fingerprint(self):
-        action_sig = frozenset(a.get_cluster_key() for a in self.actions)
-        return (self.url, action_sig)
+        parsed = urlparse(self.url)
+        normalized_url = f"{parsed.netloc}{parsed.path}"
+        query_keys = frozenset(parse_qs(parsed.query).keys()) if parsed.query else frozenset()
+        return (normalized_url, query_keys, self.cookies_hash)
 
     def is_exhausted(self, no_new_endpoints: bool, no_new_clusters: bool) -> bool:
         """Check if state exploration is exhausted"""
@@ -353,15 +357,20 @@ class PlaywrightScanner:
             result["request"]["raw"] += f"?{parsed.query}"
         result["request"]["raw"] += " HTTP/1.1\r\n"
 
-        for key, value in request.headers.items():
-            result["request"]["raw"] += f"{key}: {value}\r\n"
+        for k, v in request.headers.items():
+            result["request"]["raw"] += f"{k}: {v}\r\n"
         result["request"]["raw"] += "\r\n"
 
         if request.post_data:
             result["request"]["raw"] += request.post_data
 
         key = self._make_request_key(request.method, request.url, request.post_data)
-        self.pending_requests[key] = result
+
+        if key not in self.seen_requests:
+            self.seen_requests.add(key)
+            self.pending_requests[key] = result
+
+            logger.info(f"Captured: {request.method} {parsed.path} {f'[body: {len(request.post_data)} bytes]' if request.post_data else ''}")
 
         await route.continue_()
 
@@ -431,6 +440,14 @@ class PlaywrightScanner:
                 graphql_op = self._extract_graphql_operation(request.post_data, content_type, request.url)
                 if graphql_op:
                     self.unique_graphql_ops.add(graphql_op)
+
+                try:
+                    body_obj = json.loads(request.post_data)
+                    if isinstance(body_obj, dict):
+                        body_schema = ','.join(sorted(body_obj.keys()))
+                        logger.info(f"POST body schema: {body_schema}")
+                except:
+                    pass
 
             try:
                 body = await response.text()
@@ -591,13 +608,6 @@ class PlaywrightScanner:
                 except Exception as e:
                     logger.warning(f"Failed to extract actions for new state: {e}")
 
-            if current_fingerprint and current_fingerprint != state.get_fingerprint() and not state.is_volatile:
-                replay_success = await self._replay_state(page, self.start_url, state.path, state.get_fingerprint())
-                if not replay_success:
-                    state.is_volatile = True
-                    logger.info(f"State marked as volatile (non-deterministic), explore once only")
-                    break
-
             new_endpoints_delta = len(state.discovered_endpoints) - initial_state_endpoints
             new_clusters_delta = len(state.executed_clusters) - initial_state_clusters
             if state.is_exhausted(new_endpoints_delta == 0, new_clusters_delta == 0):
@@ -706,7 +716,7 @@ class PlaywrightScanner:
                 state = self.state_queue.popleft()
 
                 try:
-                    if not state.is_volatile and state.path:
+                    if state.path and page.url != state.url:
                         await self._replay_state(page, self.start_url, state.path)
                     await self._explore_state(page, state)
                 except Exception as e:
