@@ -555,12 +555,11 @@ class PlaywrightScanner:
             if new_endpoints:
                 logger.info(f"Action [{action.semantic}] discovered {len(new_endpoints)} new endpoints")
 
-            new_fingerprint = (new_url, new_dom, new_cookies, new_storage)
-
             start_domain = urlparse(self.start_url).netloc
             new_domain = urlparse(new_url).netloc
 
-            if new_fingerprint not in self.visited_states and state.depth < self.max_depth and len(state.path) < self.max_path_length and start_domain == new_domain and not state.is_volatile:
+            current_fingerprint = None
+            if state.depth < self.max_depth and len(state.path) < self.max_path_length and start_domain == new_domain and not state.is_volatile:
                 try:
                     actions = await self._extract_actions(page)
                     new_state = State(
@@ -572,13 +571,15 @@ class PlaywrightScanner:
                         path=state.path + [action],
                         actions=actions
                     )
-                    self.visited_states.add(new_fingerprint)
-                    self.state_queue.append(new_state)
-                    logger.info(f"New state: {new_url} (dom={new_dom[:8]}, path_len={len(new_state.path)})")
+                    current_fingerprint = new_state.get_fingerprint()
+                    if current_fingerprint not in self.visited_states:
+                        self.visited_states.add(current_fingerprint)
+                        self.state_queue.append(new_state)
+                        logger.info(f"New state: {new_url} (clusters={len(actions)}, path_len={len(new_state.path)})")
                 except Exception as e:
                     logger.warning(f"Failed to extract actions for new state: {e}")
 
-            if new_fingerprint != state.get_fingerprint() and not state.is_volatile:
+            if current_fingerprint and current_fingerprint != state.get_fingerprint() and not state.is_volatile:
                 replay_success = await self._replay_state(page, self.start_url, state.path, state.get_fingerprint())
                 if not replay_success:
                     state.is_volatile = True
