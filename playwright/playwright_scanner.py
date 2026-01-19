@@ -96,10 +96,12 @@ class State:
     is_volatile: bool = False
 
     def __hash__(self):
-        return hash((self.url, self.dom_hash, self.cookies_hash, self.storage_hash))
+        action_sig = frozenset(a.get_cluster_key() for a in self.actions)
+        return hash((self.url, action_sig))
 
     def get_fingerprint(self):
-        return (self.url, self.dom_hash, self.cookies_hash, self.storage_hash)
+        action_sig = frozenset(a.get_cluster_key() for a in self.actions)
+        return (self.url, action_sig)
 
     def is_exhausted(self, no_new_endpoints: bool, no_new_clusters: bool) -> bool:
         """Check if state exploration is exhausted"""
@@ -516,6 +518,10 @@ class PlaywrightScanner:
 
             initial_request_count = self.request_count
             initial_endpoints = self.unique_endpoints.copy()
+
+            if action.semantic in ['submit', 'interaction', 'auth']:
+                await self._fill_forms(page)
+                await page.wait_for_timeout(100)
 
             success, _ = await self._execute_action(page, action)
 
