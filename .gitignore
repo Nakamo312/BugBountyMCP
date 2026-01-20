@@ -213,4 +213,9 @@ marimo/_lsp/
 __marimo__/
 
 # Streamlit
-.streamlit/secrets.toml
+.streamlit/secrets.tomlpostgres_data/
+katana_config/katana/
+*.swp
+postgres_data/
+katana_config/
+*.swp
