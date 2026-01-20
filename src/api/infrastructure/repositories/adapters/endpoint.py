@@ -43,3 +43,17 @@ class SQLAlchemyEndpointRepository(SQLAlchemyAbstractRepository, EndpointReposit
             endpoint = await self.update(endpoint.id, endpoint)
 
         return endpoint
+    
+    async def find_by_host(
+        self,
+        host_id: UUID,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[EndpointModel]:
+        """Find endpoints by host_id"""
+        query = select(EndpointModel).where(
+            EndpointModel.host_id == host_id
+        ).limit(limit).offset(offset)
+        
+        result = await self.session.execute(query)
+        return list(result.scalars().all())

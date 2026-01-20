@@ -8,6 +8,7 @@ from api.config import Settings
 from api.infrastructure.database.connection import DatabaseConnection
 from api.application.services.program import ProgramService
 from api.application.services.mapcidr import MapCIDRService
+from api.application.services.host import HostService
 from api.application.services.batch_processor import (
     HTTPXBatchProcessor,
     SubfinderBatchProcessor,
@@ -443,6 +444,13 @@ class ServiceProvider(Provider):
             runner=mapcidr_runner,
             bus=event_bus
         )
+    
+    @provide(scope=Scope.REQUEST)
+    def get_host_service(
+        self,
+        scan_uow: SQLAlchemyHTTPXUnitOfWork
+    ) -> HostService:
+        return HostService(scan_uow)
 
 
 class PipelineProvider(Provider):

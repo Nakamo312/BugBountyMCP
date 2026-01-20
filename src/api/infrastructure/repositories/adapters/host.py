@@ -30,3 +30,18 @@ class SQLAlchemyHostRepository(SQLAlchemyAbstractRepository, HostRepository):
             conflict_fields=["program_id", "host"],
             update_fields=["in_scope", "cname"]
         )
+    
+    async def find_by_program(
+        self,
+        program_id: UUID,
+        limit: int = 100,
+        offset: int = 0,
+        in_scope: bool | None = None
+    ) -> list[HostModel]:
+        """Find hosts by program_id with optional filters"""
+        from typing import List
+        filters = {"program_id": program_id}
+        if in_scope is not None:
+            filters["in_scope"] = in_scope
+        
+        return await self.find_many(filters=filters, limit=limit, offset=offset)
