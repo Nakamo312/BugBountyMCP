@@ -1,8 +1,8 @@
-"""add action field to scope rules
+"""add all missing tables and fields
 
-Revision ID: 331962e560ee
-Revises: add_dns_analysis_views
-Create Date: 2026-01-16 15:29:09.873063
+Revision ID: 30e963c8bbe7
+Revises: 216630f036d6
+Create Date: 2026-01-17 19:49:53.386507
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '331962e560ee'
-down_revision: Union[str, None] = 'add_host_id_to_findings'
+revision: str = '30e963c8bbe7'
+down_revision: Union[str, None] = '216630f036d6'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -18,3 +18,12 @@ class EndpointRepository(AbstractRepository[EndpointModel], ABC):
         status_code: int | None,
     ) -> EndpointModel:
         raise NotImplementedError
+    
+    async def find_by_host(
+        self,
+        host_id: UUID,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[EndpointModel]:
+        """Find endpoints by host_id"""
+        raise NotImplementedError
