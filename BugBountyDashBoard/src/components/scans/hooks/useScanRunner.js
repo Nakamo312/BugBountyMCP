@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-export function useScanRunner() {
+export function useScanRunner(selectedProgram) {
   const [activeScan, setActiveScan] = useState(null)
   const [loading, setLoading] = useState(false)
 
