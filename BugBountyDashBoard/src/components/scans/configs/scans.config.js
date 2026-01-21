@@ -1,29 +1,11 @@
-import {
-  scanSubfinder,
-  scanHTTPX,
-  scanGAU,
-  scanWaymore,
-  scanKatana,
-  scanPlaywright,
-  scanLinkFinder,
-  scanMantra,
-  scanFFUF,
-  scanDNSx,
-  scanSubjack,
-  scanASNMap,
-  scanMapCIDR,
-  scanNaabu,
-} from '@/services/api'
-
-import {
-  Search,
-  Globe,
-  Database,
-  Network,
-  FileCode,
-  Bug,
-  Shield,
+import { 
+  Search, Globe, Database, Network, FileCode, Bug, Shield 
 } from 'lucide-react'
+import { 
+  scanSubfinder, scanHTTPX, scanGAU, scanWaymore, scanKatana,
+  scanPlaywright, scanLinkFinder, scanMantra, scanFFUF, scanDNSx,
+  scanSubjack, scanASNMap, scanMapCIDR, scanNaabu
+} from '../services/api'
 
 export const SCANS = [
   {
@@ -34,6 +16,12 @@ export const SCANS = [
     color: 'blue',
     api: scanSubfinder,
     form: 'Subfinder',
+    initialValues: { targets: '', probe: true, timeout: 600 },
+    fields: [
+      { name: 'targets', label: 'Targets', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'probe', label: 'Probe', type: 'checkbox' },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
+    ],
   },
   {
     id: 'httpx',
@@ -43,6 +31,11 @@ export const SCANS = [
     color: 'green',
     api: scanHTTPX,
     form: 'HTTPX',
+    initialValues: { targets: '', timeout: 600 },
+    fields: [
+      { name: 'targets', label: 'Targets', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
+    ],
   },
   {
     id: 'gau',
@@ -52,6 +45,12 @@ export const SCANS = [
     color: 'purple',
     api: scanGAU,
     form: 'GAU',
+    initialValues: { targets: '', include_subs: true, timeout: 600 },
+    fields: [
+      { name: 'targets', label: 'Targets', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'include_subs', label: 'Include Subdomains', type: 'checkbox' },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
+    ],
   },
   {
     id: 'waymore',
@@ -61,6 +60,11 @@ export const SCANS = [
     color: 'indigo',
     api: scanWaymore,
     form: 'Waymore',
+    initialValues: { targets: '', timeout: 600 },
+    fields: [
+      { name: 'targets', label: 'Targets', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
+    ],
   },
   {
     id: 'katana',
@@ -70,6 +74,14 @@ export const SCANS = [
     color: 'red',
     api: scanKatana,
     form: 'Katana',
+    initialValues: { targets: '', depth: 3, js_crawl: true, headless: false, timeout: 600 },
+    fields: [
+      { name: 'targets', label: 'Targets', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'depth', label: 'Depth (1-10)', type: 'number', min: 1, max: 10 },
+      { name: 'js_crawl', label: 'JS Crawl', type: 'checkbox' },
+      { name: 'headless', label: 'Headless', type: 'checkbox' },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
+    ],
   },
   {
     id: 'playwright',
@@ -79,6 +91,14 @@ export const SCANS = [
     color: 'pink',
     api: scanPlaywright,
     form: 'Playwright',
+    initialValues: { targets: '', depth: 3, js_crawl: true, headless: false, timeout: 600 },
+    fields: [
+      { name: 'targets', label: 'Targets', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'depth', label: 'Depth (1-10)', type: 'number', min: 1, max: 10 },
+      { name: 'js_crawl', label: 'JS Crawl', type: 'checkbox' },
+      { name: 'headless', label: 'Headless', type: 'checkbox' },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
+    ],
   },
   {
     id: 'linkfinder',
@@ -88,24 +108,39 @@ export const SCANS = [
     color: 'yellow',
     api: scanLinkFinder,
     form: 'LinkFinder',
+    initialValues: { targets: '', timeout: 15 },
+    fields: [
+      { name: 'targets', label: 'Targets', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 60 },
+    ],
   },
   {
     id: 'mantra',
     name: 'Mantra',
-    description: 'Secret scanning in JS files',
+    description: 'Secret scanning on JavaScript files',
     icon: Shield,
     color: 'orange',
     api: scanMantra,
     form: 'Mantra',
+    initialValues: { targets: '', timeout: 300 },
+    fields: [
+      { name: 'targets', label: 'Targets', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
+    ],
   },
   {
     id: 'ffuf',
     name: 'FFUF',
-    description: 'Directory & file fuzzing',
+    description: 'Directory/file fuzzing',
     icon: Bug,
     color: 'cyan',
     api: scanFFUF,
     form: 'FFUF',
+    initialValues: { targets: '', timeout: 600 },
+    fields: [
+      { name: 'targets', label: 'Targets', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
+    ],
   },
   {
     id: 'dnsx',
@@ -115,6 +150,12 @@ export const SCANS = [
     color: 'teal',
     api: scanDNSx,
     form: 'DNSx',
+    initialValues: { targets: '', mode: 'basic', timeout: 600 },
+    fields: [
+      { name: 'targets', label: 'Targets', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'mode', label: 'Mode', type: 'select', options: ['basic', 'deep', 'ptr'] },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
+    ],
   },
   {
     id: 'subjack',
@@ -124,15 +165,26 @@ export const SCANS = [
     color: 'rose',
     api: scanSubjack,
     form: 'Subjack',
+    initialValues: { targets: '', timeout: 300 },
+    fields: [
+      { name: 'targets', label: 'Targets', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
+    ],
   },
   {
     id: 'asnmap',
     name: 'ASNMap',
-    description: 'ASN / CIDR enumeration',
+    description: 'ASN/CIDR enumeration',
     icon: Network,
     color: 'violet',
     api: scanASNMap,
     form: 'ASNMap',
+    initialValues: { targets: '', mode: 'domain', timeout: 300 },
+    fields: [
+      { name: 'targets', label: 'Targets', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'mode', label: 'Mode', type: 'select', options: ['domain', 'asn', 'organization'] },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
+    ],
   },
   {
     id: 'mapcidr',
@@ -142,6 +194,17 @@ export const SCANS = [
     color: 'slate',
     api: scanMapCIDR,
     form: 'MapCIDR',
+    initialValues: { cidrs: '', operation: 'expand', count: '', host_count: '', skip_base: false, skip_broadcast: false, shuffle: false, timeout: 300 },
+    fields: [
+      { name: 'cidrs', label: 'CIDRs', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'operation', label: 'Operation', type: 'select', options: ['expand', 'slice_count', 'slice_host', 'aggregate'] },
+      { name: 'count', label: 'Count (subnets)', type: 'number', min: 1, dependsOn: { field: 'operation', value: 'slice_count' } },
+      { name: 'host_count', label: 'Host Count', type: 'number', min: 1, dependsOn: { field: 'operation', value: 'slice_host' } },
+      { name: 'skip_base', label: 'Skip Base IPs (.0)', type: 'checkbox' },
+      { name: 'skip_broadcast', label: 'Skip Broadcast IPs (.255)', type: 'checkbox' },
+      { name: 'shuffle', label: 'Shuffle IPs', type: 'checkbox' },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
+    ],
   },
   {
     id: 'naabu',
@@ -151,5 +214,17 @@ export const SCANS = [
     color: 'amber',
     api: scanNaabu,
     form: 'Naabu',
+    initialValues: { targets: '', scan_mode: 'active', ports: '', top_ports: '1000', rate: 1000, scan_type: 'c', exclude_cdn: true, nmap_cli: 'nmap -sV', timeout: 600 },
+    fields: [
+      { name: 'targets', label: 'Targets', type: 'textarea', placeholder: 'one per line', required: true },
+      { name: 'scan_mode', label: 'Scan Mode', type: 'select', options: ['active', 'passive', 'nmap'] },
+      { name: 'ports', label: 'Ports', type: 'text', placeholder: '80,443,8080' },
+      { name: 'top_ports', label: 'Top Ports', type: 'select', options: ['100', '1000', 'full'], dependsOn: { field: 'ports', value: '' } },
+      { name: 'rate', label: 'Rate (pps)', type: 'number', min: 1, max: 10000 },
+      { name: 'scan_type', label: 'Scan Type', type: 'select', options: ['s', 'c'] },
+      { name: 'exclude_cdn', label: 'Exclude CDN/WAF', type: 'checkbox' },
+      { name: 'nmap_cli', label: 'Nmap Command', type: 'text', placeholder: 'nmap -sV', dependsOn: { field: 'scan_mode', value: 'nmap' } },
+      { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
+    ],
   },
 ]
