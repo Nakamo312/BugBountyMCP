@@ -90,7 +90,14 @@ class ScopeChecker:
             True if target matches rule
         """
         if rule.rule_type == RuleType.DOMAIN:
-            return domain == rule.pattern
+            pattern = rule.pattern
+            if pattern.startswith('*.'):
+                base_domain = pattern[2:]
+                if domain == base_domain:
+                    return True
+                if domain.endswith('.' + base_domain):
+                    return True
+            return domain == pattern
     
         if rule.rule_type == RuleType.WILDCARD:
             pattern = rule.pattern.replace('.', r'\.')
