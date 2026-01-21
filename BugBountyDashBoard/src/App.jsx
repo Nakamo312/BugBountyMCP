@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import Programs from './pages/Programs'
 import Scans from './pages/Scans'
 import Hosts from './pages/Hosts'
+import ScansPage from './pages/Scans/ScanPage'
 
 function App() {
   return (
@@ -15,7 +16,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/programs" element={<Programs />} />
-            <Route path="/scans" element={<Scans />} />
+            <Route path="/scans" element={<ScansPage />} />
             <Route path="/hosts" element={<Hosts />} />
           </Routes>
         </Layout>
