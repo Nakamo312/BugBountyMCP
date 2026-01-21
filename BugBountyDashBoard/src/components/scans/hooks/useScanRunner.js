@@ -13,10 +13,23 @@ export function useScanRunner(selectedProgram) {
       }
     }
 
+    if (!scan.api || typeof scan.api !== 'function') {
+      return {
+        status: 'error',
+        message: `API function not defined for scan ${scan.id}`,
+        results: null,
+      }
+    }
+
     setLoading(true)
     setActiveScan(scan.id)
+
     try {
-      const response = await scan.scanFunc({ program_id: selectedProgram.id, ...formData })
+      const response = await scan.api({
+        program_id: selectedProgram.id,
+        ...formData,
+      })
+
       return {
         status: response.data.status,
         message: response.data.message,
