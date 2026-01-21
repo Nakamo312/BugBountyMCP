@@ -4,34 +4,27 @@ export function useScanRunner(selectedProgram) {
   const [activeScan, setActiveScan] = useState(null)
   const [loading, setLoading] = useState(false)
 
-  const runScan = async (scan, formData) => {
-    if (!scan?.api) {
-      console.warn('No API defined for scan:', scan?.id)
-      return
+  async function runScan(scan, formData) {
+  setLoading(true)
+  setActiveScan(scan.id)
+  try {
+    const response = await scan.scanFunc({ program_id: selectedProgram.id, ...formData })
+    const result = {
+      status: response.data.status,
+      message: response.data.message,
+      results: response.data.results,
     }
-
-    try {
-      setActiveScan(scan.id)
-      setLoading(true)
-
-      const result = await scan.api({
-        program_id: selectedProgram.id,
-        ...formData,
-      })
-
-      console.log(`Scan ${scan.name} finished:`, result)
-      return result
-    } catch (error) {
-      console.error(`Error running scan ${scan.name}:`, error)
-      throw error
-    } finally {
-      setLoading(false)
+    return result
+  } catch (err) {
+    const errorResult = {
+      status: 'error',
+      message: err.response?.data?.detail || err.message || 'Scan failed',
+      results: null,
     }
+    return errorResult
+  } finally {
+    setLoading(false)
+    setActiveScan(null)
   }
-
-  return {
-    activeScan,
-    loading,
-    runScan,
-  }
+}
 }
