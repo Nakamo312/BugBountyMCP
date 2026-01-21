@@ -14,7 +14,10 @@ export function useScanRunner() {
       setActiveScan(scan.id)
       setLoading(true)
 
-      const result = await scan.api(formData)
+      const result = await scan.api({
+        program_id: selectedProgram.id,
+        ...formData,
+      })
 
       console.log(`Scan ${scan.name} finished:`, result)
       return result
