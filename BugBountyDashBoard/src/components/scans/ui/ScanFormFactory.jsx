@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import BaseScanForm from '../forms/BaseScanForm'
 import { SCANS } from '@/components/scans/configs/scans.config'
 
-export default function ScanFormFactory({ type, onScan, loading }) {
+export default function ScanFormFactory({ type, onScan, scanColor }) {
   const scan = SCANS.find(s => s.form === type)
+  const [loading, setLoading] = useState(false)
 
   if (!scan) {
     return (
@@ -12,12 +14,24 @@ export default function ScanFormFactory({ type, onScan, loading }) {
     )
   }
 
+  const handleScan = async (data) => {
+    setLoading(true)
+    try {
+      const result = await onScan(data)
+      return result
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <BaseScanForm
       fields={scan.fields}
       initialValues={scan.initialValues}
-      onScan={onScan}
+      onScan={handleScan}
       loading={loading}
+      submitLabel={scan.label || 'Run Scan'}
+      scanColor={scanColor || 'blue'}
     />
   )
 }
