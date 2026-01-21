@@ -18,3 +18,5 @@ function ScanCard({ scan, children, active }) {
     </div>
   )
 }
+
+export default ScanCard
