@@ -12,9 +12,17 @@ export default function ScansPage() {
   const scanRunner = useScanRunner(selectedProgram)
   const [toastResult, setToastResult] = useState(null)
 
+  if (!selectedProgram) {
+    return (
+      <div className="text-center py-10 text-gray-500">
+        Loading program...
+      </div>
+    )
+  }
+
   const handleRunScan = async (scan, data) => {
     const result = await scanRunner.runScan(scan, data)
-    if (result) setToastResult(result) 
+    if (result) setToastResult(result)
   }
 
   return (

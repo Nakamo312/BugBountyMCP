@@ -5,26 +5,34 @@ export function useScanRunner(selectedProgram) {
   const [loading, setLoading] = useState(false)
 
   async function runScan(scan, formData) {
-  setLoading(true)
-  setActiveScan(scan.id)
-  try {
-    const response = await scan.scanFunc({ program_id: selectedProgram.id, ...formData })
-    const result = {
-      status: response.data.status,
-      message: response.data.message,
-      results: response.data.results,
+    if (!selectedProgram) {
+      return {
+        status: 'error',
+        message: 'No program selected',
+        results: null,
+      }
     }
-    return result
-  } catch (err) {
-    const errorResult = {
-      status: 'error',
-      message: err.response?.data?.detail || err.message || 'Scan failed',
-      results: null,
+
+    setLoading(true)
+    setActiveScan(scan.id)
+    try {
+      const response = await scan.scanFunc({ program_id: selectedProgram.id, ...formData })
+      return {
+        status: response.data.status,
+        message: response.data.message,
+        results: response.data.results,
+      }
+    } catch (err) {
+      return {
+        status: 'error',
+        message: err.response?.data?.detail || err.message || 'Scan failed',
+        results: null,
+      }
+    } finally {
+      setLoading(false)
+      setActiveScan(null)
     }
-    return errorResult
-  } finally {
-    setLoading(false)
-    setActiveScan(null)
   }
-}
+
+  return { runScan, activeScan, loading }
 }
