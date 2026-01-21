@@ -5,7 +5,7 @@ import {
   scanSubfinder, scanHTTPX, scanGAU, scanWaymore, scanKatana,
   scanPlaywright, scanLinkFinder, scanMantra, scanFFUF, scanDNSx,
   scanSubjack, scanASNMap, scanMapCIDR, scanNaabu
-} from '../services/api'
+} from '@/services/api'
 
 export const SCANS = [
   {
