@@ -1,6 +1,10 @@
 // ScansPage.jsx
 import { useProgram } from '@/context/ProgramContext'
 import { useScanRunner } from '@/components/scans/hooks/useScanRunner'
+import { SCANS } from '@/components/scans'
+import ScanCard from '@/components/scans/ui/ScanCard'
+import ScanGrid from '@/components/scans/ui/ScanGrid'
+import ScanFormFactory from '@/components/scans/ui/ScanFormFactory'
 
 export default function ScansPage() {
   const { selectedProgram } = useProgram()   
