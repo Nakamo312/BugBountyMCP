@@ -1,4 +1,4 @@
-import BaseScanForm from './BaseScanForm'
+import BaseScanForm from '../forms/BaseScanForm'
 import { SCANS } from '@/data/scans'
 
 export default function ScanFormFactory({ type, onScan, loading }) {
