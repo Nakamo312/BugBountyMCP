@@ -32,12 +32,13 @@ export default function ScansPage() {
           <ScanCard
             key={scan.id}
             scan={scan}
-            active={scanRunner.activeScan === scan.id}
+            scanRunner={scanRunner}
+            active={scanRunner?.activeScan === scan.id}
           >
             <ScanFormFactory
               type={scan.form}
               onScan={data => handleRunScan(scan, data)}
-              loading={scanRunner.loading}
+              loading={scanRunner?.loading || false} 
             />
           </ScanCard>
         ))}
