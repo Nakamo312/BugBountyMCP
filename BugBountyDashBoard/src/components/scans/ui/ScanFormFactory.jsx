@@ -1,5 +1,5 @@
 import BaseScanForm from '../forms/BaseScanForm'
-import { SCANS } from '@components/scans/configs/scans.config'
+import { SCANS } from '@/components/scans/configs/scans.config'
 
 export default function ScanFormFactory({ type, onScan, loading }) {
   const scan = SCANS.find(s => s.form === type)
