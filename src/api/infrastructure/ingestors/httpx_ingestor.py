@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Set, Optional
 from uuid import UUID
 import logging
 
@@ -77,9 +77,14 @@ class HTTPXResultIngestor(BaseResultIngestor):
         program_id: UUID,
         data: Dict[str, Any],
         seen_hosts: Set[str]
-    ) -> tuple[str | None, bool]:
+    ) -> tuple[Optional[str], bool]:
         host_name = data.get("host") or data.get("input")
         if not host_name:
+            return None, False
+
+        # Проверяем scope сразу - если хост не в scope, не обрабатываем его
+        if not ScopeChecker.is_in_scope(host_name, self._scope_rules):
+            logger.info(f"Out-of-scope host: {host_name} program={program_id}")
             return None, False
 
         is_new_host = host_name not in seen_hosts
@@ -100,8 +105,7 @@ class HTTPXResultIngestor(BaseResultIngestor):
         endpoint = await self._ensure_endpoint(uow, host, service, data)
         await self._process_query_params(uow, endpoint, service, data)
 
-        status_code = data.get("status_code")
-        if  is_new_host:
+        if is_new_host:
             scheme = data.get("scheme", "http")
             port = int(data.get("port", 80 if scheme == "http" else 443))
 
@@ -117,12 +121,9 @@ class HTTPXResultIngestor(BaseResultIngestor):
         if not host_name:
             return None
 
-        in_scope = ScopeChecker.is_in_scope(host_name, self._scope_rules)
-
-        if not in_scope:
-            logger.info(f"Out-of-scope host: {host_name} program={program_id}")
-
-        return await uow.hosts.ensure(program_id=program_id, host=host_name, in_scope=in_scope)
+        # Хост уже проверен на scope в _process_record
+        # Все хосты здесь гарантированно in_scope=True
+        return await uow.hosts.ensure(program_id=program_id, host=host_name, in_scope=True)
 
     async def _ensure_ip(self, uow: HTTPXUnitOfWork, program_id: UUID, host, data: Dict[str, Any]):
         host_ip = data.get("host_ip")
