@@ -6,8 +6,15 @@ export default function BaseScanForm({ fields = [], initialValues = {}, onScan, 
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
 
   const handleSubmit = e => {
-    e.preventDefault()
-    onScan(form)
+    const preparedData = { ...form }
+    if (preparedData.targets && !Array.isArray(preparedData.targets)) {
+      preparedData.targets = preparedData.targets
+        .split('\n')
+        .map(t => t.trim())
+        .filter(Boolean)
+    }
+
+    onScan(preparedData)
   }
 
   return (
