@@ -1,7 +1,6 @@
-from typing import List, Dict, Any, Set, Optional
+from typing import List, Dict, Any, Set
 from uuid import UUID
 import logging
-import time
 
 from api.config import Settings
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
@@ -28,7 +27,6 @@ class HTTPXResultIngestor(BaseResultIngestor):
         self._seen_hosts: Set[str] = set()
         self._js_files: List[str] = []
         self._scope_rules: List[ScopeRuleModel] = []
-        self._seen_extracted_fqdns: Set[str] = set() 
 
     async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
         """
@@ -44,11 +42,9 @@ class HTTPXResultIngestor(BaseResultIngestor):
         self._new_hosts = set()
         self._seen_hosts = set()
         self._js_files = []
-        self._seen_extracted_fqdns = set()
 
         async with self.uow as uow:
             self._scope_rules = await uow.scope_rules.find_by_program(program_id)
-            await uow.commit()
 
         await super().ingest(program_id, results)
 
@@ -58,41 +54,22 @@ class HTTPXResultIngestor(BaseResultIngestor):
         )
 
     async def _process_batch(self, uow: HTTPXUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
-        """Process a batch of HTTPX results with savepoint for error recovery"""
-        savepoint_name = f"httpx_batch_{int(time.time())}_{hash(str(batch[:2]))}"
-        
-        try:
-            await uow.create_savepoint(savepoint_name)
-            
-            for data in batch:
-                host_url, is_new = await self._process_record(uow, program_id, data, self._seen_hosts)
-                if host_url and is_new:
-                    self._new_hosts.add(host_url)
+        """Process a batch of HTTPX results and collect live JS files and extracted FQDNs"""
+        for data in batch:
+            host_url, is_new = await self._process_record(uow, program_id, data, self._seen_hosts)
+            if host_url and is_new:
+                self._new_hosts.add(host_url)
 
-                url = data.get("url")
-                status_code = data.get("status_code")
-                if url and status_code == 200 and self._is_js_file(url):
-                    self._js_files.append(url)
+            url = data.get("url")
+            status_code = data.get("status_code")
+            if url and status_code == 200 and self._is_js_file(url):
+                self._js_files.append(url)
 
-                extracted_fqdns = data.get("extracted_results", [])
-                if extracted_fqdns:
-                    for fqdn in extracted_fqdns:
-                        if fqdn and fqdn not in self._seen_extracted_fqdns:
-                            self._seen_extracted_fqdns.add(fqdn)
-                            if ScopeChecker.is_in_scope(fqdn, self._scope_rules):
-                                existing_host = await uow.hosts.get_by_fields(
-                                    program_id=program_id, 
-                                    host=fqdn
-                                )
-                                if existing_host is None:
-                                    self._new_hosts.add(fqdn)
-            
-            await uow.release_savepoint(savepoint_name)
-            
-        except Exception as e:
-            logger.error(f"Error processing batch, rolling back to savepoint {savepoint_name}: {e}")
-            await uow.rollback_to_savepoint(savepoint_name)
-            raise
+            extracted_fqdns = data.get("extracted_results", [])
+            if extracted_fqdns:
+                for fqdn in extracted_fqdns:
+                    if fqdn and ScopeChecker.is_in_scope(fqdn, self._scope_rules):
+                        self._new_hosts.add(fqdn)
 
     async def _process_record(
         self,
@@ -100,24 +77,12 @@ class HTTPXResultIngestor(BaseResultIngestor):
         program_id: UUID,
         data: Dict[str, Any],
         seen_hosts: Set[str]
-    ) -> tuple[Optional[str], bool]:
+    ) -> tuple[str | None, bool]:
         host_name = data.get("host") or data.get("input")
         if not host_name:
-            logger.warning(f"No host name found in data: {data}")
             return None, False
 
-
-        scheme = data.get("scheme", "http")
-        port = int(data.get("port", 80 if scheme == "http" else 443))
-        
-        full_url = self._build_full_url(scheme, host_name, port)
-        
-        if not ScopeChecker.is_in_scope(full_url, self._scope_rules):
-            logger.info(f"Out-of-scope URL: {full_url} program={program_id}")
-            is_new_host = False
-        else:
-            is_new_host = host_name not in seen_hosts
-            
+        is_new_host = host_name not in seen_hosts
         if is_new_host:
             existing_host = await uow.hosts.get_by_fields(program_id=program_id, host=host_name)
             is_new_host = existing_host is None
@@ -135,17 +100,17 @@ class HTTPXResultIngestor(BaseResultIngestor):
         endpoint = await self._ensure_endpoint(uow, host, service, data)
         await self._process_query_params(uow, endpoint, service, data)
 
-        if is_new_host and ScopeChecker.is_in_scope(full_url, self._scope_rules):
-            return full_url, True
+        status_code = data.get("status_code")
+        if  is_new_host:
+            scheme = data.get("scheme", "http")
+            port = int(data.get("port", 80 if scheme == "http" else 443))
+
+            if port in (80, 443):
+                return f"{scheme}://{host_name}", True
+            else:
+                return f"{scheme}://{host_name}:{port}", True
 
         return None, False
-
-    def _build_full_url(self, scheme: str, host_name: str, port: int) -> str:
-        """Build full URL from components"""
-        if port in (80, 443):
-            return f"{scheme}://{host_name}"
-        else:
-            return f"{scheme}://{host_name}:{port}"
 
     async def _ensure_host(self, uow: HTTPXUnitOfWork, program_id: UUID, data: Dict[str, Any]):
         host_name = data.get("host") or data.get("input")
@@ -194,10 +159,6 @@ class HTTPXResultIngestor(BaseResultIngestor):
         scheme = data.get("scheme", "http")
         host_name = data.get("host") or data.get("input")
         full_url = f"{scheme}://{host_name}{clean_path}"
-        
-        if not ScopeChecker.is_in_scope(full_url, self._scope_rules):
-            logger.debug(f"Out-of-scope endpoint: {full_url}")
-        
         normalized_path = PathNormalizer.normalize_path(full_url)
 
         method = data.get("method", "GET")
