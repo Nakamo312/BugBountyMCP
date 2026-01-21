@@ -1,3 +1,5 @@
+import clsx from 'clsx'
+
 function ScanCard({ scan, children, active }) {
   const Icon = scan.icon
 
