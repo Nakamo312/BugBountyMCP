@@ -80,30 +80,30 @@ class ScopeChecker:
     def _matches_rule(target: str, domain: str, rule: ScopeRuleModel) -> bool:
         """
         Check if target matches a specific scope rule.
-
+    
         Args:
             target: Full URL or domain to check
             domain: Extracted hostname from target
             rule: Scope rule to match against
-
+    
         Returns:
             True if target matches rule
         """
         if rule.rule_type == RuleType.DOMAIN:
-            return domain == rule.value
-
+            return domain == rule.pattern
+    
         if rule.rule_type == RuleType.WILDCARD:
-            pattern = rule.value.replace('.', r'\.')
+            pattern = rule.pattern.replace('.', r'\.')
             pattern = pattern.replace('*', '.*')
             return re.match(f'^{pattern}$', domain) is not None
-
+    
         if rule.rule_type == RuleType.REGEX:
             try:
-                return re.search(rule.value, target) is not None
+                return re.search(rule.pattern, target) is not None
             except re.error:
                 return False
-
+    
         if rule.rule_type == RuleType.CIDR:
             return False
-
+    
         return False
