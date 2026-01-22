@@ -4,6 +4,7 @@ from typing import Set, Dict, Optional, Callable, List, Any, Type
 from api.application.pipeline.scan_node import ScanNode
 from api.application.pipeline.extractors import default_target_extractor
 from api.infrastructure.events.event_types import EventType
+from api.application.pipeline.scope_policy import ScopePolicy
 
 
 class NodeFactory:
@@ -19,7 +20,8 @@ class NodeFactory:
         ingestor_type: Optional[Type] = None,
         target_extractor: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
         max_parallelism: int = 1,
-        execution_delay: int = 0
+        execution_delay: int = 0,
+        scope_policy: ScopePolicy = ScopePolicy.NONE
     ) -> ScanNode:
         """
         Create generic scan node from configuration.
@@ -66,5 +68,6 @@ class NodeFactory:
             ingestor_type=ingestor_type,
             target_extractor=target_extractor or default_target_extractor,
             max_parallelism=max_parallelism,
-            execution_delay=execution_delay
+            execution_delay=execution_delay,
+            scope_policy=scope_policy
         )
