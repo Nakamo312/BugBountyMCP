@@ -121,7 +121,7 @@ class State:
         return f"{self.url}:{self.dom_signature}:{form_sig}"
 
 # ---------------- Enhanced Scanner ----------------
-class DeepPlaywrightScanner:
+class PlaywrightScanner:
     def __init__(self, start_url: str, max_depth: int = 5, timeout: int = 300):
         self.start_url = start_url
         self.max_depth = max_depth
