@@ -508,7 +508,8 @@ class PipelineProvider(Provider):
             processor_type=KatanaBatchProcessor,
             ingestor_type=KatanaResultIngestor,
             max_parallelism=2,
-            execution_delay=settings.ORCHESTRATOR_SCAN_DELAY
+            execution_delay=settings.ORCHESTRATOR_SCAN_DELAY,
+            scope_policy=ScopePolicy.CONFIDENCE
         )
         registry.register(katana_node)
 
@@ -539,7 +540,8 @@ class PipelineProvider(Provider):
             runner_type=LinkFinderCliRunner,
             processor_type=None,
             ingestor_type=LinkFinderResultIngestor,
-            max_parallelism=3
+            max_parallelism=3,
+            scope_policy=ScopePolicy.CONFIDENCE
         )
         registry.register(linkfinder_node)
 
@@ -689,7 +691,8 @@ class PipelineProvider(Provider):
             runner_type=TLSxDefaultRunner,
             processor_type=TLSxBatchProcessor,
             ingestor_type=TLSxResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
+            scope_policy=ScopePolicy.CONFIDENCE
         )
         registry.register(tlsx_default_node)
 
