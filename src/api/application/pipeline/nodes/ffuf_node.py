@@ -10,6 +10,7 @@ from api.application.pipeline.context import PipelineContext
 from api.infrastructure.runners.ffuf_cli import FFUFCliRunner
 from api.infrastructure.ingestors.ffuf_ingestor import FFUFResultIngestor
 from api.infrastructure.events.event_types import EventType
+from api.application.pipeline.scope_policy import ScopePolicy
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,8 @@ class FFUFNode(Node):
         node_id: str,
         event_in: Set[EventType],
         max_parallelism: int = 1,
-        max_concurrent_scans: int = 5
+        max_concurrent_scans: int = 5,
+        scope_policy=ScopePolicy.NONE
     ):
         event_out = set()
         super().__init__(
@@ -38,6 +40,7 @@ class FFUFNode(Node):
         )
         self.logger = logging.getLogger(f"node.{node_id}")
         self._scan_semaphore = asyncio.Semaphore(max_concurrent_scans)
+        self.scope_policy = scope_policy
 
     def set_context_factory(self, bus, container, settings):
         """
@@ -54,7 +57,8 @@ class FFUFNode(Node):
             node_id=self.node_id,
             bus=getattr(self, '_bus', None),
             container=getattr(self, '_container', None),
-            settings=getattr(self, '_settings', None)
+            settings=getattr(self, '_settings', None),
+             scope_policy=self.scope_policy
         )
 
     async def execute(self, event: Dict[str, Any], ctx: PipelineContext):
