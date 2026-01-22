@@ -22,15 +22,13 @@ const Layout = ({ children }) => {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-950">
+    <div className="min-h-screen bg-gray-50">
       {/* Sidebar */}
-      <aside className="fixed left-0 top-0 h-full w-64 bg-gray-900/80 backdrop-blur-sm border-r border-gray-800 text-white">
+      <aside className="fixed left-0 top-0 h-full w-64 bg-gray-900 text-white shadow-lg">
         <div className="flex flex-col h-full">
           {/* Logo */}
           <div className="p-6 border-b border-gray-800">
-            <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-              Bug Bounty Dashboard
-            </h1>
+            <h1 className="text-xl font-bold text-primary-400">Bug Bounty Dashboard</h1>
           </div>
 
           {/* Program Selector */}
@@ -48,10 +46,10 @@ const Layout = ({ children }) => {
                   key={item.path}
                   to={item.path}
                   className={`
-                    flex items-center space-x-3 px-4 py-3 rounded-lg transition-all
+                    flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors
                     ${isActive 
-                      ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 text-white' 
-                      : 'text-gray-400 hover:bg-gray-800/50 hover:text-white border border-transparent'
+                      ? 'bg-primary-600 text-white' 
+                      : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                     }
                   `}
                 >
@@ -63,7 +61,7 @@ const Layout = ({ children }) => {
           </nav>
 
           {/* Footer */}
-          <div className="p-4 border-t border-gray-800 text-sm text-gray-500">
+          <div className="p-4 border-t border-gray-800 text-sm text-gray-400">
             <div className="flex items-center space-x-2">
               <AlertCircle size={16} />
               <span>API v0.1.0</span>
