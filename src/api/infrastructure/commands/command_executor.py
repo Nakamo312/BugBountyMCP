@@ -4,7 +4,7 @@ import logging
 import os
 import signal
 from typing import AsyncIterator, List, Optional
-
+import subprocess
 from api.infrastructure.schemas.enums.process_state import ProcessState
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
@@ -109,7 +109,6 @@ class CommandExecutor:
 
         try:
             pgid = os.getpgid(self.process.pid)
-            import subprocess
             subprocess.run(
                 ["pkill", "-SIGCHLD", "-g", str(pgid)],
                 capture_output=True,
