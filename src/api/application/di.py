@@ -71,6 +71,7 @@ from api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
 from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
 from api.application.pipeline.nodes.hakip2host_node import Hakip2HostNode
 from api.application.pipeline.nodes.ffuf_node import FFUFNode
+from api.application.pipeline.scope_policy import ScopePolicy
 
 class DatabaseProvider(Provider):
     scope = Scope.APP
@@ -488,7 +489,8 @@ class PipelineProvider(Provider):
             runner_type=HTTPXCliRunner,
             processor_type=HTTPXBatchProcessor,
             ingestor_type=HTTPXResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
+            scope_policy=ScopePolicy.CONFIDENCE
         )
         registry.register(httpx_node)
 
@@ -566,7 +568,8 @@ class PipelineProvider(Provider):
             runner_type=SubfinderCliRunner,
             processor_type=SubfinderBatchProcessor,
             ingestor_type=None,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
+            scope_policy=ScopePolicy.NONE
         )
         registry.register(subfinder_node)
 
@@ -581,7 +584,8 @@ class PipelineProvider(Provider):
             runner_type=GAUCliRunner,
             processor_type=GAUBatchProcessor,
             ingestor_type=None,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
+            scope_policy=ScopePolicy.STRICT
         )
         registry.register(gau_node)
 
@@ -596,7 +600,8 @@ class PipelineProvider(Provider):
             runner_type=WaymoreCliRunner,
             processor_type=WaymoreBatchProcessor,
             ingestor_type=None,
-            max_parallelism=2
+            max_parallelism=2,
+            scope_policy=ScopePolicy.STRICT
         )
         registry.register(waymore_node)
 
@@ -700,7 +705,8 @@ class PipelineProvider(Provider):
             runner_type=DNSxBasicRunner,
             processor_type=DNSxBatchProcessor,
             ingestor_type=DNSxResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
+            scope_policy=ScopePolicy.STRICT
         )
         registry.register(dnsx_basic_node)
 
@@ -754,7 +760,8 @@ class PipelineProvider(Provider):
                 EventType.HAKIP2HOST_SCAN_REQUESTED,
                 EventType.IPS_EXPANDED,
             },
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
+            scope_policy=ScopePolicy.CONFIDENCE
         )
         registry.register(hakip2host_node)
 

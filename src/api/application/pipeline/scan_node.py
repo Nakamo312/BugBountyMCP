@@ -6,6 +6,7 @@ import logging
 from api.application.pipeline.node import Node
 from api.application.pipeline.context import PipelineContext
 from api.infrastructure.events.event_types import EventType
+from api.application.pipeline.scope_policy import ScopePolicy
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class ScanNode(Node):
         target_extractor: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
         max_parallelism: int = 1,
         execution_delay: int = 0,
+        scope_policy=ScopePolicy.NONE
     ):
         """
         Initialize generic scan node.
@@ -64,6 +66,7 @@ class ScanNode(Node):
         self.processor_type = processor_type
         self.ingestor_type = ingestor_type
         self.target_extractor = target_extractor or self._default_target_extractor
+        self.scope_policy = scope_policy
 
     async def execute(self, event: Dict[str, Any], ctx: PipelineContext):
         """
@@ -195,7 +198,8 @@ class ScanNode(Node):
             node_id=self.node_id,
             bus=getattr(self, '_bus', None),
             container=getattr(self, '_container', None),
-            settings=getattr(self, '_settings', None)
+            settings=getattr(self, '_settings', None),
+            scope_policy=self.scope_policy
         )
 
     @staticmethod
