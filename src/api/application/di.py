@@ -692,7 +692,7 @@ class PipelineProvider(Provider):
             processor_type=TLSxBatchProcessor,
             ingestor_type=TLSxResultIngestor,
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
-            scope_policy=ScopePolicy.CONFIDENCE
+            scope_policy=ScopePolicy.STRICT
         )
         registry.register(tlsx_default_node)
 
