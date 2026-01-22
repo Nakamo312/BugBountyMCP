@@ -9,6 +9,7 @@ from api.application.pipeline.context import PipelineContext
 from api.infrastructure.runners.hakip2host_cli import Hakip2HostCliRunner
 from api.application.services.batch_processor import Hakip2HostBatchProcessor
 from api.infrastructure.events.event_types import EventType
+from api.application.pipeline.scope_policy import ScopePolicy
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,8 @@ class Hakip2HostNode(Node):
         self,
         node_id: str,
         event_in: Set[EventType],
-        max_parallelism: int = 1
+        max_parallelism: int = 1,
+        scope_policy=ScopePolicy.NONE
     ):
         event_out = {
             EventType.SUBDOMAIN_DISCOVERED
@@ -38,6 +40,7 @@ class Hakip2HostNode(Node):
             max_parallelism=max_parallelism
         )
         self.logger = logging.getLogger(f"node.{node_id}")
+        self.scope_policy = scope_policy
 
     def set_context_factory(self, bus, container, settings):
         """
@@ -54,7 +57,8 @@ class Hakip2HostNode(Node):
             node_id=self.node_id,
             bus=getattr(self, '_bus', None),
             container=getattr(self, '_container', None),
-            settings=getattr(self, '_settings', None)
+            settings=getattr(self, '_settings', None),
+            scope_policy=self.scope_policy
         )
 
     async def execute(self, event: Dict[str, Any], ctx: PipelineContext):
