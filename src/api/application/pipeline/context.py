@@ -6,6 +6,7 @@ from dishka import AsyncContainer
 from api.infrastructure.events.event_bus import EventBus
 from api.infrastructure.events.event_types import EventType
 from api.config import Settings
+from api.application.pipeline.scope_policy import ScopePolicy
 
 T = TypeVar('T')
 
@@ -22,6 +23,8 @@ class PipelineContext:
         bus: Optional[EventBus] = None,
         container: Optional[AsyncContainer] = None,
         settings: Optional[Settings] = None,
+        scope_policy: ScopePolicy = ScopePolicy.NONE,
+        confidence_threshold: float = 0.6,
     ):
         """
         Initialize pipeline context.
@@ -36,6 +39,8 @@ class PipelineContext:
         self._bus = bus
         self._container = container
         self._settings = settings
+        self.scope_policy = scope_policy
+        self.confidence_threshold = confidence_threshold
 
     async def emit(
         self,
@@ -61,15 +66,30 @@ class PipelineContext:
         if not self._bus:
             raise RuntimeError("EventBus not available in context")
 
-        event = {
+        if self.scope_policy != ScopePolicy.NONE:
+            in_scope, out_scope = await self.filter_by_scope(program_id, targets)
+
+            if self.scope_policy == ScopePolicy.STRICT:
+                targets = in_scope
+
+            elif self.scope_policy == ScopePolicy.CONFIDENCE:
+                if in_scope:
+                    confidence = max(confidence, 0.9)
+                    targets = in_scope
+                else:
+                    if confidence < self.confidence_threshold:
+                        return  
+
+        if not targets:
+            return
+
+        await self._bus.publish({
             "event": event,
             "targets": targets,
             "source": source or self.node_id,
             "confidence": confidence,
             "program_id": str(program_id),
-        }
-
-        await self._bus.publish(event)
+        })
 
     async def get_service(self, service_type: Type[T]) -> T:
         """
