@@ -1,53 +1,16 @@
-.dark-theme-wrapper .dark-theme-content {
-  color: #f3f4f6;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.dark-theme-wrapper .dark-theme-content .bg-white {
-  background-color: #1f2937 !important;
-  border-color: #374151 !important;
-}
-
-.dark-theme-wrapper .dark-theme-content .text-gray-900 {
-  color: #f9fafb !important;
-}
-
-.dark-theme-wrapper .dark-theme-content .text-gray-800 {
-  color: #e5e7eb !important;
-}
-
-.dark-theme-wrapper .dark-theme-content .text-gray-700 {
-  color: #d1d5db !important;
-}
-
-.dark-theme-wrapper .dark-theme-content .text-gray-600 {
-  color: #9ca3af !important;
-}
-
-.dark-theme-wrapper .dark-theme-content .border-gray-200,
-.dark-theme-wrapper .dark-theme-content .border-gray-300 {
-  border-color: #4b5563 !important;
-}
-
-.dark-theme-wrapper .dark-theme-content .shadow {
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2) !important;
-}
-
-.dark-theme-wrapper .dark-theme-content input,
-.dark-theme-wrapper .dark-theme-content select,
-.dark-theme-wrapper .dark-theme-content textarea {
-  background-color: #374151 !important;
-  border-color: #4b5563 !important;
-  color: #f9fafb !important;
-}
-
-.dark-theme-wrapper .dark-theme-content input::placeholder {
-  color: #9ca3af !important;
-}
-
-.dark-theme-wrapper .dark-theme-content .divide-gray-200 > * + * {
-  border-color: #4b5563 !important;
-}
-
-.dark-theme-wrapper .dark-theme-content .hover\:bg-gray-50:hover {
-  background-color: #374151 !important;
+* {
+  box-sizing: border-box;
 }
