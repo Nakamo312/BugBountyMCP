@@ -527,7 +527,7 @@ class PlaywrightScanner:
                 # Проверяем, нужно ли пропустить это состояние
                 if not await self._should_skip_state(new_state, forbidden_urls):
                     # Запускаем новый краулер для исследования этой ветки АСИНХРОННО
-                    child_crawler = RecursiveCrawler(
+                    child_crawler = PlaywrightScanner(
                         start_url=new_url,
                         max_depth=self.max_depth,
                         max_path_length=self.max_path_length,
