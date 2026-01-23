@@ -68,12 +68,11 @@ class PipelineContext:
                     confidence = max(confidence, 0.9)
                     targets = in_scope
                 else:
-                    if confidence < self.confidence_threshold:
-                        logger.info(
-                            f"Dropping event: node={self.node_id} confidence={confidence} "
-                            f"threshold={self.confidence_threshold}"
-                        )
-                        return
+                    logger.info(
+                        f"Dropping out-of-scope event: node={self.node_id} "
+                        f"confidence={confidence} out_scope={len(out_scope)}"
+                    )
+                    return
 
         if not targets:
             logger.info(f"No targets to emit after scope filter: node={self.node_id}")
