@@ -7,10 +7,10 @@ import json
 import logging
 import sys
 import hashlib
-from typing import Set, Dict, Any, List
+from typing import Set, Dict, Any, List, Tuple
 from urllib.parse import urlparse, parse_qs
 from dataclasses import dataclass, field
-from collections import deque
+from collections import deque, defaultdict
 
 
 class Colors:
@@ -68,7 +68,8 @@ class Action:
     semantic: str = "unknown"
 
     def __hash__(self):
-        return hash((self.selector, self.text, self.tag, self.event_type))
+        # 🔧 PATCH 5 — FIX Action hashing (cluster stability)
+        return hash((self.semantic, self.tag, self.text[:20].lower(), self.selector.split('>')[-1]))
 
     def __eq__(self, other):
         return isinstance(other, Action) and hash(self) == hash(other)
@@ -84,6 +85,7 @@ class Action:
 class State:
     url: str
     dom_hash: str
+    dom_vector: Dict[str, int]  # 🔧 PATCH 1 — DOM VECTOR
     cookies_hash: str
     storage_hash: str
     depth: int
@@ -105,7 +107,7 @@ class State:
         parsed = urlparse(self.url)
         normalized_url = f"{parsed.netloc}{parsed.path}"
         query_keys = frozenset(parse_qs(parsed.query).keys()) if parsed.query else frozenset()
-        return (normalized_url, query_keys, self.cookies_hash)
+        return (normalized_url, query_keys, self.cookies_hash, self.storage_hash)
 
     def is_exhausted(self, no_new_endpoints: bool, no_new_clusters: bool) -> bool:
         """Check if state exploration is exhausted"""
@@ -120,13 +122,11 @@ class PlaywrightScanner:
         self.timeout = timeout
         self.max_actions_per_state = max_actions_per_state
         self.max_path_length = max_path_length
-
-        self.visited_states: Set[tuple] = set()
         self.state_queue: deque[State] = deque()
         self.results: list[Dict[str, Any]] = []
         self.pending_requests: Dict[str, Dict[str, Any]] = {}
         self.seen_requests: Set[str] = set()
-
+        self.visited_states: Set[Tuple] = set()
         self.unique_endpoints: Set[str] = set()
         self.unique_methods_paths: Set[str] = set()
         self.unique_json_keys: Set[str] = set()
@@ -137,6 +137,9 @@ class PlaywrightScanner:
         self.last_keys_count = 0
         self.last_graphql_count = 0
         self.stale_iterations = 0
+        
+        # 🔧 PATCH 3 — Indexed fuzzy check
+        self.state_index = defaultdict(list)
 
     def _is_static_resource(self, url: str) -> bool:
         """Check if URL is a static resource that should be skipped"""
@@ -182,18 +185,51 @@ class PlaywrightScanner:
 
         return f"{method}:{normalized_path}:{query_sig}:{body_schema}"
 
-    async def _get_dom_hash(self, page: Page) -> str:
-        """Get semantic DOM fingerprint ignoring dynamic content"""
-        fingerprint = await page.evaluate("""
+    # 🔧 PATCH 1 — DOM VECTOR вместо DOM HASH (fuzzy)
+    async def _get_dom_vector(self, page: Page) -> Dict[str, int]:
+        """Get semantic DOM feature vector"""
+        return await page.evaluate("""
             () => {
-                const forms = [...document.querySelectorAll('form')].length;
-                const buttons = [...document.querySelectorAll('button,a,[role="button"]')].length;
-                const inputs = [...document.querySelectorAll('input')].map(i => i.name || i.type).sort().join(',');
-                const onclick = [...document.querySelectorAll('[onclick]')].length;
-                return `${location.pathname}|${forms}|${buttons}|${onclick}|${inputs}`;
+                const v = {};
+                const inc = k => v[k] = (v[k] || 0) + 1;
+
+                // Count tags
+                document.querySelectorAll('*').forEach(e => inc('tag:' + e.tagName.toLowerCase()));
+                
+                // Count input types
+                document.querySelectorAll('input').forEach(e => inc('input:' + (e.type || 'text')));
+                
+                // Count interactive elements
+                inc('forms:' + document.forms.length);
+                inc('buttons:' + document.querySelectorAll('button').length);
+                inc('links:' + document.querySelectorAll('a').length);
+                inc('clickables:' + document.querySelectorAll('[role=button]').length);
+                
+                // Count semantic elements
+                inc('headers:' + document.querySelectorAll('h1,h2,h3,h4,h5,h6,header').length);
+                inc('navs:' + document.querySelectorAll('nav').length);
+                inc('sections:' + document.querySelectorAll('section,article,main').length);
+                
+                return v;
             }
         """)
-        return hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
+
+    async def _get_dom_hash(self, page: Page) -> str:
+        """Get semantic DOM fingerprint ignoring dynamic content"""
+        vector = await self._get_dom_vector(page)
+        vector_str = json.dumps(sorted(vector.items()), sort_keys=True)
+        return hashlib.sha256(vector_str.encode()).hexdigest()[:16]
+
+    # 🔧 PATCH 2 — FUZZY STATE EQUIVALENCE
+    def _dom_similarity(self, a: Dict[str, int], b: Dict[str, int]) -> float:
+        """Calculate Jaccard similarity between DOM feature vectors"""
+        if not a or not b:
+            return 0.0
+
+        keys = set(a) | set(b)
+        inter = sum(min(a.get(k, 0), b.get(k, 0)) for k in keys)
+        union = sum(max(a.get(k, 0), b.get(k, 0)) for k in keys)
+        return inter / union if union > 0 else 0.0
 
     async def _get_state_fingerprint(self, page: Page):
         """Get full state fingerprint including cookies and storage"""
@@ -208,8 +244,10 @@ class PlaywrightScanner:
         """)
         storage_hash = hashlib.sha256(storage.encode()).hexdigest()[:16]
 
-        dom_hash = await self._get_dom_hash(page)
-        return dom_hash, cookies_hash, storage_hash
+        dom_vector = await self._get_dom_vector(page)
+        dom_hash = hashlib.sha256(json.dumps(sorted(dom_vector.items()), sort_keys=True).encode()).hexdigest()[:16]
+        
+        return dom_hash, dom_vector, cookies_hash, storage_hash
 
     async def _extract_actions(self, page: Page) -> Set[Action]:
         """Extract all clickable actions from current page"""
@@ -473,43 +511,63 @@ class PlaywrightScanner:
 
         return None
 
-    async def _replay_state(self, page: Page, start_url: str, action_path: List[Action], expected_fingerprint: tuple = None):
-        """Replay action sequence to reach specific state with validation"""
+    async def _replay_state(
+        self,
+        page: Page,
+        start_url: str,
+        target_state: State,
+    ) -> bool:
+        """Replay action sequence to reach target_state with fuzzy validation"""
         try:
             await page.goto(start_url, wait_until="domcontentloaded", timeout=30000)
             await page.wait_for_timeout(1000)
 
-            for action in action_path:
+            for action in target_state.path:
                 element = await self._find_element_by_action(page, action)
-                if element and await element.is_enabled():
-                    await element.click(timeout=1000)
-                    try:
-                        await page.wait_for_load_state("domcontentloaded", timeout=5000)
-                    except:
-                        pass
-                    await page.wait_for_timeout(500)
-                else:
+                if not element or not await element.is_enabled():
                     logger.warning(f"Replay failed: element not found for {action.text[:30]}")
                     return False
+                await element.click(timeout=1000)
+                try:
+                    await page.wait_for_load_state("domcontentloaded", timeout=5000)
+                except:
+                    pass
+                await page.wait_for_timeout(500)
 
-            if expected_fingerprint:
-                url_match = page.url == expected_fingerprint[0]
-                if not url_match:
-                    logger.warning(f"Replay mismatch: URL changed {page.url} != {expected_fingerprint[0]}")
-                    return False
+            parsed = urlparse(page.url)
+            current_normalized = f"{parsed.netloc}{parsed.path}"
+            expected_normalized = target_state.get_fingerprint()[0]
 
-                current_actions = await self._extract_actions(page)
-                action_signatures = {a.get_cluster_key() for a in current_actions}
-                has_similar_actions = len(action_signatures) > 0
+            if current_normalized != expected_normalized:
+                logger.warning(
+                f"Replay mismatch: URL {current_normalized} != {expected_normalized}"
+            )
+                return False
+        
+            current_dom_vector = await self._get_dom_vector(page)
+            similarity = self._dom_similarity(
+            target_state.dom_vector,
+            current_dom_vector,
+        )
 
-                if not has_similar_actions:
-                    logger.warning(f"Replay mismatch: no similar actions found")
-                    return False
+            if similarity < 0.85:
+                logger.warning(f"Replay mismatch: DOM similarity {similarity:.2f}")
+                return False
+
+            current_actions = await self._extract_actions(page)
+            current_clusters = {a.get_cluster_key() for a in current_actions}
+            expected_clusters = {a.get_cluster_key() for a in target_state.actions}
+
+            if not (current_clusters & expected_clusters):
+                logger.warning("Replay mismatch: no shared action clusters")
+                return False
 
             return True
+
         except Exception as e:
             logger.error(f"State replay failed: {e}")
             return False
+
 
     async def _explore_state(self, page: Page, state: State):
         """Explore single state by executing representative actions from each cluster"""
@@ -540,7 +598,7 @@ class PlaywrightScanner:
                 continue
 
             try:
-                dom_hash, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
+                dom_hash, dom_vector, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
             except Exception as e:
                 logger.warning(f"Failed to get state fingerprint before action: {e}")
                 break
@@ -563,7 +621,7 @@ class PlaywrightScanner:
             state.executed_clusters.add(cluster_key)
 
             try:
-                new_dom, new_cookies, new_storage = await self._get_state_fingerprint(page)
+                new_dom, new_dom_vector, new_cookies, new_storage = await self._get_state_fingerprint(page)
                 new_url = page.url
             except Exception as e:
                 logger.warning(f"Failed to get state fingerprint after action (navigation?): {e}")
@@ -596,6 +654,7 @@ class PlaywrightScanner:
                     new_state = State(
                         url=new_url,
                         dom_hash=new_dom,
+                        dom_vector=new_dom_vector,
                         cookies_hash=new_cookies,
                         storage_hash=new_storage,
                         depth=state.depth + 1,
@@ -603,10 +662,21 @@ class PlaywrightScanner:
                         actions=actions
                     )
                     current_fingerprint = new_state.get_fingerprint()
-                    if current_fingerprint not in self.visited_states:
-                        self.visited_states.add(current_fingerprint)
+                    
+                    # 🔧 PATCH 3 — Fuzzy state deduplication
+                    skip_state = False
+                    for existing_state in self.state_index.get(current_fingerprint, []):
+                        similarity = self._dom_similarity(existing_state.dom_vector, new_state.dom_vector)
+                        if similarity > 0.92:  # 92% similarity threshold
+                            logger.info(f"Duplicate state (similarity={similarity:.2f}): {new_url}")
+                            skip_state = True
+                            break
+                    
+                    if not skip_state:
+                        self.state_index[current_fingerprint].append(new_state)
                         self.state_queue.append(new_state)
                         logger.info(f"New state: {new_url} (clusters={len(actions)}, path_len={len(new_state.path)})")
+                        
                 except Exception as e:
                     logger.warning(f"Failed to extract actions for new state: {e}")
 
@@ -687,7 +757,7 @@ class PlaywrightScanner:
                 })();
             """)
 
-            page.on("console", lambda msg: logger.info(f"Console: {msg.text}") if msg.type == "debug" else None)
+            page.on("console", lambda msg: logger.info(f"Console[{msg.type}]: {msg.text}"))
 
             await page.route("**/*", self.intercept_request)
             page.on("response", self.handle_response)
@@ -695,12 +765,13 @@ class PlaywrightScanner:
             await page.goto(self.start_url, wait_until="networkidle", timeout=30000)
             await page.wait_for_timeout(2000)
 
-            dom_hash, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
+            dom_hash, dom_vector, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
             initial_actions = await self._extract_actions(page)
 
             initial_state = State(
                 url=self.start_url,
                 dom_hash=dom_hash,
+                dom_vector=dom_vector,
                 cookies_hash=cookies_hash,
                 storage_hash=storage_hash,
                 depth=0,
@@ -709,6 +780,7 @@ class PlaywrightScanner:
             )
 
             self.visited_states.add(initial_state.get_fingerprint())
+            self.state_index[initial_state.get_fingerprint()].append(initial_state)
             self.state_queue.append(initial_state)
 
             while self.state_queue:
@@ -719,14 +791,14 @@ class PlaywrightScanner:
 
                 try:
                     if state.path and page.url != state.url:
-                        await self._replay_state(page, self.start_url, state.path)
+                        await self._replay_state(page, self.start_url, state)
                     await self._explore_state(page, state)
                 except Exception as e:
                     logger.error(f"Error exploring {state.url}: {e}")
 
             await browser.close()
 
-        logger.info(f"Scan completed: {self.request_count} requests, {len(self.unique_endpoints)} endpoints, {len(self.unique_methods_paths)} methods, {len(self.unique_json_keys)} JSON keys, {len(self.unique_graphql_ops)} GraphQL ops, {len(self.visited_states)} states")
+        logger.info(f"Scan completed: {self.request_count} requests, {len(self.unique_endpoints)} endpoints, {len(self.unique_methods_paths)} methods, {len(self.unique_json_keys)} JSON keys, {len(self.unique_graphql_ops)} GraphQL ops, {sum(len(v) for v in self.state_index.values())} states")
 
 
 async def main():
