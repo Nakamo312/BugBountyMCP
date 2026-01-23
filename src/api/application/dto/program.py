@@ -11,8 +11,23 @@ class ScopeRuleCreateDTO(BaseModel):
     action: ScopeAction = ScopeAction.INCLUDE
 
 
+class ScopeRuleUpdateDTO(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: UUID | None = None
+    rule_type: RuleType
+    pattern: str
+    action: ScopeAction = ScopeAction.INCLUDE
+
+
 class RootInputCreateDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    value: str
+    input_type: InputType
+
+
+class RootInputUpdateDTO(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: UUID | None = None
     value: str
     input_type: InputType
 
@@ -57,5 +72,5 @@ class ProgramUpdateDTO(BaseModel):
     """DTO for updating program - all fields optional"""
     model_config = ConfigDict(extra="forbid")
     name: str | None = None
-    scope_rules: List[ScopeRuleCreateDTO] | None = None
-    root_inputs: List[RootInputCreateDTO] | None = None
+    scope_rules: List[ScopeRuleUpdateDTO] | None = None
+    root_inputs: List[RootInputUpdateDTO] | None = None
