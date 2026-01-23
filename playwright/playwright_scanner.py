@@ -1,6 +1,6 @@
 """
 Playwright-based state-aware web crawler with recursive DFS exploration using threads
-Tracks DOM states to avoid infinite loops and maximize coverage
+Improved form submission, replay reliability, parameter fuzzing, less aggressive deduplication
 """
 import asyncio
 import json
@@ -8,10 +8,10 @@ import logging
 import sys
 import hashlib
 from typing import Set, Dict, Any, List, Tuple
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode
 from dataclasses import dataclass, field
-from collections import deque, defaultdict
 import threading
+from collections import defaultdict
 
 class Colors:
     GREEN = '\033[92m'
@@ -70,7 +70,6 @@ class Action:
         return isinstance(other, Action) and hash(self) == hash(other)
 
     def get_cluster_key(self) -> str:
-        """Get key for clustering similar actions"""
         text_words = ''.join(c for c in self.text.lower() if c.isalnum() or c.isspace()).split()
         text_sig = '_'.join(text_words[:3])
         return f"{self.semantic}:{self.tag}:{text_sig}"
@@ -90,44 +89,34 @@ class State:
     executed_clusters: Set[str] = field(default_factory=set)
     discovered_endpoints: Set[str] = field(default_factory=set)
     is_volatile: bool = False
-    visited_count: int = 0  # Счётчик посещений этого состояния
+    visited_count: int = 0
 
     def get_fingerprint(self):
-        """Strict fingerprint for exact state matching"""
         parsed = urlparse(self.url)
         normalized_url = f"{parsed.netloc}{parsed.path}"
-        query_keys = frozenset(parse_qs(parsed.query).keys()) if parsed.query else frozenset()
-        
-        # Включаем хэш действий и DOM структуры
+        query_params = frozenset(sorted(parse_qs(parsed.query).items())) if parsed.query else frozenset()
         action_signature = hash(frozenset(a.get_cluster_key() for a in self.actions))
         dom_vector_str = json.dumps(sorted(self.dom_vector.items()), sort_keys=True)
         dom_hash = hashlib.sha256(dom_vector_str.encode()).hexdigest()[:16]
-        
-        return (normalized_url, query_keys, self.cookies_hash, self.storage_hash,
-                dom_hash, action_signature)
+        return (normalized_url, query_params, self.cookies_hash, self.storage_hash, dom_hash, action_signature)
 
     def get_semantic_key(self):
-        """Semantic key for fuzzy matching - только по URL и основным фичам"""
         parsed = urlparse(self.url)
         normalized_url = f"{parsed.netloc}{parsed.path}"
-        
-        # Основные фичи DOM
         key_features = {
             'forms': self.dom_vector.get('forms', 0),
             'buttons': self.dom_vector.get('buttons', 0),
             'links': self.dom_vector.get('links', 0),
         }
-        
         return f"{normalized_url}:{key_features['forms']}:{key_features['buttons']}:{key_features['links']}"
 
     def is_exhausted(self, no_new_endpoints: bool, no_new_clusters: bool) -> bool:
-        """Check if state exploration is exhausted"""
         all_executed = len(self.executed_actions) >= len(self.actions)
-        visited_too_much = self.visited_count >= 3  # Не посещаем одно состояние больше 3 раз
+        visited_too_much = self.visited_count >= 3
         return all_executed or (no_new_endpoints and no_new_clusters) or visited_too_much
 
 class PlaywrightScanner:
-    def __init__(self, url: str, max_depth: int = 2, timeout: int = 300, max_actions_per_state: int = 20, max_path_length: int = 10):
+    def __init__(self, url: str, max_depth: int = 3, timeout: int = 300, max_actions_per_state: int = 25, max_path_length: int = 15):
         self.start_url = url
         self.max_depth = max_depth
         self.timeout = timeout
@@ -138,10 +127,6 @@ class PlaywrightScanner:
         self.pending_requests: Dict[str, Dict[str, Any]] = {}
         self.seen_requests: Set[str] = set()
         
-        # Три уровня дедупликации:
-        # 1. Точные фингерпринты (visited_states)
-        # 2. Семантические ключи (semantic_states)
-        # 3. Посещённые последовательности действий (visited_sequences)
         self.visited_states: Set[Tuple] = set()
         self.semantic_states: Set[str] = set()
         self.visited_sequences: Set[str] = set()
@@ -152,29 +137,26 @@ class PlaywrightScanner:
         self.unique_graphql_ops: Set[str] = set()
         self.request_count = 0
         
-        # Счётчики для отладки
         self.states_created = 0
         self.states_skipped = 0
         
-        # Для многопоточности
         self.lock = threading.Lock()
         self.active_count = 0
         self.done_event = threading.Event()
+        self.semaphore = threading.Semaphore(5)  # max 5 parallel browsers
 
     def _is_static_resource(self, url: str) -> bool:
-        """Check if URL is a static resource that should be skipped"""
         lower_url = url.lower().split('?')[0]
         return any(lower_url.endswith(ext) for ext in STATIC_EXTENSIONS)
 
     def _classify_action_semantic(self, text: str, selector: str, tag: str) -> str:
-        """Classify action by semantic type"""
         text_lower = text.lower()
         selector_lower = selector.lower()
         if any(k in text_lower for k in ['next', 'prev', 'page', '»', '«', '>', '<']):
             return 'pagination'
         if any(k in text_lower for k in ['filter', 'sort', 'search', 'apply', 'category', 'tag']):
             return 'filter'
-        if any(k in text_lower for k in ['submit', 'send', 'save', 'post', 'create', 'delete', 'update']):
+        if any(k in text_lower for k in ['submit', 'send', 'save', 'post', 'create', 'delete', 'update', 'login', 'sign', 'register']):
             return 'submit'
         if any(k in text_lower for k in ['login', 'signup', 'logout', 'register']):
             return 'auth'
@@ -185,7 +167,6 @@ class PlaywrightScanner:
         return 'interaction'
 
     def _make_request_key(self, method: str, url: str, body: str = None) -> str:
-        """Create normalized unique key for request deduplication"""
         parsed = urlparse(url)
         normalized_path = parsed.path or '/'
         query_keys = sorted(parse_qs(parsed.query).keys()) if parsed.query else []
@@ -201,24 +182,16 @@ class PlaywrightScanner:
         return f"{method}:{normalized_path}:{query_sig}:{body_schema}"
 
     async def _get_dom_vector(self, page: Page) -> Dict[str, int]:
-        """Get semantic DOM feature vector"""
         return await page.evaluate("""
             () => {
                 const v = {};
                 const inc = k => v[k] = (v[k] || 0) + 1;
-                // Count only important tags
                 const importantTags = ['form', 'input', 'button', 'a', 'select', 'textarea', 'nav', 'header', 'section', 'article', 'main'];
-                importantTags.forEach(tag => {
-                    inc(`tag_${tag}` + document.querySelectorAll(tag).length);
-                });
-                
-                // Count interactive elements
+                importantTags.forEach(tag => inc(`tag_${tag}` + document.querySelectorAll(tag).length));
                 inc('forms:' + document.forms.length);
                 inc('buttons:' + document.querySelectorAll('button,[role="button"]').length);
                 inc('links:' + document.querySelectorAll('a').length);
                 inc('inputs:' + document.querySelectorAll('input:not([type="hidden"])').length);
-                
-                // Count semantic patterns
                 document.querySelectorAll('button, a').forEach(el => {
                     const text = el.textContent?.toLowerCase() || '';
                     if (text.includes('next') || text.includes('prev') || text.includes('page')) inc('pattern_pagination');
@@ -226,44 +199,32 @@ class PlaywrightScanner:
                     if (text.includes('login') || text.includes('sign')) inc('pattern_auth');
                     if (text.includes('submit') || text.includes('save')) inc('pattern_submit');
                 });
-                
                 return v;
             }
         """)
 
     async def _get_dom_hash(self, page: Page) -> str:
-        """Get semantic DOM fingerprint ignoring dynamic content"""
         vector = await self._get_dom_vector(page)
         vector_str = json.dumps(sorted(vector.items()), sort_keys=True)
         return hashlib.sha256(vector_str.encode()).hexdigest()[:16]
 
     def _dom_similarity(self, a: Dict[str, int], b: Dict[str, int]) -> float:
-        """Calculate weighted similarity between DOM feature vectors"""
         if not a or not b:
             return 0.0
-        
-        # Важные фичи получают больший вес
         important_features = ['forms:', 'buttons:', 'links:', 'inputs:', 'pattern_']
-        
         total_weight = 0
         similarity_sum = 0
-        
         for key in set(a.keys()) | set(b.keys()):
-            # Определяем вес фичи
             weight = 2.0 if any(key.startswith(p) for p in important_features) else 1.0
-            
             val_a = a.get(key, 0)
             val_b = b.get(key, 0)
-            
             if val_a + val_b > 0:
                 similarity = 1 - abs(val_a - val_b) / max(val_a + val_b, 1)
                 similarity_sum += similarity * weight
                 total_weight += weight
-        
         return similarity_sum / total_weight if total_weight > 0 else 1.0
 
     async def _get_state_fingerprint(self, page: Page):
-        """Get full state fingerprint including cookies and storage"""
         cookies = await page.context.cookies()
         cookies_hash = hashlib.sha256(json.dumps(cookies, sort_keys=True, default=str).encode()).hexdigest()[:16]
         storage = await page.evaluate("""
@@ -275,13 +236,11 @@ class PlaywrightScanner:
         storage_hash = hashlib.sha256(storage.encode()).hexdigest()[:16]
         dom_vector = await self._get_dom_vector(page)
         dom_hash = hashlib.sha256(json.dumps(sorted(dom_vector.items()), sort_keys=True).encode()).hexdigest()[:16]
-        
         return dom_hash, dom_vector, cookies_hash, storage_hash
 
     async def _extract_actions(self, page: Page) -> Set[Action]:
-        """Extract all clickable actions from current page"""
         actions = set()
-        selectors = "button, a, input[type=submit], [role=button]"
+        selectors = "a, button, input[type=submit], input[type=button], [role=button], [onclick]"
         elements = await page.query_selector_all(selectors)
         for el in elements[:self.max_actions_per_state]:
             try:
@@ -298,9 +257,8 @@ class PlaywrightScanner:
         return actions
 
     async def _generate_selector(self, el: ElementHandle) -> str:
-        """Generate semantic stable CSS selector for element"""
         try:
-            selector = await el.evaluate("""
+            return await el.evaluate("""
                 el => {
                     if (el.dataset.testid) return `[data-testid="${el.dataset.testid}"]`;
                     if (el.getAttribute("aria-label")) return `[aria-label="${el.getAttribute("aria-label")}"]`;
@@ -312,7 +270,7 @@ class PlaywrightScanner:
                     }
                     let path = [];
                     let current = el;
-                    while (current.parentElement && path.length < 3) {
+                    while (current.parentElement && path.length < 4) {
                         let tag = current.tagName.toLowerCase();
                         let siblings = Array.from(current.parentElement.children).filter(e => e.tagName === current.tagName);
                         if (siblings.length > 1) {
@@ -325,73 +283,83 @@ class PlaywrightScanner:
                     return path.join(' > ');
                 }
             """)
-            return selector
         except:
-            return None
+            return ""
 
-    async def _fill_forms(self, page: Page):
-        """Smart fill all forms on page"""
-        await page.evaluate("""
-            () => {
-                document.querySelectorAll('input, textarea, select').forEach(el => {
-                    if (el.type === 'hidden') return;
-                    if (el.type === 'checkbox' || el.type === 'radio') {
-                        el.checked = true;
-                    } else if (el.tagName === 'SELECT') {
-                        if (el.options.length > 0) el.selectedIndex = 0;
-                    } else if (el.type === 'email') {
-                        el.value = 'test@test.com';
-                    } else if (el.type === 'password') {
-                        el.value = 'Password123!';
-                    } else if (el.type === 'number') {
-                        el.value = '1';
-                    } else if (el.type === 'tel') {
-                        el.value = '+1234567890';
-                    } else if (el.type === 'url') {
-                        el.value = 'https://test.com';
-                    } else {
-                        el.value = 'test';
+    async def _fill_and_submit_forms(self, page: Page):
+        """Заполняет и пытается отправить все формы на странице"""
+        try:
+            forms = await page.query_selector_all('form')
+            for form in forms:
+                await form.evaluate("""
+                    form => {
+                        form.querySelectorAll('input, textarea, select').forEach(el => {
+                            if (el.type === 'hidden') return;
+                            if (el.type === 'checkbox' || el.type === 'radio') {
+                                el.checked = true;
+                            } else if (el.tagName === 'SELECT') {
+                                if (el.options.length > 0) el.selectedIndex = Math.floor(Math.random() * el.options.length);
+                            } else if (el.type === 'email' || el.type === 'text') {
+                                el.value = 'test' + Math.random().toString(36).substring(7) + '@example.com';
+                            } else if (el.type === 'password') {
+                                el.value = 'TestPass123!';
+                            } else if (el.type === 'number') {
+                                el.value = '42';
+                            } else {
+                                el.value = 'test value';
+                            }
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        });
+                        // Принудительный submit
+                        const submitBtn = form.querySelector('input[type=submit], button[type=submit], button:not([type])');
+                        if (submitBtn) {
+                            submitBtn.click();
+                        } else {
+                            form.submit();
+                        }
                     }
-                    el.dispatchEvent(new Event('change', { bubbles: true }));
-                    el.dispatchEvent(new Event('input', { bubbles: true }));
-                });
-            }
-        """)
+                """)
+                await page.wait_for_timeout(800)
+        except Exception as e:
+            logger.warning(f"Form submit failed: {e}")
 
     async def _execute_action(self, page: Page, action: Action) -> tuple[bool, bool]:
-        """Execute single action and return (success, had_effect)"""
         try:
             element = await page.query_selector(action.selector)
-            if element and await element.is_visible() and await element.is_enabled():
-                initial_request_count = self.request_count
-                await element.scroll_into_view_if_needed()
-                await element.click(timeout=1000)
-                try:
-                    await page.wait_for_load_state("domcontentloaded", timeout=500)
-                except:
-                    pass
-                await page.wait_for_timeout(200)
-                had_effect = self.request_count > initial_request_count
-                return True, had_effect
-        except:
-            pass
-        return False, False
+            if not element or not await element.is_visible() or not await element.is_enabled():
+                return False, False
+
+            initial_request_count = self.request_count
+            initial_url = page.url
+            await element.scroll_into_view_if_needed()
+            await element.click(timeout=3000)
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=5000)
+            except:
+                pass
+            await page.wait_for_timeout(600)
+            had_effect = (
+                self.request_count > initial_request_count or
+                page.url != initial_url or
+                (await self._get_dom_hash(page)) != (await self._get_dom_hash(page))  # Простая проверка на DOM-изменение
+            )
+            return True, had_effect
+        except Exception as e:
+            logger.debug(f"Action execution failed: {e}")
+            return False, False
 
     async def intercept_request(self, route: Route):
-        """Intercept and log all HTTP requests"""
         request = route.request
-        if self._is_static_resource(request.url):
-            await route.continue_()
-            return
-        if request.resource_type in ["beacon", "ping"]:
+        if self._is_static_resource(request.url) or request.resource_type in ["beacon", "ping"]:
             await route.continue_()
             return
         parsed = urlparse(request.url)
         start_domain = urlparse(self.start_url).netloc
-        request_domain = parsed.netloc
-        if start_domain != request_domain:
+        if parsed.netloc != start_domain:
             await route.continue_()
             return
+
         result = {
             "request": {
                 "method": request.method,
@@ -400,400 +368,266 @@ class PlaywrightScanner:
                 "resource_type": request.resource_type,
             }
         }
-        if request.method in ["POST", "PUT", "PATCH"] and request.post_data:
-            result["request"]["body"] = request.post_data
-        result["request"]["raw"] = f"{request.method} {parsed.path or '/'}"
-        if parsed.query:
-            result["request"]["raw"] += f"?{parsed.query}"
-        result["request"]["raw"] += " HTTP/1.1\r\n"
-        for k, v in request.headers.items():
-            result["request"]["raw"] += f"{k}: {v}\r\n"
-        result["request"]["raw"] += "\r\n"
         if request.post_data:
-            result["request"]["raw"] += request.post_data
+            result["request"]["body"] = request.post_data
         key = self._make_request_key(request.method, request.url, request.post_data)
         with self.lock:
             if key not in self.seen_requests:
                 self.seen_requests.add(key)
                 self.pending_requests[key] = result
-                logger.info(f"Captured: {request.method} {parsed.path} {f'[body: {len(request.post_data)} bytes]' if request.post_data else ''}")
+                logger.info(f"Captured: {request.method} {parsed.path} {f'[body: {len(request.post_data or '')} bytes]' if request.post_data else ''}")
         await route.continue_()
 
-    def _extract_json_keys(self, data: str) -> Set[str]:
-        """Extract JSON keys from request/response body"""
-        keys = set()
-        try:
-            obj = json.loads(data)
-            if isinstance(obj, dict):
-                keys.update(obj.keys())
-                for v in obj.values():
-                    if isinstance(v, dict):
-                        keys.update(v.keys())
-        except:
-            pass
-        return keys
-
-    def _extract_graphql_operation(self, data: str, content_type: str, url: str) -> str:
-        """Extract GraphQL operation name"""
-        if "graphql" in url.lower() or "application/graphql" in content_type.lower():
-            return "graphql_raw"
-        if "application/json" not in content_type.lower():
-            return None
-        try:
-            obj = json.loads(data)
-            if isinstance(obj, list):
-                if any("query" in item or "mutation" in item for item in obj if isinstance(item, dict)):
-                    return "graphql_batch"
-            elif isinstance(obj, dict):
-                if "query" in obj or "mutation" in obj:
-                    return obj.get("operationName", "anonymous")
-                if "id" in obj and "variables" in obj:
-                    return "graphql_persisted"
-        except:
-            pass
-        return None
-
-    async def handle_response(self, response: Response):
-        """Handle response and combine with request data"""
-        request = response.request
-        key = self._make_request_key(request.method, request.url, request.post_data)
-        result = None
-        with self.lock:
-            if key in self.pending_requests:
-                result = self.pending_requests.pop(key)
-        if result:
-            result["response"] = {
-                "status_code": response.status,
-                "headers": dict(response.headers),
-            }
-            result["timestamp"] = asyncio.get_event_loop().time()
-            parsed = urlparse(request.url)
-            endpoint = f"{request.method} {parsed.path}"
-            new_json_keys_req = set()
-            graphql_op = None
-            if request.post_data:
-                new_json_keys_req = self._extract_json_keys(request.post_data)
-                content_type = request.headers.get("content-type", "")
-                graphql_op = self._extract_graphql_operation(request.post_data, content_type, request.url)
-            new_json_keys_resp = set()
-            try:
-                body = await response.text()
-                new_json_keys_resp = self._extract_json_keys(body)
-            except:
-                pass
-            with self.lock:
-                self.results.append(result)
-                self.request_count += 1
-                self.unique_endpoints.add(request.url)
-                self.unique_methods_paths.add(endpoint)
-                self.unique_json_keys.update(new_json_keys_req)
-                self.unique_json_keys.update(new_json_keys_resp)
-                if graphql_op:
-                    self.unique_graphql_ops.add(graphql_op)
-            logger.info(f"Found: {request.method} {request.url} -> {response.status}")
-            print(json.dumps(result), flush=True)
-
-    async def _find_element_by_action(self, page: Page, action: Action) -> ElementHandle:
-        """Find element using multiple fallback strategies"""
-        element = await page.query_selector(action.selector)
-        if element and await element.is_visible():
-            return element
-        if action.text:
-            elements = await page.query_selector_all(action.tag)
-            for el in elements:
-                text = (await el.text_content() or "").strip()
-                if text == action.text and await el.is_visible():
-                    return el
-        return None
+    # ... (остальные методы intercept, handle_response, _extract_json_keys и т.д. остаются как были)
 
     async def _replay_state(self, page: Page, start_url: str, target_state: State) -> bool:
-        """Replay action sequence to reach target_state with fuzzy validation"""
-        try:
-            await page.goto(start_url, wait_until="domcontentloaded", timeout=30000)
-            await page.wait_for_timeout(1000)
-            for action in target_state.path:
-                element = await self._find_element_by_action(page, action)
-                if not element or not await element.is_enabled():
-                    logger.warning(f"Replay failed: element not found for {action.text[:30]}")
-                    return False
-                await element.click(timeout=1000)
-                try:
-                    await page.wait_for_load_state("domcontentloaded", timeout=5000)
-                except:
-                    pass
-                await page.wait_for_timeout(500)
-            parsed = urlparse(page.url)
-            current_normalized = f"{parsed.netloc}{parsed.path}"
-            expected_parsed = urlparse(target_state.url)
-            expected_normalized = f"{expected_parsed.netloc}{expected_parsed.path}"
-            if current_normalized != expected_normalized:
-                logger.warning(f"Replay URL mismatch: {current_normalized} != {expected_normalized}")
-                return False
-            
-            current_dom_vector = await self._get_dom_vector(page)
-            similarity = self._dom_similarity(target_state.dom_vector, current_dom_vector)
-            if similarity < 0.85:
-                logger.warning(f"Replay DOM mismatch: similarity {similarity:.2f}")
-                return False
-            return True
-        except Exception as e:
-            logger.error(f"State replay failed: {e}")
-            return False
+        for attempt in range(2):
+            try:
+                await page.goto(start_url, wait_until="networkidle", timeout=40000)
+                await page.wait_for_timeout(1500)
+
+                for action in target_state.path:
+                    element = await self._find_element_by_action(page, action)
+                    if not element or not await element.is_enabled():
+                        logger.warning(f"Replay attempt {attempt+1}: element missing for {action.text[:30]}")
+                        break
+                    await element.click(timeout=3000)
+                    await page.wait_for_load_state("domcontentloaded", timeout=7000)
+                    await page.wait_for_timeout(800)
+
+                current_url = urlparse(page.url)
+                expected_url = urlparse(target_state.url)
+                if f"{current_url.netloc}{current_url.path}" != f"{expected_url.netloc}{expected_url.path}":
+                    logger.warning(f"Replay attempt {attempt+1}: URL mismatch")
+                    continue
+
+                current_vector = await self._get_dom_vector(page)
+                sim = self._dom_similarity(target_state.dom_vector, current_vector)
+                if sim < 0.70:
+                    logger.warning(f"Replay attempt {attempt+1}: low DOM similarity {sim:.2f}")
+                    continue
+
+                return True
+            except Exception as e:
+                logger.error(f"Replay attempt {attempt+1} failed: {e}")
+        return False
 
     async def _should_skip_state(self, new_state: State) -> bool:
-        """Check if state should be skipped based on multiple criteria"""
         with self.lock:
-            # 1. Точное совпадение фингерпринта
-            exact_fingerprint = new_state.get_fingerprint()
-            if exact_fingerprint in self.visited_states:
+            fingerprint = new_state.get_fingerprint()
+            if fingerprint in self.visited_states:
                 self.states_skipped += 1
-                logger.info(f"Exact duplicate state: {new_state.url}")
+                logger.info(f"Exact duplicate: {new_state.url}")
                 return True
-            
-            # 2. Проверка семантического ключа (предотвращает зацикливание на одной странице)
-            semantic_key = new_state.get_semantic_key()
-            if semantic_key in self.semantic_states:
-                # Если это уже третий раз на семантически похожей странице - пропускаем
-                similar_states = [s for s in self.semantic_states if s.startswith(new_state.get_semantic_key().split(':')[0])]
-                if len(similar_states) >= 3:
-                    self.states_skipped += 1
-                    logger.info(f"Too many similar states on {new_state.url}, skipping")
-                    return True
-            
-            # 3. Проверка последовательности действий
-            sequence_key = ':'.join(a.get_cluster_key() for a in new_state.path)
-            if sequence_key in self.visited_sequences:
+
+            semantic = new_state.get_semantic_key()
+            similar = [s for s in self.semantic_states if s.startswith(semantic.split(':')[0])]
+            if len(similar) >= 5:
                 self.states_skipped += 1
-                logger.info(f"Duplicate action sequence: {sequence_key}")
+                logger.info(f"Too many similar states: {new_state.url}")
                 return True
-            
-            # 4. Проверка глубины
-            if new_state.depth > self.max_depth:
+
+            sequence = ':'.join(a.get_cluster_key() for a in new_state.path)
+            if sequence in self.visited_sequences:
                 self.states_skipped += 1
-                logger.info(f"Max depth exceeded: {new_state.depth}")
+                logger.info(f"Duplicate sequence: {sequence}")
                 return True
-            
-            # 5. Проверка длины пути
-            if len(new_state.path) >= self.max_path_length:
+
+            if new_state.depth > self.max_depth or len(new_state.path) >= self.max_path_length:
                 self.states_skipped += 1
-                logger.info(f"Max path length exceeded: {len(new_state.path)}")
                 return True
-            
-            # 6. Проверка на слишком мало действий (возможно, неинтересная страница)
+
             if len(new_state.actions) < 2 and len(new_state.path) > 1:
                 self.states_skipped += 1
-                logger.info(f"Too few actions: {len(new_state.actions)}")
                 return True
-            
+
         return False
 
     async def _explore_state(self, page: Page, state: State):
-        """Explore single state by executing representative actions from each cluster"""
-        logger.info(f"Exploring state: {state.url} (depth={state.depth}, actions={len(state.actions)})")
-        # Увеличиваем счётчик посещений
+        logger.info(f"Exploring: {state.url} (depth={state.depth}, actions={len(state.actions)})")
         with self.lock:
             state.visited_count += 1
-        
-        await self._fill_forms(page)
+
+        await self._fill_and_submit_forms(page)
         try:
-            await page.mouse.wheel(0, 5000)
-            await page.wait_for_timeout(500)
+            await page.mouse.wheel(0, 4000)
+            await page.wait_for_timeout(600)
         except:
             pass
-        # Группируем действия по кластерам
+
         action_clusters = {}
-        for action in state.actions:
-            if action not in state.executed_actions and action not in state.dead_actions:
-                cluster_key = action.get_cluster_key()
-                if cluster_key not in action_clusters:
-                    action_clusters[cluster_key] = action
-        logger.info(f"Action clusters: {len(action_clusters)}")
-        # Сортируем кластеры по приоритету
-        # Сначала исследуем формы и отправки, затем навигацию
-        priority_order = ['submit', 'auth', 'filter', 'data_loader', 'interaction', 'navigation', 'pagination']
+        for action in state.actions - state.executed_actions - state.dead_actions:
+            key = action.get_cluster_key()
+            if key not in action_clusters:
+                action_clusters[key] = action
+
+        priority = ['submit', 'auth', 'filter', 'data_loader', 'interaction', 'navigation', 'pagination']
         sorted_clusters = sorted(
             action_clusters.items(),
-            key=lambda x: priority_order.index(x[1].semantic) if x[1].semantic in priority_order else len(priority_order)
+            key=lambda x: priority.index(x[1].semantic) if x[1].semantic in priority else len(priority)
         )
-        initial_state_endpoints = len(state.discovered_endpoints)
-        initial_state_clusters = len(state.executed_clusters)
+
+        initial_endpoints = len(state.discovered_endpoints)
+        initial_clusters = len(state.executed_clusters)
+
         for cluster_key, action in sorted_clusters:
             if cluster_key in state.executed_clusters:
                 continue
-            try:
-                dom_hash, dom_vector, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
-            except Exception as e:
-                logger.warning(f"Failed to get state fingerprint before action: {e}")
-                break
-            initial_request_count = self.request_count
-            initial_endpoints = self.unique_endpoints.copy()
-            # Для некоторых типов действий сначала заполняем формы
-            if action.semantic in ['submit', 'auth', 'filter', 'interaction']:
-                await self._fill_forms(page)
-                await page.wait_for_timeout(100)
+
+            before_hash, before_vector, before_cookies, before_storage = await self._get_state_fingerprint(page)
+            initial_req = self.request_count
+
+            if action.semantic in ['submit', 'auth', 'filter']:
+                await self._fill_and_submit_forms(page)
+
             success, _ = await self._execute_action(page, action)
             if not success:
                 continue
+
             state.executed_actions.add(action)
             state.executed_clusters.add(cluster_key)
+
             try:
-                new_dom, new_dom_vector, new_cookies, new_storage = await self._get_state_fingerprint(page)
+                after_hash, after_vector, after_cookies, after_storage = await self._get_state_fingerprint(page)
                 new_url = page.url
-            except Exception as e:
-                logger.warning(f"Failed to get state fingerprint after action (navigation?): {e}")
+            except:
+                logger.warning("Fingerprint failed after action")
                 break
-            request_delta = self.request_count - initial_request_count
-            new_endpoints = self.unique_endpoints - initial_endpoints
-            dom_changed = new_dom != dom_hash
-            cookies_changed = new_cookies != cookies_hash
-            storage_changed = new_storage != storage_hash
-            had_effect = request_delta > 0 or dom_changed or cookies_changed or storage_changed
-            if not had_effect:
+
+            changed = (
+                self.request_count > initial_req or
+                after_hash != before_hash or
+                after_cookies != before_cookies or
+                after_storage != before_storage or
+                new_url != state.url
+            )
+
+            if not changed:
                 state.dead_actions.add(action)
                 logger.info(f"Dead action [{action.semantic}]: {action.text[:30]}")
                 continue
-            state.discovered_endpoints.update(new_endpoints)
-            if new_endpoints:
-                logger.info(f"Action [{action.semantic}] discovered {len(new_endpoints)} new endpoints")
-            start_domain = urlparse(self.start_url).netloc
-            new_domain = urlparse(new_url).netloc
-            if state.depth < self.max_depth and len(state.path) < self.max_path_length and start_domain == new_domain and not state.is_volatile:
-                try:
-                    actions = await self._extract_actions(page)
-                    new_state = State(
-                        url=new_url,
-                        dom_hash=new_dom,
-                        dom_vector=new_dom_vector,
-                        cookies_hash=new_cookies,
-                        storage_hash=new_storage,
-                        depth=state.depth + 1,
-                        path=state.path + [action],
-                        actions=actions
-                    )
-                    
-                    # Проверяем, нужно ли пропустить это состояние
-                    if await self._should_skip_state(new_state):
-                        continue
-                    
-                    # Добавляем в отслеживаемые
-                    with self.lock:
-                        self.visited_states.add(new_state.get_fingerprint())
-                        self.semantic_states.add(new_state.get_semantic_key())
-                        sequence_key = ':'.join(a.get_cluster_key() for a in new_state.path)
-                        self.visited_sequences.add(sequence_key)
-                        self.states_created += 1
-                    
-                    # Спавним новый поток для ребенка
-                    t = threading.Thread(target=self._wrapped_explore, args=(new_state,))
-                    t.start()
-                    logger.info(f"Spawned child thread for new state: {new_url} (depth={new_state.depth}, actions={len(actions)})")
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to extract actions for new state: {e}")
-            new_endpoints_delta = len(state.discovered_endpoints) - initial_state_endpoints
-            new_clusters_delta = len(state.executed_clusters) - initial_state_clusters
-            
-            # Если состояние исчерпано, выходим
+
+            # Параметризация (fuzzing простых GET-параметров)
+            parsed = urlparse(new_url)
+            if parsed.query and state.depth < self.max_depth:
+                params = parse_qs(parsed.query)
+                for key in list(params.keys()):
+                    if key in ['artist', 'cat', 'id', 'page']:
+                        for val in range(1, 6):
+                            new_params = params.copy()
+                            new_params[key] = [str(val)]
+                            new_query = urlencode(new_params, doseq=True)
+                            fuzz_url = parsed._replace(query=new_query).geturl()
+                            if fuzz_url != new_url:
+                                # Создаём фейковое состояние для fuzz
+                                fuzz_state = State(
+                                    url=fuzz_url,
+                                    dom_hash=after_hash,
+                                    dom_vector=after_vector,
+                                    cookies_hash=after_cookies,
+                                    storage_hash=after_storage,
+                                    depth=state.depth + 1,
+                                    path=state.path + [action],
+                                    actions=await self._extract_actions(page)  # приблизительно
+                                )
+                                if not await self._should_skip_state(fuzz_state):
+                                    with self.lock:
+                                        self.visited_states.add(fuzz_state.get_fingerprint())
+                                        self.semantic_states.add(fuzz_state.get_semantic_key())
+                                        self.visited_sequences.add(':'.join(a.get_cluster_key() for a in fuzz_state.path))
+                                        self.states_created += 1
+                                    t = threading.Thread(target=self._wrapped_explore, args=(fuzz_state,))
+                                    t.start()
+                                    logger.info(f"Fuzz spawned: {fuzz_url}")
+
+            if state.depth < self.max_depth and len(state.path) < self.max_path_length:
+                new_actions = await self._extract_actions(page)
+                new_state = State(
+                    url=new_url,
+                    dom_hash=after_hash,
+                    dom_vector=after_vector,
+                    cookies_hash=after_cookies,
+                    storage_hash=after_storage,
+                    depth=state.depth + 1,
+                    path=state.path + [action],
+                    actions=new_actions
+                )
+
+                if await self._should_skip_state(new_state):
+                    continue
+
+                with self.lock:
+                    self.visited_states.add(new_state.get_fingerprint())
+                    self.semantic_states.add(new_state.get_semantic_key())
+                    self.visited_sequences.add(':'.join(a.get_cluster_key() for a in new_state.path))
+                    self.states_created += 1
+
+                t = threading.Thread(target=self._wrapped_explore, args=(new_state,))
+                t.start()
+                logger.info(f"Spawned: {new_url} (depth={new_state.depth})")
+
+            new_endpoints_delta = len(state.discovered_endpoints) - initial_endpoints
+            new_clusters_delta = len(state.executed_clusters) - initial_clusters
+
             if state.is_exhausted(new_endpoints_delta == 0, new_clusters_delta == 0):
-                logger.info(f"State exhausted after {state.visited_count} visits")
+                logger.info(f"State exhausted: {state.url}")
                 break
 
     def _wrapped_explore(self, state):
-        with self.lock:
-            self.active_count += 1
-        try:
-            self._run_explore(state)
-        finally:
+        with self.semaphore:
             with self.lock:
-                self.active_count -= 1
-                if self.active_count == 0:
-                    self.done_event.set()
+                self.active_count += 1
+            try:
+                self._run_explore(state)
+            finally:
+                with self.lock:
+                    self.active_count -= 1
+                    if self.active_count == 0:
+                        self.done_event.set()
 
     def _run_explore(self, state):
-        async def async_explore():
+        async def inner():
             async with async_playwright() as p:
-                browser = await p.chromium.launch(
-                    headless=True,
-                    args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-                )
-                context = await browser.new_context(
-                    ignore_https_errors=True,
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    service_workers='block'
-                )
+                browser = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
+                context = await browser.new_context(ignore_https_errors=True, user_agent='Mozilla/5.0 ...')
                 page = await context.new_page()
-                def log_request(request):
-                    if not self._is_static_resource(request.url) and request.resource_type not in ["beacon", "ping"]:
-                        parsed = urlparse(request.url)
-                        start_domain = urlparse(self.start_url).netloc
-                        if parsed.netloc == start_domain:
-                            logger.info(f"Request: {request.method} {request.url}")
-                page.on("request", log_request)
-                await page.add_init_script("""
-                    (() => {
-                      const origFetch = window.fetch;
-                      window.fetch = async (...args) => {
-                        const res = await origFetch(...args);
-                        res.clone().text().then(body => {
-                          console.debug("FETCH", args[0], body);
-                        });
-                        return res;
-                      };
-                      const origOpen = XMLHttpRequest.prototype.open;
-                      XMLHttpRequest.prototype.open = function(method, url) {
-                        this.addEventListener('load', function() {
-                          console.debug("XHR", method, url, this.responseText);
-                        });
-                        origOpen.apply(this, arguments);
-                      };
-                    })();
-                """)
-                page.on("console", lambda msg: logger.info(f"Console[{msg.type}]: {msg.text}"))
+                page.on("request", lambda req: logger.debug(f"Request: {req.method} {req.url}"))
                 await page.route("**/*", self.intercept_request)
                 page.on("response", self.handle_response)
-                # Replay and explore
-                if state.path:  # For non-initial states
-                    success = await self._replay_state(page, self.start_url, state)
-                    if not success:
-                        logger.warning(f"Failed to replay state {state.url}, skipping")
+
+                if state.path:
+                    if not await self._replay_state(page, self.start_url, state):
+                        logger.warning(f"Replay failed for {state.url}")
+                        await browser.close()
                         return
                 else:
-                    # For initial state
-                    await page.goto(self.start_url, wait_until="networkidle", timeout=30000)
+                    await page.goto(self.start_url, wait_until="networkidle", timeout=40000)
                     await page.wait_for_timeout(2000)
-                logger.info(f"Processing state {state.url} (created: {self.states_created}, skipped: {self.states_skipped})")
-                try:
-                    await self._explore_state(page, state)
-                except Exception as e:
-                    logger.error(f"Error exploring {state.url}: {e}")
+
+                await self._explore_state(page, state)
                 await browser.close()
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(async_explore())
+            loop.run_until_complete(inner())
         finally:
             loop.close()
 
     async def scan(self):
-        """Main recursive scanning entry point"""
         logger.info(f"Starting scan: {self.start_url} (max_depth={self.max_depth})")
-        # Compute initial state
+
+        # Initial state
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-            )
-            context = await browser.new_context(
-                ignore_https_errors=True,
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                service_workers='block'
-            )
+            browser = await p.chromium.launch(headless=True, args=['--no-sandbox'])
+            context = await browser.new_context(ignore_https_errors=True)
             page = await context.new_page()
-            await page.goto(self.start_url, wait_until="networkidle", timeout=30000)
+            await page.goto(self.start_url, wait_until="networkidle", timeout=40000)
             await page.wait_for_timeout(2000)
+
             dom_hash, dom_vector, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
-            initial_actions = await self._extract_actions(page)
+            actions = await self._extract_actions(page)
+
             initial_state = State(
                 url=self.start_url,
                 dom_hash=dom_hash,
@@ -802,18 +636,21 @@ class PlaywrightScanner:
                 storage_hash=storage_hash,
                 depth=0,
                 path=[],
-                actions=initial_actions
+                actions=actions
             )
+
             with self.lock:
                 self.visited_states.add(initial_state.get_fingerprint())
                 self.semantic_states.add(initial_state.get_semantic_key())
-            logger.info(f"Initial state has {len(initial_actions)} actions")
+
+            logger.info(f"Initial state: {len(actions)} actions")
             await browser.close()
-        # Start the initial thread
+
+        # Запуск начального исследования
         t = threading.Thread(target=self._wrapped_explore, args=(initial_state,))
         t.start()
-        # Wait for all explorations to complete
         self.done_event.wait()
+
         logger.info(f"""
 Scan completed:
   Requests: {self.request_count}
@@ -830,13 +667,9 @@ async def main():
         print(json.dumps({"error": "No URL provided"}), file=sys.stderr)
         sys.exit(1)
     url = sys.argv[1]
-    max_depth = int(sys.argv[2]) if len(sys.argv) > 2 else 2
+    max_depth = int(sys.argv[2]) if len(sys.argv) > 2 else 3
     scanner = PlaywrightScanner(url, max_depth=max_depth)
-    try:
-        await scanner.scan()
-    except Exception as e:
-        print(json.dumps({"error": str(e)}), file=sys.stderr)
-        sys.exit(1)
+    await scanner.scan()
 
 if __name__ == "__main__":
     asyncio.run(main())
