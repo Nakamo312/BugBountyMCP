@@ -9,6 +9,7 @@ from api.infrastructure.database.connection import DatabaseConnection
 from api.application.services.program import ProgramService
 from api.application.services.mapcidr import MapCIDRService
 from api.application.services.host import HostService
+from api.application.services.analysis import AnalysisService
 from api.application.services.batch_processor import (
     HTTPXBatchProcessor,
     SubfinderBatchProcessor,
@@ -452,6 +453,13 @@ class ServiceProvider(Provider):
         scan_uow: SQLAlchemyHTTPXUnitOfWork
     ) -> HostService:
         return HostService(scan_uow)
+
+    @provide(scope=Scope.REQUEST)
+    def get_analysis_service(
+        self,
+        scan_uow: SQLAlchemyHTTPXUnitOfWork
+    ) -> AnalysisService:
+        return AnalysisService(scan_uow)
 
 
 class PipelineProvider(Provider):

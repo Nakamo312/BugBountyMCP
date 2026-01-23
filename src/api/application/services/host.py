@@ -1,23 +1,36 @@
 """Service for working with hosts, endpoints, parameters and headers"""
 
-from typing import List, Optional
+import logging
+from typing import List, Optional, Dict, Any
 from uuid import UUID
+
+from sqlalchemy import text
 
 from api.application.dto.host import (
     HostResponseDTO,
     EndpointResponseDTO,
     InputParameterResponseDTO,
     HeaderResponseDTO,
+    RawBodyResponseDTO,
     HostWithEndpointsDTO,
     EndpointWithDetailsDTO,
-    HostsListResponseDTO
+    HostsListResponseDTO,
+    HostWithStatsDTO,
+    HostWithServicesDTO,
+    ServiceResponseDTO,
+    EndpointFullDetailsDTO,
+    EndpointWithBodyDTO,
+    ProgramStatsDTO,
+    HostsWithStatsListDTO,
 )
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
+
+logger = logging.getLogger(__name__)
 
 
 class HostService:
     """Service for querying hosts and related data"""
-    
+
     def __init__(self, uow: HTTPXUnitOfWork):
         self.uow = uow
     
@@ -218,3 +231,126 @@ class HostService:
                     value=header.value
                 ) for header in headers
             ]
+
+    async def get_hosts_with_stats(
+        self,
+        program_id: UUID,
+        limit: int = 100,
+        offset: int = 0,
+        in_scope: Optional[bool] = None
+    ) -> HostsWithStatsListDTO:
+        """Get hosts with statistics from host_full_stats view"""
+        async with self.uow as uow:
+            where_clauses = ["program_id = :program_id"]
+            params: Dict[str, Any] = {"program_id": program_id, "limit": limit, "offset": offset}
+
+            if in_scope is not None:
+                where_clauses.append("in_scope = :in_scope")
+                params["in_scope"] = in_scope
+
+            where_sql = " AND ".join(where_clauses)
+
+            count_query = text(f"SELECT COUNT(*) FROM host_full_stats WHERE {where_sql}")
+            count_result = await uow._session.execute(count_query, params)
+            total = count_result.scalar() or 0
+
+            data_query = text(
+                f"SELECT * FROM host_full_stats WHERE {where_sql} LIMIT :limit OFFSET :offset"
+            )
+            result = await uow._session.execute(data_query, params)
+            rows = result.mappings().all()
+
+            return HostsWithStatsListDTO(
+                hosts=[HostWithStatsDTO(**dict(row)) for row in rows],
+                total=total,
+                limit=limit,
+                offset=offset
+            )
+
+    async def get_host_with_services(self, host_id: UUID) -> Optional[HostWithServicesDTO]:
+        """Get host with all services from host_services_view"""
+        async with self.uow as uow:
+            query = text("SELECT * FROM host_services_view WHERE host_id = :host_id")
+            result = await uow._session.execute(query, {"host_id": host_id})
+            rows = result.mappings().all()
+
+            if not rows:
+                return None
+
+            first_row = rows[0]
+            services = []
+            for row in rows:
+                if row.get("service_id"):
+                    services.append(ServiceResponseDTO(
+                        id=row["service_id"],
+                        scheme=row["scheme"],
+                        port=row["port"],
+                        technologies=row.get("technologies") or {},
+                        favicon_hash=row.get("favicon_hash"),
+                        websocket=row.get("websocket", False)
+                    ))
+
+            return HostWithServicesDTO(
+                host_id=first_row["host_id"],
+                host=first_row["host"],
+                program_id=first_row["program_id"],
+                in_scope=first_row["in_scope"],
+                services=services
+            )
+
+    async def get_endpoint_full_details(
+        self,
+        endpoint_id: UUID
+    ) -> Optional[EndpointFullDetailsDTO]:
+        """Get full endpoint details from endpoint_full_details view"""
+        async with self.uow as uow:
+            query = text("SELECT * FROM endpoint_full_details WHERE endpoint_id = :endpoint_id")
+            result = await uow._session.execute(query, {"endpoint_id": endpoint_id})
+            row = result.mappings().first()
+
+            if not row:
+                return None
+
+            return EndpointFullDetailsDTO(**dict(row))
+
+    async def get_endpoints_with_body(
+        self,
+        program_id: UUID,
+        limit: int = 100,
+        offset: int = 0,
+        host_id: Optional[UUID] = None
+    ) -> tuple[List[EndpointWithBodyDTO], int]:
+        """Get endpoints with request body from endpoints_with_body view"""
+        async with self.uow as uow:
+            where_clauses = ["program_id = :program_id"]
+            params: Dict[str, Any] = {"program_id": program_id, "limit": limit, "offset": offset}
+
+            if host_id:
+                where_clauses.append("host_id = :host_id")
+                params["host_id"] = host_id
+
+            where_sql = " AND ".join(where_clauses)
+
+            count_query = text(f"SELECT COUNT(*) FROM endpoints_with_body WHERE {where_sql}")
+            count_result = await uow._session.execute(count_query, params)
+            total = count_result.scalar() or 0
+
+            data_query = text(
+                f"SELECT * FROM endpoints_with_body WHERE {where_sql} LIMIT :limit OFFSET :offset"
+            )
+            result = await uow._session.execute(data_query, params)
+            rows = result.mappings().all()
+
+            return [EndpointWithBodyDTO(**dict(row)) for row in rows], total
+
+    async def get_program_stats(self, program_id: UUID) -> Optional[ProgramStatsDTO]:
+        """Get program statistics from program_stats view"""
+        async with self.uow as uow:
+            query = text("SELECT * FROM program_stats WHERE program_id = :program_id")
+            result = await uow._session.execute(query, {"program_id": program_id})
+            row = result.mappings().first()
+
+            if not row:
+                return None
+
+            return ProgramStatsDTO(**dict(row))
