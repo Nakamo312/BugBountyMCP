@@ -68,8 +68,7 @@ class Action:
     semantic: str = "unknown"
 
     def __hash__(self):
-        # 🔧 PATCH 5 — FIX Action hashing (cluster stability)
-        return hash((self.semantic, self.tag, self.text[:20].lower(), self.selector.split('>')[-1]))
+        return hash((self.semantic, self.tag, self.text[:30].lower()))
 
     def __eq__(self, other):
         return isinstance(other, Action) and hash(self) == hash(other)
@@ -85,7 +84,7 @@ class Action:
 class State:
     url: str
     dom_hash: str
-    dom_vector: Dict[str, int]  # 🔧 PATCH 1 — DOM VECTOR
+    dom_vector: Dict[str, int]
     cookies_hash: str
     storage_hash: str
     depth: int
@@ -96,23 +95,41 @@ class State:
     executed_clusters: Set[str] = field(default_factory=set)
     discovered_endpoints: Set[str] = field(default_factory=set)
     is_volatile: bool = False
-
-    def __hash__(self):
-        parsed = urlparse(self.url)
-        normalized_url = f"{parsed.netloc}{parsed.path}"
-        query_keys = frozenset(parse_qs(parsed.query).keys()) if parsed.query else frozenset()
-        return hash((normalized_url, query_keys, self.cookies_hash))
+    visited_count: int = 0  # Счётчик посещений этого состояния
 
     def get_fingerprint(self):
+        """Strict fingerprint for exact state matching"""
         parsed = urlparse(self.url)
         normalized_url = f"{parsed.netloc}{parsed.path}"
         query_keys = frozenset(parse_qs(parsed.query).keys()) if parsed.query else frozenset()
-        return (normalized_url, query_keys, self.cookies_hash, self.storage_hash)
+        
+        # Включаем хэш действий и DOM структуры
+        action_signature = hash(frozenset(a.get_cluster_key() for a in self.actions))
+        dom_vector_str = json.dumps(sorted(self.dom_vector.items()), sort_keys=True)
+        dom_hash = hashlib.sha256(dom_vector_str.encode()).hexdigest()[:16]
+        
+        return (normalized_url, query_keys, self.cookies_hash, self.storage_hash, 
+                dom_hash, action_signature)
+
+    def get_semantic_key(self):
+        """Semantic key for fuzzy matching - только по URL и основным фичам"""
+        parsed = urlparse(self.url)
+        normalized_url = f"{parsed.netloc}{parsed.path}"
+        
+        # Основные фичи DOM
+        key_features = {
+            'forms': self.dom_vector.get('forms', 0),
+            'buttons': self.dom_vector.get('buttons', 0),
+            'links': self.dom_vector.get('links', 0),
+        }
+        
+        return f"{normalized_url}:{key_features['forms']}:{key_features['buttons']}:{key_features['links']}"
 
     def is_exhausted(self, no_new_endpoints: bool, no_new_clusters: bool) -> bool:
         """Check if state exploration is exhausted"""
         all_executed = len(self.executed_actions) >= len(self.actions)
-        return all_executed or (no_new_endpoints and no_new_clusters)
+        visited_too_much = self.visited_count >= 3  # Не посещаем одно состояние больше 3 раз
+        return all_executed or (no_new_endpoints and no_new_clusters) or visited_too_much
 
 
 class PlaywrightScanner:
@@ -122,11 +139,20 @@ class PlaywrightScanner:
         self.timeout = timeout
         self.max_actions_per_state = max_actions_per_state
         self.max_path_length = max_path_length
+        
         self.state_queue: deque[State] = deque()
         self.results: list[Dict[str, Any]] = []
         self.pending_requests: Dict[str, Dict[str, Any]] = {}
         self.seen_requests: Set[str] = set()
+        
+        # Три уровня дедупликации:
+        # 1. Точные фингерпринты (visited_states)
+        # 2. Семантические ключи (semantic_states)
+        # 3. Посещённые последовательности действий (visited_sequences)
         self.visited_states: Set[Tuple] = set()
+        self.semantic_states: Set[str] = set()
+        self.visited_sequences: Set[str] = set()
+        
         self.unique_endpoints: Set[str] = set()
         self.unique_methods_paths: Set[str] = set()
         self.unique_json_keys: Set[str] = set()
@@ -138,8 +164,9 @@ class PlaywrightScanner:
         self.last_graphql_count = 0
         self.stale_iterations = 0
         
-        # 🔧 PATCH 3 — Indexed fuzzy check
-        self.state_index = defaultdict(list)
+        # Счётчики для отладки
+        self.states_created = 0
+        self.states_skipped = 0
 
     def _is_static_resource(self, url: str) -> bool:
         """Check if URL is a static resource that should be skipped"""
@@ -185,7 +212,6 @@ class PlaywrightScanner:
 
         return f"{method}:{normalized_path}:{query_sig}:{body_schema}"
 
-    # 🔧 PATCH 1 — DOM VECTOR вместо DOM HASH (fuzzy)
     async def _get_dom_vector(self, page: Page) -> Dict[str, int]:
         """Get semantic DOM feature vector"""
         return await page.evaluate("""
@@ -193,22 +219,26 @@ class PlaywrightScanner:
                 const v = {};
                 const inc = k => v[k] = (v[k] || 0) + 1;
 
-                // Count tags
-                document.querySelectorAll('*').forEach(e => inc('tag:' + e.tagName.toLowerCase()));
-                
-                // Count input types
-                document.querySelectorAll('input').forEach(e => inc('input:' + (e.type || 'text')));
+                // Count only important tags
+                const importantTags = ['form', 'input', 'button', 'a', 'select', 'textarea', 'nav', 'header', 'section', 'article', 'main'];
+                importantTags.forEach(tag => {
+                    inc(`tag_${tag}` + document.querySelectorAll(tag).length);
+                });
                 
                 // Count interactive elements
                 inc('forms:' + document.forms.length);
-                inc('buttons:' + document.querySelectorAll('button').length);
+                inc('buttons:' + document.querySelectorAll('button,[role="button"]').length);
                 inc('links:' + document.querySelectorAll('a').length);
-                inc('clickables:' + document.querySelectorAll('[role=button]').length);
+                inc('inputs:' + document.querySelectorAll('input:not([type="hidden"])').length);
                 
-                // Count semantic elements
-                inc('headers:' + document.querySelectorAll('h1,h2,h3,h4,h5,h6,header').length);
-                inc('navs:' + document.querySelectorAll('nav').length);
-                inc('sections:' + document.querySelectorAll('section,article,main').length);
+                // Count semantic patterns
+                document.querySelectorAll('button, a').forEach(el => {
+                    const text = el.textContent?.toLowerCase() || '';
+                    if (text.includes('next') || text.includes('prev') || text.includes('page')) inc('pattern_pagination');
+                    if (text.includes('search')) inc('pattern_search');
+                    if (text.includes('login') || text.includes('sign')) inc('pattern_auth');
+                    if (text.includes('submit') || text.includes('save')) inc('pattern_submit');
+                });
                 
                 return v;
             }
@@ -220,16 +250,30 @@ class PlaywrightScanner:
         vector_str = json.dumps(sorted(vector.items()), sort_keys=True)
         return hashlib.sha256(vector_str.encode()).hexdigest()[:16]
 
-    # 🔧 PATCH 2 — FUZZY STATE EQUIVALENCE
     def _dom_similarity(self, a: Dict[str, int], b: Dict[str, int]) -> float:
-        """Calculate Jaccard similarity between DOM feature vectors"""
+        """Calculate weighted similarity between DOM feature vectors"""
         if not a or not b:
             return 0.0
-
-        keys = set(a) | set(b)
-        inter = sum(min(a.get(k, 0), b.get(k, 0)) for k in keys)
-        union = sum(max(a.get(k, 0), b.get(k, 0)) for k in keys)
-        return inter / union if union > 0 else 0.0
+        
+        # Важные фичи получают больший вес
+        important_features = ['forms:', 'buttons:', 'links:', 'inputs:', 'pattern_']
+        
+        total_weight = 0
+        similarity_sum = 0
+        
+        for key in set(a.keys()) | set(b.keys()):
+            # Определяем вес фичи
+            weight = 2.0 if any(key.startswith(p) for p in important_features) else 1.0
+            
+            val_a = a.get(key, 0)
+            val_b = b.get(key, 0)
+            
+            if val_a + val_b > 0:
+                similarity = 1 - abs(val_a - val_b) / max(val_a + val_b, 1)
+                similarity_sum += similarity * weight
+                total_weight += weight
+        
+        return similarity_sum / total_weight if total_weight > 0 else 1.0
 
     async def _get_state_fingerprint(self, page: Page):
         """Get full state fingerprint including cookies and storage"""
@@ -511,12 +555,7 @@ class PlaywrightScanner:
 
         return None
 
-    async def _replay_state(
-        self,
-        page: Page,
-        start_url: str,
-        target_state: State,
-    ) -> bool:
+    async def _replay_state(self, page: Page, start_url: str, target_state: State) -> bool:
         """Replay action sequence to reach target_state with fuzzy validation"""
         try:
             await page.goto(start_url, wait_until="domcontentloaded", timeout=30000)
@@ -536,30 +575,18 @@ class PlaywrightScanner:
 
             parsed = urlparse(page.url)
             current_normalized = f"{parsed.netloc}{parsed.path}"
-            expected_normalized = target_state.get_fingerprint()[0]
+            expected_parsed = urlparse(target_state.url)
+            expected_normalized = f"{expected_parsed.netloc}{expected_parsed.path}"
 
             if current_normalized != expected_normalized:
-                logger.warning(
-                f"Replay mismatch: URL {current_normalized} != {expected_normalized}"
-            )
+                logger.warning(f"Replay URL mismatch: {current_normalized} != {expected_normalized}")
                 return False
         
             current_dom_vector = await self._get_dom_vector(page)
-            similarity = self._dom_similarity(
-            target_state.dom_vector,
-            current_dom_vector,
-        )
+            similarity = self._dom_similarity(target_state.dom_vector, current_dom_vector)
 
             if similarity < 0.85:
-                logger.warning(f"Replay mismatch: DOM similarity {similarity:.2f}")
-                return False
-
-            current_actions = await self._extract_actions(page)
-            current_clusters = {a.get_cluster_key() for a in current_actions}
-            expected_clusters = {a.get_cluster_key() for a in target_state.actions}
-
-            if not (current_clusters & expected_clusters):
-                logger.warning("Replay mismatch: no shared action clusters")
+                logger.warning(f"Replay DOM mismatch: similarity {similarity:.2f}")
                 return False
 
             return True
@@ -568,11 +595,60 @@ class PlaywrightScanner:
             logger.error(f"State replay failed: {e}")
             return False
 
+    async def _should_skip_state(self, new_state: State) -> bool:
+        """Check if state should be skipped based on multiple criteria"""
+        
+        # 1. Точное совпадение фингерпринта
+        exact_fingerprint = new_state.get_fingerprint()
+        if exact_fingerprint in self.visited_states:
+            self.states_skipped += 1
+            logger.info(f"Exact duplicate state: {new_state.url}")
+            return True
+        
+        # 2. Проверка семантического ключа (предотвращает зацикливание на одной странице)
+        semantic_key = new_state.get_semantic_key()
+        if semantic_key in self.semantic_states:
+            # Если это уже третий раз на семантически похожей странице - пропускаем
+            similar_states = [s for s in self.semantic_states if s.startswith(new_state.get_semantic_key().split(':')[0])]
+            if len(similar_states) >= 3:
+                self.states_skipped += 1
+                logger.info(f"Too many similar states on {new_state.url}, skipping")
+                return True
+        
+        # 3. Проверка последовательности действий
+        sequence_key = ':'.join(a.get_cluster_key() for a in new_state.path)
+        if sequence_key in self.visited_sequences:
+            self.states_skipped += 1
+            logger.info(f"Duplicate action sequence: {sequence_key}")
+            return True
+        
+        # 4. Проверка глубины
+        if new_state.depth > self.max_depth:
+            self.states_skipped += 1
+            logger.info(f"Max depth exceeded: {new_state.depth}")
+            return True
+        
+        # 5. Проверка длины пути
+        if len(new_state.path) >= self.max_path_length:
+            self.states_skipped += 1
+            logger.info(f"Max path length exceeded: {len(new_state.path)}")
+            return True
+        
+        # 6. Проверка на слишком мало действий (возможно, неинтересная страница)
+        if len(new_state.actions) < 2 and len(new_state.path) > 1:
+            self.states_skipped += 1
+            logger.info(f"Too few actions: {len(new_state.actions)}")
+            return True
+        
+        return False
 
     async def _explore_state(self, page: Page, state: State):
         """Explore single state by executing representative actions from each cluster"""
         logger.info(f"Exploring state: {state.url} (depth={state.depth}, actions={len(state.actions)})")
 
+        # Увеличиваем счётчик посещений
+        state.visited_count += 1
+        
         await self._fill_forms(page)
 
         try:
@@ -581,6 +657,7 @@ class PlaywrightScanner:
         except:
             pass
 
+        # Группируем действия по кластерам
         action_clusters = {}
         for action in state.actions:
             if action not in state.executed_actions and action not in state.dead_actions:
@@ -588,12 +665,20 @@ class PlaywrightScanner:
                 if cluster_key not in action_clusters:
                     action_clusters[cluster_key] = action
 
-        logger.info(f"Action clusters: {len(action_clusters)} ({', '.join(k.split(':')[0] for k in action_clusters.keys())})")
+        logger.info(f"Action clusters: {len(action_clusters)}")
+
+        # Сортируем кластеры по приоритету
+        # Сначала исследуем формы и отправки, затем навигацию
+        priority_order = ['submit', 'auth', 'filter', 'data_loader', 'interaction', 'navigation', 'pagination']
+        sorted_clusters = sorted(
+            action_clusters.items(),
+            key=lambda x: priority_order.index(x[1].semantic) if x[1].semantic in priority_order else len(priority_order)
+        )
 
         initial_state_endpoints = len(state.discovered_endpoints)
         initial_state_clusters = len(state.executed_clusters)
 
-        for cluster_key, action in action_clusters.items():
+        for cluster_key, action in sorted_clusters:
             if cluster_key in state.executed_clusters:
                 continue
 
@@ -606,11 +691,10 @@ class PlaywrightScanner:
             initial_request_count = self.request_count
             initial_endpoints = self.unique_endpoints.copy()
 
-            if action.semantic in ['submit', 'interaction', 'auth']:
+            # Для некоторых типов действий сначала заполняем формы
+            if action.semantic in ['submit', 'auth', 'filter', 'interaction']:
                 await self._fill_forms(page)
                 await page.wait_for_timeout(100)
-            await self._fill_forms(page)
-            await page.wait_for_timeout(100)
 
             success, _ = await self._execute_action(page, action)
 
@@ -637,7 +721,7 @@ class PlaywrightScanner:
 
             if not had_effect:
                 state.dead_actions.add(action)
-                logger.info(f"Dead action [{action.semantic}]: {action.text[:30]} (no requests, no state change)")
+                logger.info(f"Dead action [{action.semantic}]: {action.text[:30]}")
                 continue
 
             state.discovered_endpoints.update(new_endpoints)
@@ -647,7 +731,6 @@ class PlaywrightScanner:
             start_domain = urlparse(self.start_url).netloc
             new_domain = urlparse(new_url).netloc
 
-            current_fingerprint = None
             if state.depth < self.max_depth and len(state.path) < self.max_path_length and start_domain == new_domain and not state.is_volatile:
                 try:
                     actions = await self._extract_actions(page)
@@ -661,29 +744,32 @@ class PlaywrightScanner:
                         path=state.path + [action],
                         actions=actions
                     )
-                    current_fingerprint = new_state.get_fingerprint()
                     
-                    # 🔧 PATCH 3 — Fuzzy state deduplication
-                    skip_state = False
-                    for existing_state in self.state_index.get(current_fingerprint, []):
-                        similarity = self._dom_similarity(existing_state.dom_vector, new_state.dom_vector)
-                        if similarity > 0.92:  # 92% similarity threshold
-                            logger.info(f"Duplicate state (similarity={similarity:.2f}): {new_url}")
-                            skip_state = True
-                            break
+                    # Проверяем, нужно ли пропустить это состояние
+                    if await self._should_skip_state(new_state):
+                        continue
                     
-                    if not skip_state:
-                        self.state_index[current_fingerprint].append(new_state)
-                        self.state_queue.append(new_state)
-                        logger.info(f"New state: {new_url} (clusters={len(actions)}, path_len={len(new_state.path)})")
+                    # Добавляем в отслеживаемые
+                    self.visited_states.add(new_state.get_fingerprint())
+                    self.semantic_states.add(new_state.get_semantic_key())
+                    sequence_key = ':'.join(a.get_cluster_key() for a in new_state.path)
+                    self.visited_sequences.add(sequence_key)
+                    
+                    # Добавляем в очередь
+                    self.state_queue.append(new_state)
+                    self.states_created += 1
+                    
+                    logger.info(f"New state [{self.states_created}]: {new_url} (depth={new_state.depth}, actions={len(actions)})")
                         
                 except Exception as e:
                     logger.warning(f"Failed to extract actions for new state: {e}")
 
             new_endpoints_delta = len(state.discovered_endpoints) - initial_state_endpoints
             new_clusters_delta = len(state.executed_clusters) - initial_state_clusters
+            
+            # Если состояние исчерпано, выходим
             if state.is_exhausted(new_endpoints_delta == 0, new_clusters_delta == 0):
-                logger.info(f"State exhausted: {len(state.executed_clusters)} clusters executed, {len(state.discovered_endpoints)} endpoints discovered")
+                logger.info(f"State exhausted after {state.visited_count} visits")
                 break
 
     async def _check_convergence(self) -> bool:
@@ -703,7 +789,7 @@ class PlaywrightScanner:
         self.last_keys_count = len(self.unique_json_keys)
         self.last_graphql_count = len(self.unique_graphql_ops)
 
-        if self.stale_iterations >= 3:
+        if self.stale_iterations >= 2:  # Уменьшил с 3 до 2 для более быстрого завершения
             logger.info(f"Converged: Δendpoints=0 Δrequests=0 Δkeys=0 ΔgraphQL=0 for {self.stale_iterations} iterations")
             return True
 
@@ -779,26 +865,46 @@ class PlaywrightScanner:
                 actions=initial_actions
             )
 
+            # Инициализация трекеров
             self.visited_states.add(initial_state.get_fingerprint())
-            self.state_index[initial_state.get_fingerprint()].append(initial_state)
+            self.semantic_states.add(initial_state.get_semantic_key())
             self.state_queue.append(initial_state)
+
+            logger.info(f"Initial state has {len(initial_actions)} actions")
 
             while self.state_queue:
                 if await self._check_convergence() and len(self.state_queue) < 2:
+                    logger.info("Convergence detected, finishing...")
                     break
 
                 state = self.state_queue.popleft()
+                
+                logger.info(f"Processing state {state.url} (queue: {len(self.state_queue)}, created: {self.states_created}, skipped: {self.states_skipped})")
 
                 try:
                     if state.path and page.url != state.url:
-                        await self._replay_state(page, self.start_url, state)
+                        success = await self._replay_state(page, self.start_url, state)
+                        if not success:
+                            logger.warning(f"Failed to replay state {state.url}, skipping")
+                            continue
+                    
                     await self._explore_state(page, state)
+                    
                 except Exception as e:
                     logger.error(f"Error exploring {state.url}: {e}")
 
             await browser.close()
 
-        logger.info(f"Scan completed: {self.request_count} requests, {len(self.unique_endpoints)} endpoints, {len(self.unique_methods_paths)} methods, {len(self.unique_json_keys)} JSON keys, {len(self.unique_graphql_ops)} GraphQL ops, {sum(len(v) for v in self.state_index.values())} states")
+        logger.info(f"""
+Scan completed:
+  Requests: {self.request_count}
+  Endpoints: {len(self.unique_endpoints)}
+  Methods/Paths: {len(self.unique_methods_paths)}
+  JSON Keys: {len(self.unique_json_keys)}
+  GraphQL Ops: {len(self.unique_graphql_ops)}
+  States Created: {self.states_created}
+  States Skipped: {self.states_skipped}
+""")
 
 
 async def main():
