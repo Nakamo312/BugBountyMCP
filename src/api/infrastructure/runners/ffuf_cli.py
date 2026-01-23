@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import AsyncIterator
 
@@ -33,7 +34,7 @@ class FFUFCliRunner:
             target_url: Base URL to fuzz (e.g., "https://example.com")
 
         Yields:
-            ProcessEvent objects with stdout/stderr/state
+            ProcessEvent with type="result" and payload=ffuf JSON result
         """
         logger.info(f"Running FFUF on target: {target_url}")
 
@@ -48,10 +49,21 @@ class FFUFCliRunner:
             "-sf",
             "-ac",
             "-rate", str(self.rate_limit),
-            "-timeout", "1",
         ]
 
         executor = CommandExecutor(command=command, timeout=self.timeout)
 
         async for event in executor.run():
-            yield event
+            if event.type != "stdout" or not event.payload:
+                continue
+
+            line = event.payload.strip()
+            if not line or not line.startswith("{"):
+                continue
+
+            try:
+                data = json.loads(line)
+                if "url" in data:
+                    yield ProcessEvent(type="result", payload=data)
+            except json.JSONDecodeError:
+                continue
