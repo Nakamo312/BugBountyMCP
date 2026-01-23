@@ -1,63 +1,54 @@
 """
-Enhanced Playwright crawler with deep DOM analysis, form discovery, and state-aware crawling
+Playwright-based state-aware web crawler with BFS exploration
+Tracks DOM states to avoid infinite loops and maximize coverage
 """
 import asyncio
 import json
 import logging
 import sys
 import hashlib
-import re
-from typing import Set, Dict, Any, List, Optional, Tuple
-from urllib.parse import urlparse, parse_qs, urljoin
+from typing import Set, Dict, Any, List
+from urllib.parse import urlparse, parse_qs
 from dataclasses import dataclass, field
-from collections import deque, defaultdict
-import time
+from collections import deque
 
-from playwright.async_api import async_playwright, Page, Route, Response, ElementHandle, Request
 
-# ---------------- Enhanced Logging ----------------
 class Colors:
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
     RED = '\033[91m'
-    BLUE = '\033[94m'
-    MAGENTA = '\033[95m'
     CYAN = '\033[96m'
     RESET = '\033[0m'
 
+
 class ColorFormatter(logging.Formatter):
-    LEVEL_COLORS = {
-        'INFO': Colors.GREEN,
-        'WARNING': Colors.YELLOW,
-        'ERROR': Colors.RED,
-        'DEBUG': Colors.BLUE,
-        'FORM': Colors.CYAN,
-        'STATE': Colors.MAGENTA
-    }
-    
     def format(self, record):
         timestamp = self.formatTime(record, '%H:%M:%S')
         level = record.levelname
-        color = self.LEVEL_COLORS.get(level, Colors.RESET)
-        return f"[{timestamp}] [{color}{level:8}{Colors.RESET}] {record.getMessage()}"
+        if level == 'INFO':
+            level_color = Colors.GREEN
+        elif level == 'WARNING':
+            level_color = Colors.YELLOW
+        elif level == 'ERROR':
+            level_color = Colors.RED
+        else:
+            level_color = Colors.RESET
+        return f"[{timestamp}] [{level_color}{level}{Colors.RESET}] {record.getMessage()}"
 
-logger = logging.getLogger("deep_crawler")
-logger.setLevel(logging.DEBUG)
+
+logger = logging.getLogger("playwright_scanner")
+logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 handler.setFormatter(ColorFormatter())
 logger.addHandler(handler)
 
-# Custom log levels for form and state discovery
-logging.addLevelName(25, "FORM")
-logging.addLevelName(26, "STATE")
+try:
+    from playwright.async_api import async_playwright, Page, Route, Response, ElementHandle
+except ImportError:
+    print(json.dumps({"error": "playwright not installed. Run: pip install playwright && playwright install"}), file=sys.stderr)
+    sys.exit(1)
 
-def log_form(msg, *args, **kwargs):
-    logger.log(25, msg, *args, **kwargs)
 
-def log_state(msg, *args, **kwargs):
-    logger.log(26, msg, *args, **kwargs)
-
-# ---------------- Extended Constants ----------------
 STATIC_EXTENSIONS = {
     ".css", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp",
     ".woff", ".woff2", ".ttf", ".eot", ".otf",
@@ -67,844 +58,693 @@ STATIC_EXTENSIONS = {
     ".map", ".min.js", ".min.css"
 }
 
-# Form-related patterns
-FORM_KEYWORDS = ['login', 'signup', 'register', 'auth', 'submit', 'create', 
-                 'update', 'delete', 'post', 'put', 'send', 'save', 'upload',
-                 'comment', 'message', 'contact', 'search', 'filter', 'apply']
-
-# ---------------- Enhanced Data Classes ----------------
-@dataclass
-class FormData:
-    """Represents a discovered form with all its fields"""
-    id: str
-    action: str
-    method: str = "GET"
-    enctype: str = "application/x-www-form-urlencoded"
-    fields: Dict[str, Dict] = field(default_factory=dict)
-    buttons: List[Dict] = field(default_factory=list)
-    javascript_handlers: List[str] = field(default_factory=list)
-    xhr_endpoints: Set[str] = field(default_factory=set)
-    discovered_at: str = ""
-    submitted: bool = False
-    
-    def get_signature(self) -> str:
-        """Create unique signature for form deduplication"""
-        field_names = ','.join(sorted(self.fields.keys()))
-        return f"{self.method}:{self.action}:{field_names}"
 
 @dataclass
 class Action:
     selector: str
-    action_type: str  # click, form_submit, xhr_trigger, state_change
-    element_data: Dict[str, Any]
+    text: str
+    tag: str
+    event_type: str = "click"
     semantic: str = "unknown"
-    priority: int = 1  # 1-5, where 5 is highest
-    
+
     def __hash__(self):
-        return hash((self.selector, self.action_type, self.semantic))
-    
+        return hash((self.selector, self.text, self.tag, self.event_type))
+
     def __eq__(self, other):
         return isinstance(other, Action) and hash(self) == hash(other)
+
+    def get_cluster_key(self) -> str:
+        """Get key for clustering similar actions"""
+        text_words = ''.join(c for c in self.text.lower() if c.isalnum() or c.isspace()).split()
+        text_sig = '_'.join(text_words[:3])
+        return f"{self.semantic}:{self.tag}:{text_sig}"
+
 
 @dataclass
 class State:
     url: str
-    dom_signature: str
-    form_signatures: Set[str] = field(default_factory=set)
-    discovered_forms: List[FormData] = field(default_factory=list)
-    depth: int = 0
-    actions_taken: List[Action] = field(default_factory=list)
-    
-    def get_fingerprint(self) -> str:
-        """More robust fingerprint including forms"""
-        form_sig = ','.join(sorted(self.form_signatures))
-        return f"{self.url}:{self.dom_signature}:{form_sig}"
+    dom_hash: str
+    cookies_hash: str
+    storage_hash: str
+    depth: int
+    path: List[Action] = field(default_factory=list)
+    actions: Set[Action] = field(default_factory=set)
+    executed_actions: Set[Action] = field(default_factory=set)
+    dead_actions: Set[Action] = field(default_factory=set)
+    executed_clusters: Set[str] = field(default_factory=set)
+    discovered_endpoints: Set[str] = field(default_factory=set)
+    is_volatile: bool = False
 
-# ---------------- Enhanced Scanner ----------------
+    def __hash__(self):
+        parsed = urlparse(self.url)
+        normalized_url = f"{parsed.netloc}{parsed.path}"
+        query_keys = frozenset(parse_qs(parsed.query).keys()) if parsed.query else frozenset()
+        return hash((normalized_url, query_keys, self.cookies_hash))
+
+    def get_fingerprint(self):
+        parsed = urlparse(self.url)
+        normalized_url = f"{parsed.netloc}{parsed.path}"
+        query_keys = frozenset(parse_qs(parsed.query).keys()) if parsed.query else frozenset()
+        return (normalized_url, query_keys, self.cookies_hash)
+
+    def is_exhausted(self, no_new_endpoints: bool, no_new_clusters: bool) -> bool:
+        """Check if state exploration is exhausted"""
+        all_executed = len(self.executed_actions) >= len(self.actions)
+        return all_executed or (no_new_endpoints and no_new_clusters)
+
+
 class PlaywrightScanner:
-    def __init__(self, start_url: str, max_depth: int = 5, timeout: int = 300):
-        self.start_url = start_url
+    def __init__(self, url: str, max_depth: int = 2, timeout: int = 300, max_actions_per_state: int = 20, max_path_length: int = 10):
+        self.start_url = url
         self.max_depth = max_depth
         self.timeout = timeout
-        
-        # State tracking
-        self.visited_states: Set[str] = set()
-        self.state_queue: deque[State] = deque()
-        self.all_discovered_forms: Dict[str, FormData] = {}
-        self.results: List[Dict] = []
-        
-        # Performance tracking
-        self.request_count = 0
-        self.form_submissions = 0
-        self.xhr_captures = 0
-        
-        # JavaScript analysis
-        self.js_event_listeners: Dict[str, List[str]] = defaultdict(list)
-        self.dynamic_endpoints: Set[str] = set()
+        self.max_actions_per_state = max_actions_per_state
+        self.max_path_length = max_path_length
 
-    # ---------------- Enhanced DOM Analysis ----------------
-    async def _analyze_dom_deeply(self, page: Page) -> Tuple[str, List[FormData]]:
-        """Deep analysis of DOM for forms and interactive elements"""
-        
-        # 1. Find ALL forms (including hidden, dynamically created)
-        forms_data = await self._extract_all_forms(page)
-        
-        # 2. Find JavaScript event listeners
-        await self._extract_js_listeners(page)
-        
-        # 3. Find AJAX/fetch endpoints in JavaScript
-        await self._extract_js_endpoints(page)
-        
-        # 4. Create comprehensive DOM signature
-        dom_signature = await self._create_dom_signature(page, forms_data)
-        
-        log_state(f"Found {len(forms_data)} forms, {len(self.js_event_listeners)} JS listeners")
-        
-        return dom_signature, forms_data
-    
-    async def _extract_all_forms(self, page: Page) -> List[FormData]:
-        """Extract forms including those created by JavaScript"""
-        forms = []
-        
-        # Method 1: Standard HTML forms
-        form_elements = await page.query_selector_all("form")
-        for form_el in form_elements:
+        self.visited_states: Set[tuple] = set()
+        self.state_queue: deque[State] = deque()
+        self.results: list[Dict[str, Any]] = []
+        self.pending_requests: Dict[str, Dict[str, Any]] = {}
+        self.seen_requests: Set[str] = set()
+
+        self.unique_endpoints: Set[str] = set()
+        self.unique_methods_paths: Set[str] = set()
+        self.unique_json_keys: Set[str] = set()
+        self.unique_graphql_ops: Set[str] = set()
+        self.request_count = 0
+        self.last_request_count = 0
+        self.last_endpoint_count = 0
+        self.last_keys_count = 0
+        self.last_graphql_count = 0
+        self.stale_iterations = 0
+
+    def _is_static_resource(self, url: str) -> bool:
+        """Check if URL is a static resource that should be skipped"""
+        lower_url = url.lower().split('?')[0]
+        return any(lower_url.endswith(ext) for ext in STATIC_EXTENSIONS)
+
+    def _classify_action_semantic(self, text: str, selector: str, tag: str) -> str:
+        """Classify action by semantic type"""
+        text_lower = text.lower()
+        selector_lower = selector.lower()
+
+        if any(k in text_lower for k in ['next', 'prev', 'page', '»', '«', '>', '<']):
+            return 'pagination'
+        if any(k in text_lower for k in ['filter', 'sort', 'search', 'apply', 'category', 'tag']):
+            return 'filter'
+        if any(k in text_lower for k in ['submit', 'send', 'save', 'post', 'create', 'delete', 'update']):
+            return 'submit'
+        if any(k in text_lower for k in ['login', 'signup', 'logout', 'register']):
+            return 'auth'
+        if tag == 'a' or 'nav' in selector_lower or 'menu' in selector_lower:
+            return 'navigation'
+        if any(k in text_lower for k in ['load', 'more', 'show', 'expand', 'view']):
+            return 'data_loader'
+
+        return 'interaction'
+
+    def _make_request_key(self, method: str, url: str, body: str = None) -> str:
+        """Create normalized unique key for request deduplication"""
+        parsed = urlparse(url)
+        normalized_path = parsed.path or '/'
+
+        query_keys = sorted(parse_qs(parsed.query).keys()) if parsed.query else []
+        query_sig = ','.join(query_keys)
+
+        body_schema = ''
+        if body:
             try:
-                form_data = await self._analyze_html_form(form_el)
-                if form_data:
-                    forms.append(form_data)
-                    log_form(f"Found HTML form: {form_data.method} {form_data.action}")
-            except Exception as e:
-                logger.debug(f"Error analyzing form: {e}")
-        
-        # Method 2: JavaScript-created forms (divs with form-like behavior)
-        potential_forms = await page.query_selector_all(
-            "div[class*='form'], div[class*='Form'], "
-            "section[class*='form'], [role='form']"
-        )
-        
-        for div in potential_forms:
-            try:
-                # Check if this div behaves like a form
-                has_inputs = await div.query_selector_all("input, textarea, select")
-                has_buttons = await div.query_selector_all("button, [type='submit']")
-                
-                if len(has_inputs) > 0 or len(has_buttons) > 0:
-                    form_data = await self._analyze_div_form(div)
-                    if form_data:
-                        forms.append(form_data)
-                        log_form(f"Found div-based form: {form_data.id}")
+                body_obj = json.loads(body)
+                if isinstance(body_obj, dict):
+                    body_schema = ','.join(sorted(body_obj.keys()))
             except:
-                continue
-        
-        # Method 3: Single input "forms" (like search boxes)
-        standalone_inputs = await page.query_selector_all(
-            "input[type='text'], input[type='search'], input[type='email']"
-        )
-        
-        for inp in standalone_inputs[:10]:  # Limit to prevent explosion
+                body_schema = str(hash(body))[:8]
+
+        return f"{method}:{normalized_path}:{query_sig}:{body_schema}"
+
+    async def _get_dom_hash(self, page: Page) -> str:
+        """Get semantic DOM fingerprint ignoring dynamic content"""
+        fingerprint = await page.evaluate("""
+            () => {
+                const forms = [...document.querySelectorAll('form')].length;
+                const buttons = [...document.querySelectorAll('button,a,[role="button"]')].length;
+                const inputs = [...document.querySelectorAll('input')].map(i => i.name || i.type).sort().join(',');
+                const onclick = [...document.querySelectorAll('[onclick]')].length;
+                return `${location.pathname}|${forms}|${buttons}|${onclick}|${inputs}`;
+            }
+        """)
+        return hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
+
+    async def _get_state_fingerprint(self, page: Page):
+        """Get full state fingerprint including cookies and storage"""
+        cookies = await page.context.cookies()
+        cookies_hash = hashlib.sha256(json.dumps(cookies, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+        storage = await page.evaluate("""
+            () => JSON.stringify({
+                localStorage: {...localStorage},
+                sessionStorage: {...sessionStorage}
+            })
+        """)
+        storage_hash = hashlib.sha256(storage.encode()).hexdigest()[:16]
+
+        dom_hash = await self._get_dom_hash(page)
+        return dom_hash, cookies_hash, storage_hash
+
+    async def _extract_actions(self, page: Page) -> Set[Action]:
+        """Extract all clickable actions from current page"""
+        actions = set()
+
+        selectors = "button, a, input[type=submit], [role=button]"
+        elements = await page.query_selector_all(selectors)
+
+        for el in elements[:self.max_actions_per_state]:
             try:
-                # Check if input is inside a form already
-                parent_form = await inp.evaluate_handle("el => el.closest('form')")
-                if parent_form.as_element():
+                if not await el.is_visible() or not await el.is_enabled():
                     continue
-                    
-                # Check for nearby submit elements
-                form_data = await self._analyze_standalone_input(inp)
-                if form_data:
-                    forms.append(form_data)
-                    log_form(f"Found standalone input form: {form_data.id}")
-            except:
-                continue
-        
-        return forms
-    
-    async def _analyze_html_form(self, form_el: ElementHandle) -> Optional[FormData]:
-        """Analyze standard HTML form element"""
-        try:
-            form_id = await form_el.get_attribute("id") or f"form_{hash(form_el)}"
-            action = await form_el.get_attribute("action") or ""
-            method = (await form_el.get_attribute("method") or "GET").upper()
-            enctype = await form_el.get_attribute("enctype") or "application/x-www-form-urlencoded"
-            
-            # Get current page URL for relative actions
-            page_url = await form_el.owner_frame().url()
-            if action and not action.startswith(('http://', 'https://')):
-                action = urljoin(page_url, action)
-            
-            form_data = FormData(
-                id=form_id,
-                action=action or page_url,
-                method=method,
-                enctype=enctype,
-                discovered_at=page_url
-            )
-            
-            # Extract all input fields
-            inputs = await form_el.query_selector_all(
-                "input:not([type='hidden']), textarea, select"
-            )
-            
-            for inp in inputs:
-                try:
-                    field_name = await inp.get_attribute("name") or await inp.get_attribute("id") or ""
-                    field_type = await inp.get_attribute("type") or "text"
-                    field_value = await inp.get_attribute("value") or ""
-                    
-                    if field_name:
-                        form_data.fields[field_name] = {
-                            "type": field_type,
-                            "value": field_value,
-                            "required": await inp.get_attribute("required") is not None
-                        }
-                except:
-                    continue
-            
-            # Extract hidden fields separately (often contain tokens)
-            hidden_inputs = await form_el.query_selector_all("input[type='hidden']")
-            for inp in hidden_inputs:
-                try:
-                    name = await inp.get_attribute("name")
-                    value = await inp.get_attribute("value") or ""
-                    if name:
-                        form_data.fields[name] = {
-                            "type": "hidden",
-                            "value": value,
-                            "required": False
-                        }
-                except:
-                    continue
-            
-            # Find submit buttons
-            submit_elements = await form_el.query_selector_all(
-                "button, input[type='submit'], input[type='image']"
-            )
-            for btn in submit_elements:
-                try:
-                    btn_type = await btn.get_attribute("type") or "submit"
-                    btn_name = await btn.get_attribute("name") or ""
-                    btn_value = await btn.get_attribute("value") or ""
-                    
-                    form_data.buttons.append({
-                        "type": btn_type,
-                        "name": btn_name,
-                        "value": btn_value
-                    })
-                except:
-                    continue
-            
-            # Look for JavaScript form handlers
-            js_handlers = await form_el.evaluate("""
-                el => {
-                    const handlers = [];
-                    for (const attr of el.getAttributeNames()) {
-                        if (attr.startsWith('on')) handlers.push(attr);
-                    }
-                    return handlers;
-                }
-            """)
-            form_data.javascript_handlers = js_handlers
-            
-            return form_data
-            
-        except Exception as e:
-            logger.debug(f"Error in form analysis: {e}")
-            return None
-    
-    async def _analyze_div_form(self, div_el: ElementHandle) -> Optional[FormData]:
-        """Analyze div-based 'form' (common in SPAs)"""
-        try:
-            # Generate unique ID
-            div_id = await div_el.get_attribute("id") or f"div_form_{hash(div_el)}"
-            
-            # Look for data-action or similar attributes
-            data_action = await div_el.get_attribute("data-action")
-            page_url = await div_el.owner_frame().url()
-            
-            form_data = FormData(
-                id=div_id,
-                action=data_action or page_url,
-                method="POST",  # Assume POST for div forms
-                enctype="application/json",  # Common for SPA forms
-                discovered_at=page_url
-            )
-            
-            # Extract input fields within this div
-            inputs = await div_el.query_selector_all(
-                "input, textarea, select, [contenteditable='true']"
-            )
-            
-            for inp in inputs:
-                try:
-                    # Try various ways to get field identifier
-                    field_name = (
-                        await inp.get_attribute("name") or 
-                        await inp.get_attribute("id") or 
-                        await inp.get_attribute("data-name") or
-                        await inp.get_attribute("aria-label") or
-                        f"field_{hash(inp)}"
-                    )
-                    
-                    field_type = await inp.get_attribute("type") or "text"
-                    
-                    form_data.fields[field_name] = {
-                        "type": field_type,
-                        "value": "",
-                        "required": await inp.get_attribute("required") is not None
-                    }
-                except:
-                    continue
-            
-            # Look for buttons that might submit this "form"
-            buttons = await div_el.query_selector_all(
-                "button, [role='button'], [data-submit], [data-action='submit']"
-            )
-            
-            for btn in buttons:
-                try:
-                    btn_text = await btn.text_content() or ""
-                    btn_action = await btn.get_attribute("data-action")
-                    
-                    form_data.buttons.append({
-                        "type": "button",
-                        "text": btn_text[:50],
-                        "action": btn_action
-                    })
-                except:
-                    continue
-            
-            return form_data
-            
-        except Exception as e:
-            logger.debug(f"Error analyzing div form: {e}")
-            return None
-    
-    async def _analyze_standalone_input(self, input_el: ElementHandle) -> Optional[FormData]:
-        """Analyze standalone input that might be a form"""
-        try:
-            # Check if there's a submit mechanism nearby
-            page_url = await input_el.owner_frame().url()
-            
-            # Look for a submit button within a reasonable distance in DOM
-            submit_candidate = await input_el.evaluate_handle("""
-                el => {
-                    // Look in parent elements
-                    let current = el.parentElement;
-                    for (let i = 0; i < 3 && current; i++) {
-                        const submitBtn = current.querySelector('button, input[type="submit"]');
-                        if (submitBtn) return submitBtn;
-                        current = current.parentElement;
-                    }
-                    return null;
-                }
-            """)
-            
-            if submit_candidate.as_element():
-                form_id = f"standalone_{hash(input_el)}"
-                field_name = await input_el.get_attribute("name") or await input_el.get_attribute("id") or "input"
-                
-                form_data = FormData(
-                    id=form_id,
-                    action=page_url,
-                    method="GET",  # Common for search-like inputs
-                    enctype="application/x-www-form-urlencoded",
-                    discovered_at=page_url
-                )
-                
-                form_data.fields[field_name] = {
-                    "type": await input_el.get_attribute("type") or "text",
-                    "value": "",
-                    "required": False
-                }
-                
-                return form_data
-                
-        except Exception as e:
-            logger.debug(f"Error analyzing standalone input: {e}")
-        
-        return None
-    
-    # ---------------- JavaScript Analysis ----------------
-    async def _extract_js_listeners(self, page: Page):
-        """Extract JavaScript event listeners from the page"""
-        try:
-            listeners = await page.evaluate("""
-                () => {
-                    const allListeners = {};
-                    
-                    // Get all elements with event listeners
-                    const allElements = document.querySelectorAll('*');
-                    
-                    allElements.forEach(el => {
-                        const elListeners = [];
-                        
-                        // Check for on* attributes
-                        for (const attr of el.getAttributeNames()) {
-                            if (attr.startsWith('on') && attr.length > 2) {
-                                elListeners.push(attr);
-                            }
-                        }
-                        
-                        // Check for addEventListener (limited detection)
-                        if (el.__events) {
-                            for (const eventType in el.__events) {
-                                elListeners.push(eventType);
-                            }
-                        }
-                        
-                        if (elListeners.length > 0) {
-                            const selector = (el.id ? '#' + el.id : 
-                                            el.className ? '.' + el.className.split(' ')[0] : 
-                                            el.tagName.toLowerCase());
-                            allListeners[selector] = elListeners;
-                        }
-                    });
-                    
-                    return allListeners;
-                }
-            """)
-            
-            self.js_event_listeners.update(listeners)
-            
-        except Exception as e:
-            logger.debug(f"Could not extract JS listeners: {e}")
-    
-    async def _extract_js_endpoints(self, page: Page):
-        """Extract API endpoints from JavaScript code"""
-        try:
-            # Get all script tags content
-            scripts = await page.query_selector_all("script")
-            
-            for script in scripts:
-                try:
-                    content = await script.text_content()
-                    if not content:
-                        continue
-                    
-                    # Look for URLs in JavaScript
-                    url_patterns = [
-                        r'["\'](https?://[^"\'\s]+)["\']',
-                        r'["\'](/[^"\'\s]+)["\']',
-                        r'fetch\(["\']([^"\']+)["\']',
-                        r'axios\.(get|post|put|delete)\(["\']([^"\']+)["\']',
-                        r'\.ajax\([^{]*url:\s*["\']([^"\']+)["\']'
-                    ]
-                    
-                    for pattern in url_patterns:
-                        matches = re.findall(pattern, content, re.IGNORECASE)
-                        for match in matches:
-                            if isinstance(match, tuple):
-                                url = match[1] if len(match) > 1 else match[0]
-                            else:
-                                url = match
-                            
-                            if not any(url.endswith(ext) for ext in STATIC_EXTENSIONS):
-                                self.dynamic_endpoints.add(url)
-                                
-                except:
-                    continue
-                    
-        except Exception as e:
-            logger.debug(f"Could not extract JS endpoints: {e}")
-    
-    # ---------------- Form Submission ----------------
-    async def _submit_form_intelligently(self, page: Page, form_data: FormData) -> bool:
-        """Intelligently submit form with appropriate data"""
-        try:
-            # Fill form with realistic test data
-            await self._fill_form_with_data(page, form_data)
-            
-            # Take screenshot before submission for debugging
-            screenshot_path = f"form_{form_data.id}_{int(time.time())}.png"
-            await page.screenshot(path=screenshot_path, full_page=False)
-            
-            # Submit the form
-            if form_data.method == "GET":
-                # For GET forms, we might need to click a submit button
-                if form_data.buttons:
-                    first_button = form_data.buttons[0]
-                    if first_button.get('name'):
-                        selector = f"[name='{first_button['name']}']"
-                    else:
-                        selector = "button, input[type='submit']"
-                    
-                    await page.click(selector)
-                else:
-                    # Just press Enter in the first input
-                    await page.press("input, textarea, select", "Enter")
-            else:
-                # For POST forms, look for submit mechanism
-                submit_selectors = [
-                    "input[type='submit']",
-                    "button[type='submit']",
-                    "button:has-text('Submit')",
-                    "button:has-text('Send')",
-                    "button:has-text('Save')",
-                    "[data-submit]"
-                ]
-                
-                submitted = False
-                for selector in submit_selectors:
-                    try:
-                        await page.click(selector, timeout=2000)
-                        submitted = True
-                        break
-                    except:
-                        continue
-                
-                if not submitted:
-                    # Fallback: press Enter
-                    await page.press("input, textarea, select", "Enter")
-            
-            # Wait for navigation or network activity
-            try:
-                await page.wait_for_load_state("networkidle", timeout=5000)
+
+                text = (await el.text_content() or "").strip()[:50]
+                tag = await el.evaluate("el => el.tagName.toLowerCase()")
+                selector = await self._generate_selector(el)
+                semantic = self._classify_action_semantic(text, selector, tag)
+
+                if selector:
+                    actions.add(Action(selector=selector, text=text, tag=tag, semantic=semantic))
             except:
                 pass
-            
-            form_data.submitted = True
-            self.form_submissions += 1
-            
-            log_form(f"Submitted form {form_data.id} via {form_data.method} to {form_data.action}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error submitting form {form_data.id}: {e}")
-            return False
-    
-    async def _fill_form_with_data(self, page: Page, form_data: FormData):
-        """Fill form fields with appropriate test data"""
-        test_data = {
-            'email': 'test@example.com',
-            'username': 'testuser',
-            'password': 'TestPassword123!',
-            'name': 'Test User',
-            'first_name': 'Test',
-            'last_name': 'User',
-            'phone': '+1234567890',
-            'message': 'This is a test message',
-            'comment': 'Test comment',
-            'search': 'test query',
-            'title': 'Test Title',
-            'description': 'Test description',
-            'content': 'Test content',
-            'url': 'https://example.com',
-            'address': '123 Test Street',
-            'city': 'Test City',
-            'zip': '12345',
-            'country': 'US'
-        }
-        
-        for field_name, field_info in form_data.fields.items():
-            field_lower = field_name.lower()
-            field_type = field_info.get('type', 'text')
-            
-            # Find appropriate test value
-            test_value = ""
-            for key, value in test_data.items():
-                if key in field_lower:
-                    test_value = value
-                    break
-            
-            if not test_value:
-                # Type-based fallback
-                if field_type in ['email', 'mail']:
-                    test_value = test_data['email']
-                elif field_type == 'password':
-                    test_value = test_data['password']
-                elif 'phone' in field_lower or field_type == 'tel':
-                    test_value = test_data['phone']
-                elif field_type == 'url':
-                    test_value = test_data['url']
-                elif field_type in ['number', 'range']:
-                    test_value = '1'
-                elif field_type == 'checkbox':
-                    test_value = 'checked'
-                else:
-                    test_value = f"test_{field_name}"
-            
-            # Try to fill the field
-            try:
-                selector = f"[name='{field_name}'], [id='{field_name}']"
-                await page.fill(selector, test_value)
-                
-                # Trigger change events
-                await page.dispatch_event(selector, 'change')
-                await page.dispatch_event(selector, 'input')
-                
-                logger.debug(f"Filled field {field_name} with {test_value[:20]}...")
-            except Exception as e:
-                logger.debug(f"Could not fill field {field_name}: {e}")
-    
-    # ---------------- Enhanced Request Interception ----------------
-    async def intercept_request(self, route: Route):
-        """Intercept and analyze all requests"""
-        request = route.request
-        
-        # Skip static resources
-        if any(request.url.endswith(ext) for ext in STATIC_EXTENSIONS):
-            await route.continue_()
-            return
-        
-        # Analyze request
-        request_data = {
-            "method": request.method,
-            "url": request.url,
-            "headers": dict(request.headers),
-            "post_data": request.post_data,
-            "resource_type": request.resource_type,
-            "frame": request.frame.url if request.frame else None
-        }
-        
-        # Store for response correlation
-        request_key = f"{request.method}:{request.url}:{hash(request.post_data or '')}"
-        self.pending_requests[request_key] = request_data
-        
-        # Continue the request
-        await route.continue_()
-    
-    async def handle_response(self, response: Response):
-        """Handle and analyze responses"""
+
+        return actions
+
+    async def _generate_selector(self, el: ElementHandle) -> str:
+        """Generate semantic stable CSS selector for element"""
         try:
-            request = response.request
-            request_key = f"{request.method}:{request.url}:{hash(request.post_data or '')}"
-            
-            if request_key in self.pending_requests:
-                request_data = self.pending_requests.pop(request_key)
-                
-                # Try to get response body for non-binary responses
-                response_body = ""
+            selector = await el.evaluate("""
+                el => {
+                    if (el.dataset.testid) return `[data-testid="${el.dataset.testid}"]`;
+                    if (el.getAttribute("aria-label")) return `[aria-label="${el.getAttribute("aria-label")}"]`;
+                    if (el.id) return '#' + el.id;
+                    if (el.name) return `[name="${el.name}"]`;
+                    if (el.getAttribute("role")) {
+                        const text = el.textContent?.trim().slice(0, 30);
+                        if (text) return `[role="${el.getAttribute("role")}"][text*="${text}"]`;
+                    }
+
+                    let path = [];
+                    let current = el;
+                    while (current.parentElement && path.length < 3) {
+                        let tag = current.tagName.toLowerCase();
+                        let siblings = Array.from(current.parentElement.children).filter(e => e.tagName === current.tagName);
+                        if (siblings.length > 1) {
+                            let index = siblings.indexOf(current) + 1;
+                            tag += `:nth-of-type(${index})`;
+                        }
+                        path.unshift(tag);
+                        current = current.parentElement;
+                    }
+                    return path.join(' > ');
+                }
+            """)
+            return selector
+        except:
+            return None
+
+    async def _fill_forms(self, page: Page):
+        """Smart fill all forms on page"""
+        await page.evaluate("""
+            () => {
+                document.querySelectorAll('input, textarea, select').forEach(el => {
+                    if (el.type === 'hidden') return;
+                    if (el.type === 'checkbox' || el.type === 'radio') {
+                        el.checked = true;
+                    } else if (el.tagName === 'SELECT') {
+                        if (el.options.length > 0) el.selectedIndex = 0;
+                    } else if (el.type === 'email') {
+                        el.value = 'test@test.com';
+                    } else if (el.type === 'password') {
+                        el.value = 'Password123!';
+                    } else if (el.type === 'number') {
+                        el.value = '1';
+                    } else if (el.type === 'tel') {
+                        el.value = '+1234567890';
+                    } else if (el.type === 'url') {
+                        el.value = 'https://test.com';
+                    } else {
+                        el.value = 'test';
+                    }
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                });
+            }
+        """)
+
+    async def _execute_action(self, page: Page, action: Action) -> tuple[bool, bool]:
+        """Execute single action and return (success, had_effect)"""
+        try:
+            element = await page.query_selector(action.selector)
+            if element and await element.is_visible() and await element.is_enabled():
+                initial_request_count = self.request_count
+
+                await element.scroll_into_view_if_needed()
+                await element.click(timeout=1000)
+
                 try:
-                    if response.ok and 'text' in response.headers.get('content-type', ''):
-                        response_body = await response.text()
+                    await page.wait_for_load_state("domcontentloaded", timeout=500)
                 except:
                     pass
-                
-                result = {
-                    "timestamp": time.time(),
-                    "request": request_data,
-                    "response": {
-                        "url": response.url,
-                        "status": response.status,
-                        "headers": dict(response.headers),
-                        "body_preview": response_body[:1000] if response_body else "",
-                        "body_length": len(response_body) if response_body else 0
-                    }
-                }
-                
-                self.results.append(result)
-                self.request_count += 1
-                
-                # Output as JSON for pipeline processing
-                print(json.dumps(result, default=str), flush=True)
-                
-                # Log interesting findings
-                if response.status >= 400:
-                    logger.warning(f"HTTP {response.status} for {request.method} {request.url}")
-                elif request.method in ['POST', 'PUT', 'DELETE']:
-                    log_form(f"Captured {request.method} to {request.url}")
-                
-        except Exception as e:
-            logger.error(f"Error handling response: {e}")
-    
-    # ---------------- Main Exploration Loop ----------------
-    async def explore_state(self, page: Page, state: State):
-        """Explore a single state deeply"""
-        logger.info(f"Exploring state at depth {state.depth}: {state.url}")
-        
-        # 1. Submit all discovered forms
-        for form_data in state.discovered_forms:
-            if not form_data.submitted and form_data.id not in self.all_discovered_forms:
-                success = await self._submit_form_intelligently(page, form_data)
-                if success:
-                    self.all_discovered_forms[form_data.id] = form_data
-                    
-                    # Wait for state to stabilize
-                    await asyncio.sleep(1)
-                    
-                    # Capture new state
-                    new_dom_sig, new_forms = await self._analyze_dom_deeply(page)
-                    new_url = page.url
-                    
-                    if state.depth < self.max_depth:
-                        new_state = State(
-                            url=new_url,
-                            dom_signature=new_dom_sig,
-                            form_signatures={f.get_signature() for f in new_forms},
-                            discovered_forms=new_forms,
-                            depth=state.depth + 1,
-                            actions_taken=state.actions_taken.copy()
-                        )
-                        
-                        state_fingerprint = new_state.get_fingerprint()
-                        if state_fingerprint not in self.visited_states:
-                            self.visited_states.add(state_fingerprint)
-                            self.state_queue.append(new_state)
-                            log_state(f"Discovered new state at depth {new_state.depth}")
-        
-        # 2. Trigger JavaScript events
-        await self._trigger_js_events(page)
-        
-        # 3. Explore dynamic endpoints found in JS
-        await self._explore_dynamic_endpoints(page)
-    
-    async def _trigger_js_events(self, page: Page):
-        """Trigger JavaScript event listeners to discover hidden functionality"""
-        for selector, events in self.js_event_listeners.items():
-            for event in events[:3]:  # Limit to 3 events per element
+
+                await page.wait_for_timeout(200)
+
+                had_effect = self.request_count > initial_request_count
+                return True, had_effect
+        except:
+            pass
+        return False, False
+
+    async def intercept_request(self, route: Route):
+        """Intercept and log all HTTP requests"""
+        request = route.request
+
+        if self._is_static_resource(request.url):
+            await route.continue_()
+            return
+
+        if request.resource_type in ["beacon", "ping"]:
+            await route.continue_()
+            return
+
+        parsed = urlparse(request.url)
+        start_domain = urlparse(self.start_url).netloc
+        request_domain = parsed.netloc
+
+        if start_domain != request_domain:
+            await route.continue_()
+            return
+
+        result = {
+            "request": {
+                "method": request.method,
+                "endpoint": request.url,
+                "headers": dict(request.headers),
+                "resource_type": request.resource_type,
+            }
+        }
+
+        if request.method in ["POST", "PUT", "PATCH"] and request.post_data:
+            result["request"]["body"] = request.post_data
+
+        result["request"]["raw"] = f"{request.method} {parsed.path or '/'}"
+        if parsed.query:
+            result["request"]["raw"] += f"?{parsed.query}"
+        result["request"]["raw"] += " HTTP/1.1\r\n"
+
+        for k, v in request.headers.items():
+            result["request"]["raw"] += f"{k}: {v}\r\n"
+        result["request"]["raw"] += "\r\n"
+
+        if request.post_data:
+            result["request"]["raw"] += request.post_data
+
+        key = self._make_request_key(request.method, request.url, request.post_data)
+
+        if key not in self.seen_requests:
+            self.seen_requests.add(key)
+            self.pending_requests[key] = result
+
+            logger.info(f"Captured: {request.method} {parsed.path} {f'[body: {len(request.post_data)} bytes]' if request.post_data else ''}")
+
+        await route.continue_()
+
+    def _extract_json_keys(self, data: str) -> Set[str]:
+        """Extract JSON keys from request/response body"""
+        keys = set()
+        try:
+            obj = json.loads(data)
+            if isinstance(obj, dict):
+                keys.update(obj.keys())
+                for v in obj.values():
+                    if isinstance(v, dict):
+                        keys.update(v.keys())
+        except:
+            pass
+        return keys
+
+    def _extract_graphql_operation(self, data: str, content_type: str, url: str) -> str:
+        """Extract GraphQL operation name"""
+        if "graphql" in url.lower() or "application/graphql" in content_type.lower():
+            return "graphql_raw"
+
+        if "application/json" not in content_type.lower():
+            return None
+
+        try:
+            obj = json.loads(data)
+            if isinstance(obj, list):
+                if any("query" in item or "mutation" in item for item in obj if isinstance(item, dict)):
+                    return "graphql_batch"
+            elif isinstance(obj, dict):
+                if "query" in obj or "mutation" in obj:
+                    return obj.get("operationName", "anonymous")
+                if "id" in obj and "variables" in obj:
+                    return "graphql_persisted"
+        except:
+            pass
+        return None
+
+    async def handle_response(self, response: Response):
+        """Handle response and combine with request data"""
+        request = response.request
+        key = self._make_request_key(request.method, request.url, request.post_data)
+
+        if key in self.pending_requests:
+            result = self.pending_requests.pop(key)
+
+            result["response"] = {
+                "status_code": response.status,
+                "headers": dict(response.headers),
+            }
+
+            result["timestamp"] = asyncio.get_event_loop().time()
+
+            self.results.append(result)
+            self.request_count += 1
+
+            parsed = urlparse(request.url)
+            endpoint = f"{request.method} {parsed.path}"
+            self.unique_endpoints.add(request.url)
+            self.unique_methods_paths.add(endpoint)
+
+            if request.post_data:
+                self.unique_json_keys.update(self._extract_json_keys(request.post_data))
+
+                content_type = request.headers.get("content-type", "")
+                graphql_op = self._extract_graphql_operation(request.post_data, content_type, request.url)
+                if graphql_op:
+                    self.unique_graphql_ops.add(graphql_op)
+
                 try:
-                    # Skip common events we already handle
-                    if event in ['onclick', 'onsubmit', 'onchange']:
-                        continue
-                    
-                    logger.debug(f"Triggering {event} on {selector}")
-                    
-                    # Trigger the event
-                    await page.evaluate(f"""
-                        (selector, eventName) => {{
-                            const el = document.querySelector(selector);
-                            if (el) {{
-                                const event = new Event(eventName.replace('on', ''), {{ bubbles: true }});
-                                el.dispatchEvent(event);
-                            }}
-                        }}
-                    """, selector, event)
-                    
-                    await asyncio.sleep(0.5)
-                    
-                except Exception as e:
-                    logger.debug(f"Could not trigger {event} on {selector}: {e}")
-    
-    async def _explore_dynamic_endpoints(self, page: Page):
-        """Make requests to dynamically discovered endpoints"""
-        for endpoint in list(self.dynamic_endpoints)[:10]:  # Limit exploration
+                    body_obj = json.loads(request.post_data)
+                    if isinstance(body_obj, dict):
+                        body_schema = ','.join(sorted(body_obj.keys()))
+                        logger.info(f"POST body schema: {body_schema}")
+                except:
+                    pass
+
             try:
-                # Skip if already visited
-                if endpoint in self.visited_endpoints:
-                    continue
-                
-                logger.info(f"Exploring dynamic endpoint: {endpoint}")
-                
-                # Try different HTTP methods
-                methods = ['GET', 'POST', 'PUT', 'DELETE']
-                for method in methods:
+                body = await response.text()
+                self.unique_json_keys.update(self._extract_json_keys(body))
+            except:
+                pass
+
+            logger.info(f"Found: {request.method} {request.url} -> {response.status}")
+            print(json.dumps(result), flush=True)
+
+    async def _find_element_by_action(self, page: Page, action: Action) -> ElementHandle:
+        """Find element using multiple fallback strategies"""
+        element = await page.query_selector(action.selector)
+        if element and await element.is_visible():
+            return element
+
+        if action.text:
+            elements = await page.query_selector_all(action.tag)
+            for el in elements:
+                text = (await el.text_content() or "").strip()
+                if text == action.text and await el.is_visible():
+                    return el
+
+        return None
+
+    async def _replay_state(self, page: Page, start_url: str, action_path: List[Action], expected_fingerprint: tuple = None):
+        """Replay action sequence to reach specific state with validation"""
+        try:
+            await page.goto(start_url, wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(1000)
+
+            for action in action_path:
+                element = await self._find_element_by_action(page, action)
+                if element and await element.is_enabled():
+                    await element.click(timeout=1000)
                     try:
-                        # Make the request
-                        response = await page.request.fetch(
-                            endpoint,
-                            method=method,
-                            headers={'X-Test': 'true'},
-                            timeout=5000
-                        )
-                        
-                        logger.debug(f"{method} {endpoint} -> {response.status}")
-                        
-                        # Mark as visited
-                        self.visited_endpoints.add(endpoint)
-                        
-                        # Short delay
-                        await asyncio.sleep(0.5)
-                        
-                    except Exception as e:
-                        logger.debug(f"Failed {method} {endpoint}: {e}")
-                        
+                        await page.wait_for_load_state("domcontentloaded", timeout=5000)
+                    except:
+                        pass
+                    await page.wait_for_timeout(500)
+                else:
+                    logger.warning(f"Replay failed: element not found for {action.text[:30]}")
+                    return False
+
+            if expected_fingerprint:
+                url_match = page.url == expected_fingerprint[0]
+                if not url_match:
+                    logger.warning(f"Replay mismatch: URL changed {page.url} != {expected_fingerprint[0]}")
+                    return False
+
+                current_actions = await self._extract_actions(page)
+                action_signatures = {a.get_cluster_key() for a in current_actions}
+                has_similar_actions = len(action_signatures) > 0
+
+                if not has_similar_actions:
+                    logger.warning(f"Replay mismatch: no similar actions found")
+                    return False
+
+            return True
+        except Exception as e:
+            logger.error(f"State replay failed: {e}")
+            return False
+
+    async def _explore_state(self, page: Page, state: State):
+        """Explore single state by executing representative actions from each cluster"""
+        logger.info(f"Exploring state: {state.url} (depth={state.depth}, actions={len(state.actions)})")
+
+        await self._fill_forms(page)
+
+        try:
+            await page.mouse.wheel(0, 5000)
+            await page.wait_for_timeout(500)
+        except:
+            pass
+
+        action_clusters = {}
+        for action in state.actions:
+            if action not in state.executed_actions and action not in state.dead_actions:
+                cluster_key = action.get_cluster_key()
+                if cluster_key not in action_clusters:
+                    action_clusters[cluster_key] = action
+
+        logger.info(f"Action clusters: {len(action_clusters)} ({', '.join(k.split(':')[0] for k in action_clusters.keys())})")
+
+        initial_state_endpoints = len(state.discovered_endpoints)
+        initial_state_clusters = len(state.executed_clusters)
+
+        for cluster_key, action in action_clusters.items():
+            if cluster_key in state.executed_clusters:
+                continue
+
+            try:
+                dom_hash, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
             except Exception as e:
-                logger.debug(f"Error exploring endpoint {endpoint}: {e}")
-    
-    # ---------------- Main Scan Method ----------------
+                logger.warning(f"Failed to get state fingerprint before action: {e}")
+                break
+
+            initial_request_count = self.request_count
+            initial_endpoints = self.unique_endpoints.copy()
+
+            if action.semantic in ['submit', 'interaction', 'auth']:
+                await self._fill_forms(page)
+                await page.wait_for_timeout(100)
+            await self._fill_forms(page)
+            await page.wait_for_timeout(100)
+
+            success, _ = await self._execute_action(page, action)
+
+            if not success:
+                continue
+
+            state.executed_actions.add(action)
+            state.executed_clusters.add(cluster_key)
+
+            try:
+                new_dom, new_cookies, new_storage = await self._get_state_fingerprint(page)
+                new_url = page.url
+            except Exception as e:
+                logger.warning(f"Failed to get state fingerprint after action (navigation?): {e}")
+                break
+
+            request_delta = self.request_count - initial_request_count
+            new_endpoints = self.unique_endpoints - initial_endpoints
+            dom_changed = new_dom != dom_hash
+            cookies_changed = new_cookies != cookies_hash
+            storage_changed = new_storage != storage_hash
+
+            had_effect = request_delta > 0 or dom_changed or cookies_changed or storage_changed
+
+            if not had_effect:
+                state.dead_actions.add(action)
+                logger.info(f"Dead action [{action.semantic}]: {action.text[:30]} (no requests, no state change)")
+                continue
+
+            state.discovered_endpoints.update(new_endpoints)
+            if new_endpoints:
+                logger.info(f"Action [{action.semantic}] discovered {len(new_endpoints)} new endpoints")
+
+            start_domain = urlparse(self.start_url).netloc
+            new_domain = urlparse(new_url).netloc
+
+            current_fingerprint = None
+            if state.depth < self.max_depth and len(state.path) < self.max_path_length and start_domain == new_domain and not state.is_volatile:
+                try:
+                    actions = await self._extract_actions(page)
+                    new_state = State(
+                        url=new_url,
+                        dom_hash=new_dom,
+                        cookies_hash=new_cookies,
+                        storage_hash=new_storage,
+                        depth=state.depth + 1,
+                        path=state.path + [action],
+                        actions=actions
+                    )
+                    current_fingerprint = new_state.get_fingerprint()
+                    if current_fingerprint not in self.visited_states:
+                        self.visited_states.add(current_fingerprint)
+                        self.state_queue.append(new_state)
+                        logger.info(f"New state: {new_url} (clusters={len(actions)}, path_len={len(new_state.path)})")
+                except Exception as e:
+                    logger.warning(f"Failed to extract actions for new state: {e}")
+
+            new_endpoints_delta = len(state.discovered_endpoints) - initial_state_endpoints
+            new_clusters_delta = len(state.executed_clusters) - initial_state_clusters
+            if state.is_exhausted(new_endpoints_delta == 0, new_clusters_delta == 0):
+                logger.info(f"State exhausted: {len(state.executed_clusters)} clusters executed, {len(state.discovered_endpoints)} endpoints discovered")
+                break
+
+    async def _check_convergence(self) -> bool:
+        """Check if crawler has converged (no new discoveries)"""
+        endpoints_delta = len(self.unique_endpoints) - self.last_endpoint_count
+        requests_delta = self.request_count - self.last_request_count
+        keys_delta = len(self.unique_json_keys) - self.last_keys_count
+        graphql_delta = len(self.unique_graphql_ops) - self.last_graphql_count
+
+        if endpoints_delta == 0 and requests_delta == 0 and keys_delta == 0 and graphql_delta == 0:
+            self.stale_iterations += 1
+        else:
+            self.stale_iterations = 0
+
+        self.last_request_count = self.request_count
+        self.last_endpoint_count = len(self.unique_endpoints)
+        self.last_keys_count = len(self.unique_json_keys)
+        self.last_graphql_count = len(self.unique_graphql_ops)
+
+        if self.stale_iterations >= 3:
+            logger.info(f"Converged: Δendpoints=0 Δrequests=0 Δkeys=0 ΔgraphQL=0 for {self.stale_iterations} iterations")
+            return True
+
+        return False
+
     async def scan(self):
-        """Main scanning entry point"""
-        logger.info(f"Starting deep scan of {self.start_url}")
-        
+        """Main BFS scanning loop"""
+        logger.info(f"Starting scan: {self.start_url} (max_depth={self.max_depth})")
+
         async with async_playwright() as p:
-            # Launch browser with more capabilities
             browser = await p.chromium.launch(
                 headless=True,
-                args=[
-                    '--disable-web-security',
-                    '--disable-features=IsolateOrigins,site-per-process',
-                    '--aggressive-cache-discard',
-                    '--disable-cache',
-                    '--disable-application-cache',
-                    '--disable-offline-load-stale-cache',
-                    '--disk-cache-size=0'
-                ]
+                args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
             )
-            
+
             context = await browser.new_context(
                 ignore_https_errors=True,
-                viewport={'width': 1280, 'height': 800},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                service_workers='block'
             )
-            
+
             page = await context.new_page()
-            
-            # Set up interception
+
+            def log_request(request):
+                if not self._is_static_resource(request.url) and request.resource_type not in ["beacon", "ping"]:
+                    parsed = urlparse(request.url)
+                    start_domain = urlparse(self.start_url).netloc
+                    if parsed.netloc == start_domain:
+                        logger.info(f"Request: {request.method} {request.url}")
+
+            page.on("request", log_request)
+
+            await page.add_init_script("""
+                (() => {
+                  const origFetch = window.fetch;
+                  window.fetch = async (...args) => {
+                    const res = await origFetch(...args);
+                    res.clone().text().then(body => {
+                      console.debug("FETCH", args[0], body);
+                    });
+                    return res;
+                  };
+
+                  const origOpen = XMLHttpRequest.prototype.open;
+                  XMLHttpRequest.prototype.open = function(method, url) {
+                    this.addEventListener('load', function() {
+                      console.debug("XHR", method, url, this.responseText);
+                    });
+                    origOpen.apply(this, arguments);
+                  };
+                })();
+            """)
+
+            page.on("console", lambda msg: logger.info(f"Console: {msg.text}") if msg.type == "debug" else None)
+
             await page.route("**/*", self.intercept_request)
             page.on("response", self.handle_response)
-            
-            # Navigate to start URL
+
             await page.goto(self.start_url, wait_until="networkidle", timeout=30000)
-            
-            # Initial deep analysis
-            initial_dom_sig, initial_forms = await self._analyze_dom_deeply(page)
+            await page.wait_for_timeout(2000)
+
+            dom_hash, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
+            initial_actions = await self._extract_actions(page)
+
             initial_state = State(
                 url=self.start_url,
-                dom_signature=initial_dom_sig,
-                form_signatures={f.get_signature() for f in initial_forms},
-                discovered_forms=initial_forms,
-                depth=0
+                dom_hash=dom_hash,
+                cookies_hash=cookies_hash,
+                storage_hash=storage_hash,
+                depth=0,
+                path=[],
+                actions=initial_actions
             )
-            
+
             self.visited_states.add(initial_state.get_fingerprint())
             self.state_queue.append(initial_state)
-            
-            # Main exploration loop
-            iteration = 0
-            while self.state_queue and iteration < 50:  # Safety limit
-                state = self.state_queue.popleft()
-                
-                # Navigate to state URL if different
-                if page.url != state.url:
-                    await page.goto(state.url, wait_until="networkidle", timeout=10000)
-                
-                await self.explore_state(page, state)
-                
-                iteration += 1
-                
-                # Progress logging
-                if iteration % 5 == 0:
-                    logger.info(
-                        f"Progress: {iteration} iterations, "
-                        f"{len(self.visited_states)} states, "
-                        f"{self.form_submissions} forms submitted, "
-                        f"{self.request_count} requests captured"
-                    )
-            
-            # Final cleanup
-            await browser.close()
-        
-        # Summary
-        logger.info("=" * 60)
-        logger.info("SCAN COMPLETE")
-        logger.info(f"Total requests captured: {self.request_count}")
-        logger.info(f"Forms discovered: {len(self.all_discovered_forms)}")
-        logger.info(f"Forms submitted: {self.form_submissions}")
-        logger.info(f"Unique states visited: {len(self.visited_states)}")
-        logger.info(f"Dynamic endpoints found: {len(self.dynamic_endpoints)}")
-        logger.info("=" * 60)
 
-# ---------------- Runner ----------------
+            while self.state_queue:
+                if await self._check_convergence() and len(self.state_queue) < 2:
+                    break
+
+                state = self.state_queue.popleft()
+
+                try:
+                    if state.path and page.url != state.url:
+                        await self._replay_state(page, self.start_url, state.path)
+                    await self._explore_state(page, state)
+                except Exception as e:
+                    logger.error(f"Error exploring {state.url}: {e}")
+
+            await browser.close()
+
+        logger.info(f"Scan completed: {self.request_count} requests, {len(self.unique_endpoints)} endpoints, {len(self.unique_methods_paths)} methods, {len(self.unique_json_keys)} JSON keys, {len(self.unique_graphql_ops)} GraphQL ops, {len(self.visited_states)} states")
+
+
 async def main():
     if len(sys.argv) < 2:
         print(json.dumps({"error": "No URL provided"}), file=sys.stderr)
         sys.exit(1)
-    
+
     url = sys.argv[1]
-    max_depth = int(sys.argv[2]) if len(sys.argv) > 2 else 5
-    
-    scanner = DeepPlaywrightScanner(url, max_depth=max_depth)
-    await scanner.scan()
+    max_depth = int(sys.argv[2]) if len(sys.argv) > 2 else 2
+
+    scanner = PlaywrightScanner(url, max_depth=max_depth)
+
+    try:
+        await scanner.scan()
+    except Exception as e:
+        print(json.dumps({"error": str(e)}), file=sys.stderr)
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
