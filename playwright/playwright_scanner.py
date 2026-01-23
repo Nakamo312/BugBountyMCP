@@ -112,7 +112,7 @@ class State:
         return executed_or_dead >= total_possible or self.visited_count >= 2
 
 
-class RecursiveCrawler:
+class PlaywrightScanner:
     """Crawler that recursively explores a branch and spawns child crawlers"""
     
     def __init__(self, 
@@ -669,7 +669,7 @@ async def main():
     url = sys.argv[1]
     max_depth = int(sys.argv[2]) if len(sys.argv) > 2 else 3
     
-    crawler = RecursiveCrawler(
+    crawler = PlaywrightScanner(
         start_url=url,
         max_depth=max_depth,
         crawler_id="main"
