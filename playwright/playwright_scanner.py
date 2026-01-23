@@ -7,8 +7,8 @@ import json
 import logging
 import sys
 import hashlib
-from typing import Set, Dict, Any, List, Tuple
-from urllib.parse import urlparse, parse_qs
+from typing import Set, Dict, Any, List, Tuple, Optional
+from urllib.parse import urlparse, parse_qs, urljoin
 from dataclasses import dataclass, field
 from collections import deque, defaultdict
 
@@ -64,11 +64,12 @@ class Action:
     selector: str
     text: str
     tag: str
+    href: Optional[str] = None
     event_type: str = "click"
     semantic: str = "unknown"
 
     def __hash__(self):
-        return hash((self.semantic, self.tag, self.text[:30].lower()))
+        return hash((self.semantic, self.tag, self.text[:30].lower(), self.href))
 
     def __eq__(self, other):
         return isinstance(other, Action) and hash(self) == hash(other)
@@ -76,12 +77,14 @@ class Action:
     def get_cluster_key(self) -> str:
         text_words = ''.join(c for c in self.text.lower() if c.isalnum() or c.isspace()).split()
         text_sig = '_'.join(text_words[:3])
-        return f"{self.semantic}:{self.tag}:{text_sig}"
+        href_sig = self.href[:20] if self.href else ''
+        return f"{self.semantic}:{self.tag}:{text_sig}:{href_sig}"
 
 
 @dataclass
 class State:
     url: str
+    normalized_url: str
     dom_hash: str
     dom_vector: Dict[str, int]
     cookies_hash: str
@@ -89,55 +92,26 @@ class State:
     depth: int
     path: List[Action] = field(default_factory=list)
     actions: Set[Action] = field(default_factory=set)
-    executed_actions: Set[Action] = field(default_factory=set)
-    dead_actions: Set[Action] = field(default_factory=set)
-    executed_clusters: Set[str] = field(default_factory=set)
+    executed_actions: Set[str] = field(default_factory=set)
     discovered_endpoints: Set[str] = field(default_factory=set)
-    is_volatile: bool = False
+    child_urls: Set[str] = field(default_factory=set)
     visited_count: int = 0
 
-    def get_fingerprint(self):
-        parsed = urlparse(self.url)
-        normalized_url = f"{parsed.netloc}{parsed.path}"
-        query_keys = frozenset(parse_qs(parsed.query).keys()) if parsed.query else frozenset()
-        
-        action_signature = hash(frozenset(a.get_cluster_key() for a in self.actions))
-        dom_vector_str = json.dumps(sorted(self.dom_vector.items()), sort_keys=True)
-        dom_hash = hashlib.sha256(dom_vector_str.encode()).hexdigest()[:16]
-        
-        return (normalized_url, query_keys, self.cookies_hash, self.storage_hash, 
-                dom_hash, action_signature)
+    def get_state_key(self) -> str:
+        return self.normalized_url
 
-    def get_semantic_key(self):
-        parsed = urlparse(self.url)
-        normalized_url = f"{parsed.netloc}{parsed.path}"
-        
-        key_features = {
-            'forms': self.dom_vector.get('forms', 0),
-            'buttons': self.dom_vector.get('buttons', 0),
-            'links': self.dom_vector.get('links', 0),
-        }
-        
-        return f"{normalized_url}:{key_features['forms']}:{key_features['buttons']}:{key_features['links']}"
-
-    def is_exhausted(self, no_new_endpoints: bool, no_new_clusters: bool) -> bool:
-        unique_actions_executed = len(self.executed_actions)
-        total_unique_actions = len(self.actions)
-        
-        if total_unique_actions == 0:
+    def is_exhausted(self) -> bool:
+        if len(self.actions) == 0:
             return True
         
-        execution_ratio = unique_actions_executed / total_unique_actions
-        
-        all_executed = execution_ratio >= 0.8
-        visited_too_much = self.visited_count >= 5
-        
-        return all_executed or visited_too_much or (no_new_endpoints and no_new_clusters and execution_ratio >= 0.5)
+        executed_ratio = len(self.executed_actions) / len(self.actions)
+        return executed_ratio >= 0.95 or self.visited_count >= 3
 
 
 class PlaywrightScanner:
-    def __init__(self, url: str, max_depth: int = 2, timeout: int = 300, max_actions_per_state: int = 20, max_path_length: int = 10):
+    def __init__(self, url: str, max_depth: int = 3, timeout: int = 300, max_actions_per_state: int = 30, max_path_length: int = 10):
         self.start_url = url
+        self.start_domain = urlparse(url).netloc
         self.max_depth = max_depth
         self.timeout = timeout
         self.max_actions_per_state = max_actions_per_state
@@ -148,9 +122,10 @@ class PlaywrightScanner:
         self.pending_requests: Dict[str, Dict[str, Any]] = {}
         self.seen_requests: Set[str] = set()
         
-        self.visited_states: Set[Tuple] = set()
-        self.semantic_states: Set[str] = set()
-        self.visited_sequences: Set[str] = set()
+        self.visited_states: Dict[str, State] = {}
+        self.visited_urls: Set[str] = set()
+        self.url_to_state: Dict[str, State] = {}
+        self.state_graph: Dict[str, Set[str]] = defaultdict(set)
         
         self.unique_endpoints: Set[str] = set()
         self.unique_methods_paths: Set[str] = set()
@@ -166,25 +141,41 @@ class PlaywrightScanner:
         self.states_created = 0
         self.states_skipped = 0
 
+    def _normalize_url(self, url: str) -> str:
+        parsed = urlparse(url)
+        normalized = f"{parsed.netloc}{parsed.path}"
+        if parsed.query:
+            query_params = parse_qs(parsed.query, keep_blank_values=True)
+            sorted_params = sorted(query_params.items())
+            query_string = "&".join(f"{k}={','.join(sorted(v))}" for k, v in sorted_params)
+            normalized += "?" + query_string
+        return normalized
+
+    def _is_same_domain(self, url: str) -> bool:
+        return urlparse(url).netloc == self.start_domain
+
     def _is_static_resource(self, url: str) -> bool:
         lower_url = url.lower().split('?')[0]
         return any(lower_url.endswith(ext) for ext in STATIC_EXTENSIONS)
 
-    def _classify_action_semantic(self, text: str, selector: str, tag: str) -> str:
+    def _classify_action_semantic(self, text: str, selector: str, tag: str, href: Optional[str] = None) -> str:
         text_lower = text.lower()
         selector_lower = selector.lower()
-
-        if tag == "form":
-            return "form_submit"
         
-        if tag == "a" and "href" in selector_lower:
-            return "navigation"
+        if href and href.startswith('javascript:'):
+            return 'javascript'
+        
+        if href and 'logout' in href.lower():
+            return 'logout'
+        
+        if any(k in text_lower for k in ['login', 'signin', 'sign up', 'register']):
+            return 'auth'
+        
+        if any(k in text_lower for k in ['logout', 'sign out', 'exit']):
+            return 'logout'
         
         if any(k in text_lower for k in ['submit', 'save', 'post', 'create', 'delete', 'update']):
             return 'submit'
-        
-        if any(k in text_lower for k in ['login', 'signin', 'signup', 'logout', 'register', 'auth']):
-            return 'auth'
         
         if any(k in text_lower for k in ['search', 'find', 'filter', 'sort']):
             return 'search'
@@ -192,11 +183,14 @@ class PlaywrightScanner:
         if any(k in text_lower for k in ['next', 'prev', 'page', '»', '«', '>', '<', 'more']):
             return 'pagination'
         
-        if any(k in text_lower for k in ['add to cart', 'buy', 'purchase', 'order']):
+        if any(k in text_lower for k in ['cart', 'buy', 'purchase', 'order', 'checkout']):
             return 'commerce'
         
-        if any(k in text_lower for k in ['menu', 'nav', 'home', 'about', 'contact']):
+        if tag == 'a' and href:
             return 'navigation'
+        
+        if tag == 'form':
+            return 'form_submit'
         
         return 'interaction'
 
@@ -234,14 +228,6 @@ class PlaywrightScanner:
                 inc('links:' + document.querySelectorAll('a').length);
                 inc('inputs:' + document.querySelectorAll('input:not([type="hidden"])').length);
                 
-                document.querySelectorAll('button, a').forEach(el => {
-                    const text = el.textContent?.toLowerCase() || '';
-                    if (text.includes('next') || text.includes('prev') || text.includes('page')) inc('pattern_pagination');
-                    if (text.includes('search')) inc('pattern_search');
-                    if (text.includes('login') || text.includes('sign')) inc('pattern_auth');
-                    if (text.includes('submit') || text.includes('save')) inc('pattern_submit');
-                });
-                
                 return v;
             }
         """)
@@ -250,28 +236,6 @@ class PlaywrightScanner:
         vector = await self._get_dom_vector(page)
         vector_str = json.dumps(sorted(vector.items()), sort_keys=True)
         return hashlib.sha256(vector_str.encode()).hexdigest()[:16]
-
-    def _dom_similarity(self, a: Dict[str, int], b: Dict[str, int]) -> float:
-        if not a or not b:
-            return 0.0
-        
-        important_features = ['forms:', 'buttons:', 'links:', 'inputs:', 'pattern_']
-        
-        total_weight = 0
-        similarity_sum = 0
-        
-        for key in set(a.keys()) | set(b.keys()):
-            weight = 2.0 if any(key.startswith(p) for p in important_features) else 1.0
-            
-            val_a = a.get(key, 0)
-            val_b = b.get(key, 0)
-            
-            if val_a + val_b > 0:
-                similarity = 1 - abs(val_a - val_b) / max(val_a + val_b, 1)
-                similarity_sum += similarity * weight
-                total_weight += weight
-        
-        return similarity_sum / total_weight if total_weight > 0 else 1.0
 
     async def _get_state_fingerprint(self, page: Page):
         cookies = await page.context.cookies()
@@ -290,7 +254,7 @@ class PlaywrightScanner:
         
         return dom_hash, dom_vector, cookies_hash, storage_hash
 
-    async def _extract_actions(self, page: Page) -> Set[Action]:
+    async def _extract_actions(self, page: Page, current_url: str) -> Set[Action]:
         actions = set()
 
         selectors = """
@@ -299,10 +263,7 @@ class PlaywrightScanner:
             input[type=submit], 
             input[type=button],
             [role=button],
-            [onclick],
-            [data-action],
-            form input[type=submit],
-            form button[type=submit]
+            form
         """
         
         elements = await page.query_selector_all(selectors)
@@ -319,28 +280,30 @@ class PlaywrightScanner:
                 text = (await el.text_content() or "").strip()[:100]
                 tag = await el.evaluate("el => el.tagName.toLowerCase()")
                 
-                if tag == "a" and not text and not await el.get_attribute("aria-label"):
-                    continue
-                    
+                href = None
+                if tag == 'a':
+                    href = await el.get_attribute("href")
+                    if href:
+                        href = urljoin(current_url, href)
+                        if not self._is_same_domain(href):
+                            continue
+                
                 selector = await self._generate_selector(el)
                 if not selector:
                     continue
                     
-                semantic = self._classify_action_semantic(text, selector, tag)
+                semantic = self._classify_action_semantic(text, selector, tag, href)
                 
-                if tag == "form":
-                    form_action = Action(
-                        selector=selector,
-                        text=f"Submit form: {text[:30]}",
-                        tag=tag,
-                        semantic="submit"
-                    )
-                    actions.add(form_action)
-                else:
-                    actions.add(Action(selector=selector, text=text, tag=tag, semantic=semantic))
+                action = Action(
+                    selector=selector,
+                    text=text,
+                    tag=tag,
+                    href=href,
+                    semantic=semantic
+                )
+                actions.add(action)
                     
             except Exception as e:
-                logger.debug(f"Failed to extract action: {e}")
                 continue
 
         return actions
@@ -400,33 +363,30 @@ class PlaywrightScanner:
                         el.value = 'test';
                     }
                     el.dispatchEvent(new Event('change', { bubbles: true }));
-                    el.dispatchEvent(new Event('input', { bubbles: true }));
                 });
             }
         """)
 
-    async def _execute_action(self, page: Page, action: Action) -> tuple[bool, bool]:
+    async def _execute_action(self, page: Page, action: Action) -> tuple[bool, str, bool]:
         try:
             element = await self._find_element_by_action(page, action)
             if not element:
-                logger.debug(f"Element not found for action: {action.text}")
-                return False, False
+                return False, None, False
                 
             is_visible = await element.is_visible()
             is_enabled = await element.is_enabled()
             
             if not is_visible or not is_enabled:
-                logger.debug(f"Element not visible/enabled: {action.text}")
-                return False, False
+                return False, None, False
 
-            initial_request_count = self.request_count
             initial_url = page.url
+            initial_request_count = self.request_count
 
             await element.scroll_into_view_if_needed()
             
             if action.semantic in ['submit', 'auth', 'form_submit']:
                 await self._fill_forms(page)
-                await page.wait_for_timeout(200)
+                await page.wait_for_timeout(100)
             
             await element.click(timeout=2000)
 
@@ -437,16 +397,13 @@ class PlaywrightScanner:
                 
             await page.wait_for_timeout(500)
 
-            had_effect = (self.request_count > initial_request_count) or (page.url != initial_url)
+            new_url = page.url
+            had_effect = (self.request_count > initial_request_count) or (new_url != initial_url)
             
-            if action.semantic == 'navigation' and page.url != initial_url:
-                had_effect = True
-                
-            return True, had_effect
+            return True, new_url, had_effect
             
         except Exception as e:
-            logger.debug(f"Action execution failed for {action.text}: {e}")
-            return False, False
+            return False, None, False
 
     async def intercept_request(self, route: Route):
         request = route.request
@@ -583,92 +540,42 @@ class PlaywrightScanner:
             print(json.dumps(result), flush=True)
 
     async def _find_element_by_action(self, page: Page, action: Action) -> ElementHandle:
-        element = await page.query_selector(action.selector)
-        if element and await element.is_visible():
-            return element
+        try:
+            element = await page.query_selector(action.selector)
+            if element and await element.is_visible():
+                return element
 
-        if action.text:
-            elements = await page.query_selector_all(action.tag)
-            for el in elements:
-                text = (await el.text_content() or "").strip()
-                if text == action.text and await el.is_visible():
-                    return el
-
+            if action.text:
+                elements = await page.query_selector_all(action.tag)
+                for el in elements:
+                    text = (await el.text_content() or "").strip()
+                    if text and text.lower() == action.text.lower() and await el.is_visible():
+                        return el
+        except:
+            pass
         return None
 
-    async def _replay_state(self, page: Page, start_url: str, target_state: State) -> bool:
-        try:
-            await page.goto(start_url, wait_until="domcontentloaded", timeout=30000)
-            await page.wait_for_timeout(1000)
-
-            for action in target_state.path:
-                element = await self._find_element_by_action(page, action)
-                if not element or not await element.is_enabled():
-                    logger.warning(f"Replay failed: element not found for {action.text[:30]}")
-                    return False
-                await element.click(timeout=1000)
-                try:
-                    await page.wait_for_load_state("domcontentloaded", timeout=5000)
-                except:
-                    pass
-                await page.wait_for_timeout(500)
-
-            parsed = urlparse(page.url)
-            current_normalized = f"{parsed.netloc}{parsed.path}"
-            expected_parsed = urlparse(target_state.url)
-            expected_normalized = f"{expected_parsed.netloc}{expected_parsed.path}"
-
-            if current_normalized != expected_normalized:
-                logger.warning(f"Replay URL mismatch: {current_normalized} != {expected_normalized}")
-                return False
+    async def _should_skip_state(self, url: str, depth: int, path_length: int) -> bool:
+        normalized_url = self._normalize_url(url)
         
-            current_dom_vector = await self._get_dom_vector(page)
-            similarity = self._dom_similarity(target_state.dom_vector, current_dom_vector)
-
-            if similarity < 0.85:
-                logger.warning(f"Replay DOM mismatch: similarity {similarity:.2f}")
-                return False
-
-            return True
-
-        except Exception as e:
-            logger.error(f"State replay failed: {e}")
-            return False
-
-    async def _should_skip_state(self, new_state: State) -> bool:
-        exact_fingerprint = new_state.get_fingerprint()
-        if exact_fingerprint in self.visited_states:
+        if not self._is_same_domain(url):
             self.states_skipped += 1
-            logger.info(f"Exact duplicate state: {new_state.url}")
+            logger.info(f"Different domain: {url}")
             return True
         
-        semantic_key = new_state.get_semantic_key()
-        if semantic_key in self.semantic_states:
-            similar_states = [s for s in self.semantic_states if s.startswith(new_state.get_semantic_key().split(':')[0])]
-            if len(similar_states) >= 5:
-                self.states_skipped += 1
-                logger.info(f"Too many similar states on {new_state.url}, skipping")
-                return True
-        
-        sequence_key = ':'.join(a.get_cluster_key() for a in new_state.path)
-        if sequence_key in self.visited_sequences:
+        if normalized_url in self.visited_urls:
             self.states_skipped += 1
-            logger.info(f"Duplicate action sequence: {sequence_key}")
+            logger.debug(f"Already visited: {url}")
             return True
         
-        if new_state.depth > self.max_depth:
+        if depth > self.max_depth:
             self.states_skipped += 1
-            logger.info(f"Max depth exceeded: {new_state.depth}")
+            logger.info(f"Max depth exceeded: {depth}")
             return True
         
-        if len(new_state.path) >= self.max_path_length:
+        if path_length >= self.max_path_length:
             self.states_skipped += 1
-            logger.info(f"Max path length exceeded: {len(new_state.path)}")
-            return True
-        
-        if len(new_state.actions) < 2 and len(new_state.path) > 1:
-            self.states_skipped += 1
-            logger.info(f"Too few actions: {len(new_state.actions)}")
+            logger.info(f"Max path length exceeded: {path_length}")
             return True
         
         return False
@@ -681,8 +588,8 @@ class PlaywrightScanner:
         await self._fill_forms(page)
 
         try:
-            await page.mouse.wheel(0, 3000)
-            await page.wait_for_timeout(300)
+            await page.mouse.wheel(0, 1000)
+            await page.wait_for_timeout(200)
         except:
             pass
 
@@ -694,103 +601,94 @@ class PlaywrightScanner:
             'commerce': 5,
             'pagination': 6,
             'navigation': 7,
-            'interaction': 8
+            'interaction': 8,
+            'logout': 9,
+            'javascript': 10
         }
         
         sorted_actions = sorted(
-            [a for a in state.actions if a not in state.executed_actions and a not in state.dead_actions],
-            key=lambda x: priority_order.get(x.semantic, 9)
+            [a for a in state.actions if a.get_cluster_key() not in state.executed_actions],
+            key=lambda x: priority_order.get(x.semantic, 99)
         )
         
         logger.info(f"Actions to explore: {len(sorted_actions)}")
 
-        initial_state_endpoints = len(state.discovered_endpoints)
-        
         for action in sorted_actions:
-            if state.is_exhausted(len(state.discovered_endpoints) == initial_state_endpoints, False):
+            if state.is_exhausted():
                 break
                 
-            try:
-                initial_request_count = self.request_count
-                initial_url = page.url
-                
-                if page.url != state.url:
-                    await page.goto(state.url, wait_until="domcontentloaded", timeout=10000)
-                    await page.wait_for_timeout(1000)
-                
-                success, had_effect = await self._execute_action(page, action)
-                
-                if success:
-                    state.executed_actions.add(action)
-                    
-                    if had_effect:
-                        try:
-                            new_dom, new_dom_vector, new_cookies, new_storage = await self._get_state_fingerprint(page)
-                            new_url = page.url
-                            
-                            dom_changed = new_dom != state.dom_hash
-                            cookies_changed = new_cookies != state.cookies_hash
-                            
-                            if dom_changed or cookies_changed or new_url != state.url:
-                                new_actions = await self._extract_actions(page)
-                                new_state = State(
-                                    url=new_url,
-                                    dom_hash=new_dom,
-                                    dom_vector=new_dom_vector,
-                                    cookies_hash=new_cookies,
-                                    storage_hash=new_storage,
-                                    depth=state.depth + 1,
-                                    path=state.path + [action],
-                                    actions=new_actions
-                                )
-                                
-                                if not await self._should_skip_state(new_state):
-                                    self.visited_states.add(new_state.get_fingerprint())
-                                    self.semantic_states.add(new_state.get_semantic_key())
-                                    
-                                    self.state_queue.append(new_state)
-                                    self.states_created += 1
-                                    
-                                    logger.info(f"New state [{self.states_created}]: {new_url} (depth={new_state.depth})")
-                        
-                        except Exception as e:
-                            logger.debug(f"Failed to process new state after action: {e}")
-                    
-                    else:
-                        state.dead_actions.add(action)
-                        logger.info(f"Dead action [{action.semantic}]: {action.text[:30]}")
-                        
-            except Exception as e:
-                logger.debug(f"Error executing action {action.text}: {e}")
+            action_key = action.get_cluster_key()
+            if action_key in state.executed_actions:
                 continue
                 
-            if page.url != state.url:
-                try:
-                    await page.goto(state.url, wait_until="domcontentloaded", timeout=10000)
-                    await page.wait_for_timeout(1000)
-                except:
-                    break
+            logger.debug(f"Executing action: {action.semantic} - {action.text[:30]}")
+            
+            success, new_url, had_effect = await self._execute_action(page, action)
+            
+            if not success:
+                state.executed_actions.add(action_key)
+                continue
+            
+            state.executed_actions.add(action_key)
+            
+            if had_effect and new_url:
+                normalized_new_url = self._normalize_url(new_url)
+                
+                if not self._should_skip_state(new_url, state.depth + 1, len(state.path) + 1):
+                    
+                    if normalized_new_url not in self.visited_urls:
+                        try:
+                            await page.wait_for_timeout(500)
+                            
+                            dom_hash, dom_vector, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
+                            
+                            new_actions = await self._extract_actions(page, new_url)
+                            
+                            new_state = State(
+                                url=new_url,
+                                normalized_url=normalized_new_url,
+                                dom_hash=dom_hash,
+                                dom_vector=dom_vector,
+                                cookies_hash=cookies_hash,
+                                storage_hash=storage_hash,
+                                depth=state.depth + 1,
+                                path=state.path + [action],
+                                actions=new_actions
+                            )
+                            
+                            self.visited_urls.add(normalized_new_url)
+                            self.state_queue.append(new_state)
+                            self.states_created += 1
+                            state.child_urls.add(normalized_new_url)
+                            
+                            logger.info(f"New state [{self.states_created}]: {new_url} (depth={new_state.depth}, actions={len(new_actions)})")
+                            
+                        except Exception as e:
+                            logger.debug(f"Failed to create new state: {e}")
+                    else:
+                        logger.debug(f"Already visited: {new_url}")
+                
+                await page.goto(state.url, wait_until="domcontentloaded", timeout=10000)
+                await page.wait_for_timeout(500)
+            else:
+                logger.info(f"Dead action [{action.semantic}]: {action.text[:30]}")
         
-        logger.info(f"State completed: {len(state.executed_actions)} actions executed, {len(state.dead_actions)} dead actions")
+        logger.info(f"State exhausted: {len(state.executed_actions)}/{len(state.actions)} actions executed")
 
     async def _check_convergence(self) -> bool:
         endpoints_delta = len(self.unique_endpoints) - self.last_endpoint_count
         requests_delta = self.request_count - self.last_request_count
-        keys_delta = len(self.unique_json_keys) - self.last_keys_count
-        graphql_delta = len(self.unique_graphql_ops) - self.last_graphql_count
-
-        if endpoints_delta == 0 and requests_delta == 0 and keys_delta == 0 and graphql_delta == 0:
+        
+        if endpoints_delta == 0 and requests_delta == 0:
             self.stale_iterations += 1
         else:
             self.stale_iterations = 0
 
         self.last_request_count = self.request_count
         self.last_endpoint_count = len(self.unique_endpoints)
-        self.last_keys_count = len(self.unique_json_keys)
-        self.last_graphql_count = len(self.unique_graphql_ops)
-
-        if self.stale_iterations >= 2:
-            logger.info(f"Converged: Δendpoints=0 Δrequests=0 Δkeys=0 ΔgraphQL=0 for {self.stale_iterations} iterations")
+        
+        if self.stale_iterations >= 3 and len(self.state_queue) == 0:
+            logger.info(f"Converged: Δendpoints=0 Δrequests=0 for {self.stale_iterations} iterations, queue empty")
             return True
 
         return False
@@ -851,10 +749,13 @@ class PlaywrightScanner:
             await page.wait_for_timeout(2000)
 
             dom_hash, dom_vector, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
-            initial_actions = await self._extract_actions(page)
+            initial_url = page.url
+            normalized_initial_url = self._normalize_url(initial_url)
+            initial_actions = await self._extract_actions(page, initial_url)
 
             initial_state = State(
-                url=self.start_url,
+                url=initial_url,
+                normalized_url=normalized_initial_url,
                 dom_hash=dom_hash,
                 dom_vector=dom_vector,
                 cookies_hash=cookies_hash,
@@ -864,14 +765,13 @@ class PlaywrightScanner:
                 actions=initial_actions
             )
 
-            self.visited_states.add(initial_state.get_fingerprint())
-            self.semantic_states.add(initial_state.get_semantic_key())
+            self.visited_urls.add(normalized_initial_url)
             self.state_queue.append(initial_state)
 
             logger.info(f"Initial state has {len(initial_actions)} actions")
 
             while self.state_queue:
-                if await self._check_convergence() and len(self.state_queue) < 2:
+                if await self._check_convergence():
                     logger.info("Convergence detected, finishing...")
                     break
 
@@ -880,11 +780,9 @@ class PlaywrightScanner:
                 logger.info(f"Processing state {state.url} (queue: {len(self.state_queue)}, created: {self.states_created}, skipped: {self.states_skipped})")
 
                 try:
-                    if state.path and page.url != state.url:
-                        success = await self._replay_state(page, self.start_url, state)
-                        if not success:
-                            logger.warning(f"Failed to replay state {state.url}, skipping")
-                            continue
+                    if page.url != state.url:
+                        await page.goto(state.url, wait_until="domcontentloaded", timeout=10000)
+                        await page.wait_for_timeout(1000)
                     
                     await self._explore_state(page, state)
                     
@@ -902,6 +800,7 @@ Scan completed:
   GraphQL Ops: {len(self.unique_graphql_ops)}
   States Created: {self.states_created}
   States Skipped: {self.states_skipped}
+  Unique URLs visited: {len(self.visited_urls)}
 """)
 
 
@@ -911,7 +810,7 @@ async def main():
         sys.exit(1)
 
     url = sys.argv[1]
-    max_depth = int(sys.argv[2]) if len(sys.argv) > 2 else 2
+    max_depth = int(sys.argv[2]) if len(sys.argv) > 2 else 3
 
     scanner = PlaywrightScanner(url, max_depth=max_depth)
 
