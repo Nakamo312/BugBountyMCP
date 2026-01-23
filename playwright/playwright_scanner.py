@@ -7,8 +7,9 @@ import json
 import logging
 import sys
 import hashlib
+import time
 from typing import Set, Dict, Any, List, Tuple, Optional
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urljoin
 from dataclasses import dataclass, field
 
 
@@ -63,11 +64,12 @@ class Action:
     selector: str
     text: str
     tag: str
+    href: Optional[str] = None
     event_type: str = "click"
     semantic: str = "unknown"
 
     def __hash__(self):
-        return hash((self.semantic, self.tag, self.text[:30].lower()))
+        return hash((self.semantic, self.tag, self.text[:30].lower(), self.href))
 
     def __eq__(self, other):
         return isinstance(other, Action) and hash(self) == hash(other)
@@ -112,7 +114,7 @@ class State:
         return executed_or_dead >= total_possible or self.visited_count >= 2
 
 
-class PlaywrightScanner:
+class RecursiveCrawler:
     """Crawler that recursively explores a branch and spawns child crawlers"""
     
     def __init__(self, 
@@ -122,6 +124,7 @@ class PlaywrightScanner:
                  crawler_id: str = "main"):
         
         self.start_url = start_url
+        self.start_domain = urlparse(start_url).netloc
         self.max_depth = max_depth
         self.max_path_length = max_path_length
         self.crawler_id = crawler_id
@@ -144,6 +147,20 @@ class PlaywrightScanner:
         self.states_explored = 0
         self.child_crawlers_spawned = 0
         
+    def _normalize_url(self, url: str) -> str:
+        """Normalize URL for comparison"""
+        parsed = urlparse(url)
+        normalized = f"{parsed.netloc}{parsed.path}"
+        if parsed.query:
+            query_params = parse_qs(parsed.query, keep_blank_values=True)
+            sorted_params = sorted(query_params.items())
+            query_string = "&".join(f"{k}={','.join(sorted(v))}" for k, v in sorted_params)
+            normalized += "?" + query_string
+        return normalized
+    
+    def _is_same_domain(self, url: str) -> bool:
+        return urlparse(url).netloc == self.start_domain
+    
     def _is_static_resource(self, url: str) -> bool:
         lower_url = url.lower().split('?')[0]
         return any(lower_url.endswith(ext) for ext in STATIC_EXTENSIONS)
@@ -165,22 +182,27 @@ class PlaywrightScanner:
         
         return f"{method}:{normalized_path}:{query_sig}:{body_schema}"
     
-    def _classify_action_semantic(self, text: str, selector: str, tag: str) -> str:
+    def _classify_action_semantic(self, text: str, selector: str, tag: str, href: Optional[str] = None) -> str:
         text_lower = text.lower()
         selector_lower = selector.lower()
         
-        if any(k in text_lower for k in ['next', 'prev', 'page', '»', '«', '>', '<']):
-            return 'pagination'
-        if any(k in text_lower for k in ['filter', 'sort', 'search', 'apply', 'category', 'tag']):
-            return 'filter'
-        if any(k in text_lower for k in ['submit', 'send', 'save', 'post', 'create', 'delete', 'update']):
+        if href and href.startswith('javascript:'):
+            return 'javascript'
+        
+        if any(k in text_lower for k in ['submit', 'save', 'post', 'create', 'delete', 'update']):
             return 'submit'
-        if any(k in text_lower for k in ['login', 'signup', 'logout', 'register']):
+        if any(k in text_lower for k in ['login', 'signin', 'signup', 'logout', 'register', 'auth']):
             return 'auth'
-        if tag == 'a' or 'nav' in selector_lower or 'menu' in selector_lower:
+        if any(k in text_lower for k in ['search', 'find', 'filter', 'sort']):
+            return 'search'
+        if any(k in text_lower for k in ['next', 'prev', 'page', '»', '«', '>', '<', 'more']):
+            return 'pagination'
+        if any(k in text_lower for k in ['cart', 'buy', 'purchase', 'order', 'checkout']):
+            return 'commerce'
+        if tag == 'a' and href:
             return 'navigation'
-        if any(k in text_lower for k in ['load', 'more', 'show', 'expand', 'view']):
-            return 'data_loader'
+        if tag == 'form':
+            return 'form_submit'
         return 'interaction'
     
     async def _get_dom_vector(self, page: Page) -> Dict[str, int]:
@@ -230,13 +252,26 @@ class PlaywrightScanner:
                 if not await el.is_visible() or not await el.is_enabled():
                     continue
                 
-                text = (await el.text_content() or "").strip()[:50]
+                text = (await el.text_content() or "").strip()[:100]
                 tag = await el.evaluate("el => el.tagName.toLowerCase()")
+                
+                href = None
+                if tag == 'a':
+                    href = await el.get_attribute("href")
+                    if href:
+                        href = urljoin(str(page.url), href)
+                
                 selector = await self._generate_selector(el)
                 
                 if selector:
-                    semantic = self._classify_action_semantic(text, selector, tag)
-                    actions.add(Action(selector=selector, text=text, tag=tag, semantic=semantic))
+                    semantic = self._classify_action_semantic(text, selector, tag, href)
+                    actions.add(Action(
+                        selector=selector, 
+                        text=text, 
+                        tag=tag, 
+                        href=href,
+                        semantic=semantic
+                    ))
             except:
                 continue
         
@@ -291,32 +326,44 @@ class PlaywrightScanner:
             }
         """)
     
-    async def _execute_action(self, page: Page, action: Action) -> tuple[bool, bool]:
+    async def _execute_action(self, page: Page, action: Action) -> tuple[bool, str, bool]:
+        """Execute action and return (success, new_url, had_effect)"""
         try:
             element = await page.query_selector(action.selector)
-            if element and await element.is_visible() and await element.is_enabled():
-                initial_request_count = self.request_count
-                
-                await element.scroll_into_view_if_needed()
-                
-                if action.semantic in ['submit', 'auth']:
-                    await self._fill_forms(page)
-                    await page.wait_for_timeout(200)
-                
-                await element.click(timeout=2000)
-                
-                try:
-                    await page.wait_for_load_state("networkidle", timeout=5000)
-                except:
-                    pass
-                
-                await page.wait_for_timeout(1000)
-                
-                had_effect = self.request_count > initial_request_count
-                return True, had_effect
-        except:
-            pass
-        return False, False
+            if not element or not await element.is_visible() or not await element.is_enabled():
+                return False, None, False
+            
+            initial_url = page.url
+            initial_request_count = self.request_count
+            
+            await element.scroll_into_view_if_needed()
+            
+            if action.semantic in ['submit', 'auth', 'form_submit']:
+                await self._fill_forms(page)
+                await page.wait_for_timeout(200)
+            
+            await element.click(timeout=2000)
+            
+            # Wait for navigation or AJAX
+            try:
+                await page.wait_for_load_state("networkidle", timeout=5000)
+            except:
+                pass
+            
+            await page.wait_for_timeout(1000)
+            
+            new_url = page.url
+            had_requests = self.request_count > initial_request_count
+            url_changed = new_url != initial_url
+            
+            # Effect is either new requests OR navigation to new page
+            had_effect = had_requests or url_changed
+            
+            return True, new_url, had_effect
+            
+        except Exception as e:
+            logger.debug(f"[{self.crawler_id}] Action execution failed: {e}")
+            return False, None, False
     
     async def intercept_request(self, route: Route):
         request = route.request
@@ -326,9 +373,9 @@ class PlaywrightScanner:
             return
         
         parsed = urlparse(request.url)
-        start_domain = urlparse(self.start_url).netloc
         
-        if parsed.netloc != start_domain:
+        # Only intercept same-domain requests
+        if not self._is_same_domain(request.url):
             await route.continue_()
             return
         
@@ -425,33 +472,34 @@ class PlaywrightScanner:
             logger.info(f"[{self.crawler_id}] Found: {request.method} {request.url} -> {response.status}")
             print(json.dumps(result), flush=True)
     
-    async def _should_skip_state(self, state: State, forbidden_urls: Set[str]) -> bool:
+    async def _should_skip_state(self, state_url: str, depth: int, path_length: int, 
+                               forbidden_urls: Set[str]) -> bool:
         """Check if state should be skipped"""
         
         # Проверка запрещенных URL (родительских URL)
-        if state.url in forbidden_urls:
-            logger.info(f"[{self.crawler_id}] Skipping forbidden URL: {state.url}")
+        if state_url in forbidden_urls:
+            logger.debug(f"[{self.crawler_id}] Skipping forbidden URL: {state_url}")
+            return True
+        
+        # Проверка домена
+        if not self._is_same_domain(state_url):
+            logger.info(f"[{self.crawler_id}] Different domain: {state_url}")
             return True
         
         # Проверка глубины
-        if state.depth > self.max_depth:
-            logger.info(f"[{self.crawler_id}] Max depth exceeded: {state.depth}")
+        if depth > self.max_depth:
+            logger.info(f"[{self.crawler_id}] Max depth exceeded: {depth}")
             return True
         
         # Проверка длины пути
-        if len(state.path) >= self.max_path_length:
-            logger.info(f"[{self.crawler_id}] Max path length exceeded: {len(state.path)}")
+        if path_length >= self.max_path_length:
+            logger.info(f"[{self.crawler_id}] Max path length exceeded: {path_length}")
             return True
         
-        # Проверка глобального посещения
-        state_fingerprint = state.get_fingerprint()
-        if state_fingerprint in self.global_visited_states:
-            logger.debug(f"[{self.crawler_id}] State already visited globally")
-            return True
-        
-        # Проверка локального посещения (в этой ветке)
-        if state_fingerprint in state.local_fingerprints:
-            logger.debug(f"[{self.crawler_id}] State already visited locally")
+        # Проверка глобального посещения URL
+        normalized_url = self._normalize_url(state_url)
+        if normalized_url in self.global_visited_urls:
+            logger.debug(f"[{self.crawler_id}] URL already visited: {state_url}")
             return True
         
         return False
@@ -464,13 +512,13 @@ class PlaywrightScanner:
         state.visited_count += 1
         state.local_fingerprints.add(state.get_fingerprint())
         self.global_visited_states.add(state.get_fingerprint())
-        self.global_visited_urls.add(state.url)
+        self.global_visited_urls.add(self._normalize_url(state.url))
         self.states_explored += 1
         
         await self._fill_forms(page)
         
         try:
-            await page.mouse.wheel(0, 3000)
+            await page.mouse.wheel(0, 2000)
             await page.wait_for_timeout(300)
         except:
             pass
@@ -486,16 +534,19 @@ class PlaywrightScanner:
         logger.info(f"[{self.crawler_id}] Action clusters: {len(action_clusters)}")
         
         # Приоритетный порядок выполнения
-        priority_order = ['submit', 'auth', 'filter', 'search', 'data_loader', 'interaction', 'navigation', 'pagination']
+        priority_order = ['form_submit', 'submit', 'auth', 'search', 'commerce', 
+                         'pagination', 'navigation', 'interaction', 'javascript']
         
         for cluster_key, action in action_clusters.items():
             if state.is_exhausted():
                 break
             
+            logger.info(f"[{self.crawler_id}] Executing: [{action.semantic}] {action.text[:30]}")
+            
             # Запоминаем текущее состояние перед действием
             initial_url = page.url
             
-            success, had_effect = await self._execute_action(page, action)
+            success, new_url, had_effect = await self._execute_action(page, action)
             
             if not success:
                 state.dead_actions.add(action)
@@ -504,65 +555,73 @@ class PlaywrightScanner:
             state.executed_actions.add(action)
             
             if had_effect:
-                # Получаем новое состояние
-                new_dom, new_dom_vector, new_cookies, new_storage = await self._get_state_fingerprint(page)
-                new_url = page.url
-                
-                # Создаем новое состояние
-                new_actions = await self._extract_actions(page)
-                new_state = State(
-                    url=new_url,
-                    dom_hash=new_dom,
-                    dom_vector=new_dom_vector,
-                    cookies_hash=new_cookies,
-                    storage_hash=new_storage,
-                    depth=state.depth + 1,
-                    path=state.path + [action],
-                    actions=new_actions
-                )
-                
-                # Наследуем локальные отпечатки
-                new_state.local_fingerprints.update(state.local_fingerprints)
-                
-                # Проверяем, нужно ли пропустить это состояние
-                if not await self._should_skip_state(new_state, forbidden_urls):
-                    # Запускаем новый краулер для исследования этой ветки АСИНХРОННО
-                    child_crawler = PlaywrightScanner(
-                        start_url=new_url,
-                        max_depth=self.max_depth,
-                        max_path_length=self.max_path_length,
-                        crawler_id=f"{self.crawler_id}.{self.child_crawlers_spawned}"
-                    )
+                if new_url and new_url != initial_url:
+                    # Проверяем, нужно ли исследовать новую страницу
+                    if not await self._should_skip_state(
+                        new_url, 
+                        state.depth + 1, 
+                        len(state.path) + 1,
+                        forbidden_urls
+                    ):
+                        # Получаем новое состояние
+                        new_dom, new_dom_vector, new_cookies, new_storage = await self._get_state_fingerprint(page)
+                        
+                        # Создаем новое состояние
+                        new_actions = await self._extract_actions(page)
+                        new_state = State(
+                            url=new_url,
+                            dom_hash=new_dom,
+                            dom_vector=new_dom_vector,
+                            cookies_hash=new_cookies,
+                            storage_hash=new_storage,
+                            depth=state.depth + 1,
+                            path=state.path + [action],
+                            actions=new_actions
+                        )
+                        
+                        # Наследуем локальные отпечатки
+                        new_state.local_fingerprints.update(state.local_fingerprints)
+                        
+                        # Запускаем новый краулер для исследования этой ветки АСИНХРОННО
+                        child_crawler = RecursiveCrawler(
+                            start_url=new_url,
+                            max_depth=self.max_depth,
+                            max_path_length=self.max_path_length,
+                            crawler_id=f"{self.crawler_id}.{self.child_crawlers_spawned}"
+                        )
+                        
+                        # Передаем глобальные данные
+                        child_crawler.global_visited_states = self.global_visited_states
+                        child_crawler.global_visited_urls = self.global_visited_urls
+                        child_crawler.results = self.results
+                        child_crawler.unique_endpoints = self.unique_endpoints
+                        child_crawler.unique_methods_paths = self.unique_methods_paths
+                        child_crawler.unique_json_keys = self.unique_json_keys
+                        child_crawler.unique_graphql_ops = self.unique_graphql_ops
+                        
+                        # Добавляем текущий URL в запрещенные для потомка
+                        new_forbidden = forbidden_urls.copy()
+                        new_forbidden.add(state.url)
+                        
+                        # Запускаем дочерний краулер в отдельной задаче
+                        task = asyncio.create_task(
+                            child_crawler.explore_from_state(new_state, new_forbidden)
+                        )
+                        self.child_crawlers_spawned += 1
+                        logger.info(f"[{self.crawler_id}] Spawned child crawler for {new_url}")
                     
-                    # Передаем глобальные данные
-                    child_crawler.global_visited_states = self.global_visited_states
-                    child_crawler.global_visited_urls = self.global_visited_urls
-                    child_crawler.results = self.results
-                    child_crawler.unique_endpoints = self.unique_endpoints
-                    child_crawler.unique_methods_paths = self.unique_methods_paths
-                    child_crawler.unique_json_keys = self.unique_json_keys
-                    child_crawler.unique_graphql_ops = self.unique_graphql_ops
-                    
-                    # Добавляем текущий URL в запрещенные для потомка
-                    new_forbidden = forbidden_urls.copy()
-                    new_forbidden.add(state.url)
-                    
-                    # Запускаем дочерний краулер в отдельной задаче
-                    task = asyncio.create_task(
-                        child_crawler.explore_from_state(new_state, new_forbidden)
-                    )
-                    self.child_crawlers_spawned += 1
-                    logger.info(f"[{self.crawler_id}] Spawned child crawler {self.child_crawlers_spawned} for {new_url}")
-                
-                # Возвращаемся в исходное состояние для следующего действия
-                if page.url != initial_url:
-                    await page.goto(initial_url, wait_until="domcontentloaded", timeout=10000)
-                    await page.wait_for_timeout(500)
+                    # Возвращаемся в исходное состояние для следующего действия
+                    if page.url != initial_url:
+                        await page.goto(initial_url, wait_until="domcontentloaded", timeout=10000)
+                        await page.wait_for_timeout(500)
+                else:
+                    # Действие вызвало запросы, но не навигацию
+                    logger.info(f"[{self.crawler_id}] Action caused requests but no navigation: {action.text[:30]}")
             else:
                 state.dead_actions.add(action)
                 logger.info(f"[{self.crawler_id}] Dead action [{action.semantic}]: {action.text[:30]}")
         
-        logger.info(f"[{self.crawler_id}] Branch exploration complete: {len(state.executed_actions)} actions executed")
+        logger.info(f"[{self.crawler_id}] Branch exploration complete: {len(state.executed_actions)} actions executed, {len(state.dead_actions)} dead actions")
     
     async def explore_from_state(self, initial_state: State, forbidden_urls: Set[str] = None):
         """Начинаем исследование с заданного состояния"""
@@ -669,7 +728,7 @@ async def main():
     url = sys.argv[1]
     max_depth = int(sys.argv[2]) if len(sys.argv) > 2 else 3
     
-    crawler = PlaywrightScanner(
+    crawler = RecursiveCrawler(
         start_url=url,
         max_depth=max_depth,
         crawler_id="main"
