@@ -524,7 +524,8 @@ class PipelineProvider(Provider):
             processor_type=PlaywrightBatchProcessor,
             ingestor_type=KatanaResultIngestor,
             max_parallelism=1,
-            execution_delay=settings.ORCHESTRATOR_SCAN_DELAY
+            execution_delay=settings.ORCHESTRATOR_SCAN_DELAY,
+            scope_policy=ScopePolicy.STRICT
         )
         registry.register(playwright_node)
 

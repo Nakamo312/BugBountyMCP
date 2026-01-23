@@ -4,10 +4,12 @@ from urllib.parse import urlparse, parse_qs
 import logging
 
 from api.config import Settings
+from api.domain.models import ScopeRuleModel
 from api.infrastructure.unit_of_work.interfaces.katana import KatanaUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 from api.infrastructure.ingestors.ingest_result import IngestResult
+from api.application.utils.scope_checker import ScopeChecker
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,7 @@ class KatanaResultIngestor(BaseResultIngestor):
     def __init__(self, uow: KatanaUnitOfWork, settings: Settings):
         super().__init__(uow, settings.KATANA_INGESTOR_BATCH_SIZE)
         self._js_files = []
+        self._scope_rules: List[ScopeRuleModel] = []
 
     async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
         """
@@ -35,6 +38,9 @@ class KatanaResultIngestor(BaseResultIngestor):
             IngestResult with js_files list
         """
         self._js_files = []
+
+        async with self.uow as uow:
+            self._scope_rules = await uow.scope_rules.find_by_program(program_id)
 
         await super().ingest(program_id, results)
 
@@ -65,6 +71,10 @@ class KatanaResultIngestor(BaseResultIngestor):
         parsed = urlparse(endpoint_url)
         host_name = parsed.hostname
         if not host_name:
+            return
+
+        if not ScopeChecker.is_in_scope(host_name, self._scope_rules):
+            logger.info(f"Out-of-scope host: {host_name} program={program_id}")
             return
 
         scheme = parsed.scheme or "http"

@@ -1,4 +1,5 @@
 """Pipeline execution context"""
+import logging
 from typing import Dict, Any, Optional, Type, TypeVar, List, Tuple
 from uuid import UUID
 from dishka import AsyncContainer
@@ -7,6 +8,8 @@ from api.infrastructure.events.event_bus import EventBus
 from api.infrastructure.events.event_types import EventType
 from api.config import Settings
 from api.application.pipeline.scope_policy import ScopePolicy
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
 
@@ -26,15 +29,6 @@ class PipelineContext:
         scope_policy: ScopePolicy = ScopePolicy.NONE,
         confidence_threshold: float = 0.6,
     ):
-        """
-        Initialize pipeline context.
-
-        Args:
-            node_id: ID of the node that created this context
-            bus: EventBus for emitting events
-            container: DI container for service access
-            settings: Application settings
-        """
         self.node_id = node_id
         self._bus = bus
         self._container = container
@@ -50,24 +44,21 @@ class PipelineContext:
         source: Optional[str] = None,
         confidence: float = 0.5
     ):
-        """
-        Emit event to EventBus in standardized format.
-
-        Args:
-            event_name: Event name string (e.g., "host_discovered")
-            targets: List of targets (hosts, URLs, IPs, subdomains, etc.)
-            program_id: Program UUID
-            source: Source node ID (defaults to context node_id)
-            confidence: Event confidence 0.0-1.0 (default: 0.5)
-
-        Raises:
-            RuntimeError: If EventBus not available in context
-        """
         if not self._bus:
             raise RuntimeError("EventBus not available in context")
 
+        original_count = len(targets)
+
         if self.scope_policy != ScopePolicy.NONE:
             in_scope, out_scope = await self.filter_by_scope(program_id, targets)
+
+            logger.info(
+                f"Scope filter: node={self.node_id} policy={self.scope_policy.value} "
+                f"total={original_count} in_scope={len(in_scope)} out_scope={len(out_scope)}"
+            )
+
+            if out_scope:
+                logger.debug(f"Out-of-scope targets: {out_scope[:5]}...")
 
             if self.scope_policy == ScopePolicy.STRICT:
                 targets = in_scope
@@ -78,9 +69,14 @@ class PipelineContext:
                     targets = in_scope
                 else:
                     if confidence < self.confidence_threshold:
-                        return  
+                        logger.info(
+                            f"Dropping event: node={self.node_id} confidence={confidence} "
+                            f"threshold={self.confidence_threshold}"
+                        )
+                        return
 
         if not targets:
+            logger.info(f"No targets to emit after scope filter: node={self.node_id}")
             return
 
         await self._bus.publish({
@@ -92,18 +88,6 @@ class PipelineContext:
         })
 
     async def get_service(self, service_type: Type[T]) -> T:
-        """
-        Get service from DI container.
-
-        Args:
-            service_type: Type of service to retrieve
-
-        Returns:
-            Service instance
-
-        Raises:
-            RuntimeError: If DI container not available in context
-        """
         if not self._container:
             raise RuntimeError("DI container not available in context")
         async with self._container() as request_container:
@@ -111,30 +95,11 @@ class PipelineContext:
 
     @property
     def settings(self) -> Settings:
-        """
-        Get application settings.
-
-        Returns:
-            Application settings
-
-        Raises:
-            RuntimeError: If settings not available in context
-        """
         if not self._settings:
             raise RuntimeError("Settings not available in context")
         return self._settings
 
     async def filter_by_scope(self, program_id: UUID, targets: List[str]) -> Tuple[List[str], List[str]]:
-        """
-        Filter targets by program scope rules.
-
-        Args:
-            program_id: Program UUID
-            targets: List of domains or URLs to filter
-
-        Returns:
-            Tuple of (in_scope_targets, out_of_scope_targets)
-        """
         from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
         from api.application.utils.scope_checker import ScopeChecker
 
@@ -145,4 +110,10 @@ class PipelineContext:
             program_uow = await request_container.get(ProgramUnitOfWork)
             async with program_uow:
                 scope_rules = await program_uow.scope_rules.find_by_program(program_id)
+
+                if not scope_rules:
+                    logger.warning(
+                        f"No scope rules for program={program_id}, all targets pass through"
+                    )
+
                 return ScopeChecker.filter_in_scope(targets, scope_rules)
