@@ -68,16 +68,11 @@ class AnalysisService:
         self,
         program_id: UUID,
         limit: int = 100,
-        offset: int = 0,
-        param_location: str | None = None
+        offset: int = 0
     ) -> AnalysisListDTO:
         """Get injection candidates (SQLi, XSS, etc.)"""
-        filters = {}
-        if param_location:
-            filters["param_location"] = param_location
-
         rows, total = await self._query_view(
-            "injection_candidates_view", program_id, limit, offset, filters
+            "injection_candidates_view", program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[InjectionCandidateDTO(**row) for row in rows],
@@ -209,16 +204,11 @@ class AnalysisService:
         self,
         program_id: UUID,
         limit: int = 100,
-        offset: int = 0,
-        sensitivity_type: str | None = None
+        offset: int = 0
     ) -> AnalysisListDTO:
         """Get sensitive headers"""
-        filters = {}
-        if sensitivity_type:
-            filters["sensitivity_type"] = sensitivity_type
-
         rows, total = await self._query_view(
-            "sensitive_headers_view", program_id, limit, offset, filters
+            "sensitive_headers_view", program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[SensitiveHeaderDTO(**row) for row in rows],

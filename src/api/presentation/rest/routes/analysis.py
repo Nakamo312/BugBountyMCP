@@ -21,15 +21,13 @@ async def get_injection_candidates(
     program_id: UUID,
     limit: int = 100,
     offset: int = 0,
-    param_location: str | None = None,
     analysis_service: FromDishka[AnalysisService] = None
 ) -> AnalysisListDTO:
     try:
         return await analysis_service.get_injection_candidates(
             program_id=program_id,
             limit=limit,
-            offset=offset,
-            param_location=param_location
+            offset=offset
         )
     except Exception as e:
         raise HTTPException(
@@ -223,15 +221,13 @@ async def get_sensitive_headers(
     program_id: UUID,
     limit: int = 100,
     offset: int = 0,
-    sensitivity_type: str | None = None,
     analysis_service: FromDishka[AnalysisService] = None
 ) -> AnalysisListDTO:
     try:
         return await analysis_service.get_sensitive_headers(
             program_id=program_id,
             limit=limit,
-            offset=offset,
-            sensitivity_type=sensitivity_type
+            offset=offset
         )
     except Exception as e:
         raise HTTPException(
