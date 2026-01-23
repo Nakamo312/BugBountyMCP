@@ -91,17 +91,27 @@ class HostsListResponseDTO(BaseModel):
 
 class HostWithStatsDTO(BaseModel):
     """Host with statistics from host_full_stats view"""
+    model_config = ConfigDict(from_attributes=True)
+
     host_id: UUID
     host: str
     program_id: UUID
     in_scope: bool
-    cname: List[str] = []
+    cname: Optional[List[str]] = None
     endpoint_count: int = 0
     parameter_count: int = 0
     body_count: int = 0
     header_count: int = 0
-    services: List[str] = []
-    all_methods: List[str] = []
+    services: Optional[List[str]] = None
+    all_methods: Optional[List[str]] = None
+
+    @property
+    def services_list(self) -> List[str]:
+        return self.services or []
+
+    @property
+    def methods_list(self) -> List[str]:
+        return self.all_methods or []
 
 
 class HostWithServicesDTO(BaseModel):

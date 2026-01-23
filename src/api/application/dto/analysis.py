@@ -11,13 +11,12 @@ class InjectionCandidateDTO(BaseModel):
     host: str
     full_url: str
     path: str
-    methods: List[str]
+    methods: Optional[List[str]] = None
     status_code: Optional[int] = None
-    param_name: str
-    param_location: str
-    param_type: str
-    example_value: Optional[str] = None
-    vuln_indicators: List[str] = []
+    query_params: Optional[List[str]] = None
+    body_params: Optional[List[str]] = None
+    path_params: Optional[List[str]] = None
+    injectable_params: Optional[List[str]] = None
 
 
 class SSRFCandidateDTO(BaseModel):
@@ -26,10 +25,9 @@ class SSRFCandidateDTO(BaseModel):
     host: str
     full_url: str
     path: str
-    methods: List[str]
-    status_code: Optional[int] = None
+    methods: Optional[List[str]] = None
     param_name: str
-    param_location: str
+    location: str
     example_value: Optional[str] = None
 
 
@@ -40,10 +38,10 @@ class IDORCandidateDTO(BaseModel):
     full_url: str
     path: str
     normalized_path: str
-    methods: List[str]
+    methods: Optional[List[str]] = None
     status_code: Optional[int] = None
     param_count: int = 0
-    parameters: List[str] = []
+    parameters: Optional[List[str]] = None
 
 
 class FileUploadCandidateDTO(BaseModel):
@@ -52,10 +50,9 @@ class FileUploadCandidateDTO(BaseModel):
     host: str
     full_url: str
     path: str
-    methods: List[str]
-    status_code: Optional[int] = None
-    param_name: str
-    param_location: str
+    methods: Optional[List[str]] = None
+    file_params: Optional[List[str]] = None
+    file_param_names: Optional[List[str]] = None
 
 
 class ReflectedParameterDTO(BaseModel):
@@ -64,7 +61,7 @@ class ReflectedParameterDTO(BaseModel):
     host: str
     full_url: str
     path: str
-    methods: List[str]
+    methods: Optional[List[str]] = None
     status_code: Optional[int] = None
     param_name: str
     param_location: str
@@ -80,7 +77,7 @@ class ArjunCandidateDTO(BaseModel):
     path: str
     normalized_path: str
     status_code: Optional[int] = None
-    methods: List[str]
+    methods: Optional[List[str]] = None
     host: str
     program_id: UUID
 
@@ -91,10 +88,8 @@ class AdminDebugEndpointDTO(BaseModel):
     host: str
     full_url: str
     path: str
-    normalized_path: str
-    methods: List[str]
+    methods: Optional[List[str]] = None
     status_code: Optional[int] = None
-    match_type: str
 
 
 class CORSAnalysisDTO(BaseModel):
@@ -103,10 +98,7 @@ class CORSAnalysisDTO(BaseModel):
     host: str
     full_url: str
     path: str
-    cors_header: Optional[str] = None
-    cors_credentials: Optional[str] = None
-    cors_methods: Optional[str] = None
-    cors_headers: Optional[str] = None
+    cors_header_value: Optional[str] = None
 
 
 class SensitiveHeaderDTO(BaseModel):
@@ -117,26 +109,25 @@ class SensitiveHeaderDTO(BaseModel):
     path: str
     header_name: str
     header_value: str
-    sensitivity_type: str
 
 
 class HostTechnologyDTO(BaseModel):
     """Host technology from host_technologies"""
-    host: str
     program_id: UUID
-    scheme: str
+    host: str
+    address: str
     port: int
-    technologies: Dict[str, Any] = {}
-    favicon_hash: Optional[str] = None
+    scheme: str
+    technologies: Optional[Dict[str, Any]] = None
+    server_headers: Optional[Dict[str, Any]] = None
 
 
 class SubdomainTakeoverCandidateDTO(BaseModel):
-    """Subdomain takeover candidate"""
-    program_id: UUID
+    """Subdomain takeover candidate from subdomain_takeover_candidates"""
     host: str
-    cname: List[str] = []
-    status_code: Optional[int] = None
-    takeover_type: Optional[str] = None
+    program_id: UUID
+    cname_target: Optional[str] = None
+    platform: Optional[str] = None
 
 
 class APIPatternDTO(BaseModel):
@@ -145,10 +136,10 @@ class APIPatternDTO(BaseModel):
     normalized_path: str
     host_count: int = 0
     endpoint_count: int = 0
-    all_methods: List[str] = []
-    all_status_codes: List[int] = []
+    all_methods: Optional[List[str]] = None
+    all_status_codes: Optional[List[int]] = None
     unique_params: int = 0
-    param_names: List[str] = []
+    param_names: Optional[List[str]] = None
 
 
 class AnalysisListDTO(BaseModel):
