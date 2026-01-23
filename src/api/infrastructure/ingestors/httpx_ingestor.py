@@ -82,7 +82,6 @@ class HTTPXResultIngestor(BaseResultIngestor):
         if not host_name:
             return None, False
 
-        # Проверяем scope сразу - если хост не в scope, не обрабатываем его
         if not ScopeChecker.is_in_scope(host_name, self._scope_rules):
             logger.info(f"Out-of-scope host: {host_name} program={program_id}")
             return None, False
@@ -121,8 +120,6 @@ class HTTPXResultIngestor(BaseResultIngestor):
         if not host_name:
             return None
 
-        # Хост уже проверен на scope в _process_record
-        # Все хосты здесь гарантированно in_scope=True
         return await uow.hosts.ensure(program_id=program_id, host=host_name, in_scope=True)
 
     async def _ensure_ip(self, uow: HTTPXUnitOfWork, program_id: UUID, host, data: Dict[str, Any]):

@@ -58,7 +58,7 @@ class FFUFNode(Node):
             bus=getattr(self, '_bus', None),
             container=getattr(self, '_container', None),
             settings=getattr(self, '_settings', None),
-             scope_policy=self.scope_policy
+            scope_policy=self.scope_policy
         )
 
     async def execute(self, event: Dict[str, Any], ctx: PipelineContext):
