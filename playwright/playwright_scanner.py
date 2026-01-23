@@ -7,6 +7,7 @@ import json
 import logging
 import sys
 import hashlib
+import time
 from typing import Set, Dict, Any, List, Tuple, Optional
 from urllib.parse import urlparse, parse_qs, urljoin
 from dataclasses import dataclass, field
@@ -67,6 +68,7 @@ class Action:
     href: Optional[str] = None
     event_type: str = "click"
     semantic: str = "unknown"
+    wait_for_requests: bool = False
 
     def __hash__(self):
         return hash((self.semantic, self.tag, self.text[:30].lower(), self.href))
@@ -105,7 +107,7 @@ class State:
             return True
         
         executed_ratio = len(self.executed_actions) / len(self.actions)
-        return executed_ratio >= 0.95 or self.visited_count >= 3
+        return executed_ratio >= 0.95 or self.visited_count >= 2
 
 
 class PlaywrightScanner:
@@ -122,7 +124,6 @@ class PlaywrightScanner:
         self.pending_requests: Dict[str, Dict[str, Any]] = {}
         self.seen_requests: Set[str] = set()
         
-        self.visited_states: Dict[str, State] = {}
         self.visited_urls: Set[str] = set()
         self.url_to_state: Dict[str, State] = {}
         self.state_graph: Dict[str, Set[str]] = defaultdict(set)
@@ -140,6 +141,9 @@ class PlaywrightScanner:
         
         self.states_created = 0
         self.states_skipped = 0
+        
+        self.active_xhr_requests: Set[str] = set()
+        self.xhr_timeout = 3.0
 
     def _normalize_url(self, url: str) -> str:
         parsed = urlparse(url)
@@ -263,7 +267,10 @@ class PlaywrightScanner:
             input[type=submit], 
             input[type=button],
             [role=button],
-            form
+            form,
+            [onclick],
+            [data-action],
+            [data-submit]
         """
         
         elements = await page.query_selector_all(selectors)
@@ -294,12 +301,15 @@ class PlaywrightScanner:
                     
                 semantic = self._classify_action_semantic(text, selector, tag, href)
                 
+                wait_for_requests = semantic in ['submit', 'search', 'form_submit', 'auth']
+                
                 action = Action(
                     selector=selector,
                     text=text,
                     tag=tag,
                     href=href,
-                    semantic=semantic
+                    semantic=semantic,
+                    wait_for_requests=wait_for_requests
                 )
                 actions.add(action)
                     
@@ -367,6 +377,26 @@ class PlaywrightScanner:
             }
         """)
 
+    async def _wait_for_xhr_requests(self, page: Page, timeout: float = 3.0):
+        """Wait for XHR/Fetch requests to complete"""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            xhr_count = await page.evaluate("""
+                () => {
+                    const xhrs = window.performance.getEntriesByType('resource')
+                        .filter(r => r.initiatorType === 'xmlhttprequest' || r.initiatorType === 'fetch');
+                    const activeXhrs = performance.getEntries()
+                        .filter(e => e.entryType === 'resource' && 
+                            (e.initiatorType === 'xmlhttprequest' || e.initiatorType === 'fetch') &&
+                            e.responseEnd === 0);
+                    return activeXhrs.length;
+                }
+            """)
+            if xhr_count == 0:
+                return True
+            await asyncio.sleep(0.1)
+        return False
+
     async def _execute_action(self, page: Page, action: Action) -> tuple[bool, str, bool]:
         try:
             element = await self._find_element_by_action(page, action)
@@ -386,16 +416,23 @@ class PlaywrightScanner:
             
             if action.semantic in ['submit', 'auth', 'form_submit']:
                 await self._fill_forms(page)
-                await page.wait_for_timeout(100)
+                await page.wait_for_timeout(200)
             
             await element.click(timeout=2000)
 
-            try:
-                await page.wait_for_load_state("networkidle", timeout=3000)
-            except:
-                pass
-                
-            await page.wait_for_timeout(500)
+            if action.wait_for_requests:
+                await self._wait_for_xhr_requests(page, self.xhr_timeout)
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=5000)
+                except:
+                    pass
+            else:
+                try:
+                    await page.wait_for_load_state("domcontentloaded", timeout=3000)
+                except:
+                    pass
+            
+            await page.wait_for_timeout(800)
 
             new_url = page.url
             had_effect = (self.request_count > initial_request_count) or (new_url != initial_url)
@@ -403,6 +440,7 @@ class PlaywrightScanner:
             return True, new_url, had_effect
             
         except Exception as e:
+            logger.debug(f"Action execution failed for {action.text}: {e}")
             return False, None, False
 
     async def intercept_request(self, route: Route):
@@ -419,10 +457,6 @@ class PlaywrightScanner:
         parsed = urlparse(request.url)
         start_domain = urlparse(self.start_url).netloc
         request_domain = parsed.netloc
-
-        if start_domain != request_domain:
-            await route.continue_()
-            return
 
         result = {
             "request": {
@@ -454,7 +488,10 @@ class PlaywrightScanner:
             self.seen_requests.add(key)
             self.pending_requests[key] = result
 
-            logger.info(f"Captured: {request.method} {parsed.path} {f'[body: {len(request.post_data)} bytes]' if request.post_data else ''}")
+            if request.method == "POST":
+                logger.info(f"Captured POST: {parsed.path} [body: {len(request.post_data) if request.post_data else 0} bytes]")
+            else:
+                logger.info(f"Captured: {request.method} {parsed.path}")
 
         await route.continue_()
 
@@ -532,11 +569,15 @@ class PlaywrightScanner:
 
             try:
                 body = await response.text()
-                self.unique_json_keys.update(self._extract_json_keys(body))
+                if body:
+                    self.unique_json_keys.update(self._extract_json_keys(body))
+                    if request.method == "POST":
+                        logger.info(f"Response: {request.method} {parsed.path} -> {response.status} [body: {len(body)} chars]")
+                    else:
+                        logger.info(f"Response: {request.method} {parsed.path} -> {response.status}")
             except:
-                pass
+                logger.info(f"Response: {request.method} {parsed.path} -> {response.status}")
 
-            logger.info(f"Found: {request.method} {request.url} -> {response.status}")
             print(json.dumps(result), flush=True)
 
     async def _find_element_by_action(self, page: Page, action: Action) -> ElementHandle:
@@ -589,14 +630,14 @@ class PlaywrightScanner:
 
         try:
             await page.mouse.wheel(0, 1000)
-            await page.wait_for_timeout(200)
+            await page.wait_for_timeout(300)
         except:
             pass
 
         priority_order = {
             'form_submit': 1,
-            'auth': 2,
-            'submit': 3,
+            'submit': 2,
+            'auth': 3,
             'search': 4,
             'commerce': 5,
             'pagination': 6,
@@ -613,6 +654,8 @@ class PlaywrightScanner:
         
         logger.info(f"Actions to explore: {len(sorted_actions)}")
 
+        initial_endpoints = len(self.unique_endpoints)
+        
         for action in sorted_actions:
             if state.is_exhausted():
                 break
@@ -621,7 +664,7 @@ class PlaywrightScanner:
             if action_key in state.executed_actions:
                 continue
                 
-            logger.debug(f"Executing action: {action.semantic} - {action.text[:30]}")
+            logger.info(f"Executing: [{action.semantic}] {action.text[:30]}")
             
             success, new_url, had_effect = await self._execute_action(page, action)
             
@@ -638,7 +681,7 @@ class PlaywrightScanner:
                     
                     if normalized_new_url not in self.visited_urls:
                         try:
-                            await page.wait_for_timeout(500)
+                            await page.wait_for_timeout(1000)
                             
                             dom_hash, dom_vector, cookies_hash, storage_hash = await self._get_state_fingerprint(page)
                             
@@ -663,17 +706,22 @@ class PlaywrightScanner:
                             
                             logger.info(f"New state [{self.states_created}]: {new_url} (depth={new_state.depth}, actions={len(new_actions)})")
                             
+                            await page.goto(state.url, wait_until="domcontentloaded", timeout=10000)
+                            await page.wait_for_timeout(500)
+                            
                         except Exception as e:
                             logger.debug(f"Failed to create new state: {e}")
+                            await page.goto(state.url, wait_until="domcontentloaded", timeout=10000)
                     else:
                         logger.debug(f"Already visited: {new_url}")
-                
-                await page.goto(state.url, wait_until="domcontentloaded", timeout=10000)
-                await page.wait_for_timeout(500)
+                        await page.goto(state.url, wait_until="domcontentloaded", timeout=10000)
+                else:
+                    await page.goto(state.url, wait_until="domcontentloaded", timeout=10000)
             else:
                 logger.info(f"Dead action [{action.semantic}]: {action.text[:30]}")
         
-        logger.info(f"State exhausted: {len(state.executed_actions)}/{len(state.actions)} actions executed")
+        endpoints_discovered = len(self.unique_endpoints) - initial_endpoints
+        logger.info(f"State exhausted: {len(state.executed_actions)}/{len(state.actions)} actions, {endpoints_discovered} new endpoints")
 
     async def _check_convergence(self) -> bool:
         endpoints_delta = len(self.unique_endpoints) - self.last_endpoint_count
@@ -721,22 +769,62 @@ class PlaywrightScanner:
 
             await page.add_init_script("""
                 (() => {
-                  const origFetch = window.fetch;
-                  window.fetch = async (...args) => {
-                    const res = await origFetch(...args);
-                    res.clone().text().then(body => {
-                      console.debug("FETCH", args[0], body);
-                    });
-                    return res;
-                  };
+                    window._capturedRequests = [];
+                    
+                    const origFetch = window.fetch;
+                    window.fetch = async (...args) => {
+                        const startTime = Date.now();
+                        try {
+                            const response = await origFetch(...args);
+                            const endTime = Date.now();
+                            window._capturedRequests.push({
+                                type: 'fetch',
+                                url: args[0],
+                                method: args[1]?.method || 'GET',
+                                status: response.status,
+                                duration: endTime - startTime
+                            });
+                            return response;
+                        } catch (error) {
+                            return Promise.reject(error);
+                        }
+                    };
 
-                  const origOpen = XMLHttpRequest.prototype.open;
-                  XMLHttpRequest.prototype.open = function(method, url) {
-                    this.addEventListener('load', function() {
-                      console.debug("XHR", method, url, this.responseText);
-                    });
-                    origOpen.apply(this, arguments);
-                  };
+                    const origOpen = XMLHttpRequest.prototype.open;
+                    XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+                        this._requestStart = Date.now();
+                        this._method = method;
+                        this._url = url;
+                        
+                        this.addEventListener('load', function() {
+                            const duration = Date.now() - this._requestStart;
+                            window._capturedRequests.push({
+                                type: 'xhr',
+                                url: this._url,
+                                method: this._method,
+                                status: this.status,
+                                duration: duration
+                            });
+                        });
+                        
+                        origOpen.apply(this, arguments);
+                    };
+                    
+                    const origFormSubmit = HTMLFormElement.prototype.submit;
+                    HTMLFormElement.prototype.submit = function() {
+                        const formData = new FormData(this);
+                        const data = {};
+                        for (let [key, value] of formData.entries()) {
+                            data[key] = value;
+                        }
+                        window._capturedRequests.push({
+                            type: 'form_submit',
+                            url: this.action || window.location.href,
+                            method: this.method || 'POST',
+                            data: data
+                        });
+                        return origFormSubmit.apply(this, arguments);
+                    };
                 })();
             """)
 
