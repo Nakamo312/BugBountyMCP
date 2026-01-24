@@ -1,5 +1,6 @@
 """Service for infrastructure graph visualization"""
 
+import ipaddress
 import logging
 from typing import Dict, List
 from uuid import UUID
@@ -12,6 +13,16 @@ from api.application.dto.infrastructure import (
 from api.infrastructure.unit_of_work.interfaces.infrastructure import InfrastructureUnitOfWork
 
 logger = logging.getLogger(__name__)
+
+
+def ip_in_cidr(ip_str: str, cidr_str: str) -> bool:
+    """Check if IP address is within CIDR range"""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        network = ipaddress.ip_network(cidr_str, strict=False)
+        return ip in network
+    except ValueError:
+        return False
 
 
 class InfrastructureService:
@@ -65,6 +76,9 @@ class InfrastructureService:
 
             ips = await uow.ips.find_many(filters={"program_id": program_id}, limit=10000)
             stats["ip_count"] = len(ips)
+
+            cidr_list = [(cidr.id, cidr.cidr) for cidr in cidrs]
+
             for ip in ips:
                 nodes.append(GraphNodeDTO(
                     id=f"ip-{ip.id}",
@@ -74,6 +88,15 @@ class InfrastructureService:
                         "in_scope": ip.in_scope,
                     }
                 ))
+
+                for cidr_id, cidr_str in cidr_list:
+                    if ip_in_cidr(ip.address, cidr_str):
+                        edges.append(GraphEdgeDTO(
+                            source=f"cidr-{cidr_id}",
+                            target=f"ip-{ip.id}",
+                            type="contains"
+                        ))
+                        break
 
             services = await uow.services.find_by_program_id(program_id)
             stats["service_count"] = len(services)
