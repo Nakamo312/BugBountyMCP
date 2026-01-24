@@ -144,7 +144,11 @@ export const getHostTechnologies = (programId, params = {}) =>
 export const getSubdomainTakeoverCandidates = (programId, params = {}) => 
   api.get(`/analysis/program/${programId}/subdomain-takeover`, { params })
 
-export const getAPIPatterns = (programId, params = {}) => 
+export const getAPIPatterns = (programId, params = {}) =>
   api.get(`/analysis/program/${programId}/api-patterns`, { params })
+
+// Proxy
+export const proxyRequest = (data) =>
+  api.post('/proxy', data)
 
 export default api

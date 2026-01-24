@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useProgram } from '../context/ProgramContext'
-import axios from 'axios'
 import { Server, Loader, AlertCircle } from 'lucide-react'
 import useHosts from '../hooks/useHosts'
+import { proxyRequest } from '../services/api'
 import {
   HostCard,
   HostFilters,
@@ -45,7 +45,7 @@ const Hosts = () => {
     try {
       const scheme = 'https'
       const baseUrl = `${scheme}://${host.host}`
-      const url = `${baseUrl}${endpoint.path}`
+      let url = `${baseUrl}${endpoint.path}`
       const method = endpoint.methods?.includes('GET') ? 'GET' : (endpoint.methods?.[0] || 'GET')
 
       const details = endpointDetails[endpointId]
@@ -64,30 +64,33 @@ const Hosts = () => {
         requestHeaders[header.name] = header.value
       })
 
-      const response = await axios({
-        method,
+      if (Object.keys(queryParams).length > 0) {
+        const searchParams = new URLSearchParams(queryParams)
+        url = `${url}?${searchParams.toString()}`
+      }
+
+      const response = await proxyRequest({
         url,
-        params: Object.keys(queryParams).length > 0 ? queryParams : undefined,
-        headers: requestHeaders,
-        validateStatus: () => true,
-        timeout: 10000,
+        method,
+        headers: Object.keys(requestHeaders).length > 0 ? requestHeaders : null,
+        timeout: 10,
       })
 
       setRequestResponses(prev => ({
         ...prev,
         [endpointId]: {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-          data: response.data,
-          url: response.config.url || url,
+          status: response.data.status_code,
+          statusText: response.data.status_text,
+          headers: response.data.headers,
+          data: response.data.body,
+          url: response.data.url,
         },
       }))
     } catch (error) {
       setRequestResponses(prev => ({
         ...prev,
         [endpointId]: {
-          error: error.message,
+          error: error.response?.data?.detail || error.message,
           url: `https://${host.host}${endpoint.path}`,
         },
       }))

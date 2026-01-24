@@ -29,6 +29,19 @@ const HostCard = ({ host, isExpanded, onToggle, children }) => {
             {host.cname && host.cname.length > 0 && (
               <p className="text-sm text-gray-500 truncate mt-1">CNAME: {host.cname.join(', ')}</p>
             )}
+            {host.technologies && Object.keys(host.technologies).length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {Object.entries(host.technologies).map(([tech, version]) => (
+                  <span
+                    key={tech}
+                    className="px-2 py-0.5 text-xs bg-indigo-50 text-indigo-700 rounded"
+                    title={version ? `${tech}: ${version}` : tech}
+                  >
+                    {tech}{version && typeof version === 'string' ? `:${version}` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
             {host.services && host.services.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1">
                 {host.services.map((service, idx) => (

@@ -104,6 +104,7 @@ class HostWithStatsDTO(BaseModel):
     header_count: int = 0
     services: Optional[List[str]] = None
     all_methods: Optional[List[str]] = None
+    technologies: Optional[Dict[str, Any]] = None
 
     @property
     def services_list(self) -> List[str]:
@@ -112,6 +113,12 @@ class HostWithStatsDTO(BaseModel):
     @property
     def methods_list(self) -> List[str]:
         return self.all_methods or []
+
+    @property
+    def tech_list(self) -> List[str]:
+        if not self.technologies:
+            return []
+        return list(self.technologies.keys())
 
 
 class HostWithServicesDTO(BaseModel):
