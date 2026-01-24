@@ -41,17 +41,32 @@ export const getHostsByProgram = (programId, params = {}) =>
 export const getHostWithEndpoints = (hostId) => 
   api.get(`/hosts/${hostId}`)
 
+export const getHostWithServices = (hostId) => 
+  api.get(`/hosts/${hostId}/services`)
+
 export const getEndpointsByHost = (hostId, params = {}) => 
   api.get(`/hosts/${hostId}/endpoints`, { params })
 
 export const getEndpointWithDetails = (endpointId) => 
   api.get(`/hosts/endpoints/${endpointId}`)
 
+export const getEndpointFullDetails = (endpointId) => 
+  api.get(`/hosts/endpoints/${endpointId}/full`)
+
 export const getParametersByEndpoint = (endpointId, params = {}) => 
   api.get(`/hosts/endpoints/${endpointId}/parameters`, { params })
 
 export const getHeadersByEndpoint = (endpointId, params = {}) => 
   api.get(`/hosts/endpoints/${endpointId}/headers`, { params })
+
+export const getHostsWithStats = (programId, params = {}) => 
+  api.get(`/hosts/program/${programId}/stats`, { params })
+
+export const getProgramStats = (programId) => 
+  api.get(`/hosts/program/${programId}/program-stats`)
+
+export const getEndpointsWithBody = (programId, params = {}) => 
+  api.get(`/hosts/program/${programId}/endpoints-with-body`, { params })
 
 // Scans
 export const scanSubfinder = (data) => 
@@ -95,5 +110,41 @@ export const scanMapCIDR = (data) =>
 
 export const scanNaabu = (data) => 
   api.post('/scan/naabu', data)
+
+export const getInjectionCandidates = (programId, params = {}) => 
+  api.get(`/analysis/program/${programId}/injection-candidates`, { params })
+
+export const getSSRFCandidates = (programId, params = {}) => 
+  api.get(`/analysis/program/${programId}/ssrf-candidates`, { params })
+
+export const getIDORCandidates = (programId, params = {}) => 
+  api.get(`/analysis/program/${programId}/idor-candidates`, { params })
+
+export const getFileUploadCandidates = (programId, params = {}) => 
+  api.get(`/analysis/program/${programId}/file-upload-candidates`, { params })
+
+export const getReflectedParameters = (programId, params = {}) => 
+  api.get(`/analysis/program/${programId}/reflected-parameters`, { params })
+
+export const getArjunCandidates = (programId, params = {}) => 
+  api.get(`/analysis/program/${programId}/arjun-candidates`, { params })
+
+export const getAdminDebugEndpoints = (programId, params = {}) => 
+  api.get(`/analysis/program/${programId}/admin-debug-endpoints`, { params })
+
+export const getCORSAnalysis = (programId, params = {}) => 
+  api.get(`/analysis/program/${programId}/cors-analysis`, { params })
+
+export const getSensitiveHeaders = (programId, params = {}) => 
+  api.get(`/analysis/program/${programId}/sensitive-headers`, { params })
+
+export const getHostTechnologies = (programId, params = {}) => 
+  api.get(`/analysis/program/${programId}/technologies`, { params })
+
+export const getSubdomainTakeoverCandidates = (programId, params = {}) => 
+  api.get(`/analysis/program/${programId}/subdomain-takeover`, { params })
+
+export const getAPIPatterns = (programId, params = {}) => 
+  api.get(`/analysis/program/${programId}/api-patterns`, { params })
 
 export default api
