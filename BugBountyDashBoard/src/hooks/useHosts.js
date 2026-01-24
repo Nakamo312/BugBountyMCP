@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   getHostsWithStats,
   getHostWithEndpoints,
@@ -13,6 +13,9 @@ export const useHosts = (selectedProgram) => {
   const [programStats, setProgramStats] = useState(null)
   const [loading, setLoading] = useState(false)
   const [inScopeFilter, setInScopeFilter] = useState(null)
+  const [serviceFilter, setServiceFilter] = useState(null)
+  const [techFilter, setTechFilter] = useState(null)
+  const [sortBy, setSortBy] = useState('host')
   const [searchTerm, setSearchTerm] = useState('')
   const [expandedHosts, setExpandedHosts] = useState(new Set())
   const [expandedEndpoints, setExpandedEndpoints] = useState(new Set())
@@ -45,7 +48,6 @@ export const useHosts = (selectedProgram) => {
       }))
     } catch (error) {
       console.error('Failed to load hosts:', error)
-      throw error
     } finally {
       setLoading(false)
     }
@@ -73,6 +75,61 @@ export const useHosts = (selectedProgram) => {
       loadProgramStats()
     }
   }, [selectedProgram])
+
+  const availableServices = useMemo(() => {
+    const servicesSet = new Set()
+    hosts.forEach(host => {
+      if (host.services) {
+        host.services.forEach(s => servicesSet.add(s))
+      }
+    })
+    return Array.from(servicesSet).sort()
+  }, [hosts])
+
+  const availableTechs = useMemo(() => {
+    const techsSet = new Set()
+    hosts.forEach(host => {
+      if (host.technologies) {
+        Object.keys(host.technologies).forEach(t => techsSet.add(t))
+      }
+    })
+    return Array.from(techsSet).sort()
+  }, [hosts])
+
+  const filteredAndSortedHosts = useMemo(() => {
+    let result = hosts.filter(host => {
+      const hostName = host.host || ''
+      if (searchTerm && !hostName.toLowerCase().includes(searchTerm.toLowerCase())) {
+        return false
+      }
+      if (serviceFilter && (!host.services || !host.services.includes(serviceFilter))) {
+        return false
+      }
+      if (techFilter && (!host.technologies || !Object.keys(host.technologies).includes(techFilter))) {
+        return false
+      }
+      return true
+    })
+
+    const desc = sortBy.startsWith('-')
+    const field = desc ? sortBy.slice(1) : sortBy
+
+    result.sort((a, b) => {
+      let aVal = a[field]
+      let bVal = b[field]
+
+      if (typeof aVal === 'string') {
+        aVal = aVal.toLowerCase()
+        bVal = (bVal || '').toLowerCase()
+      }
+
+      if (aVal < bVal) return desc ? 1 : -1
+      if (aVal > bVal) return desc ? -1 : 1
+      return 0
+    })
+
+    return result
+  }, [hosts, searchTerm, serviceFilter, techFilter, sortBy])
 
   const toggleHost = useCallback(async (hostId) => {
     const newExpanded = new Set(expandedHosts)
@@ -156,27 +213,35 @@ export const useHosts = (selectedProgram) => {
     }
   }
 
-  const filteredHosts = hosts.filter(host => {
-    const hostName = host.host || ''
-    if (searchTerm && !hostName.toLowerCase().includes(searchTerm.toLowerCase())) {
-      return false
-    }
-    return true
-  })
-
   const handlePageChange = (newOffset) => {
     setPagination(prev => ({ ...prev, offset: newOffset }))
   }
 
+  const clearFilters = () => {
+    setSearchTerm('')
+    setInScopeFilter(null)
+    setServiceFilter(null)
+    setTechFilter(null)
+    setSortBy('host')
+  }
+
   return {
-    hosts: filteredHosts,
+    hosts: filteredAndSortedHosts,
     allHosts: hosts,
     programStats,
     loading,
     inScopeFilter,
     setInScopeFilter,
+    serviceFilter,
+    setServiceFilter,
+    techFilter,
+    setTechFilter,
+    sortBy,
+    setSortBy,
     searchTerm,
     setSearchTerm,
+    availableServices,
+    availableTechs,
     expandedHosts,
     expandedEndpoints,
     endpointDetails,
@@ -186,6 +251,7 @@ export const useHosts = (selectedProgram) => {
     toggleEndpoint,
     loadEndpointDetails,
     handlePageChange,
+    clearFilters,
     refresh: loadHosts,
   }
 }
