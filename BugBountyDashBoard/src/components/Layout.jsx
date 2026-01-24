@@ -1,12 +1,13 @@
 import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useProgram } from '../context/ProgramContext'
-import { 
-  LayoutDashboard, 
-  FolderKanban, 
-  Scan, 
+import {
+  LayoutDashboard,
+  FolderKanban,
+  Scan,
   Server,
-  AlertCircle 
+  ShieldAlert,
+  AlertCircle
 } from 'lucide-react'
 import ProgramSelector from './ProgramSelector'
 
@@ -19,6 +20,7 @@ const Layout = ({ children }) => {
     { path: '/programs', icon: FolderKanban, label: 'Programs' },
     { path: '/scans', icon: Scan, label: 'Scans' },
     { path: '/hosts', icon: Server, label: 'Hosts' },
+    { path: '/analysis', icon: ShieldAlert, label: 'Analysis' },
   ]
 
   return (
