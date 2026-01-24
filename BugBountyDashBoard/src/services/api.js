@@ -151,4 +151,8 @@ export const getAPIPatterns = (programId, params = {}) =>
 export const proxyRequest = (data) =>
   api.post('/proxy', data)
 
+// Infrastructure
+export const getInfrastructureGraph = (programId) =>
+  api.get(`/infrastructure/program/${programId}/graph`)
+
 export default api

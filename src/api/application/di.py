@@ -10,6 +10,7 @@ from api.application.services.program import ProgramService
 from api.application.services.mapcidr import MapCIDRService
 from api.application.services.host import HostService
 from api.application.services.analysis import AnalysisService
+from api.application.services.infrastructure import InfrastructureService
 from api.application.services.batch_processor import (
     HTTPXBatchProcessor,
     SubfinderBatchProcessor,
@@ -34,6 +35,7 @@ from api.infrastructure.unit_of_work.adapters.mantra import SQLAlchemyMantraUnit
 from api.infrastructure.unit_of_work.adapters.dnsx import SQLAlchemyDNSxUnitOfWork
 from api.infrastructure.unit_of_work.adapters.asnmap import SQLAlchemyASNMapUnitOfWork
 from api.infrastructure.unit_of_work.adapters.naabu import SQLAlchemyNaabuUnitOfWork
+from api.infrastructure.unit_of_work.adapters.infrastructure import SQLAlchemyInfrastructureUnitOfWork
 from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
 from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
 from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
@@ -126,6 +128,10 @@ class UnitOfWorkProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def get_naabu_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyNaabuUnitOfWork:
         return SQLAlchemyNaabuUnitOfWork(session_factory)
+
+    @provide(scope=Scope.REQUEST)
+    def get_infrastructure_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyInfrastructureUnitOfWork:
+        return SQLAlchemyInfrastructureUnitOfWork(session_factory)
 
 
 class CLIRunnerProvider(Provider):
@@ -460,6 +466,13 @@ class ServiceProvider(Provider):
         scan_uow: SQLAlchemyHTTPXUnitOfWork
     ) -> AnalysisService:
         return AnalysisService(scan_uow)
+
+    @provide(scope=Scope.REQUEST)
+    def get_infrastructure_service(
+        self,
+        infrastructure_uow: SQLAlchemyInfrastructureUnitOfWork
+    ) -> InfrastructureService:
+        return InfrastructureService(infrastructure_uow)
 
 
 class PipelineProvider(Provider):

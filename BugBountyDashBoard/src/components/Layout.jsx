@@ -7,6 +7,7 @@ import {
   Scan,
   Server,
   ShieldAlert,
+  Network,
   AlertCircle
 } from 'lucide-react'
 import ProgramSelector from './ProgramSelector'
@@ -21,6 +22,7 @@ const Layout = ({ children }) => {
     { path: '/scans', icon: Scan, label: 'Scans' },
     { path: '/hosts', icon: Server, label: 'Hosts' },
     { path: '/analysis', icon: ShieldAlert, label: 'Analysis' },
+    { path: '/infrastructure', icon: Network, label: 'Infrastructure' },
   ]
 
   return (
