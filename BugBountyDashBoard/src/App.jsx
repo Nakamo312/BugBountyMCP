@@ -7,6 +7,7 @@ import Programs from './pages/Programs'
 import Scans from './pages/Scans'
 import Hosts from './pages/Hosts'
 import Analysis from './pages/Analysis'
+import InfrastructureMap from './pages/InfrastructureMap'
 import ScansPage from './pages/Scans/ScanPage'
 
 function App() {
@@ -20,6 +21,7 @@ function App() {
             <Route path="/scans" element={<ScansPage />} />
             <Route path="/hosts" element={<Hosts />} />
             <Route path="/analysis" element={<Analysis />} />
+            <Route path="/infrastructure" element={<InfrastructureMap />} />
           </Routes>
         </Layout>
       </Router>

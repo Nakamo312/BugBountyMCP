@@ -1,14 +1,26 @@
 """Service repository"""
-from typing import Dict
+from typing import Dict, List
 from uuid import UUID
 
-from api.domain.models import ServiceModel
+from sqlalchemy import select
+
+from api.domain.models import ServiceModel, IPAddressModel
 from api.infrastructure.repositories.adapters.base import SQLAlchemyAbstractRepository
 from api.infrastructure.repositories.interfaces.service import ServiceRepository
 
 
-class SQLAlchemyServiceRepository(SQLAlchemyAbstractRepository):
+class SQLAlchemyServiceRepository(SQLAlchemyAbstractRepository, ServiceRepository):
     model = ServiceModel
+
+    async def find_by_program_id(self, program_id: UUID) -> List[ServiceModel]:
+        """Find all services for a program via ip_addresses join"""
+        query = (
+            select(ServiceModel)
+            .join(IPAddressModel, ServiceModel.ip_id == IPAddressModel.id)
+            .where(IPAddressModel.program_id == program_id)
+        )
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
 
     async def ensure(
         self,
