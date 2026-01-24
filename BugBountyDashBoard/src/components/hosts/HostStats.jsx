@@ -43,31 +43,31 @@ const HostStats = ({ programStats, hosts, filteredCount }) => {
     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
       <StatCard
         label="Total Hosts"
-        value={programStats.total_hosts || 0}
+        value={programStats.host_count || 0}
         icon={Server}
         color="primary"
       />
       <StatCard
         label="In Scope"
-        value={programStats.in_scope_hosts || 0}
+        value={programStats.in_scope_host_count || 0}
         icon={Globe}
         color="green"
       />
       <StatCard
         label="Endpoints"
-        value={programStats.total_endpoints || 0}
+        value={programStats.endpoint_count || 0}
         icon={Link}
         color="blue"
       />
       <StatCard
         label="Parameters"
-        value={programStats.total_parameters || 0}
+        value={programStats.parameter_count || 0}
         icon={Hash}
         color="purple"
       />
       <StatCard
-        label="With Body"
-        value={programStats.endpoints_with_body || 0}
+        label="Services"
+        value={programStats.service_count || 0}
         icon={FileText}
         color="orange"
       />
