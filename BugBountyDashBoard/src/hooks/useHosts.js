@@ -34,7 +34,11 @@ export const useHosts = (selectedProgram) => {
       }
 
       const response = await getHostsWithStats(selectedProgram.id, params)
-      setHosts(response.data.hosts || [])
+      const hostsData = (response.data.hosts || []).map(h => ({
+        ...h,
+        id: h.host_id || h.id,
+      }))
+      setHosts(hostsData)
       setPagination(prev => ({
         ...prev,
         total: response.data.total || 0,
@@ -61,9 +65,14 @@ export const useHosts = (selectedProgram) => {
   useEffect(() => {
     if (selectedProgram) {
       loadHosts()
+    }
+  }, [selectedProgram, inScopeFilter, pagination.offset, pagination.limit])
+
+  useEffect(() => {
+    if (selectedProgram) {
       loadProgramStats()
     }
-  }, [selectedProgram, loadHosts, loadProgramStats])
+  }, [selectedProgram])
 
   const toggleHost = useCallback(async (hostId) => {
     const newExpanded = new Set(expandedHosts)
