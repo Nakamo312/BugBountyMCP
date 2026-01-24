@@ -21,8 +21,16 @@ const Hosts = () => {
     loading,
     inScopeFilter,
     setInScopeFilter,
+    serviceFilter,
+    setServiceFilter,
+    techFilter,
+    setTechFilter,
+    sortBy,
+    setSortBy,
     searchTerm,
     setSearchTerm,
+    availableServices,
+    availableTechs,
     expandedHosts,
     expandedEndpoints,
     endpointDetails,
@@ -32,6 +40,7 @@ const Hosts = () => {
     toggleEndpoint,
     loadEndpointDetails,
     handlePageChange,
+    clearFilters,
     refresh,
   } = useHosts(selectedProgram)
 
@@ -142,8 +151,17 @@ const Hosts = () => {
         onSearchChange={setSearchTerm}
         inScopeFilter={inScopeFilter}
         onFilterChange={setInScopeFilter}
+        serviceFilter={serviceFilter}
+        onServiceFilterChange={setServiceFilter}
+        techFilter={techFilter}
+        onTechFilterChange={setTechFilter}
+        sortBy={sortBy}
+        onSortChange={setSortBy}
+        availableServices={availableServices}
+        availableTechs={availableTechs}
         onRefresh={refresh}
         loading={loading}
+        onClearFilters={clearFilters}
       />
 
       <HostStats programStats={programStats} hosts={allHosts} filteredCount={hosts.length} />
