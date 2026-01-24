@@ -49,8 +49,12 @@ const GraphCanvas = forwardRef(({ graphData, onNodeClick, loading }, ref) => {
       nodeVal={(node) => node.size}
       linkColor={() => '#cbd5e1'}
       linkWidth={1}
+      linkDirectionalArrowLength={3}
+      linkDirectionalArrowRelPos={1}
       onNodeClick={onNodeClick}
       nodeCanvasObject={nodeCanvasObject}
+      dagMode="lr"
+      dagLevelDistance={200}
       cooldownTicks={100}
       d3VelocityDecay={0.3}
     />
