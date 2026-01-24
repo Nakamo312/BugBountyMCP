@@ -13,9 +13,9 @@ class InjectionCandidateDTO(BaseModel):
     path: str
     methods: Optional[List[str]] = None
     status_code: Optional[int] = None
-    query_params: Optional[List[str]] = None
-    body_params: Optional[List[str]] = None
-    path_params: Optional[List[str]] = None
+    query_params: int = 0
+    body_params: int = 0
+    path_params: int = 0
     injectable_params: Optional[List[str]] = None
 
 
@@ -51,7 +51,7 @@ class FileUploadCandidateDTO(BaseModel):
     full_url: str
     path: str
     methods: Optional[List[str]] = None
-    file_params: Optional[List[str]] = None
+    file_params: int = 0
     file_param_names: Optional[List[str]] = None
 
 
@@ -119,7 +119,7 @@ class HostTechnologyDTO(BaseModel):
     port: int
     scheme: str
     technologies: Optional[Dict[str, Any]] = None
-    server_headers: Optional[Dict[str, Any]] = None
+    server_headers: Optional[List[str]] = None
 
 
 class SubdomainTakeoverCandidateDTO(BaseModel):
@@ -137,7 +137,7 @@ class APIPatternDTO(BaseModel):
     host_count: int = 0
     endpoint_count: int = 0
     all_methods: Optional[List[str]] = None
-    all_status_codes: Optional[List[int]] = None
+    all_status_codes: Optional[List[Optional[int]]] = None
     unique_params: int = 0
     param_names: Optional[List[str]] = None
 
