@@ -1,5 +1,6 @@
 """Host/Domain Ingestor"""
 
+import json
 import logging
 from uuid import UUID
 from typing import List, Dict, Any
@@ -65,6 +66,8 @@ class HostIngestor(BaseResultIngestor):
         """Process a batch of host results"""
         for result in batch:
             try:
+                if isinstance(result, str):
+                    result = json.loads(result)
                 host_name = result.get("host")
 
                 if not host_name:
