@@ -596,7 +596,7 @@ class PipelineProvider(Provider):
                 EventType.SUBFINDER_SCAN_REQUESTED,
             },
             event_out={
-                EventType.SUBDOMAIN_DISCOVERED: "subdomains",
+                EventType.RAW_DOMAINS_DISCOVERED: "raw_domains",
             },
             runner_type=SubfinderCliRunner,
             processor_type=SubfinderBatchProcessor,
@@ -716,8 +716,7 @@ class PipelineProvider(Provider):
                 EventType.TLSX_SCAN_REQUESTED,
             },
             event_out={
-                EventType.HOST_DISCOVERED: "urls",
-                EventType.CERT_SAN_DISCOVERED: "new_hosts",
+                EventType.RAW_DOMAINS_DISCOVERED: "raw_domains",
             },
             runner_type=TLSxDefaultRunner,
             processor_type=TLSxBatchProcessor,
@@ -730,11 +729,12 @@ class PipelineProvider(Provider):
         dnsx_basic_node = NodeFactory.create_scan_node(
             node_id="dnsx_basic",
             event_in={
-                EventType.HOST_DISCOVERED,
+                EventType.RAW_DOMAINS_DISCOVERED,
                 EventType.DNSX_BASIC_SCAN_REQUESTED,
             },
             event_out={
-                EventType.DNSX_FILTERED_HOSTS: "hosts",
+                EventType.IPS_EXPANDED: "ips",
+                EventType.SUBDOMAIN_DISCOVERED: "hostnames",
             },
             runner_type=DNSxBasicRunner,
             processor_type=DNSxBatchProcessor,
@@ -779,7 +779,7 @@ class PipelineProvider(Provider):
             },
             event_out={
                 EventType.IPS_EXPANDED: "ips",
-                EventType.SUBDOMAIN_DISCOVERED: "hostnames",
+                EventType.RAW_DOMAINS_DISCOVERED: "raw_domains",
             },
             runner_type=SmapCliRunner,
             processor_type=SmapBatchProcessor,

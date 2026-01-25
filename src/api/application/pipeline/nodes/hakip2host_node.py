@@ -117,13 +117,13 @@ class Hakip2HostNode(Node):
 
             if discovered_hostnames:
                 await ctx.emit(
-                    event=EventType.SUBDOMAIN_DISCOVERED.value,
+                    event=EventType.RAW_DOMAINS_DISCOVERED.value,
                     targets=discovered_hostnames,
                     program_id=program_id,
                     confidence=0.85
                 )
                 self.logger.debug(
-                    f"Emitted SUBDOMAIN_DISCOVERED: {len(discovered_hostnames)} hostnames"
+                    f"Emitted RAW_DOMAINS_DISCOVERED: {len(discovered_hostnames)} hostnames"
                 )
 
             self.logger.info(

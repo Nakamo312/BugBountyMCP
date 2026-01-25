@@ -17,3 +17,4 @@ class IngestResult:
     urls: List[str] = field(default_factory=list)
     ips: List[str] = field(default_factory=list)
     hostnames: List[str] = field(default_factory=list)
+    raw_domains: List[str] = field(default_factory=list)

@@ -1,10 +1,11 @@
 import logging
-from typing import Any
+from typing import Any, List, Set
 from uuid import UUID
 
 from api.config import Settings
 from api.infrastructure.ingestors.base_result_ingestor import \
     BaseResultIngestor
+from api.infrastructure.ingestors.ingest_result import IngestResult
 from api.infrastructure.unit_of_work.interfaces.dnsx import DNSxUnitOfWork
 
 logger = logging.getLogger(__name__)
@@ -13,12 +14,43 @@ logger = logging.getLogger(__name__)
 class DNSxResultIngestor(BaseResultIngestor):
     """
     Handles batch ingestion of DNSx scan results into domain entities.
-    Uses savepoints to allow partial success without rolling back entire transaction.
+
+    Creates:
+    - IP addresses from A and AAAA records
+    - Host-IP associations
+    - DNS records (A, AAAA, CNAME, MX, TXT, NS, SOA, PTR)
+
+    Returns:
+    - ips: List of discovered IP addresses for port scanning
+    - hostnames: List of CNAME targets for further resolution
     """
 
     def __init__(self, uow: DNSxUnitOfWork, settings: Settings):
         super().__init__(uow, settings.DNSX_INGESTOR_BATCH_SIZE)
         self.settings = settings
+        self._discovered_ips: Set[str] = set()
+        self._discovered_hostnames: Set[str] = set()
+
+    async def ingest(self, program_id: UUID, results: List[dict[str, Any]]) -> IngestResult:
+        """
+        Ingest DNSx results and return discovered IPs and hostnames.
+
+        Args:
+            program_id: Program UUID
+            results: List of DNSx result dicts
+
+        Returns:
+            IngestResult with ips and hostnames
+        """
+        self._discovered_ips = set()
+        self._discovered_hostnames = set()
+
+        await super().ingest(program_id, results)
+
+        return IngestResult(
+            ips=list(self._discovered_ips),
+            hostnames=list(self._discovered_hostnames)
+        )
 
     async def _process_batch(self, uow: DNSxUnitOfWork, program_id: UUID, batch: list[dict[str, Any]]):
         """Process a batch of DNSx results"""
@@ -38,8 +70,8 @@ class DNSxResultIngestor(BaseResultIngestor):
 
         host = await uow.hosts.get_by_fields(program_id=program_id, host=host_name)
         if not host:
-            logger.warning(f"Host {host_name} not found in program {program_id}, skipping DNS records")
-            return
+            logger.warning(f"Host {host_name} not found in program {program_id}, creating it")
+            host = await uow.hosts.ensure(program_id=program_id, host=host_name, in_scope=True)
 
         a_records = data.get("a", [])
         for record in a_records:
@@ -49,6 +81,9 @@ class DNSxResultIngestor(BaseResultIngestor):
                 value=record,
                 is_wildcard=data.get("wildcard", False)
             )
+            ip = await uow.ip_addresses.ensure(program_id=program_id, address=record)
+            await uow.host_ips.ensure(host_id=host.id, ip_id=ip.id, source="dnsx")
+            self._discovered_ips.add(record)
 
         aaaa_records = data.get("aaaa", [])
         for record in aaaa_records:
@@ -58,6 +93,9 @@ class DNSxResultIngestor(BaseResultIngestor):
                 value=record,
                 is_wildcard=data.get("wildcard", False)
             )
+            ip = await uow.ip_addresses.ensure(program_id=program_id, address=record)
+            await uow.host_ips.ensure(host_id=host.id, ip_id=ip.id, source="dnsx")
+            self._discovered_ips.add(record)
 
         cname_records = data.get("cname", [])
         for record in cname_records:
@@ -67,6 +105,7 @@ class DNSxResultIngestor(BaseResultIngestor):
                 value=record,
                 is_wildcard=data.get("wildcard", False)
             )
+            self._discovered_hostnames.add(record)
 
         mx_records = data.get("mx", [])
         for record in mx_records:
