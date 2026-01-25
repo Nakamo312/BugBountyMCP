@@ -130,6 +130,25 @@ class FFUFScanRequest(BaseModel):
     )
 
 
+class AmassScanRequest(BaseModel):
+    """HTTP request schema for Amass scan"""
+    program_id: str = Field(..., description="Program UUID as string")
+    domain: str = Field(..., description="Target domain for enumeration", min_length=1)
+    active: bool = Field(default=False, description="Enable active enumeration (zone transfers, brute force)")
+    timeout: Optional[int] = Field(default=1800, ge=1, le=7200)
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "program_id": "123e4567-e89b-12d3-a456-426614174000",
+                "domain": "example.com",
+                "active": True,
+                "timeout": 1800
+            }
+        }
+    )
+
+
 class DNSxScanRequest(BaseModel):
     """HTTP request schema for DNSx scan"""
     program_id: str = Field(..., description="Program UUID as string")
