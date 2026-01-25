@@ -52,17 +52,46 @@ class HostIngestor(BaseResultIngestor):
         self._out_of_scope_count = 0
         self._saved_hosts = []
 
+        total_results = len(results)
+        successful_batches = 0
+        failed_batches = 0
+
+        logger.info(
+            f"HostIngestor: Starting ingestion program={program_id} total_results={total_results}"
+        )
+
         async with self.uow as uow:
             self._scope_rules = await uow.scope_rules.find_by_program(program_id)
 
-        await super().ingest(program_id, results)
+            for batch_index, batch in enumerate(self._chunks(results, self.batch_size)):
+                savepoint_name = f"batch_{batch_index}"
+                await uow.create_savepoint(savepoint_name)
+
+                try:
+                    await self._process_batch(uow, program_id, batch)
+                    await uow.release_savepoint(savepoint_name)
+                    successful_batches += 1
+                except Exception as exc:
+                    await uow.rollback_to_savepoint(savepoint_name)
+                    failed_batches += 1
+                    logger.error(
+                        f"HostIngestor: Batch {batch_index} failed (size={len(batch)}): {exc}"
+                    )
+            await uow.commit()
 
         logger.info(
-            f"Host ingestion completed: program={program_id} "
-            f"in_scope={self._in_scope_count} out_of_scope={self._out_of_scope_count}"
+            f"HostIngestor: Ingestion completed program={program_id} "
+            f"total={total_results} batches_ok={successful_batches} batches_failed={failed_batches} "
+            f"in_scope={self._in_scope_count} out_of_scope={self._out_of_scope_count} "
+            f"new={len(self._saved_hosts)}"
         )
 
         return IngestResult(raw_domains=self._saved_hosts)
+
+    def _chunks(self, data: List[Any], size: int):
+        """Split data into chunks of given size"""
+        for i in range(0, len(data), size):
+            yield data[i:i + size]
 
     async def _process_batch(self, uow: DNSxUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
         """Process a batch of host results"""
@@ -77,13 +106,17 @@ class HostIngestor(BaseResultIngestor):
                     continue
 
                 if ScopeChecker.is_in_scope(host_name, self._scope_rules):
+                    existing = await uow.hosts.get_by_fields(program_id=program_id, host=host_name)
+
                     await uow.hosts.ensure(
                         program_id=program_id,
                         host=host_name,
                         in_scope=True
                     )
                     self._in_scope_count += 1
-                    self._saved_hosts.append(host_name)
+
+                    if not existing:
+                        self._saved_hosts.append(host_name)
                 else:
                     self._out_of_scope_count += 1
 
