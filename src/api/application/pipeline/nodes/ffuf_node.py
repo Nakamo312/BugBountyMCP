@@ -104,7 +104,6 @@ class FFUFNode(Node):
                 return 0
 
         try:
-            # Run all targets in parallel
             result_counts = await asyncio.gather(
                 *[fuzz_single_target(url) for url in targets],
                 return_exceptions=True
