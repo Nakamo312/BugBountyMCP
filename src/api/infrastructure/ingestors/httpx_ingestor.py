@@ -43,15 +43,48 @@ class HTTPXResultIngestor(BaseResultIngestor):
         self._seen_hosts = set()
         self._js_files = []
 
+        total_results = len(results)
+        successful_batches = 0
+        failed_batches = 0
+
+        logger.info(
+            f"HTTPXResultIngestor: Starting ingestion program={program_id} total_results={total_results}"
+        )
+
         async with self.uow as uow:
             self._scope_rules = await uow.scope_rules.find_by_program(program_id)
 
-        await super().ingest(program_id, results)
+            for batch_index, batch in enumerate(self._chunks(results, self.batch_size)):
+                savepoint_name = f"batch_{batch_index}"
+                await uow.create_savepoint(savepoint_name)
+
+                try:
+                    await self._process_batch(uow, program_id, batch)
+                    await uow.release_savepoint(savepoint_name)
+                    successful_batches += 1
+                except Exception as exc:
+                    await uow.rollback_to_savepoint(savepoint_name)
+                    failed_batches += 1
+                    logger.error(
+                        f"HTTPXResultIngestor: Batch {batch_index} failed (size={len(batch)}): {exc}"
+                    )
+            await uow.commit()
+
+        logger.info(
+            f"HTTPXResultIngestor: Ingestion completed program={program_id} "
+            f"total={total_results} batches_ok={successful_batches} batches_failed={failed_batches} "
+            f"new_hosts={len(self._new_hosts)} js_files={len(self._js_files)}"
+        )
 
         return IngestResult(
             new_hosts=list(self._new_hosts),
             js_files=self._js_files
         )
+
+    def _chunks(self, data: List[Any], size: int):
+        """Split data into chunks of given size"""
+        for i in range(0, len(data), size):
+            yield data[i:i + size]
 
     async def _process_batch(self, uow: HTTPXUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
         """Process a batch of HTTPX results and collect live JS files and extracted FQDNs"""
