@@ -827,14 +827,14 @@ function FFUFScan({ onScan, loading }) {
 }
 
 function AmassScan({ onScan, loading }) {
-  const [domain, setDomain] = useState('')
+  const [targets, setTargets] = useState('')
   const [active, setActive] = useState(false)
   const [timeout, setTimeout] = useState(1800)
 
   const handleSubmit = (e) => {
     e.preventDefault()
     onScan({
-      domain: domain.trim(),
+      targets: targets.split('\n').filter(t => t.trim()),
       active,
       timeout: timeout || null,
     })
@@ -843,15 +843,19 @@ function AmassScan({ onScan, loading }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Domain</label>
-        <input
-          type="text"
-          value={domain}
-          onChange={(e) => setDomain(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-          placeholder="example.com"
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Domains (one per line)
+        </label>
+        <textarea
+          value={targets}
+          onChange={(e) => setTargets(e.target.value)}
+          className="w-full h-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+          rows={3}
           required
         />
+        <p className="mt-1 text-xs text-gray-500">
+          Enter one domain per line
+        </p>
       </div>
       <div className="flex items-center space-x-2">
         <input
@@ -866,7 +870,9 @@ function AmassScan({ onScan, loading }) {
         </label>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Timeout (seconds)</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Timeout (seconds)
+        </label>
         <input
           type="number"
           value={timeout}
@@ -875,19 +881,21 @@ function AmassScan({ onScan, loading }) {
           min={1}
           max={7200}
         />
+        <p className="mt-1 text-xs text-gray-500">
+          30 minutes (1800s) recommended for active scans
+        </p>
       </div>
       <button
         type="submit"
-        disabled={loading}
-        className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+        disabled={loading || !targets.trim()}
+        className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {loading ? <Loader className="animate-spin" size={16} /> : <Play size={16} />}
-        <span>Run Scan</span>
+        <span>Run Amass Scan</span>
       </button>
     </form>
   )
 }
-
 function DNSxScan({ onScan, loading }) {
   const [targets, setTargets] = useState('')
   const [mode, setMode] = useState('default')

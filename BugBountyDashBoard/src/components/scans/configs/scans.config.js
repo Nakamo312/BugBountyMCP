@@ -3,7 +3,7 @@ import {
 } from 'lucide-react'
 import { 
   scanSubfinder, scanHTTPX, scanGAU, scanWaymore, scanKatana,
-  scanPlaywright, scanLinkFinder, scanMantra, scanFFUF, scanDNSx,
+  scanPlaywright, scanLinkFinder, scanMantra, scanFFUF, scanAmass, scanDNSx,
   scanSubjack, scanASNMap, scanMapCIDR, scanNaabu
 } from '@/services/api'
 
@@ -227,4 +227,37 @@ export const SCANS = [
       { name: 'timeout', label: 'Timeout (seconds)', type: 'number', min: 1, max: 3600 },
     ],
   },
+  {
+    id: 'amass',
+    name: 'Amass',
+    description: 'Subdomain enumeration with active mode',
+    icon: Search,
+    color: 'indigo',
+    api: scanAmass,
+    form: 'Amass',
+    initialValues: { targets: '', active: false, timeout: 1800 },
+    fields: [
+      { 
+        name: 'targets', 
+        label: 'Domains (one per line)', 
+        type: 'textarea', 
+        placeholder: 'example.com\napi.example.com\nadmin.example.com', 
+        required: true 
+      },
+      { 
+        name: 'active', 
+        label: 'Active enumeration', 
+        type: 'checkbox',
+        description: 'Enable brute force and zone transfers (more aggressive)' 
+      },
+      { 
+        name: 'timeout', 
+        label: 'Timeout (seconds)', 
+        type: 'number', 
+        min: 60, 
+        max: 7200,
+        description: '30 minutes (1800s) recommended for active scans' 
+      },
+    ],
+  }
 ]
