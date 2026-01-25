@@ -73,7 +73,7 @@ class SmapResultIngestor(BaseResultIngestor):
 
         return IngestResult(
             ips=list(self._discovered_ips),
-            hostnames=list(self._discovered_hostnames)
+            raw_domains=list(self._discovered_hostnames)
         )
 
     async def _process_batch(self, uow: AbstractNaabuUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):

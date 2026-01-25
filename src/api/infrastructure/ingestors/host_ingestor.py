@@ -35,6 +35,7 @@ class HostIngestor(BaseResultIngestor):
         self._scope_rules: List[ScopeRuleModel] = []
         self._in_scope_count = 0
         self._out_of_scope_count = 0
+        self._saved_hosts: List[str] = []
 
     async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
         """
@@ -45,10 +46,11 @@ class HostIngestor(BaseResultIngestor):
             results: List of results with 'host' key
 
         Returns:
-            IngestResult with saved hosts count
+            IngestResult with saved hosts for downstream processing
         """
         self._in_scope_count = 0
         self._out_of_scope_count = 0
+        self._saved_hosts = []
 
         async with self.uow as uow:
             self._scope_rules = await uow.scope_rules.find_by_program(program_id)
@@ -60,7 +62,7 @@ class HostIngestor(BaseResultIngestor):
             f"in_scope={self._in_scope_count} out_of_scope={self._out_of_scope_count}"
         )
 
-        return IngestResult()
+        return IngestResult(raw_domains=self._saved_hosts)
 
     async def _process_batch(self, uow: DNSxUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
         """Process a batch of host results"""
@@ -81,6 +83,7 @@ class HostIngestor(BaseResultIngestor):
                         in_scope=True
                     )
                     self._in_scope_count += 1
+                    self._saved_hosts.append(host_name)
                 else:
                     self._out_of_scope_count += 1
 

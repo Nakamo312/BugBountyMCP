@@ -7,7 +7,9 @@ def default_target_extractor(event: Dict[str, Any]) -> List[str]:
     Extract targets from various event types.
 
     Supports multiple field names for flexibility:
-    - subdomains (from Subfinder)
+    - raw_domains (from Subfinder, TLSx, Smap, Hakip2Host)
+    - subdomains (from DNSx CNAME)
+    - hostnames (from DNSx CNAME)
     - urls (from GAU)
     - hosts (from DNSx, HTTPX)
     - ips (from MapCIDR, ASNMap)
@@ -20,7 +22,9 @@ def default_target_extractor(event: Dict[str, Any]) -> List[str]:
         List of targets (URLs, hosts, IPs, etc.)
     """
     return (
+        event.get("raw_domains") or
         event.get("subdomains") or
+        event.get("hostnames") or
         event.get("urls") or
         event.get("hosts") or
         event.get("ips") or

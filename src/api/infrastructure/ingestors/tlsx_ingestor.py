@@ -21,8 +21,9 @@ class TLSxResultIngestor(BaseResultIngestor):
     TLSx acts as scope filter:
     - Extracts domains from certificates (SAN/CN)
     - Filters domains by program scope rules
-    - Only IPs with in-scope domains proceed to next stage
-    - Returns discovered domains and in-scope IPs
+    - Saves IPs to hosts table
+    - Saves non-wildcard in-scope domains to hosts table
+    - Returns discovered domains for downstream processing
 
     TLSx result format:
     {
@@ -33,14 +34,14 @@ class TLSxResultIngestor(BaseResultIngestor):
     }
 
     Returns IngestResult with:
-    - urls (list of in-scope IPs with http:// prefix)
-    - new_hosts (list of discovered certificate domains for DNSx validation)
+    - hostnames (list of non-wildcard certificate domains)
     """
 
     def __init__(self, uow: ProgramUnitOfWork, settings: Settings):
         super().__init__(uow, settings.TLSX_INGESTOR_BATCH_SIZE)
         self.settings = settings
         self._discovered_domains: Set[str] = set()
+        self._saved_domains: Set[str] = set()
         self._in_scope_ips: Set[str] = set()
         self._scope_rules: List[ScopeRuleModel] = []
 
@@ -53,9 +54,10 @@ class TLSxResultIngestor(BaseResultIngestor):
             results: List of TLSx result dicts
 
         Returns:
-            IngestResult with urls (in-scope IPs) and new_hosts (certificate domains)
+            IngestResult with hostnames (non-wildcard certificate domains)
         """
         self._discovered_domains = set()
+        self._saved_domains = set()
         self._in_scope_ips = set()
 
         async with self.uow as uow:
@@ -63,11 +65,8 @@ class TLSxResultIngestor(BaseResultIngestor):
 
         await super().ingest(program_id, results)
 
-        in_scope_urls = [f"http://{ip}" for ip in self._in_scope_ips]
-
         return IngestResult(
-            urls=in_scope_urls,
-            new_hosts=list(self._discovered_domains)
+            raw_domains=list(self._saved_domains)
         )
 
     async def _process_batch(self, uow: ProgramUnitOfWork, program_id: UUID, batch: List[dict[str, Any]]):
@@ -118,6 +117,7 @@ class TLSxResultIngestor(BaseResultIngestor):
                                 discovery_method="cert_domain"
                             )
                             await uow.hosts.ensure(domain_model, unique_fields=["host", "program_id"])
+                            self._saved_domains.add(domain)
 
                     logger.debug(
                         f"IP {ip_host} is in-scope (cert domains: {in_scope_domains})"
