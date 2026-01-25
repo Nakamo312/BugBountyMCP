@@ -1,4 +1,4 @@
-import React, { forwardRef, useCallback } from 'react'
+import { forwardRef, useCallback } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
 
 const GraphCanvas = forwardRef(({ graphData, onNodeClick, loading }, ref) => {
@@ -48,15 +48,19 @@ const GraphCanvas = forwardRef(({ graphData, onNodeClick, loading }, ref) => {
       nodeColor={(node) => node.color}
       nodeVal={(node) => node.size}
       linkColor={() => '#cbd5e1'}
-      linkWidth={1}
-      linkDirectionalArrowLength={3}
+      linkWidth={2}
+      linkDirectionalArrowLength={4}
       linkDirectionalArrowRelPos={1}
+      linkDirectionalParticles={2}
+      linkDirectionalParticleWidth={2}
       onNodeClick={onNodeClick}
       nodeCanvasObject={nodeCanvasObject}
       dagMode="lr"
-      dagLevelDistance={200}
-      cooldownTicks={100}
+      dagLevelDistance={150}
+      d3AlphaDecay={0.02}
       d3VelocityDecay={0.3}
+      warmupTicks={100}
+      cooldownTicks={0}
     />
   )
 })
