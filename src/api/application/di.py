@@ -69,7 +69,7 @@ from api.infrastructure.events.event_bus import EventBus
 from dishka import AsyncContainer
 
 from api.application.pipeline.registry import NodeRegistry
-from api.infrastructure.runners.dnsx_runners import DNSxBasicRunner, DNSxDeepRunner, DNSxPtrRunner
+from api.infrastructure.runners.dnsx_runners import DNSxDeepRunner, DNSxPtrRunner
 from api.infrastructure.runners.mapcidr_runners import MapCIDRExpandRunner
 from api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
 from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
@@ -266,10 +266,6 @@ class CLIRunnerProvider(Provider):
     @provide(scope=Scope.APP)
     def get_tlsx_default_runner(self, tlsx_runner: TLSxCliRunner) -> TLSxDefaultRunner:
         return TLSxDefaultRunner(tlsx_runner)
-
-    @provide(scope=Scope.APP)
-    def get_dnsx_basic_runner(self, dnsx_runner: DNSxCliRunner) -> DNSxBasicRunner:
-        return DNSxBasicRunner(dnsx_runner)
 
     @provide(scope=Scope.APP)
     def get_dnsx_deep_runner(self, dnsx_runner: DNSxCliRunner) -> DNSxDeepRunner:
@@ -726,37 +722,23 @@ class PipelineProvider(Provider):
         )
         registry.register(tlsx_default_node)
 
-        dnsx_basic_node = NodeFactory.create_scan_node(
-            node_id="dnsx_basic",
+        dnsx_node = NodeFactory.create_scan_node(
+            node_id="dnsx",
             event_in={
                 EventType.RAW_DOMAINS_DISCOVERED,
-                EventType.DNSX_BASIC_SCAN_REQUESTED,
+                EventType.DNSX_SCAN_REQUESTED,
             },
             event_out={
                 EventType.IPS_EXPANDED: "ips",
                 EventType.SUBDOMAIN_DISCOVERED: "hostnames",
             },
-            runner_type=DNSxBasicRunner,
+            runner_type=DNSxDeepRunner,
             processor_type=DNSxBatchProcessor,
             ingestor_type=DNSxResultIngestor,
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
             scope_policy=ScopePolicy.STRICT
         )
-        registry.register(dnsx_basic_node)
-
-        dnsx_deep_node = NodeFactory.create_scan_node(
-            node_id="dnsx_deep",
-            event_in={
-                EventType.HOST_DISCOVERED,
-                EventType.DNSX_DEEP_SCAN_REQUESTED,
-            },
-            event_out={},
-            runner_type=DNSxDeepRunner,
-            processor_type=DNSxBatchProcessor,
-            ingestor_type=DNSxResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
-        )
-        registry.register(dnsx_deep_node)
+        registry.register(dnsx_node)
 
         dnsx_ptr_node = NodeFactory.create_scan_node(
             node_id="dnsx_ptr",
