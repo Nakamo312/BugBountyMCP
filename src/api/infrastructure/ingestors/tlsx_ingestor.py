@@ -109,6 +109,16 @@ class TLSxResultIngestor(BaseResultIngestor):
                     )
                     await uow.hosts.ensure(host_model, unique_fields=["host", "program_id"])
 
+                    for domain in in_scope_domains:
+                        if '*' not in domain:
+                            domain_model = HostModel(
+                                host=domain,
+                                program_id=program_id,
+                                source="tlsx",
+                                discovery_method="cert_domain"
+                            )
+                            await uow.hosts.ensure(domain_model, unique_fields=["host", "program_id"])
+
                     logger.debug(
                         f"IP {ip_host} is in-scope (cert domains: {in_scope_domains})"
                     )

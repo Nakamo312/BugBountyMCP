@@ -98,25 +98,6 @@ class InfrastructureService:
                         ))
                         break
 
-            services = await uow.services.find_by_program_id(program_id)
-            stats["service_count"] = len(services)
-            for svc in services:
-                nodes.append(GraphNodeDTO(
-                    id=f"svc-{svc.id}",
-                    type="service",
-                    label=f"{svc.scheme}:{svc.port}",
-                    data={
-                        "scheme": svc.scheme,
-                        "port": svc.port,
-                        "technologies": svc.technologies or {},
-                    }
-                ))
-                edges.append(GraphEdgeDTO(
-                    source=f"ip-{svc.ip_id}",
-                    target=f"svc-{svc.id}",
-                    type="runs"
-                ))
-
             hosts = await uow.hosts.find_many(filters={"program_id": program_id}, limit=10000)
             stats["host_count"] = len(hosts)
             for host in hosts:
@@ -131,12 +112,38 @@ class InfrastructureService:
                 ))
 
             host_ips = await uow.host_ips.find_by_program_id(program_id)
+            ip_to_hosts = {}
             for hip in host_ips:
                 edges.append(GraphEdgeDTO(
-                    source=f"host-{hip.host_id}",
-                    target=f"ip-{hip.ip_id}",
+                    source=f"ip-{hip.ip_id}",
+                    target=f"host-{hip.host_id}",
                     type="resolves_to"
                 ))
+                if hip.ip_id not in ip_to_hosts:
+                    ip_to_hosts[hip.ip_id] = []
+                ip_to_hosts[hip.ip_id].append(hip.host_id)
+
+            services = await uow.services.find_by_program_id(program_id)
+            stats["service_count"] = len(services)
+            for svc in services:
+                nodes.append(GraphNodeDTO(
+                    id=f"svc-{svc.id}",
+                    type="service",
+                    label=f"{svc.scheme}:{svc.port}",
+                    data={
+                        "scheme": svc.scheme,
+                        "port": svc.port,
+                        "technologies": svc.technologies or {},
+                    }
+                ))
+
+                if svc.ip_id in ip_to_hosts:
+                    for host_id in ip_to_hosts[svc.ip_id]:
+                        edges.append(GraphEdgeDTO(
+                            source=f"host-{host_id}",
+                            target=f"svc-{svc.id}",
+                            type="runs"
+                        ))
 
             return InfrastructureGraphDTO(
                 nodes=nodes,
