@@ -736,7 +736,7 @@ class PipelineProvider(Provider):
             processor_type=DNSxBatchProcessor,
             ingestor_type=DNSxResultIngestor,
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
-            scope_policy=ScopePolicy.STRICT
+            scope_policy=ScopePolicy.NONE
         )
         registry.register(dnsx_node)
 
