@@ -9,20 +9,24 @@ from api.domain.models import ScopeRuleModel
 from api.domain.enums import RuleType
 from api.infrastructure.unit_of_work.interfaces.linkfinder import LinkFinderUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
+from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 from api.infrastructure.ingestors.ingest_result import IngestResult
 
 logger = logging.getLogger(__name__)
 
 
-class LinkFinderResultIngestor:
+class LinkFinderResultIngestor(BaseResultIngestor):
     """
     Handles ingestion of LinkFinder results with scope validation.
     Only ingests URLs that match program scope rules.
     """
 
     def __init__(self, uow: LinkFinderUnitOfWork, settings: Settings):
-        self.uow = uow
+        super().__init__(uow, batch_size=50)
         self.settings = settings
+        self._scope_rules: List[ScopeRuleModel] = []
+        self._in_scope_count = 0
+        self._out_of_scope_count = 0
 
     async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
         """
@@ -32,57 +36,54 @@ class LinkFinderResultIngestor:
             program_id: Target program ID
             results: List of LinkFinder results containing source_js, urls, host
         """
-        async with self.uow:
-            try:
-                scope_rules = await self.uow.scope_rules.find_by_program(program_id)
-                in_scope_count = 0
-                out_of_scope_count = 0
+        self._in_scope_count = 0
+        self._out_of_scope_count = 0
 
-                for result in results:
-                    urls = result.get("urls", [])
-                    host_name = result.get("host")
+        async with self.uow as uow:
+            self._scope_rules = await uow.scope_rules.find_by_program(program_id)
 
-                    if not urls or not host_name:
-                        continue
+        await super().ingest(program_id, results)
 
-                    logger.debug(
-                        f"Processing LinkFinder result: program={program_id} "
-                        f"source={result.get('source_js')} urls={len(urls)}"
-                    )
+        logger.info(
+            f"LinkFinder ingestion completed: program={program_id} "
+            f"in_scope={self._in_scope_count} out_of_scope={self._out_of_scope_count}"
+        )
 
-                    host = await self.uow.hosts.ensure(program_id=program_id, host=host_name)
+        return IngestResult()
 
-                    host_ip_records = await self.uow.host_ips.find_many(filters={"host_id": host.id}, limit=1)
-                    if not host_ip_records:
-                        logger.debug(f"No IP found for host {host_name}, skipping")
-                        continue
+    async def _process_batch(self, uow: LinkFinderUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
+        """Process a batch of LinkFinder results"""
+        for result in batch:
+            urls = result.get("urls", [])
+            host_name = result.get("host")
 
-                    ip = await self.uow.ips.get(host_ip_records[0].ip_id)
-                    if not ip:
-                        continue
+            if not urls or not host_name:
+                continue
 
-                    for url in urls:
-                        if self._is_in_scope(url, scope_rules):
-                            await self._ingest_url(url, host, ip)
-                            in_scope_count += 1
-                        else:
-                            out_of_scope_count += 1
+            logger.debug(
+                f"Processing LinkFinder result: program={program_id} "
+                f"source={result.get('source_js')} urls={len(urls)}"
+            )
 
-                await self.uow.commit()
+            host = await uow.hosts.ensure(program_id=program_id, host=host_name)
 
-                logger.info(
-                    f"LinkFinder ingestion completed: program={program_id} "
-                    f"in_scope={in_scope_count} out_of_scope={out_of_scope_count}"
-                )
+            host_ip_records = await uow.host_ips.find_many(filters={"host_id": host.id}, limit=1)
+            if not host_ip_records:
+                logger.debug(f"No IP found for host {host_name}, skipping")
+                continue
 
-                return IngestResult()
+            ip = await uow.ips.get(host_ip_records[0].ip_id)
+            if not ip:
+                continue
 
-            except Exception as e:
-                logger.error(f"LinkFinder ingestion failed: program={program_id} error={e}")
-                await self.uow.rollback()
-                raise
+            for url in urls:
+                if self._is_in_scope(url, self._scope_rules):
+                    await self._ingest_url(uow, url, host, ip)
+                    self._in_scope_count += 1
+                else:
+                    self._out_of_scope_count += 1
 
-    async def _ingest_url(self, url: str, host, ip):
+    async def _ingest_url(self, uow, url: str, host, ip):
         """Ingest single URL as endpoint"""
         parsed = urlparse(url)
         scheme = parsed.scheme or "https"
@@ -90,7 +91,7 @@ class LinkFinderResultIngestor:
         path = parsed.path or "/"
         query_string = parsed.query
 
-        service = await self.uow.services.ensure(
+        service = await uow.services.ensure(
             ip_id=ip.id,
             scheme=scheme,
             port=port,
@@ -99,7 +100,7 @@ class LinkFinderResultIngestor:
 
         normalized_path = PathNormalizer.normalize_path(url)
 
-        endpoint = await self.uow.endpoints.ensure(
+        endpoint = await uow.endpoints.ensure(
             host_id=host.id,
             service_id=service.id,
             path=path,
@@ -114,7 +115,7 @@ class LinkFinderResultIngestor:
                 if not name:
                     continue
                 example_value = values[0] if values else ""
-                await self.uow.input_parameters.ensure(
+                await uow.input_parameters.ensure(
                     endpoint_id=endpoint.id,
                     service_id=service.id,
                     name=name,

@@ -83,6 +83,9 @@ class Hakip2HostNode(Node):
         runner = await ctx.get_service(Hakip2HostCliRunner)
         processor = await ctx.get_service(Hakip2HostBatchProcessor)
 
+        from api.infrastructure.ingestors.host_ingestor import HostIngestor
+        host_ingestor = await ctx.get_service(HostIngestor)
+
         batch_count = 0
         total_hostnames = 0
         discovered_hostnames = []
@@ -94,6 +97,7 @@ class Hakip2HostNode(Node):
 
                 batch_count += 1
 
+                batch_data = []
                 for result in batch:
                     hostname = result.get("hostname")
                     method = result.get("method", "unknown")
@@ -103,9 +107,13 @@ class Hakip2HostNode(Node):
 
                     total_hostnames += 1
                     discovered_hostnames.append(hostname)
+                    batch_data.append({"host": hostname})
                     self.logger.debug(
                         f"Resolved: {result.get('ip')} -> {hostname} via {method}"
                     )
+
+                if batch_data:
+                    await host_ingestor.ingest(program_id, batch_data)
 
             if discovered_hostnames:
                 await ctx.emit(

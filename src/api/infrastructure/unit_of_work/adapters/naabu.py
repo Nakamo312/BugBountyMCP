@@ -5,6 +5,7 @@ from api.infrastructure.unit_of_work.interfaces.naabu import AbstractNaabuUnitOf
 from api.infrastructure.repositories.adapters.ip_address import SQLAlchemyIPAddressRepository
 from api.infrastructure.repositories.adapters.service import SQLAlchemyServiceRepository
 from api.infrastructure.repositories.adapters.scope_rule import SQLAlchemyScopeRuleRepository
+from api.infrastructure.repositories.adapters.host import SQLAlchemyHostRepository
 
 
 class SQLAlchemyNaabuUnitOfWork(SQLAlchemyAbstractUnitOfWork, AbstractNaabuUnitOfWork):
@@ -15,6 +16,7 @@ class SQLAlchemyNaabuUnitOfWork(SQLAlchemyAbstractUnitOfWork, AbstractNaabuUnitO
     - IP addresses (ensure IP exists)
     - Services (create/update port records)
     - Scope rules (for hostname filtering)
+    - Hosts (for smap discovered hostnames)
     """
 
     async def __aenter__(self):
@@ -22,4 +24,5 @@ class SQLAlchemyNaabuUnitOfWork(SQLAlchemyAbstractUnitOfWork, AbstractNaabuUnitO
         self.ip_addresses = SQLAlchemyIPAddressRepository(session=self._session)
         self.services = SQLAlchemyServiceRepository(session=self._session)
         self.scope_rules = SQLAlchemyScopeRuleRepository(session=self._session)
+        self.hosts = SQLAlchemyHostRepository(session=self._session)
         return self

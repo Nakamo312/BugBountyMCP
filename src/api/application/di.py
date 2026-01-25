@@ -47,6 +47,7 @@ from api.infrastructure.ingestors.subjack_ingestor import SubjackResultIngestor
 from api.infrastructure.ingestors.asnmap_ingestor import ASNMapResultIngestor
 from api.infrastructure.ingestors.naabu_ingestor import NaabuResultIngestor
 from api.infrastructure.ingestors.smap_ingestor import SmapResultIngestor
+from api.infrastructure.ingestors.host_ingestor import HostIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
 from api.infrastructure.runners.gau_cli import GAUCliRunner
@@ -434,6 +435,14 @@ class IngestorProvider(Provider):
     ) -> TLSxResultIngestor:
         return TLSxResultIngestor(uow=program_uow, settings=settings)
 
+    @provide(scope=Scope.REQUEST)
+    def get_host_ingestor(
+        self,
+        dnsx_uow: SQLAlchemyDNSxUnitOfWork,
+        settings: Settings
+    ) -> HostIngestor:
+        return HostIngestor(uow=dnsx_uow, settings=settings)
+
 
 class ServiceProvider(Provider):
     scope = Scope.REQUEST
@@ -591,7 +600,7 @@ class PipelineProvider(Provider):
             },
             runner_type=SubfinderCliRunner,
             processor_type=SubfinderBatchProcessor,
-            ingestor_type=None,
+            ingestor_type=HostIngestor,
             max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
             scope_policy=ScopePolicy.NONE
         )

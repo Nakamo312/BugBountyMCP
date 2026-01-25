@@ -2,17 +2,17 @@
 
 import logging
 from uuid import UUID
-from typing import Any
+from typing import Any, List, Dict
 
-from api.domain.models import IPAddressModel, ServiceModel
 from api.infrastructure.unit_of_work.interfaces.naabu import AbstractNaabuUnitOfWork
+from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 from api.infrastructure.ingestors.ingest_result import IngestResult
 from api.config import Settings
 
 logger = logging.getLogger(__name__)
 
 
-class NaabuResultIngestor:
+class NaabuResultIngestor(BaseResultIngestor):
     """
     Ingests Naabu port scan results into database.
 
@@ -31,14 +31,11 @@ class NaabuResultIngestor:
     """
 
     def __init__(self, uow: AbstractNaabuUnitOfWork, settings: Settings):
-        self.uow = uow
-        self.batch_size = settings.NAABU_INGESTOR_BATCH_SIZE
+        super().__init__(uow, batch_size=settings.NAABU_INGESTOR_BATCH_SIZE)
+        self._processed = 0
+        self._skipped = 0
 
-    async def ingest(
-        self,
-        program_id: UUID,
-        results: list[dict[str, Any]]
-    ) -> IngestResult:
+    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
         """
         Ingest Naabu port scan results into database.
 
@@ -49,75 +46,20 @@ class NaabuResultIngestor:
         Returns:
             IngestResult (empty for naabu)
         """
-        if not results:
-            logger.info("No Naabu results to ingest")
-            return IngestResult()
+        self._processed = 0
+        self._skipped = 0
 
-        logger.info(
-            f"Starting Naabu ingestion: program={program_id} results={len(results)} "
-            f"batch_size={self.batch_size}"
-        )
-
-        batches = [
-            results[i : i + self.batch_size]
-            for i in range(0, len(results), self.batch_size)
-        ]
-
-        async with self.uow:
-            processed = 0
-            failed = 0
-            skipped = 0
-
-            for i, batch in enumerate(batches):
-                savepoint = f"naabu_batch_{i}"
-                await self.uow.create_savepoint(savepoint)
-
-                try:
-                    batch_stats = await self._process_batch(batch, program_id)
-                    processed += batch_stats["processed"]
-                    skipped += batch_stats["skipped"]
-                    await self.uow.release_savepoint(savepoint)
-
-                    logger.debug(
-                        f"Naabu batch {i+1}/{len(batches)} completed: "
-                        f"processed={batch_stats['processed']} skipped={batch_stats['skipped']}"
-                    )
-
-                except Exception as e:
-                    failed += len(batch)
-                    await self.uow.rollback_to_savepoint(savepoint)
-                    logger.error(
-                        f"Naabu batch {i+1}/{len(batches)} failed: {e}",
-                        exc_info=True
-                    )
-
-            await self.uow.commit()
+        await super().ingest(program_id, results)
 
         logger.info(
             f"Naabu ingestion completed: program={program_id} "
-            f"processed={processed} skipped={skipped} failed={failed} total={len(results)}"
+            f"processed={self._processed} skipped={self._skipped}"
         )
 
         return IngestResult()
 
-    async def _process_batch(
-        self,
-        batch: list[dict[str, Any]],
-        program_id: UUID
-    ) -> dict[str, int]:
-        """
-        Process a single batch of Naabu results.
-
-        Args:
-            batch: Batch of Naabu results
-            program_id: Program UUID
-
-        Returns:
-            Dictionary with processing statistics
-        """
-        processed = 0
-        skipped = 0
-
+    async def _process_batch(self, uow: AbstractNaabuUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
+        """Process a single batch of Naabu results"""
         for result in batch:
             try:
                 ip_address = result.get("ip")
@@ -126,33 +68,30 @@ class NaabuResultIngestor:
 
                 if not ip_address or port is None:
                     logger.warning(f"Invalid Naabu result, missing ip or port: {result}")
-                    skipped += 1
+                    self._skipped += 1
                     continue
 
-                ip_obj = await self.uow.ip_addresses.ensure(
+                ip_obj = await uow.ip_addresses.ensure(
                     program_id=program_id,
                     address=ip_address,
                     in_scope=True
                 )
 
-                # Map protocol to scheme: https for port 443, http for others
                 scheme = "https" if int(port) == 443 else "http"
 
-                await self.uow.services.ensure(
+                await uow.services.ensure(
                     ip_id=ip_obj.id,
                     scheme=scheme,
                     port=int(port),
                     technologies={}
                 )
 
-                processed += 1
+                self._processed += 1
 
             except Exception as e:
                 logger.error(
                     f"Failed to process Naabu result {result}: {e}",
                     exc_info=True
                 )
-                skipped += 1
+                self._skipped += 1
                 continue
-
-        return {"processed": processed, "skipped": skipped}
