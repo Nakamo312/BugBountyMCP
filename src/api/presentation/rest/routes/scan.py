@@ -276,7 +276,7 @@ async def scan_mapcidr(request: MapCIDRScanRequest, event_bus: FromDishka[EventB
     Perform MapCIDR operations on CIDR blocks.
 
     - **program_id**: Program UUID
-    - **targets**: List of CIDRs
+    - **cidrs**: List of CIDRs
     - **operation**: Only 'expand' supported via node pipeline
     - **skip_base**: Skip base IPs ending in .0
     - **skip_broadcast**: Skip broadcast IPs ending in .255
@@ -287,12 +287,28 @@ async def scan_mapcidr(request: MapCIDRScanRequest, event_bus: FromDishka[EventB
     """
     if request.operation != "expand":
         raise HTTPException(status_code=400, detail="Only 'expand' operation is supported")
-    extra = {
-        "skip_base": request.skip_base,
-        "skip_broadcast": request.skip_broadcast,
-        "shuffle": request.shuffle
-    }
-    return await scan_endpoint(request, event_bus, "mapcidr_scan_requested", extra=extra)
+
+    try:
+        await publish_scan_event(
+            event_bus,
+            event="mapcidr_scan_requested",
+            program_id=request.program_id,
+            targets=request.cidrs,
+            extra={
+                "skip_base": request.skip_base,
+                "skip_broadcast": request.skip_broadcast,
+                "shuffle": request.shuffle
+            }
+        )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"MapCIDR expand queued for {len(request.cidrs)} CIDRs",
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
 
 
 @router.post("/scan/mapcidr/slice", response_model=ScanResponse, summary="Run MapCIDR Slice Operations (Legacy)", description="Legacy endpoint for slice/aggregate operations. Use with caution.", tags=["Scans"], deprecated=True)

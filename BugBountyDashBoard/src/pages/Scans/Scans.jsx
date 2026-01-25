@@ -819,7 +819,7 @@ function FFUFScan({ onScan, loading }) {
 
 function DNSxScan({ onScan, loading }) {
   const [targets, setTargets] = useState('')
-  const [mode, setMode] = useState('basic')
+  const [mode, setMode] = useState('default')
   const [timeout, setTimeout] = useState(600)
 
   const handleSubmit = (e) => {
@@ -850,9 +850,8 @@ function DNSxScan({ onScan, loading }) {
           onChange={(e) => setMode(e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 rounded-lg"
         >
-          <option value="basic">Basic</option>
-          <option value="deep">Deep</option>
-          <option value="ptr">PTR</option>
+          <option value="default">Default (A, AAAA, CNAME, MX, TXT, NS, SOA)</option>
+          <option value="ptr">PTR (Reverse DNS)</option>
         </select>
       </div>
       <div>
