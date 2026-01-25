@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useProgram } from '../context/ProgramContext'
 import {
   scanSubfinder, scanHTTPX, scanGAU, scanWaymore, scanKatana,
-  scanPlaywright, scanLinkFinder, scanMantra, scanFFUF, scanDNSx,
+  scanPlaywright, scanLinkFinder, scanMantra, scanFFUF, scanAmass, scanDNSx,
   scanSubjack, scanASNMap, scanMapCIDR, scanNaabu
 } from '../services/api'
 import { 
@@ -116,6 +116,15 @@ const Scans = () => {
       color: 'cyan',
       component: FFUFScan,
       scanFunc: scanFFUF,
+    },
+    {
+      id: 'amass',
+      name: 'Amass',
+      description: 'Subdomain enumeration with active mode',
+      icon: Search,
+      color: 'indigo',
+      component: AmassScan,
+      scanFunc: scanAmass,
     },
     {
       id: 'dnsx',
@@ -803,6 +812,68 @@ function FFUFScan({ onScan, loading }) {
           className="w-full px-3 py-2 border border-gray-300 rounded-lg"
           min={1}
           max={3600}
+        />
+      </div>
+      <button
+        type="submit"
+        disabled={loading}
+        className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+      >
+        {loading ? <Loader className="animate-spin" size={16} /> : <Play size={16} />}
+        <span>Run Scan</span>
+      </button>
+    </form>
+  )
+}
+
+function AmassScan({ onScan, loading }) {
+  const [domain, setDomain] = useState('')
+  const [active, setActive] = useState(false)
+  const [timeout, setTimeout] = useState(1800)
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    onScan({
+      domain: domain.trim(),
+      active,
+      timeout: timeout || null,
+    })
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Domain</label>
+        <input
+          type="text"
+          value={domain}
+          onChange={(e) => setDomain(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+          placeholder="example.com"
+          required
+        />
+      </div>
+      <div className="flex items-center space-x-2">
+        <input
+          type="checkbox"
+          id="amass-active"
+          checked={active}
+          onChange={(e) => setActive(e.target.checked)}
+          className="rounded"
+        />
+        <label htmlFor="amass-active" className="text-sm text-gray-700">
+          Active mode (brute force + zone transfers)
+        </label>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Timeout (seconds)</label>
+        <input
+          type="number"
+          value={timeout}
+          onChange={(e) => setTimeout(parseInt(e.target.value))}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+          min={1}
+          max={7200}
         />
       </div>
       <button

@@ -93,10 +93,13 @@ export const scanLinkFinder = (data) =>
 export const scanMantra = (data) => 
   api.post('/scan/mantra', data)
 
-export const scanFFUF = (data) => 
+export const scanFFUF = (data) =>
   api.post('/scan/ffuf', data)
 
-export const scanDNSx = (data) => 
+export const scanAmass = (data) =>
+  api.post('/scan/amass', data)
+
+export const scanDNSx = (data) =>
   api.post('/scan/dnsx', data)
 
 export const scanSubjack = (data) => 

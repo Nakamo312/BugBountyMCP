@@ -56,6 +56,7 @@ from api.infrastructure.runners.katana_cli import KatanaCliRunner
 from api.infrastructure.runners.linkfinder_cli import LinkFinderCliRunner
 from api.infrastructure.runners.mantra_cli import MantraCliRunner
 from api.infrastructure.runners.ffuf_cli import FFUFCliRunner
+from api.infrastructure.runners.amass_cli import AmassCliRunner
 from api.infrastructure.runners.dnsx_cli import DNSxCliRunner
 from api.infrastructure.runners.subjack_cli import SubjackCliRunner
 from api.infrastructure.runners.asnmap_cli import ASNMapCliRunner
@@ -73,8 +74,10 @@ from api.infrastructure.runners.dnsx_runners import DNSxDeepRunner, DNSxPtrRunne
 from api.infrastructure.runners.mapcidr_runners import MapCIDRExpandRunner
 from api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
 from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
+from api.infrastructure.ingestors.amass_ingestor import AmassResultIngestor
 from api.application.pipeline.nodes.hakip2host_node import Hakip2HostNode
 from api.application.pipeline.nodes.ffuf_node import FFUFNode
+from api.application.pipeline.nodes.amass_node import AmassNode
 from api.application.pipeline.scope_policy import ScopePolicy
 
 class DatabaseProvider(Provider):
@@ -195,6 +198,14 @@ class CLIRunnerProvider(Provider):
             wordlist=settings.FFUF_WORDLIST,
             rate_limit=settings.FFUF_RATE_LIMIT,
             timeout=600,
+        )
+
+    @provide(scope=Scope.APP)
+    def get_amass_runner(self, settings: Settings) -> AmassCliRunner:
+        return AmassCliRunner(
+            amass_path=settings.get_tool_path("amass"),
+            wordlist=settings.AMASS_WORDLIST,
+            timeout=1800,
         )
 
     @provide(scope=Scope.APP)
@@ -432,6 +443,14 @@ class IngestorProvider(Provider):
         return TLSxResultIngestor(uow=program_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
+    def get_amass_ingestor(
+        self,
+        dnsx_uow: SQLAlchemyDNSxUnitOfWork,
+        settings: Settings
+    ) -> AmassResultIngestor:
+        return AmassResultIngestor(uow=dnsx_uow, settings=settings)
+
+    @provide(scope=Scope.REQUEST)
     def get_host_ingestor(
         self,
         dnsx_uow: SQLAlchemyDNSxUnitOfWork,
@@ -659,6 +678,16 @@ class PipelineProvider(Provider):
         )
         ffuf_node.set_context_factory(bus, container, settings)
         registry.register(ffuf_node)
+
+        amass_node = AmassNode(
+            node_id="amass",
+            event_in={
+                EventType.AMASS_SCAN_REQUESTED,
+            },
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+        )
+        amass_node.set_context_factory(bus, container, settings)
+        registry.register(amass_node)
 
         asnmap_node = NodeFactory.create_scan_node(
             node_id="asnmap",

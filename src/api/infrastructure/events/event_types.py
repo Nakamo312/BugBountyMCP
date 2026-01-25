@@ -25,6 +25,7 @@ class EventType(str, Enum):
     SMAP_SCAN_REQUESTED = "smap_scan_requested"
     HAKIP2HOST_SCAN_REQUESTED = "hakip2host_scan_requested"
     PLAYWRIGHT_SCAN_REQUESTED = "playwright_scan_requested"
+    AMASS_SCAN_REQUESTED = "amass_scan_requested"
 
     RAW_DOMAINS_DISCOVERED = "raw_domains_discovered"
     SUBDOMAIN_DISCOVERED = "subdomain_discovered"

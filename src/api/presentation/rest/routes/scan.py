@@ -11,6 +11,7 @@ from api.presentation.schemas import (
     LinkFinderScanRequest,
     MantraScanRequest,
     FFUFScanRequest,
+    AmassScanRequest,
     DNSxScanRequest,
     SubjackScanRequest,
     ASNMapScanRequest,
@@ -216,6 +217,40 @@ async def scan_ffuf(request: FFUFScanRequest, event_bus: FromDishka[EventBus]):
     Returns 202 Accepted immediately. Scan executes asynchronously via FFUFNode.
     """
     return await scan_endpoint(request, event_bus, "ffuf_scan_requested")
+
+
+@router.post("/scan/amass", response_model=ScanResponse, summary="Run Amass Scan", description="Starts Amass subdomain enumeration. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
+async def scan_amass(request: AmassScanRequest, event_bus: FromDishka[EventBus]):
+    """
+    Start Amass subdomain enumeration to discover subdomains and related infrastructure.
+
+    - **program_id**: Program UUID
+    - **domain**: Target domain (e.g., "example.com")
+    - **active**: Enable active enumeration with brute force and zone transfers
+    - **timeout**: Scan timeout in seconds (default: 1800)
+
+    Returns 202 Accepted immediately. Scan executes asynchronously via AmassNode.
+    """
+    try:
+        await publish_scan_event(
+            event_bus,
+            event="amass_scan_requested",
+            program_id=request.program_id,
+            extra={
+                "domain": request.domain,
+                "active": request.active,
+                "timeout": request.timeout
+            }
+        )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "accepted",
+                "message": f"Amass scan queued for domain {request.domain} (active={request.active})",
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
 
 
 DNSX_EVENT_MAP = {
