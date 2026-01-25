@@ -1,5 +1,6 @@
 """Amass Node - subdomain enumeration"""
 
+import asyncio
 import logging
 from typing import Dict, Any, Set
 from uuid import UUID
@@ -29,6 +30,7 @@ class AmassNode(Node):
         node_id: str,
         event_in: Set[EventType],
         max_parallelism: int = 1,
+        max_concurrent_scans: int = 5,
         scope_policy=ScopePolicy.NONE
     ):
         event_out = {
@@ -43,6 +45,7 @@ class AmassNode(Node):
         )
         self.logger = logging.getLogger(f"node.{node_id}")
         self.scope_policy = scope_policy
+        self._scan_semaphore = asyncio.Semaphore(max_concurrent_scans)
 
     def set_context_factory(self, bus, container, settings):
         """
@@ -65,61 +68,95 @@ class AmassNode(Node):
 
     async def execute(self, event: Dict[str, Any], ctx: PipelineContext):
         """
-        Execute Amass enumeration on domain.
+        Execute Amass enumeration on multiple domains.
 
         Args:
-            event: Event with 'domain', 'active' fields
+            event: Event with 'targets' and 'active' fields
             ctx: Node execution context
         """
         program_id = UUID(event["program_id"])
-        domain = event.get("domain")
+        targets = event.get("targets", [])
         active = event.get("active", False)
 
-        if not domain:
-            self.logger.warning("No domain in event")
+        if not targets:
+            self.logger.warning("No targets in event")
             return
 
         self.logger.info(
-            f"Starting Amass enum: node={self.node_id} program={program_id} domain={domain} active={active}"
+            f"Starting Amass enum: node={self.node_id} program={program_id} "
+            f"targets={len(targets)} active={active}"
         )
 
         runner = await ctx.get_service(AmassCliRunner)
         ingestor = await ctx.get_service(AmassResultIngestor)
 
+        async def enumerate_single_domain(domain: str) -> tuple[int, int]:
+            """Enumerate a single domain and return (domains_found, ips_found)"""
+            if not isinstance(domain, str):
+                self.logger.warning(f"Skipping non-string target: {domain}")
+                return 0, 0
+
+            async with self._scan_semaphore:
+                self.logger.info(f"Enumerating domain: {domain} (active={active})")
+
+                graph_lines = []
+                async for process_event in runner.run(domain, active):
+                    if process_event.type == "stdout" and process_event.payload:
+                        graph_lines.append(process_event.payload.strip())
+
+                if graph_lines:
+                    ingest_result = await ingestor.ingest(program_id, graph_lines)
+                    
+                    if ingest_result.raw_domains:
+                        await ctx.emit(
+                            event=EventType.RAW_DOMAINS_DISCOVERED.value,
+                            targets=ingest_result.raw_domains,
+                            program_id=program_id,
+                            confidence=0.9
+                        )
+                        self.logger.debug(
+                            f"Emitted RAW_DOMAINS_DISCOVERED for {domain}: "
+                            f"{len(ingest_result.raw_domains)} domains"
+                        )
+
+                    if ingest_result.ips:
+                        await ctx.emit(
+                            event=EventType.IPS_EXPANDED.value,
+                            targets=ingest_result.ips,
+                            program_id=program_id,
+                            confidence=0.9
+                        )
+                        self.logger.debug(
+                            f"Emitted IPS_EXPANDED for {domain}: "
+                            f"{len(ingest_result.ips)} IPs"
+                        )
+
+                    return len(ingest_result.raw_domains or []), len(ingest_result.ips or [])
+                return 0, 0
+
         try:
-            graph_lines = []
-            async for process_event in runner.run(domain, active):
-                if process_event.type == "stdout" and process_event.payload:
-                    graph_lines.append(process_event.payload.strip())
+            results = await asyncio.gather(
+                *[enumerate_single_domain(domain) for domain in targets],
+                return_exceptions=True
+            )
 
-            if graph_lines:
-                ingest_result = await ingestor.ingest(program_id, graph_lines)
+            total_domains = 0
+            total_ips = 0
+            failed = 0
 
-                if ingest_result.raw_domains:
-                    await ctx.emit(
-                        event=EventType.RAW_DOMAINS_DISCOVERED.value,
-                        targets=ingest_result.raw_domains,
-                        program_id=program_id,
-                        confidence=0.9
-                    )
-                    self.logger.debug(
-                        f"Emitted RAW_DOMAINS_DISCOVERED: {len(ingest_result.raw_domains)} domains"
-                    )
-
-                if ingest_result.ips:
-                    await ctx.emit(
-                        event=EventType.IPS_EXPANDED.value,
-                        targets=ingest_result.ips,
-                        program_id=program_id,
-                        confidence=0.9
-                    )
-                    self.logger.debug(
-                        f"Emitted IPS_EXPANDED: {len(ingest_result.ips)} IPs"
-                    )
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    self.logger.error(f"Failed to enumerate {targets[i]}: {result}")
+                    failed += 1
+                elif isinstance(result, tuple):
+                    domains_found, ips_found = result
+                    total_domains += domains_found
+                    total_ips += ips_found
 
             self.logger.info(
                 f"Amass enum completed: node={self.node_id} program={program_id} "
-                f"domain={domain} lines={len(graph_lines)}"
+                f"domains={len(targets)} total_domains_found={total_domains} "
+                f"total_ips_found={total_ips} failed={failed}"
             )
 
         except Exception as exc:

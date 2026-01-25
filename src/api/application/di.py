@@ -684,7 +684,9 @@ class PipelineProvider(Provider):
             event_in={
                 EventType.AMASS_SCAN_REQUESTED,
             },
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
+            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
+            max_concurrent_scans=5,
+            scope_policy=ScopePolicy.NONE
         )
         amass_node.set_context_factory(bus, container, settings)
         registry.register(amass_node)
