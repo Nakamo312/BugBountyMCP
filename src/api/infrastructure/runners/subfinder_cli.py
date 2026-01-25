@@ -33,7 +33,8 @@ class SubfinderCliRunner:
                 self.subfinder_path,
                 "-d", domain,
                 "-silent",
-                "-all"
+                "-all",
+                "-json"
             ]
 
             logger.info("Starting Subfinder command: %s", " ".join(command))
