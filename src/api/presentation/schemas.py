@@ -134,7 +134,7 @@ class DNSxScanRequest(BaseModel):
     """HTTP request schema for DNSx scan"""
     program_id: str = Field(..., description="Program UUID as string")
     targets: List[str] = Field(..., description="List of domains/hosts or IPs", min_items=1)
-    mode: str = Field(default="basic", description="Scan mode: basic, deep, or ptr")
+    mode: str = Field(default="default", description="Scan mode: default (A, AAAA, CNAME, MX, TXT, NS, SOA) or ptr (reverse DNS)")
     timeout: Optional[int] = Field(default=600, ge=1, le=3600)
 
     model_config = ConfigDict(
@@ -142,7 +142,7 @@ class DNSxScanRequest(BaseModel):
             "example": {
                 "program_id": "123e4567-e89b-12d3-a456-426614174000",
                 "targets": ["example.com", "api.example.com"],
-                "mode": "basic",
+                "mode": "default",
                 "timeout": 600
             }
         }

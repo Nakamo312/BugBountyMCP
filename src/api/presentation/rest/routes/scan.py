@@ -219,19 +219,18 @@ async def scan_ffuf(request: FFUFScanRequest, event_bus: FromDishka[EventBus]):
 
 
 DNSX_EVENT_MAP = {
-    "basic": "dnsx_basic_scan_requested",
-    "deep": "dnsx_deep_scan_requested",
+    "default": "dnsx_scan_requested",
     "ptr": "dnsx_ptr_scan_requested",
 }
 
-@router.post("/scan/dnsx", response_model=ScanResponse, summary="Run DNSx Scan", description="Starts DNSx DNS enumeration (basic, deep, or ptr mode). Returns immediately.", tags=["Scans"], status_code=202)
+@router.post("/scan/dnsx", response_model=ScanResponse, summary="Run DNSx Scan", description="Starts DNSx DNS enumeration (default or ptr mode). Returns immediately.", tags=["Scans"], status_code=202)
 async def scan_dnsx(request: DNSxScanRequest, event_bus: FromDishka[EventBus]):
     """
     Start DNSx scan to enumerate DNS records for hosts or reverse lookup for IPs.
 
     - **program_id**: Program UUID
     - **targets**: List of domains/hosts or IPs
-    - **mode**: 'basic', 'deep', or 'ptr'
+    - **mode**: 'default' (A, AAAA, CNAME, MX, TXT, NS, SOA) or 'ptr' (reverse DNS)
     - **timeout**: Scan timeout in seconds (default: 600)
 
     Returns 202 Accepted immediately. Scan executes asynchronously via DNSxNode.
