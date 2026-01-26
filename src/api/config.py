@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     FFUF_RATE_LIMIT: int = 10
 
     # Amass settings
-    AMASS_WORDLIST: str = "/usr/share/wordlists/amass/bitquark_subdomains_top100K.txt"
+    AMASS_WORDLIST: str = "/usr/share/seclists/Discovery/DNS/bitquark-subdomains-top100000.txt"
     AMASS_INGESTOR_BATCH_SIZE: int = 100
     AMASS_BATCH_MIN_SIZE: int = 50
     AMASS_BATCH_MAX_SIZE: int = 200
