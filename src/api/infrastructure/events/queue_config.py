@@ -74,7 +74,7 @@ class QueueConfig:
         "naabu_results_batch": ANALYSIS_QUEUE,
         "smap_scan_requested": ENUMERATION_QUEUE,
         "smap_results": ENUMERATION_QUEUE,
-        "ports_discovered": ENUMERATION_QUEUE,
+        "ports_discovered": ENUMERATION_QUEUE
     }
 
     @classmethod
@@ -104,7 +104,7 @@ class QueueConfig:
             cls.DISCOVERY_QUEUE,
             cls.ENUMERATION_QUEUE,
             cls.VALIDATION_QUEUE,
-            cls.ANALYSIS_QUEUE,
+            cls.ANALYSIS_QUEUE
         ]
 
     @classmethod

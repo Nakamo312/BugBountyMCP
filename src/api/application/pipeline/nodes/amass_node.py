@@ -17,12 +17,14 @@ logger = logging.getLogger(__name__)
 
 class AmassNode(Node):
     """
-    Amass subdomain enumeration node.
+    Amass subdomain enumeration node with infrastructure discovery.
 
     Input events: AMASS_SCAN_REQUESTED
     Output events:
-      - RAW_DOMAINS_DISCOVERED (all discovered subdomains)
-      - IPS_EXPANDED (all discovered IP addresses)
+      - SUBDOMAIN_DISCOVERED (DNS-resolved subdomains)
+      - IPS_EXPANDED (discovered IP addresses)
+      - CIDR_DISCOVERED (discovered network blocks)
+      - ASN_DISCOVERED (discovered autonomous systems)
     """
 
     def __init__(
@@ -35,7 +37,9 @@ class AmassNode(Node):
     ):
         event_out = {
             EventType.SUBDOMAIN_DISCOVERED,
-            EventType.IPS_EXPANDED
+            EventType.IPS_EXPANDED,
+            EventType.ASN_DISCOVERED,
+            EventType.CIDR_DISCOVERED
         }
         super().__init__(
             node_id=node_id,
@@ -106,16 +110,16 @@ class AmassNode(Node):
 
                 if graph_lines:
                     ingest_result = await ingestor.ingest(program_id, graph_lines)
-                    
+
                     if ingest_result.raw_domains:
                         await ctx.emit(
-                            event=EventType.RAW_DOMAINS_DISCOVERED.value,
+                            event=EventType.SUBDOMAIN_DISCOVERED.value,
                             targets=ingest_result.raw_domains,
                             program_id=program_id,
                             confidence=0.9
                         )
                         self.logger.debug(
-                            f"Emitted RAW_DOMAINS_DISCOVERED for {domain}: "
+                            f"Emitted SUBDOMAIN_DISCOVERED for {domain}: "
                             f"{len(ingest_result.raw_domains)} domains"
                         )
 
@@ -129,6 +133,30 @@ class AmassNode(Node):
                         self.logger.debug(
                             f"Emitted IPS_EXPANDED for {domain}: "
                             f"{len(ingest_result.ips)} IPs"
+                        )
+
+                    if ingest_result.cidrs:
+                        await ctx.emit(
+                            event=EventType.CIDR_DISCOVERED.value,
+                            targets=ingest_result.cidrs,
+                            program_id=program_id,
+                            confidence=0.9
+                        )
+                        self.logger.debug(
+                            f"Emitted CIDR_DISCOVERED for {domain}: "
+                            f"{len(ingest_result.cidrs)} CIDRs"
+                        )
+
+                    if ingest_result.asns:
+                        await ctx.emit(
+                            event=EventType.ASN_DISCOVERED.value,
+                            targets=ingest_result.asns,
+                            program_id=program_id,
+                            confidence=0.9
+                        )
+                        self.logger.debug(
+                            f"Emitted ASN_DISCOVERED for {domain}: "
+                            f"{len(ingest_result.asns)} ASNs"
                         )
 
                     return len(ingest_result.raw_domains or []), len(ingest_result.ips or [])

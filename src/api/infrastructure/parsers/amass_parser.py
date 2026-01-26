@@ -48,16 +48,18 @@ class AmassGraphParser:
     @classmethod
     def extract_domains_and_ips(cls, lines: List[str]) -> Dict[str, Set[str]]:
         """
-        Extract domains and IP addresses from amass graph output.
+        Extract domains, IPs, CIDRs, and ASNs from amass graph output.
 
         Args:
             lines: List of graph output lines
 
         Returns:
-            Dict with 'domains' and 'ips' sets
+            Dict with 'domains', 'ips', 'cidrs', 'asns' sets
         """
         domains = set()
         ips = set()
+        cidrs = set()
+        asns = set()
 
         for line in lines:
             parsed = cls.parse_line(line)
@@ -77,9 +79,28 @@ class AmassGraphParser:
                 if relationship in ("a_record", "aaaa_record"):
                     ips.add(target_entity)
 
-        logger.info(f"AmassParser: Extracted domains={len(domains)} ips={len(ips)}")
+            if source_type == "Netblock":
+                cidrs.add(source_entity)
+
+            if target_type == "Netblock":
+                cidrs.add(target_entity)
+
+            if source_type == "ASN":
+                try:
+                    asn_num = int(source_entity)
+                    if asn_num > 0:
+                        asns.add(asn_num)
+                except ValueError:
+                    pass
+
+        logger.info(
+            f"AmassParser: Extracted domains={len(domains)} ips={len(ips)} "
+            f"cidrs={len(cidrs)} asns={len(asns)}"
+        )
 
         return {
             "domains": domains,
-            "ips": ips
+            "ips": ips,
+            "cidrs": cidrs,
+            "asns": asns
         }
