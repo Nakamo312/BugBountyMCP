@@ -624,7 +624,7 @@ class PipelineProvider(Provider):
         gau_node = NodeFactory.create_scan_node(
             node_id="gau",
             event_in={
-                EventType.GAU_SCAN_REQUESTED,
+                
             },
             event_out={
                 EventType.GAU_DISCOVERED: "urls",
@@ -640,7 +640,7 @@ class PipelineProvider(Provider):
         waymore_node = NodeFactory.create_scan_node(
             node_id="waymore",
             event_in={
-                EventType.SUBDOMAIN_DISCOVERED,
+                EventType.GAU_SCAN_REQUESTED,
             },
             event_out={
                 EventType.GAU_DISCOVERED: "urls",
