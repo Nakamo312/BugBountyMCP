@@ -1,35 +1,34 @@
-from sqlalchemy import select, and_
-from sqlalchemy.ext.asyncio import AsyncSession
+# src/api/infrastructure/queries/host.py
+from typing import Optional, List, Dict
 from uuid import UUID
-from typing import Optional, List, Dict, Any
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.domain.models import HostModel
+from api.infrastructure.queries.interfaces.base import AbstractQueryRepository
 from api.infrastructure.queries.interfaces.host_query import HostQuery
 
 
-class SQLAlchemyHostQuery(SQLAlchemyAbstractQueryRepository, HostQuery):
+
+class SQLAlchemyHostQuery(HostQuery):
+    model = HostModel
+
     def __init__(self, session: AsyncSession):
         self.session = session
 
     async def get(self, id: UUID) -> Optional[HostModel]:
-        result = await self.session.execute(select(HostModel).where(HostModel.id == id))
-        return result.scalar_one_or_none()
+        return await self.get_by_fields(id=id)
 
     async def find_by_fields(self, **filters) -> Optional[HostModel]:
-        conditions = [getattr(HostModel, k) == v for k, v in filters.items() if hasattr(HostModel, k)]
-        if not conditions:
-            return None
-        result = await self.session.execute(select(HostModel).where(and_(*conditions)))
-        return result.scalar_one_or_none()
+        from api.infrastructure.repositories.adapters.base import SQLAlchemyAbstractRepository
+        repo = SQLAlchemyAbstractRepository(self.session)
+        repo.model = HostModel
+        return await repo.get_by_fields(**filters)
 
-    async def list(self, filters: Optional[Dict[str, Any]] = None) -> List[HostModel]:
-        query = select(HostModel)
-        if filters:
-            conditions = [getattr(HostModel, k) == v for k, v in filters.items() if hasattr(HostModel, k)]
-            if conditions:
-                query = query.where(and_(*conditions))
-        result = await self.session.execute(query)
-        return list(result.scalars().all())
+    async def list(self, filters: Optional[Dict] = None) -> List[HostModel]:
+        from api.infrastructure.repositories.adapters.base import SQLAlchemyAbstractRepository
+        repo = SQLAlchemyAbstractRepository(self.session)
+        repo.model = HostModel
+        return await repo.find_many(filters=filters or {})
 
     async def get_host(self, program_id: UUID, host: str) -> Optional[HostModel]:
         return await self.find_by_fields(program_id=program_id, host=host)

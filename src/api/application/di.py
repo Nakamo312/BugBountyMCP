@@ -445,10 +445,10 @@ class IngestorProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def get_amass_ingestor(
         self,
-        dnsx_uow: SQLAlchemyDNSxUnitOfWork,
+        infrastructure_uow: SQLAlchemyInfrastructureUnitOfWork,
         settings: Settings
     ) -> AmassResultIngestor:
-        return AmassResultIngestor(uow=dnsx_uow, settings=settings)
+        return AmassResultIngestor(uow=infrastructure_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
     def get_host_ingestor(
