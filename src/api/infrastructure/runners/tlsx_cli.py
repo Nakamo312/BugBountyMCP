@@ -1,10 +1,10 @@
 """TLSx CLI Runner"""
 
-import json
 import logging
 from typing import AsyncIterator
 
 from api.infrastructure.commands.command_executor import CommandExecutor, ProcessEvent
+from api.infrastructure.parsers.process_event_parsers import JSONStdoutProcessEventParser
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +33,15 @@ class TLSxCliRunner:
         Yields:
             ProcessEvent with type="result" and payload=cert_data
         """
-        async for event in self.scan_default_certs(targets):
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(self.run_raw(targets)):
             yield event
 
-    async def scan_default_certs(
+    async def run_raw(self, targets: list[str] | str) -> AsyncIterator[ProcessEvent]:
+        async for event in self.scan_default_certs_raw(targets):
+            yield event
+
+    async def scan_default_certs_raw(
         self,
         targets: list[str] | str,
         ports: list[int] | None = None
@@ -49,7 +54,7 @@ class TLSxCliRunner:
             ports: List of ports to scan (default: 443, 8443)
 
         Yields:
-            ProcessEvent with type="result" and payload=cert_data
+            Raw ProcessEvent objects from CommandExecutor.
 
         Output format:
         {
@@ -90,25 +95,23 @@ class TLSxCliRunner:
 
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
-        result_count = 0
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
                 logger.warning(f"tlsx stderr: {event.payload}")
+            yield event
 
-            if event.type != "stdout" or not event.payload:
-                continue
+        logger.info("tlsx default cert scan completed")
 
-            try:
-                data = json.loads(event.payload)
-                result_count += 1
-                yield ProcessEvent(type="result", payload=data)
-            except json.JSONDecodeError:
-                logger.debug(f"Non-JSON stdout line skipped: {event.payload}")
-                continue
+    async def scan_default_certs(
+        self,
+        targets: list[str] | str,
+        ports: list[int] | None = None
+    ) -> AsyncIterator[ProcessEvent]:
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(self.scan_default_certs_raw(targets, ports=ports)):
+            yield event
 
-        logger.info(f"tlsx default cert scan completed: results={result_count}")
-
-    async def scan_sni_brute(
+    async def scan_sni_brute_raw(
         self,
         ips: list[str] | str,
         domains: list[str],
@@ -123,7 +126,7 @@ class TLSxCliRunner:
             ports: List of ports to scan (default: 443, 8443)
 
         Yields:
-            ProcessEvent with type="result" and payload=cert_data
+            Raw ProcessEvent objects from CommandExecutor.
 
         This discovers virtual hosts on shared IPs by testing known
         domain names against IP addresses.
@@ -160,25 +163,26 @@ class TLSxCliRunner:
 
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
-        result_count = 0
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
                 logger.warning(f"tlsx stderr: {event.payload}")
+            yield event
 
-            if event.type != "stdout" or not event.payload:
-                continue
+        logger.info("tlsx SNI brute completed")
 
-            try:
-                data = json.loads(event.payload)
-                result_count += 1
-                yield ProcessEvent(type="result", payload=data)
-            except json.JSONDecodeError:
-                logger.debug(f"Non-JSON stdout line skipped: {event.payload}")
-                continue
+    async def scan_sni_brute(
+        self,
+        ips: list[str] | str,
+        domains: list[str],
+        ports: list[int] | None = None
+    ) -> AsyncIterator[ProcessEvent]:
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(
+            self.scan_sni_brute_raw(ips, domains=domains, ports=ports)
+        ):
+            yield event
 
-        logger.info(f"tlsx SNI brute completed: results={result_count}")
-
-    async def scan_with_options(
+    async def scan_with_options_raw(
         self,
         targets: list[str] | str,
         ports: list[int] | None = None,
@@ -197,7 +201,7 @@ class TLSxCliRunner:
             include_jarm: Include JARM fingerprint
 
         Yields:
-            ProcessEvent with type="result" and payload=cert_data
+            Raw ProcessEvent objects from CommandExecutor.
         """
         if isinstance(targets, str):
             targets = [targets]
@@ -234,20 +238,29 @@ class TLSxCliRunner:
 
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
-        result_count = 0
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
                 logger.warning(f"tlsx stderr: {event.payload}")
+            yield event
 
-            if event.type != "stdout" or not event.payload:
-                continue
+        logger.info("tlsx advanced scan completed")
 
-            try:
-                data = json.loads(event.payload)
-                result_count += 1
-                yield ProcessEvent(type="result", payload=data)
-            except json.JSONDecodeError:
-                logger.debug(f"Non-JSON stdout line skipped: {event.payload}")
-                continue
-
-        logger.info(f"tlsx advanced scan completed: results={result_count}")
+    async def scan_with_options(
+        self,
+        targets: list[str] | str,
+        ports: list[int] | None = None,
+        include_cipher: bool = False,
+        include_hash: bool = False,
+        include_jarm: bool = False
+    ) -> AsyncIterator[ProcessEvent]:
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(
+            self.scan_with_options_raw(
+                targets,
+                ports=ports,
+                include_cipher=include_cipher,
+                include_hash=include_hash,
+                include_jarm=include_jarm,
+            )
+        ):
+            yield event

@@ -326,6 +326,28 @@ event_store = Table(
     Index('idx_event_store_program_type_created', 'program_id', 'event_type', 'created_at'),
 )
 
+raw_artifacts = Table(
+    'raw_artifacts',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('job_id', UUID(), nullable=True, index=True),
+    Column('run_id', UUID(), nullable=True, index=True),
+    Column('node_id', String(100), nullable=False, index=True),
+    Column('event_name', String(150), nullable=False, index=True),
+    Column('artifact_type', String(50), nullable=False),
+    Column('storage_uri', Text, nullable=False),
+    Column('sha256', String(64), nullable=False),
+    Column('size_bytes', Integer, nullable=False),
+    Column('artifact_metadata', JSONType(), nullable=False, default=dict),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index('idx_raw_artifacts_program_created', 'program_id', 'created_at'),
+    Index('idx_raw_artifacts_run', 'run_id'),
+    CheckConstraint("artifact_type != ''", name='ck_raw_artifacts_type_not_empty'),
+    CheckConstraint("storage_uri != ''", name='ck_raw_artifacts_storage_uri_not_empty'),
+    CheckConstraint("size_bytes >= 0", name='ck_raw_artifacts_size_non_negative'),
+)
+
 payloads = Table(
     'payloads',
     metadata,

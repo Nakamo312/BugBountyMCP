@@ -1,10 +1,10 @@
 """Hakip2host CLI Runner for reverse IP to hostname resolution"""
 
-import json
 import logging
 from typing import AsyncIterator
 
 from api.infrastructure.commands.command_executor import CommandExecutor, ProcessEvent
+from api.infrastructure.parsers.line_process_event_parsers import Hakip2HostStdoutParser
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class Hakip2HostCliRunner:
         self.hakip2host_path = hakip2host_path
         self.timeout = timeout
 
-    async def run(self, targets: list[str]) -> AsyncIterator[ProcessEvent]:
+    async def run_raw(self, targets: list[str]) -> AsyncIterator[ProcessEvent]:
         """
         Resolve IPs to hostnames via PTR and SSL certificates.
 
@@ -48,39 +48,14 @@ class Hakip2HostCliRunner:
 
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
-        result_count = 0
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
                 logger.warning(f"hakip2host stderr: {event.payload}")
+            yield event
 
-            if event.type != "stdout" or not event.payload:
-                continue
+        logger.info("hakip2host completed")
 
-            line = event.payload.strip()
-            if not line or not line.startswith("["):
-                continue
-
-            # Parse: [METHOD] IP hostname
-            try:
-                parts = line.split(maxsplit=2)
-                if len(parts) != 3:
-                    continue
-
-                method = parts[0].strip("[]")
-                ip = parts[1]
-                hostname = parts[2]
-
-                result_count += 1
-                yield ProcessEvent(
-                    type="result",
-                    payload={
-                        "ip": ip,
-                        "hostname": hostname,
-                        "method": method
-                    }
-                )
-            except Exception as exc:
-                logger.debug(f"Failed to parse hakip2host line: {line} - {exc}")
-                continue
-
-        logger.info(f"hakip2host completed: results={result_count}")
+    async def run(self, targets: list[str]) -> AsyncIterator[ProcessEvent]:
+        parser = Hakip2HostStdoutParser()
+        async for event in parser.parse_stream(self.run_raw(targets)):
+            yield event

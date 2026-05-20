@@ -3,6 +3,7 @@ import logging
 from typing import AsyncIterator
 
 from api.infrastructure.commands.command_executor import CommandExecutor
+from api.infrastructure.parsers.line_process_event_parsers import GAUStdoutParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 logger = logging.getLogger(__name__)
@@ -18,16 +19,16 @@ class GAUCliRunner:
         self.gau_path = gau_path
         self.timeout = timeout
 
-    async def run(self, targets: list[str], include_subs: bool = True) -> AsyncIterator[ProcessEvent]:
+    async def run_raw(self, targets: list[str], include_subs: bool = True) -> AsyncIterator[ProcessEvent]:
         """
-        Execute gau for the given domain.
+        Execute gau for the given domain and yield raw process events.
 
         Args:
             domain: Target domain for URL enumeration
             include_subs: Include subdomains in results
 
         Yields:
-            ProcessEvent with type="url" and payload=discovered_url
+            Raw ProcessEvent objects from CommandExecutor
         """
         for domain in targets:
             command = [
@@ -47,38 +48,10 @@ class GAUCliRunner:
             executor = CommandExecutor(command, stdin=None, timeout=self.timeout)
 
             async for event in executor.run():
-                if event.type != "stdout" or not event.payload:
-                    continue
+                yield event
 
-                url = event.payload.strip()
-                if url and self._is_valid_url(url):
-                    yield ProcessEvent(type="url", payload=url)
-
-    def _is_valid_url(self, value: str) -> bool:
-        """
-        Validate if string looks like a URL.
-        Filters out error messages, non-URL output, and static resources.
-        """
-        if not value or len(value) > 2048:
-            return False
-
-        if any(keyword in value.lower() for keyword in ["error", "failed", "no such file", "usage:", "flag"]):
-            return False
-
-        if not value.startswith(("http://", "https://")):
-            return False
-
-        lower_value = value.lower()
-        static_patterns = [
-            ".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".ico",
-            ".woff", ".woff2", ".ttf", ".eot", ".otf",
-            ".mp4", ".mp3", ".avi", ".webm", ".flv", ".wav",
-            ".pdf", ".zip", ".tar", ".gz", ".rar", ".7z",
-            ".exe", ".dll", ".bin", ".dmg", ".iso"
-        ]
-
-        for pattern in static_patterns:
-            if pattern in lower_value:
-                return False
-
-        return True
+    async def run(self, targets: list[str], include_subs: bool = True) -> AsyncIterator[ProcessEvent]:
+        """Compatibility wrapper for callers that still expect normalized URL results."""
+        parser = GAUStdoutParser()
+        async for event in parser.parse_stream(self.run_raw(targets, include_subs=include_subs)):
+            yield event

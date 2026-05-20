@@ -82,6 +82,8 @@ class AmassNode(Node):
             ctx: Node execution context
         """
         program_id = UUID(event["program_id"])
+        job_id = UUID(event["job_id"]) if event.get("job_id") else None
+        run_id = UUID(event["run_id"]) if event.get("run_id") else None
         targets = event.get("targets", [])
         active = event.get("active", False)
 
@@ -107,7 +109,19 @@ class AmassNode(Node):
                 self.logger.info(f"Enumerating domain: {domain} (active={active})")
 
                 graph_lines = []
-                async for process_event in runner.run(domain, active):
+                stream = runner.run(domain, active)
+                if isinstance(ctx, PipelineContext):
+                    stream = ctx.capture_raw_stream(
+                        stream,
+                        program_id=program_id,
+                        event_name=event.get("event", self.node_id),
+                        targets=[domain],
+                        job_id=job_id,
+                        run_id=run_id,
+                        metadata={"runner": self.runner_key.__name__, "active": active},
+                    )
+
+                async for process_event in stream:
                     if process_event.type == "stdout" and process_event.payload:
                         graph_lines.append(process_event.payload.strip())
 

@@ -3,6 +3,7 @@
 from typing import AsyncIterator, List
 
 from api.infrastructure.runners.mapcidr_cli import MapCIDRCliRunner
+from api.infrastructure.parsers.line_process_event_parsers import StdoutLineResultParser
 from api.infrastructure.commands.command_executor import ProcessEvent
 
 
@@ -12,9 +13,15 @@ class MapCIDRExpandRunner:
     def __init__(self, mapcidr_runner: MapCIDRCliRunner):
         self.mapcidr_runner = mapcidr_runner
 
+    async def run_raw(self, targets: List[str]) -> AsyncIterator[ProcessEvent]:
+        """Expand CIDRs to IPs and yield raw process events."""
+        async for event in self.mapcidr_runner.expand_raw(targets):
+            yield event
+
     async def run(self, targets: List[str]) -> AsyncIterator[ProcessEvent]:
         """Expand CIDRs to IPs"""
-        async for event in self.mapcidr_runner.expand(targets):
+        parser = StdoutLineResultParser()
+        async for event in parser.parse_stream(self.run_raw(targets)):
             yield event
 
 

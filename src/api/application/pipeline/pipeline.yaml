@@ -1,4 +1,262 @@
-nodes:
+defaults:
+  max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+  execution_delay: 0
+  scope: none
+
+events:
+  raw_domains_discovered:
+    queue: validation
+  subdomain_discovered:
+    queue: discovery
+  asn_discovered:
+    queue: discovery
+  cidr_discovered:
+    queue: discovery
+  ips_expanded:
+    queue: enumeration
+  cidr_sliced:
+    queue: enumeration
+  ips_aggregated:
+    queue: enumeration
+  dnsx_basic_scan_requested:
+    queue: validation
+  dnsx_deep_scan_requested:
+    queue: validation
+  dnsx_filtered_hosts:
+    queue: validation
+  dnsx_basic_results_batch:
+    queue: validation
+  dnsx_deep_results_batch:
+    queue: validation
+  dnsx_ptr_results_batch:
+    queue: validation
+  host_discovered:
+    queue: analysis
+  scan_results_batch:
+    queue: analysis
+  tlsx_scan_requested:
+    queue: analysis
+  tlsx_results_batch:
+    queue: analysis
+  cert_san_discovered:
+    queue: analysis
+  gau_discovered:
+    queue: analysis
+  katana_results_batch:
+    queue: analysis
+  js_files_discovered:
+    queue: analysis
+  mantra_results_batch:
+    queue: analysis
+  ffuf_results_batch:
+    queue: analysis
+  subjack_results_batch:
+    queue: analysis
+  naabu_results_batch:
+    queue: analysis
+  smap_scan_requested:
+    queue: enumeration
+  smap_results:
+    queue: enumeration
+  ports_discovered:
+    queue: enumeration
+  hakip2host_scan_requested:
+    queue: enumeration
+
+capabilities:
+  subfinder:
+    label: Subfinder
+    request_event: subfinder_scan_requested
+    queue: discovery
+    default_profile: passive-recon
+    scope: none
+    profiles:
+      passive-recon:
+        label: Passive subdomain discovery
+        safety_level: passive
+        allowed_options: [timeout, probe]
+
+  httpx:
+    label: HTTPX
+    request_event: httpx_scan_requested
+    queue: analysis
+    default_profile: safe-web-probe
+    scope: confidence
+    profiles:
+      safe-web-probe:
+        label: Safe HTTP probing
+        safety_level: safe_active
+        allowed_options: [timeout]
+
+  katana:
+    label: Katana
+    request_event: katana_scan_requested
+    queue: analysis
+    default_profile: safe-crawl
+    scope: confidence
+    profiles:
+      safe-crawl:
+        label: Safe crawl
+        safety_level: safe_active
+        allowed_options: [depth, js_crawl, headless, timeout]
+
+  playwright:
+    label: Playwright
+    request_event: playwright_scan_requested
+    queue: analysis
+    default_profile: browser-crawl
+    scope: strict
+    profiles:
+      browser-crawl:
+        label: Browser crawl with network capture
+        safety_level: active
+        allowed_options: [depth, timeout]
+        requires_approval: true
+
+  gau:
+    label: GAU/Waymore
+    request_event: gau_scan_requested
+    queue: analysis
+    default_profile: archive-url-discovery
+    scope: strict
+    profiles:
+      archive-url-discovery:
+        label: Archived URL discovery
+        safety_level: passive
+        allowed_options: [include_subs, timeout]
+
+  linkfinder:
+    label: LinkFinder
+    request_event: linkfinder_scan_requested
+    queue: analysis
+    default_profile: js-endpoint-extraction
+    scope: confidence
+    profiles:
+      js-endpoint-extraction:
+        label: JavaScript endpoint extraction
+        safety_level: safe_active
+        allowed_options: [timeout]
+
+  ffuf:
+    label: FFUF
+    request_event: ffuf_scan_requested
+    queue: analysis
+    default_profile: content-discovery-light
+    scope: strict
+    profiles:
+      content-discovery-light:
+        label: Light content discovery
+        safety_level: active
+        allowed_options: [timeout]
+        requires_approval: true
+
+  amass:
+    label: Amass
+    request_event: amass_scan_requested
+    queue: discovery
+    default_profile: passive-enum
+    scope: none
+    profiles:
+      passive-enum:
+        label: Passive infrastructure enumeration
+        safety_level: passive
+        allowed_options: [active, timeout]
+      active-enum:
+        label: Active infrastructure enumeration
+        safety_level: active
+        allowed_options: [active, timeout]
+        requires_approval: true
+
+  dnsx:
+    label: DNSx
+    request_event: dnsx_scan_requested
+    queue: validation
+    default_profile: dns-validate
+    scope: none
+    profiles:
+      dns-validate:
+        label: DNS validation
+        safety_level: safe_active
+        allowed_options: [mode, timeout]
+
+  dnsx-ptr:
+    label: DNSx PTR
+    request_event: dnsx_ptr_scan_requested
+    queue: validation
+    default_profile: reverse-dns
+    scope: none
+    profiles:
+      reverse-dns:
+        label: Reverse DNS lookup
+        safety_level: safe_active
+        allowed_options: [mode, timeout]
+
+  subjack:
+    label: Subjack
+    request_event: subjack_scan_requested
+    queue: analysis
+    default_profile: takeover-check
+    scope: confidence
+    profiles:
+      takeover-check:
+        label: Subdomain takeover check
+        safety_level: safe_active
+        allowed_options: [timeout]
+
+  asnmap:
+    label: ASNMap
+    request_event: asnmap_scan_requested
+    queue: discovery
+    default_profile: asn-discovery
+    scope: none
+    profiles:
+      asn-discovery:
+        label: ASN and CIDR discovery
+        safety_level: passive
+        allowed_options: [mode, timeout]
+
+  mapcidr:
+    label: MapCIDR
+    request_event: mapcidr_scan_requested
+    queue: enumeration
+    default_profile: cidr-expand
+    scope: none
+    profiles:
+      cidr-expand:
+        label: CIDR expansion
+        safety_level: passive
+        allowed_options: [skip_base, skip_broadcast, shuffle, timeout]
+
+  naabu:
+    label: Naabu
+    request_event: naabu_scan_requested
+    queue: analysis
+    default_profile: passive-ports
+    scope: strict
+    profiles:
+      passive-ports:
+        label: Passive port discovery
+        safety_level: passive
+        allowed_options: [ports, top_ports, rate, scan_mode, scan_type, exclude_cdn, timeout]
+      connect-top-100:
+        label: Top 100 TCP connect scan
+        safety_level: active
+        allowed_options: [ports, top_ports, rate, scan_mode, scan_type, exclude_cdn, timeout]
+        requires_approval: true
+
+  mantra:
+    label: Mantra
+    request_event: mantra_scan_requested
+    queue: analysis
+    default_profile: js-secret-analysis
+    scope: confidence
+    profiles:
+      js-secret-analysis:
+        label: JavaScript secret analysis
+        safety_level: safe_active
+        allowed_options: [timeout]
+
+workers:
   httpx:
     type: scan
     inputs:
@@ -10,6 +268,7 @@ nodes:
       host_discovered: new_hosts
       js_files_discovered: js_files
     runner: HTTPXCliRunner
+    parser: HTTPXProcessEventParser
     processor: HTTPXBatchProcessor
     ingestor: HTTPXResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -23,6 +282,7 @@ nodes:
     outputs:
       js_files_discovered: js_files
     runner: KatanaCliRunner
+    parser: JSONStdoutProcessEventParser
     processor: KatanaBatchProcessor
     ingestor: KatanaResultIngestor
     max_parallelism: 2
@@ -37,6 +297,7 @@ nodes:
     outputs:
       js_files_discovered: js_files
     runner: PlaywrightCliRunner
+    parser: JSONStdoutProcessEventParser
     processor: PlaywrightBatchProcessor
     ingestor: KatanaResultIngestor
     max_parallelism: 1
@@ -51,6 +312,7 @@ nodes:
     outputs:
       gau_discovered: urls
     runner: LinkFinderCliRunner
+    parser: LinkFinderStdoutParser
     processor: LinkFinderBatchProcessor
     ingestor: LinkFinderResultIngestor
     max_parallelism: 3
@@ -63,6 +325,7 @@ nodes:
       - js_files_discovered
     outputs: {}
     runner: MantraCliRunner
+    parser: MantraStdoutParser
     processor: MantraBatchProcessor
     ingestor: MantraResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -75,6 +338,7 @@ nodes:
     outputs:
       raw_domains_discovered: raw_domains
     runner: SubfinderCliRunner
+    parser: SubfinderStdoutParser
     processor: SubfinderBatchProcessor
     ingestor: HostIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -86,6 +350,7 @@ nodes:
     outputs:
       gau_discovered: urls
     runner: GAUCliRunner
+    parser: GAUStdoutParser
     processor: GAUBatchProcessor
     ingestor:
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -98,6 +363,7 @@ nodes:
     outputs:
       gau_discovered: urls
     runner: WaymoreCliRunner
+    parser: URLStdoutLineResultParser
     processor: WaymoreBatchProcessor
     ingestor:
     max_parallelism: 2
@@ -110,6 +376,7 @@ nodes:
       - subdomain_discovered
     outputs: {}
     runner: SubjackCliRunner
+    parser: SubjackStdoutParser
     processor: SubjackBatchProcessor
     ingestor: SubjackResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -150,6 +417,7 @@ nodes:
       asn_discovered: asns
       cidr_discovered: cidrs
     runner: ASNMapCliRunner
+    parser: JSONStdoutProcessEventParser
     processor: ASNMapBatchProcessor
     ingestor: ASNMapResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -161,6 +429,7 @@ nodes:
       - naabu_scan_requested
     outputs: {}
     runner: NaabuCliRunner
+    parser: JSONStdoutProcessEventParser
     processor: NaabuBatchProcessor
     ingestor: NaabuResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -174,6 +443,7 @@ nodes:
     outputs:
       ips_expanded: ips
     runner: MapCIDRExpandRunner
+    parser: StdoutLineResultParser
     processor: MapCIDRBatchProcessor
     ingestor:
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -187,6 +457,7 @@ nodes:
     outputs:
       raw_domains_discovered: raw_domains
     runner: TLSxDefaultRunner
+    parser: JSONStdoutProcessEventParser
     processor: TLSxBatchProcessor
     ingestor: TLSxResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -200,6 +471,7 @@ nodes:
       ips_expanded: ips
       subdomain_discovered: hostnames
     runner: DNSxDeepRunner
+    parser: JSONStdoutProcessEventParser
     processor: DNSxBatchProcessor
     ingestor: DNSxDiscoveryResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -213,6 +485,7 @@ nodes:
       ips_expanded: ips
       subdomain_discovered: hostnames
     runner: DNSxDeepRunner
+    parser: JSONStdoutProcessEventParser
     processor: DNSxBatchProcessor
     ingestor: DNSxResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -224,6 +497,7 @@ nodes:
       - dnsx_ptr_scan_requested
     outputs: {}
     runner: DNSxPtrRunner
+    parser: JSONStdoutProcessEventParser
     processor: DNSxBatchProcessor
     ingestor: DNSxResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -238,6 +512,7 @@ nodes:
       ips_expanded: ips
       raw_domains_discovered: raw_domains
     runner: SmapCliRunner
+    parser: JSONStdoutItemsProcessEventParser
     processor: SmapBatchProcessor
     ingestor: SmapResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT

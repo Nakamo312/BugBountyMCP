@@ -1,7 +1,7 @@
 import logging
-import re
 from typing import AsyncIterator, List
 from api.infrastructure.commands.command_executor import CommandExecutor
+from api.infrastructure.parsers.line_process_event_parsers import MantraStdoutParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 logger = logging.getLogger(__name__)
@@ -12,7 +12,7 @@ class MantraCliRunner:
         self.mantra_path = mantra_path
         self.timeout = timeout
 
-    async def run(self, js_urls: List[str]) -> AsyncIterator[ProcessEvent]:
+    async def run_raw(self, js_urls: List[str]) -> AsyncIterator[ProcessEvent]:
         """
         Run Mantra on batch of JS URLs via stdin.
 
@@ -42,29 +42,11 @@ class MantraCliRunner:
 
         try:
             async for event in executor.run():
-                if event.type == "stdout" and event.payload:
-                    parsed = self._parse_mantra_output(event.payload)
-                    if parsed:
-                        yield ProcessEvent(type="result", payload=parsed)
+                yield event
         except Exception as e:
             logger.error(f"Mantra execution error: {e}")
 
-    def _parse_mantra_output(self, line: str) -> dict | None:
-        """
-        Parse Mantra output line.
-
-        Format: [+] https://example.com/app.js [secret_value]
-
-        Returns:
-            Dict with url and secret, or None if not a valid secret line
-        """
-        ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
-        clean_line = ansi_escape.sub('', line).strip()
-
-        match = re.match(r'^\[\+\]\s+(https?://[^\s]+)\s+\[(.+)\]$', clean_line)
-        if match:
-            return {
-                "url": match.group(1),
-                "secret": match.group(2),
-            }
-        return None
+    async def run(self, js_urls: List[str]) -> AsyncIterator[ProcessEvent]:
+        parser = MantraStdoutParser()
+        async for event in parser.parse_stream(self.run_raw(js_urls)):
+            yield event

@@ -1,10 +1,10 @@
 """Smap CLI Runner for fast port scanning"""
 
-import json
 import logging
 from typing import AsyncIterator
 
 from api.infrastructure.commands.command_executor import CommandExecutor, ProcessEvent
+from api.infrastructure.parsers.process_event_parsers import JSONStdoutItemsProcessEventParser
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class SmapCliRunner:
         self.smap_path = smap_path
         self.timeout = timeout
 
-    async def run(self, targets: list[str]) -> AsyncIterator[ProcessEvent]:
+    async def run_raw(self, targets: list[str]) -> AsyncIterator[ProcessEvent]:
         """
         Scan CIDR ranges with smap.
 
@@ -33,7 +33,7 @@ class SmapCliRunner:
             targets: List of CIDRs to scan
 
         Yields:
-            ProcessEvent with type="result" and payload=dict with smap JSON output
+            Raw ProcessEvent objects from CommandExecutor.
 
         Output format:
         {
@@ -60,26 +60,14 @@ class SmapCliRunner:
 
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
-        result_count = 0
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
                 logger.warning(f"smap stderr: {event.payload}")
+            yield event
 
-            if event.type != "stdout" or not event.payload:
-                continue
+        logger.info("smap scan completed")
 
-            try:
-                data = json.loads(event.payload)
-
-                if isinstance(data, list):
-                    for item in data:
-                        result_count += 1
-                        yield ProcessEvent(type="result", payload=item)
-                else:
-                    result_count += 1
-                    yield ProcessEvent(type="result", payload=data)
-            except json.JSONDecodeError:
-                logger.debug(f"Non-JSON stdout line skipped: {event.payload}")
-                continue
-
-        logger.info(f"smap scan completed: results={result_count}")
+    async def run(self, targets: list[str]) -> AsyncIterator[ProcessEvent]:
+        parser = JSONStdoutItemsProcessEventParser()
+        async for event in parser.parse_stream(self.run_raw(targets)):
+            yield event

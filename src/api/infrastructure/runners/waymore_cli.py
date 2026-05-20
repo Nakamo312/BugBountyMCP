@@ -3,6 +3,7 @@ import logging
 from typing import AsyncIterator
 
 from api.infrastructure.commands.command_executor import CommandExecutor
+from api.infrastructure.parsers.line_process_event_parsers import URLStdoutLineResultParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ class WaymoreCliRunner:
         self.waymore_path = waymore_path
         self.timeout = timeout
 
-    async def run(
+    async def run_raw(
         self,
         targets: list[str] | str,
     ) -> AsyncIterator[ProcessEvent]:
@@ -63,7 +64,12 @@ class WaymoreCliRunner:
         )
 
         async for event in executor.run():
-            if event.type == "stdout" and event.payload:
-                url = event.payload.strip()
-                if url and url.startswith("http"):
-                    yield ProcessEvent(type="result", payload=url)
+            yield event
+
+    async def run(
+        self,
+        targets: list[str] | str,
+    ) -> AsyncIterator[ProcessEvent]:
+        parser = URLStdoutLineResultParser()
+        async for event in parser.parse_stream(self.run_raw(targets)):
+            yield event

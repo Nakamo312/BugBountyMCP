@@ -34,6 +34,20 @@ from api.infrastructure.ingestors.naabu_ingestor import NaabuResultIngestor
 from api.infrastructure.ingestors.smap_ingestor import SmapResultIngestor
 from api.infrastructure.ingestors.subjack_ingestor import SubjackResultIngestor
 from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
+from api.infrastructure.parsers.httpx_parser import HTTPXProcessEventParser
+from api.infrastructure.parsers.line_process_event_parsers import (
+    GAUStdoutParser,
+    LinkFinderStdoutParser,
+    MantraStdoutParser,
+    StdoutLineResultParser,
+    SubjackStdoutParser,
+    SubfinderStdoutParser,
+    URLStdoutLineResultParser,
+)
+from api.infrastructure.parsers.process_event_parsers import (
+    JSONStdoutItemsProcessEventParser,
+    JSONStdoutProcessEventParser,
+)
 from api.infrastructure.runners.amass_cli import AmassCliRunner
 from api.infrastructure.runners.asnmap_cli import ASNMapCliRunner
 from api.infrastructure.runners.dnsx_runners import DNSxDeepRunner, DNSxPtrRunner
@@ -98,6 +112,22 @@ PROCESSORS: dict[str, type[Any]] = {
         SubjackBatchProcessor,
         TLSxBatchProcessor,
         WaymoreBatchProcessor,
+    )
+}
+
+PARSERS: dict[str, type[Any]] = {
+    cls.__name__: cls
+    for cls in (
+        GAUStdoutParser,
+        HTTPXProcessEventParser,
+        JSONStdoutItemsProcessEventParser,
+        JSONStdoutProcessEventParser,
+        LinkFinderStdoutParser,
+        MantraStdoutParser,
+        StdoutLineResultParser,
+        SubjackStdoutParser,
+        SubfinderStdoutParser,
+        URLStdoutLineResultParser,
     )
 }
 

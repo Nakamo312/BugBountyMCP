@@ -1,10 +1,10 @@
 """Naabu CLI Runner"""
 
-import json
 import logging
 from typing import AsyncIterator
 
 from api.infrastructure.commands.command_executor import CommandExecutor, ProcessEvent
+from api.infrastructure.parsers.process_event_parsers import JSONStdoutProcessEventParser
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +35,15 @@ class NaabuCliRunner:
         Yields:
             ProcessEvent with type="result" and payload=dict with naabu JSON output
         """
-        async for event in self.scan(hosts):
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(self.run_raw(hosts)):
             yield event
 
-    async def scan(
+    async def run_raw(self, hosts: list[str] | str) -> AsyncIterator[ProcessEvent]:
+        async for event in self.scan_raw(hosts):
+            yield event
+
+    async def scan_raw(
         self,
         hosts: list[str] | str,
         ports: str | None = None,
@@ -59,7 +64,7 @@ class NaabuCliRunner:
             exclude_cdn: Skip full port scans for CDN/WAF, only scan 80,443 (default: True)
 
         Yields:
-            ProcessEvent with type="result" and payload=dict with naabu JSON output
+            Raw ProcessEvent objects from CommandExecutor.
 
         Naabu JSON output format:
         {
@@ -97,24 +102,36 @@ class NaabuCliRunner:
 
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
-        result_count = 0
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
                 logger.warning(f"naabu stderr: {event.payload}")
-            if event.type != "stdout" or not event.payload:
-                continue
+            yield event
 
-            try:
-                data = json.loads(event.payload)
-                result_count += 1
-                yield ProcessEvent(type="result", payload=data)
-            except json.JSONDecodeError:
-                logger.debug(f"Non-JSON stdout line skipped: {event.payload!r}")
-                continue
+        logger.info("naabu scan completed")
 
-        logger.info(f"naabu scan completed: open_ports={result_count}")
+    async def scan(
+        self,
+        hosts: list[str] | str,
+        ports: str | None = None,
+        top_ports: str = "1000",
+        rate: int = 1000,
+        scan_type: str = "c",
+        exclude_cdn: bool = True
+    ) -> AsyncIterator[ProcessEvent]:
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(
+            self.scan_raw(
+                hosts,
+                ports=ports,
+                top_ports=top_ports,
+                rate=rate,
+                scan_type=scan_type,
+                exclude_cdn=exclude_cdn,
+            )
+        ):
+            yield event
 
-    async def passive_scan(
+    async def passive_scan_raw(
         self,
         hosts: list[str] | str
     ) -> AsyncIterator[ProcessEvent]:
@@ -143,19 +160,17 @@ class NaabuCliRunner:
 
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
-        result_count = 0
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
                 logger.warning(f"naabu stderr: {event.payload}")
-            if event.type != "stdout" or not event.payload:
-                continue
+            yield event
 
-            try:
-                data = json.loads(event.payload)
-                result_count += 1
-                yield ProcessEvent(type="result", payload=data)
-            except json.JSONDecodeError:
-                logger.debug(f"Non-JSON stdout line skipped: {event.payload!r}")
-                continue
+        logger.info("naabu passive scan completed")
 
-        logger.info(f"naabu passive scan completed: results={result_count}")
+    async def passive_scan(
+        self,
+        hosts: list[str] | str
+    ) -> AsyncIterator[ProcessEvent]:
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(self.passive_scan_raw(hosts)):
+            yield event

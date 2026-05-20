@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from api.application.pipeline.catalog import INGESTORS, PROCESSORS, RUNNERS, resolve_component
+from api.application.pipeline.catalog import INGESTORS, PARSERS, PROCESSORS, RUNNERS, resolve_component
 from api.application.pipeline.factory import NodeFactory
 from api.application.pipeline.nodes.amass_node import AmassNode
 from api.application.pipeline.nodes.ffuf_node import FFUFNode
@@ -22,8 +22,20 @@ def register_yaml_nodes(
     config_path: str | Path | None = None,
 ) -> None:
     config = load_pipeline_config(config_path)
-    for node_id, spec in config.nodes.items():
+    validate_component_refs(config.workers)
+    for node_id, spec in config.workers.items():
         registry.register(build_node(node_id, spec, settings))
+
+
+def validate_component_refs(workers: dict[str, PipelineNodeSpec]) -> None:
+    for node_id, spec in workers.items():
+        resolve_component(RUNNERS, spec.runner, "runner", node_id)
+        if spec.parser is not None:
+            resolve_component(PARSERS, spec.parser, "parser", node_id)
+        if spec.processor is not None:
+            resolve_component(PROCESSORS, spec.processor, "processor", node_id)
+        if spec.ingestor is not None:
+            resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id)
 
 
 def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
@@ -38,6 +50,7 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
             event_in=event_in,
             event_out=_resolve_scan_outputs(spec.outputs, node_id),
             runner_type=resolve_component(RUNNERS, spec.runner, "runner", node_id),
+            parser_type=resolve_component(PARSERS, spec.parser, "parser", node_id),
             processor_type=resolve_component(PROCESSORS, spec.processor, "processor", node_id),
             ingestor_type=resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id),
             max_parallelism=max_parallelism,
@@ -103,17 +116,19 @@ def _resolve_scan_outputs(outputs: dict[str, str | None], node_id: str) -> dict[
     return resolved
 
 
-def _resolve_event_set(event_names, node_id: str, field_name: str) -> set[EventType]:
+def _resolve_event_set(event_names, node_id: str, field_name: str) -> set[EventType | str]:
     return {_resolve_event(event_name, node_id, field_name) for event_name in event_names}
 
 
-def _resolve_event(event_name: str, node_id: str, field_name: str) -> EventType:
+def _resolve_event(event_name: str, node_id: str, field_name: str) -> EventType | str:
     try:
         return EventType(event_name)
-    except ValueError as exc:
-        raise ValueError(
-            f"Unknown event '{event_name}' in {field_name} for pipeline node '{node_id}'"
-        ) from exc
+    except ValueError:
+        if not isinstance(event_name, str) or not event_name.strip():
+            raise ValueError(
+                f"Invalid event '{event_name}' in {field_name} for pipeline node '{node_id}'"
+            )
+        return event_name
 
 
 def _resolve_scope(scope: str, node_id: str) -> ScopePolicy:

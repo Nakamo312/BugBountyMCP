@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     USE_NODE_PIPELINE: bool = True
     PIPELINE_CONFIG_PATH: str | None = None
 
+    # Declarative action scheduler
+    USE_SCHEDULER: bool = True
+    SCHEDULER_CONFIG_PATH: str | None = None
+    SCHEDULER_TICK_SECONDS: float = 5.0
+
+    # Raw runner output artifacts
+    RAW_OUTPUT_DIR: str = "data/raw_outputs"
+
     # Batch processing settings
     SUBFINDER_BATCH_MIN: int = 50
     SUBFINDER_BATCH_MAX: int = 200

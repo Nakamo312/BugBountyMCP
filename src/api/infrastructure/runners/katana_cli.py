@@ -3,6 +3,7 @@ import logging
 from typing import AsyncIterator
 
 from api.infrastructure.commands.command_executor import CommandExecutor
+from api.infrastructure.parsers.process_event_parsers import JSONStdoutProcessEventParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ class KatanaCliRunner:
         self.katana_path = katana_path
         self.timeout = timeout
 
-    async def run(
+    async def run_raw(
         self,
         targets: list[str] | str,
         depth: int = 3,
@@ -31,7 +32,7 @@ class KatanaCliRunner:
             depth: Maximum crawl depth (default: 3)
 
         Yields:
-            ProcessEvent with type="result" and payload=json_data
+            Raw ProcessEvent objects from CommandExecutor.
         """
         if isinstance(targets, str):
             targets = [targets]
@@ -63,24 +64,15 @@ class KatanaCliRunner:
         logger.info("Starting Katana command for %d targets: %s", len(targets), " ".join(command))
 
         executor = CommandExecutor(command, stdin=stdin_input, timeout=self.timeout)
-        result_count = 0
 
         async for event in executor.run():
-            if event.type != "stdout":
-                continue
+            yield event
 
-            if not event.payload:
-                continue
-
-            line = event.payload.strip()
-            if not line:
-                continue
-
-            try:
-                import json
-                json_data = json.loads(line)
-                result_count += 1
-                yield ProcessEvent(type="result", payload=json_data)
-            except json.JSONDecodeError:
-                logger.warning("Non-JSON stdout line skipped: %r", line[:200])
-
+    async def run(
+        self,
+        targets: list[str] | str,
+        depth: int = 3,
+    ) -> AsyncIterator[ProcessEvent]:
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(self.run_raw(targets, depth=depth)):
+            yield event

@@ -1,6 +1,9 @@
-"""Fixed queue configuration for EventBus with topic exchange"""
+"""YAML-backed queue configuration for EventBus with topic exchange."""
 
+import os
 from typing import Dict, List
+
+from api.application.pipeline.yaml_config import DEFAULT_PIPELINE_CONFIG_PATH, load_pipeline_config
 
 
 class QueueConfig:
@@ -31,54 +34,21 @@ class QueueConfig:
     VALIDATION_QUEUE = "validation"
     ANALYSIS_QUEUE = "analysis"
 
-    EVENT_TO_QUEUE: Dict[str, str] = {
-        "subfinder_scan_requested": DISCOVERY_QUEUE,
-        "amass_scan_requested": DISCOVERY_QUEUE,
-        "raw_domains_discovered": VALIDATION_QUEUE,
-        "subdomain_discovered": DISCOVERY_QUEUE,
-        "asnmap_scan_requested": DISCOVERY_QUEUE,
-        "asn_discovered": DISCOVERY_QUEUE,
-        "cidr_discovered": DISCOVERY_QUEUE,
+    _CONFIGURED_QUEUES: Dict[str, str] | None = None
 
-        "mapcidr_scan_requested": ENUMERATION_QUEUE,
-        "ips_expanded": ENUMERATION_QUEUE,
-        "cidr_sliced": ENUMERATION_QUEUE,
-        "ips_aggregated": ENUMERATION_QUEUE,
-        "hakip2host_scan_requested": ENUMERATION_QUEUE,
-
-        "dnsx_scan_requested": VALIDATION_QUEUE,
-        "dnsx_basic_scan_requested": VALIDATION_QUEUE,
-        "dnsx_deep_scan_requested": VALIDATION_QUEUE,
-        "dnsx_ptr_scan_requested": VALIDATION_QUEUE,
-        "dnsx_filtered_hosts": VALIDATION_QUEUE,
-        "dnsx_basic_results_batch": VALIDATION_QUEUE,
-        "dnsx_deep_results_batch": VALIDATION_QUEUE,
-        "dnsx_ptr_results_batch": VALIDATION_QUEUE,
-
-        "httpx_scan_requested": ANALYSIS_QUEUE,
-        "host_discovered": ANALYSIS_QUEUE,
-        "scan_results_batch": ANALYSIS_QUEUE,
-        "tlsx_scan_requested": ANALYSIS_QUEUE,
-        "tlsx_results_batch": ANALYSIS_QUEUE,
-        "cert_san_discovered": ANALYSIS_QUEUE,
-        "gau_scan_requested": ANALYSIS_QUEUE,
-        "gau_discovered": ANALYSIS_QUEUE,
-        "katana_scan_requested": ANALYSIS_QUEUE,
-        "katana_results_batch": ANALYSIS_QUEUE,
-        "js_files_discovered": ANALYSIS_QUEUE,
-        "linkfinder_scan_requested": ANALYSIS_QUEUE,
-        "mantra_scan_requested": ANALYSIS_QUEUE,
-        "mantra_results_batch": ANALYSIS_QUEUE,
-        "ffuf_scan_requested": ANALYSIS_QUEUE,
-        "ffuf_results_batch": ANALYSIS_QUEUE,
-        "subjack_scan_requested": ANALYSIS_QUEUE,
-        "subjack_results_batch": ANALYSIS_QUEUE,
-        "naabu_scan_requested": ANALYSIS_QUEUE,
-        "naabu_results_batch": ANALYSIS_QUEUE,
-        "smap_scan_requested": ENUMERATION_QUEUE,
-        "smap_results": ENUMERATION_QUEUE,
-        "ports_discovered": ENUMERATION_QUEUE
-    }
+    @classmethod
+    def _config_event_to_queue(cls) -> Dict[str, str]:
+        if cls._CONFIGURED_QUEUES is None:
+            config_path = os.environ.get("PIPELINE_CONFIG_PATH") or DEFAULT_PIPELINE_CONFIG_PATH
+            config = load_pipeline_config(config_path)
+            configured = {
+                capability.request_event: capability.queue
+                for capability in config.capabilities.values()
+            }
+            for event_name, event_config in config.events.items():
+                configured[event_name] = event_config.queue
+            cls._CONFIGURED_QUEUES = configured
+        return cls._CONFIGURED_QUEUES
 
     @classmethod
     def get_routing_key(cls, event_name: str) -> str:
@@ -92,13 +62,13 @@ class QueueConfig:
             Routing key format: "{queue_name}.{event_name}"
             Example: "discovery.subdomain_discovered"
         """
-        queue = cls.EVENT_TO_QUEUE.get(event_name, cls.ANALYSIS_QUEUE)
+        queue = cls.get_queue_name(event_name)
         return f"{queue}.{event_name}"
 
     @classmethod
     def get_queue_name(cls, event_name: str) -> str:
         """Get queue name for event"""
-        return cls.EVENT_TO_QUEUE.get(event_name, cls.ANALYSIS_QUEUE)
+        return cls._config_event_to_queue().get(event_name, cls.ANALYSIS_QUEUE)
 
     @classmethod
     def get_all_queues(cls) -> List[str]:

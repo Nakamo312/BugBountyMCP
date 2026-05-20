@@ -1,10 +1,10 @@
 """asnmap CLI runner for ASN enumeration"""
 
-import json
 import logging
 from typing import AsyncIterator
 
 from api.infrastructure.commands.command_executor import CommandExecutor
+from api.infrastructure.parsers.process_event_parsers import JSONStdoutProcessEventParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 logger = logging.getLogger(__name__)
@@ -35,18 +35,24 @@ class ASNMapCliRunner:
         Yields:
             ProcessEvent with type="result" and payload=asn_data
         """
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(self.run_raw(targets)):
+            yield event
+
+    async def run_raw(self, targets: list[str] | str) -> AsyncIterator[ProcessEvent]:
+        """Auto-detect target type and yield raw process events."""
         if isinstance(targets, str):
             targets = [targets]
 
         for target in targets:
             if target.startswith("AS"):
-                async for event in self.run_asn(target):
+                async for event in self.run_asn_raw(target):
                     yield event
             else:
-                async for event in self.run_domain(target):
+                async for event in self.run_domain_raw(target):
                     yield event
 
-    async def run_domain(self, domains: list[str] | str) -> AsyncIterator[ProcessEvent]:
+    async def run_domain_raw(self, domains: list[str] | str) -> AsyncIterator[ProcessEvent]:
         """
         Enumerate ASN from domain names.
 
@@ -54,7 +60,7 @@ class ASNMapCliRunner:
             domains: Single domain or list of domains
 
         Yields:
-            ProcessEvent with type="result" and payload=asn_data
+            Raw ProcessEvent objects from CommandExecutor.
 
         Output format:
         {
@@ -83,28 +89,19 @@ class ASNMapCliRunner:
 
         executor = CommandExecutor(command, timeout=self.timeout)
 
-        result_count = 0
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
                 logger.warning("asnmap stderr: %s", event.payload)
+            yield event
 
-            if event.type != "stdout":
-                continue
+        logger.info("asnmap domain enumeration completed")
 
-            if not event.payload:
-                continue
+    async def run_domain(self, domains: list[str] | str) -> AsyncIterator[ProcessEvent]:
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(self.run_domain_raw(domains)):
+            yield event
 
-            try:
-                data = json.loads(event.payload)
-                result_count += 1
-                yield ProcessEvent(type="result", payload=data)
-            except json.JSONDecodeError:
-                logger.debug("Non-JSON stdout line skipped: %r", event.payload)
-                continue
-
-        logger.info("asnmap domain enumeration completed: results=%d", result_count)
-
-    async def run_asn(self, asns: list[str] | str) -> AsyncIterator[ProcessEvent]:
+    async def run_asn_raw(self, asns: list[str] | str) -> AsyncIterator[ProcessEvent]:
         """
         Get CIDR ranges for ASN numbers.
 
@@ -112,7 +109,7 @@ class ASNMapCliRunner:
             asns: Single ASN or list of ASNs (e.g., "AS15169", "AS12345")
 
         Yields:
-            ProcessEvent with type="result" and payload=asn_data
+            Raw ProcessEvent objects from CommandExecutor.
         """
         if isinstance(asns, str):
             asns = [asns]
@@ -131,28 +128,19 @@ class ASNMapCliRunner:
 
         executor = CommandExecutor(command, timeout=self.timeout)
 
-        result_count = 0
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
                 logger.warning("asnmap stderr: %s", event.payload)
+            yield event
 
-            if event.type != "stdout":
-                continue
+        logger.info("asnmap ASN enumeration completed")
 
-            if not event.payload:
-                continue
+    async def run_asn(self, asns: list[str] | str) -> AsyncIterator[ProcessEvent]:
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(self.run_asn_raw(asns)):
+            yield event
 
-            try:
-                data = json.loads(event.payload)
-                result_count += 1
-                yield ProcessEvent(type="result", payload=data)
-            except json.JSONDecodeError:
-                logger.debug("Non-JSON stdout line skipped: %r", event.payload)
-                continue
-
-        logger.info("asnmap ASN enumeration completed: results=%d", result_count)
-
-    async def run_organization(self, organizations: list[str] | str) -> AsyncIterator[ProcessEvent]:
+    async def run_organization_raw(self, organizations: list[str] | str) -> AsyncIterator[ProcessEvent]:
         """
         Enumerate ASN from organization names.
 
@@ -160,7 +148,7 @@ class ASNMapCliRunner:
             organizations: Single org name or list of organization names
 
         Yields:
-            ProcessEvent with type="result" and payload=asn_data
+            Raw ProcessEvent objects from CommandExecutor.
         """
         if isinstance(organizations, str):
             organizations = [organizations]
@@ -179,23 +167,14 @@ class ASNMapCliRunner:
 
         executor = CommandExecutor(command, timeout=self.timeout)
 
-        result_count = 0
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
                 logger.warning("asnmap stderr: %s", event.payload)
+            yield event
 
-            if event.type != "stdout":
-                continue
+        logger.info("asnmap organization enumeration completed")
 
-            if not event.payload:
-                continue
-
-            try:
-                data = json.loads(event.payload)
-                result_count += 1
-                yield ProcessEvent(type="result", payload=data)
-            except json.JSONDecodeError:
-                logger.debug("Non-JSON stdout line skipped: %r", event.payload)
-                continue
-
-        logger.info("asnmap organization enumeration completed: results=%d", result_count)
+    async def run_organization(self, organizations: list[str] | str) -> AsyncIterator[ProcessEvent]:
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(self.run_organization_raw(organizations)):
+            yield event

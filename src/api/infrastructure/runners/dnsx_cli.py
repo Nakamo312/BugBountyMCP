@@ -1,8 +1,8 @@
-import json
 import logging
 from typing import AsyncIterator
 
 from api.infrastructure.commands.command_executor import CommandExecutor
+from api.infrastructure.parsers.process_event_parsers import JSONStdoutProcessEventParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ class DNSxCliRunner:
         self.dnsx_path = dnsx_path
         self.timeout = timeout
 
-    async def run_deep(self, targets: list[str] | str) -> AsyncIterator[ProcessEvent]:
+    async def run_deep_raw(self, targets: list[str] | str) -> AsyncIterator[ProcessEvent]:
         """
         Deep DNS enumeration (A, AAAA, CNAME, MX, TXT, NS, SOA).
         Used after HTTP probing for live hosts analysis.
@@ -46,29 +46,19 @@ class DNSxCliRunner:
 
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
-        result_count = 0
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
                 logger.warning("DNSx Deep stderr: %s", event.payload)
+            yield event
 
-            if event.type != "stdout":
-                continue
+        logger.info("DNSx Deep completed")
 
-            if not event.payload:
-                continue
+    async def run_deep(self, targets: list[str] | str) -> AsyncIterator[ProcessEvent]:
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(self.run_deep_raw(targets)):
+            yield event
 
-            try:
-                data = json.loads(event.payload)
-                result_count += 1
-            except json.JSONDecodeError:
-                logger.debug("Non-JSON stdout line skipped: %r", event.payload)
-                continue
-
-            yield ProcessEvent(type="result", payload=data)
-
-        logger.info("DNSx Deep completed: results=%d", result_count)
-
-    async def run_ptr(self, ips: list[str] | str) -> AsyncIterator[ProcessEvent]:
+    async def run_ptr_raw(self, ips: list[str] | str) -> AsyncIterator[ProcessEvent]:
         """
         Reverse DNS lookup (PTR records).
         Used for CIDR blocks IP enumeration to discover hostnames.
@@ -101,24 +91,14 @@ class DNSxCliRunner:
 
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
-        result_count = 0
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
                 logger.warning("DNSx PTR stderr: %s", event.payload)
+            yield event
 
-            if event.type != "stdout":
-                continue
+        logger.info("DNSx PTR completed")
 
-            if not event.payload:
-                continue
-
-            try:
-                data = json.loads(event.payload)
-                result_count += 1
-            except json.JSONDecodeError:
-                logger.debug("Non-JSON stdout line skipped: %r", event.payload)
-                continue
-
-            yield ProcessEvent(type="result", payload=data)
-
-        logger.info("DNSx PTR completed: results=%d", result_count)
+    async def run_ptr(self, ips: list[str] | str) -> AsyncIterator[ProcessEvent]:
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(self.run_ptr_raw(ips)):
+            yield event

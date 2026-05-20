@@ -1,7 +1,7 @@
-import json
 from typing import AsyncIterator, List
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.infrastructure.parsers.httpx_parser import HTTPXProcessEventParser
 import logging
 
 logger = logging.getLogger(__name__)
@@ -11,7 +11,7 @@ class HTTPXCliRunner:
         self.httpx_path = httpx_path
         self.timeout = timeout
 
-    async def run(self, targets: List[str] | str) -> AsyncIterator[ProcessEvent]:
+    async def run_raw(self, targets: List[str] | str) -> AsyncIterator[ProcessEvent]:
         target_count = 1 if isinstance(targets, str) else len(targets)
         thread_count = min(target_count, 20)
 
@@ -47,18 +47,10 @@ class HTTPXCliRunner:
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
         async for event in executor.run():
-            if event.type != "stdout":
-                continue
-            
-            if not event.payload:
-                continue
-            
-            try:
-                data = json.loads(event.payload)
-            except json.JSONDecodeError:
-                logger.debug("Non-JSON stdout line skipped: %r", event.payload)
-                continue
-            
-            yield ProcessEvent(type="result", payload=data)
+            yield event
 
+    async def run(self, targets: List[str] | str) -> AsyncIterator[ProcessEvent]:
+        parser = HTTPXProcessEventParser()
+        async for event in parser.parse_stream(self.run_raw(targets)):
+            yield event
 

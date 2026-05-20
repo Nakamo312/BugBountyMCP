@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan manager: initialize DB, mappers, EventBus and Orchestrator"""
     container = app.state.dishka_container
+    settings: Settings = app.state.settings
 
     try:
         start_mappers()
@@ -31,12 +32,39 @@ async def lifespan(app: FastAPI):
         registry: NodeRegistry = await container.get(NodeRegistry)
         await registry.start()  
 
+        if settings.USE_SCHEDULER:
+            from api.application.scheduler import ActionScheduler, load_scheduler_config
+            from api.application.services.action import ActionService
+            from api.application.services.policy import PolicyService
+            from api.infrastructure.events.event_bus import EventBus
+            from api.infrastructure.orchestration.store import OrchestrationStore
+
+            event_bus: EventBus = await container.get(EventBus)
+            orchestration_store: OrchestrationStore = await container.get(OrchestrationStore)
+            action_service = ActionService(
+                event_bus=event_bus,
+                store=orchestration_store,
+                policy=PolicyService(),
+            )
+            scheduler_config = load_scheduler_config(settings.SCHEDULER_CONFIG_PATH)
+            scheduler = ActionScheduler(
+                action_service,
+                scheduler_config,
+                tick_seconds=settings.SCHEDULER_TICK_SECONDS,
+            )
+            scheduler.start()
+            app.state.action_scheduler = scheduler
+
         logger.info("Application startup complete")
     except Exception as e:
         logger.exception("Startup failed: %s", e)
         raise e
 
     yield
+
+    scheduler = getattr(app.state, "action_scheduler", None)
+    if scheduler is not None:
+        await scheduler.stop()
 
     await container.close()
     logger.info("Application shutdown complete")
@@ -52,6 +80,7 @@ def create_app() -> FastAPI:
         title="Bug Bounty Framework API",
         lifespan=lifespan
     )
+    app.state.settings = settings
 
     app.add_exception_handler(ToolNotFoundError, tool_not_found_handler)
     app.add_exception_handler(ScanExecutionError, scan_execution_handler)

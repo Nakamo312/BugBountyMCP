@@ -9,6 +9,7 @@ from api.application.pipeline.context import PipelineContext
 from api.application.services.batch_processor import Hakip2HostBatchProcessor
 from api.infrastructure.events.event_types import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
+from api.infrastructure.parsers.line_process_event_parsers import Hakip2HostStdoutParser
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,8 @@ class Hakip2HostNode(Node):
             ctx: Node execution context
         """
         program_id = UUID(event["program_id"])
+        job_id = UUID(event["job_id"]) if event.get("job_id") else None
+        run_id = UUID(event["run_id"]) if event.get("run_id") else None
         targets = event.get("targets", [])
 
         if not targets:
@@ -95,7 +98,21 @@ class Hakip2HostNode(Node):
         discovered_hostnames = []
 
         try:
-            async for batch in processor.batch_stream(runner.run(targets)):
+            stream = runner.run_raw(targets) if hasattr(runner, "run_raw") else runner.run(targets)
+            if isinstance(ctx, PipelineContext):
+                stream = ctx.capture_raw_stream(
+                    stream,
+                    program_id=program_id,
+                    event_name=event.get("event", self.node_id),
+                    targets=targets,
+                    job_id=job_id,
+                    run_id=run_id,
+                    metadata={"runner": self.runner_key.__name__},
+                )
+            if hasattr(runner, "run_raw"):
+                stream = Hakip2HostStdoutParser().parse_stream(stream)
+
+            async for batch in processor.batch_stream(stream):
                 if not batch:
                     continue
 

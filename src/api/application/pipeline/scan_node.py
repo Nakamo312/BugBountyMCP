@@ -34,6 +34,7 @@ class ScanNode(Node):
         event_out: Dict[EventType, str],
         runner_type: Type,
         processor_type: Type,
+        parser_type: Optional[Type] = None,
         ingestor_type: Optional[Type] = None,
         target_extractor: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
         max_parallelism: int = 1,
@@ -63,6 +64,7 @@ class ScanNode(Node):
         )
         self.event_out_map = event_out
         self.runner_type = runner_type
+        self.parser_type = parser_type
         self.processor_type = processor_type
         self.ingestor_type = ingestor_type
         self.target_extractor = target_extractor or self._default_target_extractor
@@ -77,6 +79,8 @@ class ScanNode(Node):
             ctx: Pipeline context for emitting downstream events
         """
         program_id = UUID(event["program_id"])
+        job_id = UUID(event["job_id"]) if event.get("job_id") else None
+        run_id = UUID(event["run_id"]) if event.get("run_id") else None
         targets = self.target_extractor(event)
 
         if not targets:
@@ -98,7 +102,20 @@ class ScanNode(Node):
         batch_count = 0
 
         try:
-            stream = runner.run(targets)
+            parser = self.parser_type() if self.parser_type is not None else None
+            stream = runner.run_raw(targets) if parser is not None and hasattr(runner, "run_raw") else runner.run(targets)
+            if isinstance(ctx, PipelineContext):
+                stream = ctx.capture_raw_stream(
+                    stream,
+                    program_id=program_id,
+                    event_name=event.get("event", self.node_id),
+                    targets=targets,
+                    job_id=job_id,
+                    run_id=run_id,
+                    metadata={"runner": self.runner_type.__name__},
+                )
+            if parser is not None:
+                stream = parser.parse_stream(stream)
 
             if processor:
                 async for batch in processor.batch_stream(stream):

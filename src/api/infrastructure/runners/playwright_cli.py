@@ -1,8 +1,10 @@
 """Playwright gRPC client runner for interactive web crawling"""
+import json
 import logging
 from typing import AsyncIterator
 import grpc
 
+from api.infrastructure.parsers.process_event_parsers import JSONStdoutProcessEventParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 logger = logging.getLogger(__name__)
@@ -18,20 +20,20 @@ class PlaywrightCliRunner:
         self.timeout = timeout
         self.grpc_host = grpc_host
 
-    async def run(
+    async def run_raw(
         self,
         targets: list[str] | str,
         depth: int = 2,
     ) -> AsyncIterator[ProcessEvent]:
         """
-        Execute playwright scanner for given targets via gRPC.
+        Execute playwright scanner for given targets via gRPC and yield raw records.
 
         Args:
             targets: Single target URL or list of target URLs to crawl
             depth: Maximum crawl depth (default: 2)
 
         Yields:
-            ProcessEvent with type="result" and payload=json_data
+            ProcessEvent with type="stdout" and payload serialized from scanner responses
         """
         if isinstance(targets, str):
             targets = [targets]
@@ -80,9 +82,19 @@ class PlaywrightCliRunner:
                                 json_data["request"]["body"] = katana_data.request.body
 
                             result_count += 1
-                            yield ProcessEvent(type="result", payload=json_data)
+                            yield ProcessEvent(type="stdout", payload=json.dumps(json_data))
 
                 except grpc.aio.AioRpcError as e:
                     logger.error(f"gRPC error for {target}: {e.code()} - {e.details()}")
 
                 logger.info(f"Playwright scanner completed for {target}: {result_count} requests")
+
+    async def run(
+        self,
+        targets: list[str] | str,
+        depth: int = 2,
+    ) -> AsyncIterator[ProcessEvent]:
+        """Compatibility wrapper for callers that still expect normalized results."""
+        parser = JSONStdoutProcessEventParser()
+        async for event in parser.parse_stream(self.run_raw(targets, depth=depth)):
+            yield event

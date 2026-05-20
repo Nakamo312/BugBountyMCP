@@ -1,10 +1,10 @@
 """MapCIDR CLI Runner"""
 
-import json
 import logging
 from typing import AsyncIterator
 
 from api.infrastructure.commands.command_executor import CommandExecutor, ProcessEvent
+from api.infrastructure.parsers.line_process_event_parsers import StdoutLineResultParser
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,11 @@ class MapCIDRCliRunner:
         async for event in self.expand(cidrs):
             yield event
 
-    async def expand(
+    async def run_raw(self, cidrs: list[str] | str) -> AsyncIterator[ProcessEvent]:
+        async for event in self.expand_raw(cidrs):
+            yield event
+
+    async def expand_raw(
         self,
         cidrs: list[str] | str,
         skip_base: bool = False,
@@ -78,19 +82,30 @@ class MapCIDRCliRunner:
 
         executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
 
-        result_count = 0
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
                 logger.warning(f"mapcidr stderr: {event.payload}")
-            if event.type != "stdout" or not event.payload:
-                continue
+            yield event
 
-            ip = event.payload.strip()
-            if ip:
-                result_count += 1
-                yield ProcessEvent(type="result", payload=ip)
+        logger.info("mapcidr expand completed")
 
-        logger.info(f"mapcidr expand completed: ips={result_count}")
+    async def expand(
+        self,
+        cidrs: list[str] | str,
+        skip_base: bool = False,
+        skip_broadcast: bool = False,
+        shuffle: bool = False
+    ) -> AsyncIterator[ProcessEvent]:
+        parser = StdoutLineResultParser()
+        async for event in parser.parse_stream(
+            self.expand_raw(
+                cidrs,
+                skip_base=skip_base,
+                skip_broadcast=skip_broadcast,
+                shuffle=shuffle,
+            )
+        ):
+            yield event
 
     async def slice_by_count(
         self,

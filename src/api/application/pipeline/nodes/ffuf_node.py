@@ -9,6 +9,7 @@ from api.application.pipeline.node import Node
 from api.application.pipeline.context import PipelineContext
 from api.infrastructure.events.event_types import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
+from api.infrastructure.parsers.line_process_event_parsers import FFUFStdoutParser
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,8 @@ class FFUFNode(Node):
             ctx: Node execution context
         """
         program_id = UUID(event["program_id"])
+        job_id = UUID(event["job_id"]) if event.get("job_id") else None
+        run_id = UUID(event["run_id"]) if event.get("run_id") else None
         targets = event.get("targets", [])
 
         if not targets:
@@ -95,7 +98,21 @@ class FFUFNode(Node):
                 self.logger.info(f"Fuzzing target: {target_url}")
 
                 results = []
-                async for event in runner.run(target_url):
+                stream = runner.run_raw(target_url) if hasattr(runner, "run_raw") else runner.run(target_url)
+                if isinstance(ctx, PipelineContext):
+                    stream = ctx.capture_raw_stream(
+                        stream,
+                        program_id=program_id,
+                        event_name=event.get("event", self.node_id),
+                        targets=[target_url],
+                        job_id=job_id,
+                        run_id=run_id,
+                        metadata={"runner": self.runner_key.__name__},
+                    )
+                if hasattr(runner, "run_raw"):
+                    stream = FFUFStdoutParser().parse_stream(stream)
+
+                async for event in stream:
                     if event.type == "result" and event.payload:
                         results.append(event.payload)
 

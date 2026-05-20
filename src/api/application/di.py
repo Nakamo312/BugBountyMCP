@@ -70,6 +70,7 @@ from api.infrastructure.runners.hakip2host_cli import Hakip2HostCliRunner
 from api.infrastructure.runners.playwright_cli import PlaywrightCliRunner
 from api.infrastructure.events.event_bus import EventBus
 from api.infrastructure.orchestration.store import OrchestrationStore
+from api.infrastructure.artifacts.raw_artifact_repository import RawArtifactRepository
 from dishka import AsyncContainer
 
 from api.application.pipeline.registry import NodeRegistry
@@ -143,6 +144,10 @@ class OrchestrationProvider(Provider):
     @provide(scope=Scope.APP)
     def get_orchestration_store(self, session_factory: async_sessionmaker) -> OrchestrationStore:
         return OrchestrationStore(session_factory)
+
+    @provide(scope=Scope.REQUEST)
+    def get_raw_artifact_repository(self, session_factory: async_sessionmaker) -> RawArtifactRepository:
+        return RawArtifactRepository(session_factory)
 
     @provide(scope=Scope.REQUEST)
     def get_policy_service(self) -> PolicyService:

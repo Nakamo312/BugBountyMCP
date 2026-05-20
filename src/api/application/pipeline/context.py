@@ -1,11 +1,15 @@
 """Pipeline execution context"""
 import logging
+from collections.abc import AsyncIterator
 from typing import Dict, Any, Optional, Type, TypeVar, List, Tuple
 from uuid import UUID
 from dishka import AsyncContainer
 
 from api.infrastructure.events.event_bus import EventBus
 from api.infrastructure.events.event_types import EventType
+from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.infrastructure.artifacts.raw_output_store import FileRawOutputStore
+from api.infrastructure.artifacts.raw_artifact_repository import RawArtifactRepository
 from api.config import Settings
 from api.application.pipeline.scope_policy import ScopePolicy
 
@@ -97,6 +101,37 @@ class PipelineContext:
         if not self._settings:
             raise RuntimeError("Settings not available in context")
         return self._settings
+
+    def capture_raw_stream(
+        self,
+        stream: AsyncIterator[ProcessEvent],
+        *,
+        program_id: UUID,
+        event_name: str,
+        targets: list[str],
+        job_id: UUID | None = None,
+        run_id: UUID | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> AsyncIterator[ProcessEvent]:
+        store = FileRawOutputStore(self.settings.RAW_OUTPUT_DIR)
+        return store.capture_stream(
+            stream,
+            program_id=program_id,
+            node_id=self.node_id,
+            event_name=event_name,
+            targets=targets,
+            job_id=job_id,
+            run_id=run_id,
+            metadata=metadata,
+            recorder=self._record_raw_artifact,
+        )
+
+    async def _record_raw_artifact(self, metadata: dict[str, Any]) -> None:
+        if not self._container:
+            raise RuntimeError("DI container not available in context")
+        async with self._container() as request_container:
+            repository = await request_container.get(RawArtifactRepository)
+            await repository.record(metadata)
 
     async def filter_by_scope(self, program_id: UUID, targets: List[str]) -> Tuple[List[str], List[str]]:
         from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork

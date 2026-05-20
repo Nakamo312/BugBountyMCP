@@ -1,8 +1,8 @@
-import json
 import logging
 from typing import AsyncIterator
 
 from api.infrastructure.commands.command_executor import CommandExecutor
+from api.infrastructure.parsers.line_process_event_parsers import FFUFStdoutParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ class FFUFCliRunner:
         self.rate_limit = rate_limit
         self.timeout = timeout
 
-    async def run(self, target_url: str) -> AsyncIterator[ProcessEvent]:
+    async def run_raw(self, target_url: str) -> AsyncIterator[ProcessEvent]:
         """
         Run FFUF fuzzing on target URL.
 
@@ -54,16 +54,9 @@ class FFUFCliRunner:
         executor = CommandExecutor(command=command, timeout=self.timeout)
 
         async for event in executor.run():
-            if event.type != "stdout" or not event.payload:
-                continue
+            yield event
 
-            line = event.payload.strip()
-            if not line or not line.startswith("{"):
-                continue
-
-            try:
-                data = json.loads(line)
-                if "url" in data:
-                    yield ProcessEvent(type="result", payload=data)
-            except json.JSONDecodeError:
-                continue
+    async def run(self, target_url: str) -> AsyncIterator[ProcessEvent]:
+        parser = FFUFStdoutParser()
+        async for event in parser.parse_stream(self.run_raw(target_url)):
+            yield event
