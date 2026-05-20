@@ -4,9 +4,10 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from api.application.capabilities import CAPABILITY_BY_EVENT
+from api.application.capabilities import CAPABILITY_BY_EVENT, CAPABILITY_BY_ID
 from api.application.contracts import (
     ActionKind,
+    ActionRecord,
     ActionRequest,
     ActionStatus,
     ActionSubmission,
@@ -31,6 +32,110 @@ class ActionService:
         self.event_bus = event_bus
         self.store = store
         self.policy = policy
+
+    async def list_actions(
+        self,
+        *,
+        status: ActionStatus | None = None,
+        program_id: UUID | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[ActionRecord]:
+        return await self.store.list_actions(
+            status=status.value if status else None,
+            program_id=program_id,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def approve_action(
+        self,
+        *,
+        action_id: UUID,
+        approved_by: str = "api",
+        reason: str | None = None,
+        confidence: float = 0.5,
+    ) -> ActionSubmission:
+        action, current_status = await self.store.get_action_for_approval(action_id)
+        if action is None:
+            raise ActionNotFoundError(f"Action not found: {action_id}")
+        if current_status != ActionStatus.REQUIRES_APPROVAL.value:
+            raise ActionApprovalStateError(
+                f"Action {action_id} is not awaiting approval: {current_status}"
+            )
+
+        capability = CAPABILITY_BY_ID.get(action.profile.capability_id)
+        if capability is None:
+            raise ActionApprovalStateError(
+                f"Action {action_id} references unknown capability: {action.profile.capability_id}"
+            )
+
+        decision = self.policy.approve(
+            action,
+            approved_by=approved_by,
+            reason=reason,
+        )
+        envelope = EventEnvelope(
+            event=capability.request_event,
+            program_id=action.program_id,
+            targets=decision.allowed_targets,
+            source=approved_by,
+            confidence=confidence,
+            profile=action.profile.profile_id,
+            payload=action.profile.options,
+        )
+        approved = await self.store.approve_and_create_queued_job(action, decision, envelope)
+        if not approved:
+            raise ActionApprovalStateError(
+                f"Action {action_id} is no longer awaiting approval"
+            )
+        await self.event_bus.publish(envelope)
+
+        return ActionSubmission(
+            action_id=action.action_id,
+            status=ActionStatus.QUEUED,
+            message=(
+                f"{capability.request_event.replace('_', ' ').title()} approved "
+                f"and queued for {len(envelope.targets)} targets"
+            ),
+            job_id=envelope.job_id,
+            run_id=envelope.run_id,
+            event_id=envelope.event_id,
+            policy_decision=decision,
+        )
+
+    async def reject_action(
+        self,
+        *,
+        action_id: UUID,
+        rejected_by: str = "api",
+        reason: str | None = None,
+    ) -> ActionSubmission:
+        action, current_status = await self.store.get_action_for_approval(action_id)
+        if action is None:
+            raise ActionNotFoundError(f"Action not found: {action_id}")
+        if current_status != ActionStatus.REQUIRES_APPROVAL.value:
+            raise ActionApprovalStateError(
+                f"Action {action_id} is not awaiting approval: {current_status}"
+            )
+
+        decision = self.policy.reject(
+            action,
+            rejected_by=rejected_by,
+            reason=reason,
+        )
+        rejected = await self.store.reject_action(action, decision)
+        if not rejected:
+            raise ActionApprovalStateError(
+                f"Action {action_id} is no longer awaiting approval"
+            )
+
+        return ActionSubmission(
+            action_id=action.action_id,
+            status=ActionStatus.REJECTED,
+            message=f"Action rejected for {len(action.profile.targets)} targets",
+            policy_decision=decision,
+        )
 
     async def request_scan(
         self,
@@ -105,3 +210,11 @@ class ActionService:
             event_id=envelope.event_id,
             policy_decision=decision,
         )
+
+
+class ActionNotFoundError(Exception):
+    """Raised when an action transition targets an unknown action."""
+
+
+class ActionApprovalStateError(Exception):
+    """Raised when an action cannot be approved from its current state."""

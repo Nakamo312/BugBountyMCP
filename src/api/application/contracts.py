@@ -19,12 +19,14 @@ class PolicyDecisionStatus(str, Enum):
     ALLOWED = "allowed"
     BLOCKED = "blocked"
     REQUIRES_APPROVAL = "requires_approval"
+    REJECTED = "rejected"
 
 
 class ActionStatus(str, Enum):
     QUEUED = "queued"
     BLOCKED = "blocked"
     REQUIRES_APPROVAL = "requires_approval"
+    REJECTED = "rejected"
 
 
 class ExecutionStatus(str, Enum):
@@ -142,6 +144,22 @@ class ActionSubmission(BaseModel):
     policy_decision: PolicyDecision
 
 
+class ActionRecord(BaseModel):
+    """Stored control-plane action summary for review and approval queues."""
+
+    action_id: UUID
+    program_id: UUID
+    kind: ActionKind
+    capability_id: str
+    profile_id: str
+    requested_by: str
+    status: ActionStatus
+    targets: list[str] = Field(default_factory=list)
+    options: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
 class ToolResult(BaseModel):
     """Normalized result metadata for runner output before ingestion."""
 
@@ -152,12 +170,3 @@ class ToolResult(BaseModel):
     raw_ref: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-
-class ContextPack(BaseModel):
-    """Read-only MCP/LLM context pack built from curated Postgres queries."""
-
-    program_id: UUID
-    pack_type: str
-    summary: str
-    facts: list[dict[str, Any]] = Field(default_factory=list)
-    evidence_refs: list[str] = Field(default_factory=list)

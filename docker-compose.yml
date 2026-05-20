@@ -99,6 +99,33 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  postgres-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bb-postgres-mcp
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app/src
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_MCP_DSN: ${POSTGRES_MCP_DSN:-}
+      POSTGRES_MCP_HOST: 0.0.0.0
+      POSTGRES_MCP_PORT: 8010
+      POSTGRES_MCP_TRANSPORT: http
+      LOG_LEVEL: ${LOG_LEVEL}
+    entrypoint: ["python", "-m", "api.presentation.mcp.postgres_server"]
+    ports:
+      - "${POSTGRES_MCP_PORT:-8010}:8010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   frontend:
     build:
       context: ./BugBountyDashBoard

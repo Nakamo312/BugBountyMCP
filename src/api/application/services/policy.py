@@ -18,6 +18,40 @@ FORBIDDEN_OPTION_KEYS = {
 class PolicyService:
     """Small deterministic policy layer before orchestration publishes work."""
 
+    def approve(
+        self,
+        request: ActionRequest,
+        *,
+        approved_by: str,
+        reason: str | None = None,
+    ) -> PolicyDecision:
+        reasons = [f"Approved by {approved_by}"]
+        if reason:
+            reasons.append(reason)
+        return PolicyDecision(
+            action_id=request.action_id,
+            status=PolicyDecisionStatus.ALLOWED,
+            reasons=reasons,
+            allowed_targets=request.profile.targets,
+        )
+
+    def reject(
+        self,
+        request: ActionRequest,
+        *,
+        rejected_by: str,
+        reason: str | None = None,
+    ) -> PolicyDecision:
+        reasons = [f"Rejected by {rejected_by}"]
+        if reason:
+            reasons.append(reason)
+        return PolicyDecision(
+            action_id=request.action_id,
+            status=PolicyDecisionStatus.REJECTED,
+            reasons=reasons,
+            blocked_targets=request.profile.targets,
+        )
+
     def evaluate(self, request: ActionRequest) -> PolicyDecision:
         reasons: list[str] = []
         profile = request.profile

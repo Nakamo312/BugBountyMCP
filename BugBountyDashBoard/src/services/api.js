@@ -114,6 +114,19 @@ export const scanMapCIDR = (data) =>
 export const scanNaabu = (data) => 
   api.post('/scan/naabu', data)
 
+// Actions
+export const listActions = (params = {}) =>
+  api.get('/actions', { params })
+
+export const listPendingApprovalActions = (params = {}) =>
+  api.get('/actions/pending-approval', { params })
+
+export const approveAction = (actionId, data = {}) =>
+  api.post(`/actions/${actionId}/approve`, data)
+
+export const rejectAction = (actionId, data = {}) =>
+  api.post(`/actions/${actionId}/reject`, data)
+
 export const getInjectionCandidates = (programId, params = {}) => 
   api.get(`/analysis/program/${programId}/injection-candidates`, { params })
 
@@ -149,10 +162,6 @@ export const getSubdomainTakeoverCandidates = (programId, params = {}) =>
 
 export const getAPIPatterns = (programId, params = {}) =>
   api.get(`/analysis/program/${programId}/api-patterns`, { params })
-
-// Proxy
-export const proxyRequest = (data) =>
-  api.post('/proxy', data)
 
 // Infrastructure
 export const getInfrastructureGraph = (programId) =>

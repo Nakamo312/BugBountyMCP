@@ -1,5 +1,4 @@
-import { Loader, Send } from 'lucide-react'
-import RequestResponse from './RequestResponse'
+import { Loader } from 'lucide-react'
 
 const MethodBadge = ({ method }) => {
   const colors = {
@@ -44,13 +43,8 @@ const ParameterCard = ({ param }) => (
 
 const EndpointDetails = ({
   endpoint,
-  host,
   details,
   isLoading,
-  response,
-  isRequestLoading,
-  onMakeRequest,
-  onClearResponse,
   onLoadDetails,
 }) => {
   if (isLoading) {
@@ -76,32 +70,6 @@ const EndpointDetails = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200">
-        <div>
-          <h4 className="font-semibold text-gray-900">Make Request</h4>
-          <p className="text-sm text-gray-600 mt-1">Test this endpoint by making an HTTP request</p>
-        </div>
-        <button
-          onClick={() => onMakeRequest(endpoint, host)}
-          disabled={isRequestLoading}
-          className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {isRequestLoading ? (
-            <>
-              <Loader className="animate-spin" size={16} />
-              <span>Sending...</span>
-            </>
-          ) : (
-            <>
-              <Send size={16} />
-              <span>Send Request</span>
-            </>
-          )}
-        </button>
-      </div>
-
-      <RequestResponse response={response} onClear={onClearResponse} />
-
       {details.parameters && details.parameters.length > 0 && (
         <div>
           <h4 className="font-semibold text-gray-900 mb-2">

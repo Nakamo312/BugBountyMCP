@@ -12,12 +12,16 @@ class Settings(BaseSettings):
 
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
+    POSTGRES_MCP_HOST: str = "0.0.0.0"
+    POSTGRES_MCP_PORT: int = 8010
+    POSTGRES_MCP_TRANSPORT: str = "http"
 
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "bugbounty"
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
+    POSTGRES_MCP_DSN: str | None = None
 
     RABBITMQ_HOST: str = "localhost"
     RABBITMQ_PORT: int = 5672
@@ -107,6 +111,10 @@ class Settings(BaseSettings):
             f"postgresql+asyncpg://{self.POSTGRES_USER}:"
             f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
+
+    @property
+    def postgres_mcp_dsn(self) -> str:
+        return self.POSTGRES_MCP_DSN or self.postgres_dsn
 
     @property
     def postgres_dsn_sync(self) -> str:

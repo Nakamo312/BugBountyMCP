@@ -1,8 +1,6 @@
-import { useState } from 'react'
 import { useProgram } from '../context/ProgramContext'
 import { Server, Loader, AlertCircle } from 'lucide-react'
 import useHosts from '../hooks/useHosts'
-import { proxyRequest } from '../services/api'
 import {
   HostCard,
   HostFilters,
@@ -43,82 +41,6 @@ const Hosts = () => {
     clearFilters,
     refresh,
   } = useHosts(selectedProgram)
-
-  const [requestResponses, setRequestResponses] = useState({})
-  const [loadingRequests, setLoadingRequests] = useState(new Set())
-
-  const makeRequest = async (endpoint, host) => {
-    const endpointId = endpoint.id
-    setLoadingRequests(prev => new Set(prev).add(endpointId))
-
-    try {
-      const scheme = 'https'
-      const baseUrl = `${scheme}://${host.host}`
-      let url = `${baseUrl}${endpoint.path}`
-      const method = endpoint.methods?.includes('GET') ? 'GET' : (endpoint.methods?.[0] || 'GET')
-
-      const details = endpointDetails[endpointId]
-      const params = details?.parameters || []
-      const headers = details?.headers || []
-
-      const queryParams = {}
-      params.forEach(param => {
-        if (param.location === 'query' && param.example_value) {
-          queryParams[param.name] = param.example_value
-        }
-      })
-
-      const requestHeaders = {}
-      headers.forEach(header => {
-        requestHeaders[header.name] = header.value
-      })
-
-      if (Object.keys(queryParams).length > 0) {
-        const searchParams = new URLSearchParams(queryParams)
-        url = `${url}?${searchParams.toString()}`
-      }
-
-      const response = await proxyRequest({
-        url,
-        method,
-        headers: Object.keys(requestHeaders).length > 0 ? requestHeaders : null,
-        timeout: 10,
-      })
-
-      setRequestResponses(prev => ({
-        ...prev,
-        [endpointId]: {
-          status: response.data.status_code,
-          statusText: response.data.status_text,
-          headers: response.data.headers,
-          data: response.data.body,
-          url: response.data.url,
-        },
-      }))
-    } catch (error) {
-      setRequestResponses(prev => ({
-        ...prev,
-        [endpointId]: {
-          error: error.response?.data?.detail || error.message,
-          url: `https://${host.host}${endpoint.path}`,
-        },
-      }))
-    } finally {
-      setLoadingRequests(prev => {
-        const newSet = new Set(prev)
-        newSet.delete(endpointId)
-        return newSet
-      })
-    }
-  }
-
-  const clearResponse = (endpointId) => {
-    setRequestResponses(prev => {
-      const newState = { ...prev }
-      delete newState[endpointId]
-      return newState
-    })
-  }
 
   if (!selectedProgram) {
     return (
@@ -207,13 +129,8 @@ const Hosts = () => {
                         >
                           <EndpointDetails
                             endpoint={endpoint}
-                            host={host}
                             details={details}
                             isLoading={isLoadingDetails}
-                            response={requestResponses[endpoint.id]}
-                            isRequestLoading={loadingRequests.has(endpoint.id)}
-                            onMakeRequest={makeRequest}
-                            onClearResponse={() => clearResponse(endpoint.id)}
                             onLoadDetails={loadEndpointDetails}
                           />
                         </EndpointCard>

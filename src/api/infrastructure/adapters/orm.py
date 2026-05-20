@@ -247,7 +247,7 @@ action_requests = Table(
     Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
     Index('idx_action_requests_program_status', 'program_id', 'status'),
     CheckConstraint(
-        "status IN ('allowed', 'blocked', 'requires_approval', 'queued')",
+        "status IN ('allowed', 'blocked', 'requires_approval', 'queued', 'rejected')",
         name='ck_action_requests_status_valid'
     ),
 )
@@ -263,7 +263,7 @@ policy_decisions = Table(
     Column('blocked_targets', JSONType(), nullable=False, default=list),
     Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint(
-        "status IN ('allowed', 'blocked', 'requires_approval')",
+        "status IN ('allowed', 'blocked', 'requires_approval', 'rejected')",
         name='ck_policy_decisions_status_valid'
     ),
 )

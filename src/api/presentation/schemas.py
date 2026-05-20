@@ -293,3 +293,17 @@ class ErrorResponse(BaseModel):
             }
         }
     )
+
+
+class ActionApprovalRequest(BaseModel):
+    """Request schema for approving a held action."""
+
+    approved_by: str = Field(default="api", min_length=1, max_length=100)
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class ActionRejectionRequest(BaseModel):
+    """Request schema for rejecting a held action."""
+
+    rejected_by: str = Field(default="api", min_length=1, max_length=100)
+    reason: Optional[str] = Field(default=None, max_length=500)
