@@ -81,6 +81,7 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
             event_in=event_in,
             event_out=event_out,
             runner_key=resolve_component(RUNNERS, spec.runner, "runner", node_id),
+            parser_key=resolve_component(PARSERS, spec.parser, "parser", node_id),
             ingestor_key=resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id),
             max_parallelism=max_parallelism,
             max_concurrent_scans=_resolve_int(

@@ -160,7 +160,7 @@ class SubjackStdoutParser:
 
     @staticmethod
     def _parse_line(line: str) -> dict[str, object] | None:
-        if not line or not line.startswith("[") or "Not Vulnerable" in line:
+        if not line or "Not Vulnerable" in line:
             return None
 
         parts = line.split()
@@ -174,14 +174,21 @@ class SubjackStdoutParser:
         if not vulnerable:
             return None
 
+        subdomain = None
         cname = None
-        for part in parts[1:]:
+        for part in parts:
             if "." in part and not part.startswith("["):
-                cname = part
-                break
+                if subdomain is None:
+                    subdomain = part
+                elif cname is None:
+                    cname = part
+                    break
+
+        if subdomain is None:
+            return None
 
         return {
-            "subdomain": parts[0],
+            "subdomain": subdomain,
             "service": service,
             "vulnerable": True,
             "cname": cname,

@@ -30,6 +30,7 @@ class AmassNode(Node):
         node_id: str,
         event_in: Set[EventType],
         runner_key: Type[Any],
+        parser_key: Type[Any],
         ingestor_key: Type[Any],
         event_out: Set[EventType] | None = None,
         max_parallelism: int = 1,
@@ -50,6 +51,7 @@ class AmassNode(Node):
         )
         self.logger = logging.getLogger(f"node.{node_id}")
         self.runner_key = runner_key
+        self.parser_key = parser_key
         self.ingestor_key = ingestor_key
         self.scope_policy = scope_policy
         self._scan_semaphore = asyncio.Semaphore(max_concurrent_scans)
@@ -98,6 +100,7 @@ class AmassNode(Node):
 
         runner = await ctx.get_service(self.runner_key)
         ingestor = await ctx.get_service(self.ingestor_key)
+        parser = self.parser_key()
 
         async def enumerate_single_domain(domain: str) -> tuple[int, int]:
             """Enumerate a single domain and return (domains_found, ips_found)"""
@@ -108,8 +111,7 @@ class AmassNode(Node):
             async with self._scan_semaphore:
                 self.logger.info(f"Enumerating domain: {domain} (active={active})")
 
-                graph_lines = []
-                stream = runner.run(domain, active)
+                stream = runner.run_raw(domain, active)
                 if isinstance(ctx, PipelineContext):
                     stream = ctx.capture_raw_stream(
                         stream,
@@ -120,63 +122,84 @@ class AmassNode(Node):
                         run_id=run_id,
                         metadata={"runner": self.runner_key.__name__, "active": active},
                     )
+                stream = parser.parse_stream(stream)
+
+                batch_size = max(1, getattr(ctx.settings, "AMASS_INGESTOR_BATCH_SIZE", 50))
+                batch = []
+                raw_domains: set[str] = set()
+                ips: set[str] = set()
+                cidrs: set[str] = set()
+                asns: set[str] = set()
+
+                async def flush_batch() -> None:
+                    if not batch:
+                        return
+                    ingest_result = await ingestor.ingest(program_id, list(batch))
+                    raw_domains.update(ingest_result.raw_domains or [])
+                    ips.update(ingest_result.ips or [])
+                    cidrs.update(ingest_result.cidrs or [])
+                    asns.update(ingest_result.asns or [])
+                    batch.clear()
 
                 async for process_event in stream:
-                    if process_event.type == "stdout" and process_event.payload:
-                        graph_lines.append(process_event.payload.strip())
+                    if process_event.type == "result" and process_event.payload:
+                        batch.append(process_event.payload)
+                        if len(batch) >= batch_size:
+                            await flush_batch()
 
-                if graph_lines:
-                    ingest_result = await ingestor.ingest(program_id, graph_lines)
+                await flush_batch()
 
-                    if ingest_result.raw_domains:
+                if raw_domains or ips or cidrs or asns:
+
+                    if raw_domains:
                         await ctx.emit(
                             event=EventType.SUBDOMAIN_DISCOVERED.value,
-                            targets=ingest_result.raw_domains,
+                            targets=sorted(raw_domains),
                             program_id=program_id,
                             confidence=0.9
                         )
                         self.logger.debug(
                             f"Emitted SUBDOMAIN_DISCOVERED for {domain}: "
-                            f"{len(ingest_result.raw_domains)} domains"
+                            f"{len(raw_domains)} domains"
                         )
 
-                    if ingest_result.ips:
+                    if ips:
                         await ctx.emit(
                             event=EventType.IPS_EXPANDED.value,
-                            targets=ingest_result.ips,
+                            targets=sorted(ips),
                             program_id=program_id,
                             confidence=0.9
                         )
                         self.logger.debug(
                             f"Emitted IPS_EXPANDED for {domain}: "
-                            f"{len(ingest_result.ips)} IPs"
+                            f"{len(ips)} IPs"
                         )
 
-                    if ingest_result.cidrs:
+                    if cidrs:
                         await ctx.emit(
                             event=EventType.CIDR_DISCOVERED.value,
-                            targets=ingest_result.cidrs,
+                            targets=sorted(cidrs),
                             program_id=program_id,
                             confidence=0.9
                         )
                         self.logger.debug(
                             f"Emitted CIDR_DISCOVERED for {domain}: "
-                            f"{len(ingest_result.cidrs)} CIDRs"
+                            f"{len(cidrs)} CIDRs"
                         )
 
-                    if ingest_result.asns:
+                    if asns:
                         await ctx.emit(
                             event=EventType.ASN_DISCOVERED.value,
-                            targets=ingest_result.asns,
+                            targets=sorted(asns),
                             program_id=program_id,
                             confidence=0.9
                         )
                         self.logger.debug(
                             f"Emitted ASN_DISCOVERED for {domain}: "
-                            f"{len(ingest_result.asns)} ASNs"
+                            f"{len(asns)} ASNs"
                         )
 
-                    return len(ingest_result.raw_domains or []), len(ingest_result.ips or [])
+                    return len(raw_domains), len(ips)
                 return 0, 0
 
         try:

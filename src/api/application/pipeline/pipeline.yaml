@@ -404,6 +404,7 @@ workers:
       asn_discovered:
       cidr_discovered:
     runner: AmassCliRunner
+    parser: AmassGraphParser
     ingestor: AmassResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
     max_concurrent_scans: 5

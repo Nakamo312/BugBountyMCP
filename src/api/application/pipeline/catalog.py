@@ -34,6 +34,7 @@ from api.infrastructure.ingestors.naabu_ingestor import NaabuResultIngestor
 from api.infrastructure.ingestors.smap_ingestor import SmapResultIngestor
 from api.infrastructure.ingestors.subjack_ingestor import SubjackResultIngestor
 from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
+from api.infrastructure.parsers.amass_parser import AmassGraphParser
 from api.infrastructure.parsers.httpx_parser import HTTPXProcessEventParser
 from api.infrastructure.parsers.line_process_event_parsers import (
     GAUStdoutParser,
@@ -118,6 +119,7 @@ PROCESSORS: dict[str, type[Any]] = {
 PARSERS: dict[str, type[Any]] = {
     cls.__name__: cls
     for cls in (
+        AmassGraphParser,
         GAUStdoutParser,
         HTTPXProcessEventParser,
         JSONStdoutItemsProcessEventParser,

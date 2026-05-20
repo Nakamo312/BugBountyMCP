@@ -98,7 +98,7 @@ class Hakip2HostNode(Node):
         discovered_hostnames = []
 
         try:
-            stream = runner.run_raw(targets) if hasattr(runner, "run_raw") else runner.run(targets)
+            stream = runner.run_raw(targets)
             if isinstance(ctx, PipelineContext):
                 stream = ctx.capture_raw_stream(
                     stream,
@@ -109,8 +109,7 @@ class Hakip2HostNode(Node):
                     run_id=run_id,
                     metadata={"runner": self.runner_key.__name__},
                 )
-            if hasattr(runner, "run_raw"):
-                stream = Hakip2HostStdoutParser().parse_stream(stream)
+            stream = Hakip2HostStdoutParser().parse_stream(stream)
 
             async for batch in processor.batch_stream(stream):
                 if not batch:

@@ -2,6 +2,7 @@ import logging
 from typing import AsyncIterator, Optional
 
 from api.infrastructure.commands.command_executor import CommandExecutor
+from api.infrastructure.parsers.amass_parser import AmassGraphParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 logger = logging.getLogger(__name__)
@@ -23,16 +24,16 @@ class AmassCliRunner:
         self.wordlist = wordlist
         self.timeout = timeout
 
-    async def run(self, domain: str, active: bool = False) -> AsyncIterator[ProcessEvent]:
+    async def run_raw(self, domain: str, active: bool = False) -> AsyncIterator[ProcessEvent]:
         """
-        Run Amass enumeration on target domain.
+        Run Amass enumeration on target domain and yield raw process events.
 
         Args:
             domain: Target domain (e.g., "example.com")
             active: Enable active enumeration (zone transfers, brute force)
 
         Yields:
-            ProcessEvent with type="stdout" and payload=graph line
+            Raw ProcessEvent objects from CommandExecutor
         """
         logger.info(f"Running Amass enum on domain: {domain} active={active}")
 
@@ -58,6 +59,12 @@ class AmassCliRunner:
 
             if event.type == "stdout" and event.payload:
                 result_count += 1
-                yield event
+            yield event
 
         logger.info(f"Amass enum completed: domain={domain} lines={result_count}")
+
+    async def run(self, domain: str, active: bool = False) -> AsyncIterator[ProcessEvent]:
+        """Compatibility wrapper for callers that still expect normalized facts."""
+        parser = AmassGraphParser()
+        async for event in parser.parse_stream(self.run_raw(domain, active=active)):
+            yield event

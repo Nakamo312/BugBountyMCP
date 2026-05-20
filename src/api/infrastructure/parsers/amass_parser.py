@@ -1,6 +1,9 @@
 import re
 import logging
+from collections.abc import AsyncIterator
 from typing import Dict, List, Set, Tuple, Optional
+
+from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +23,15 @@ class AmassGraphParser:
     GRAPH_PATTERN = re.compile(
         r'^(.+?)\s+\((\w+)\)\s+-->\s+(\w+)\s+-->\s+(.+?)\s+\((\w+)\)$'
     )
+
+    async def parse_stream(self, stream: AsyncIterator[ProcessEvent]) -> AsyncIterator[ProcessEvent]:
+        """Normalize raw Amass graph stdout lines into fact records."""
+        async for event in stream:
+            if event.type != "stdout" or not event.payload:
+                continue
+            record = self.parse_record(event.payload)
+            if record is not None:
+                yield ProcessEvent(type="result", payload=record)
 
     @classmethod
     def parse_line(cls, line: str) -> Optional[Tuple[str, str, str, str, str]]:
@@ -44,6 +56,52 @@ class AmassGraphParser:
             match.group(4).strip(),
             match.group(5).strip(),
         )
+
+    @classmethod
+    def parse_record(cls, line: str) -> dict[str, list[str]] | None:
+        """Extract normalized facts from one Amass graph line."""
+        parsed = cls.parse_line(line)
+        if not parsed:
+            return None
+
+        source_entity, source_type, relationship, target_entity, target_type = parsed
+        domains: set[str] = set()
+        ips: set[str] = set()
+        cidrs: set[str] = set()
+        asns: set[str] = set()
+
+        if source_type == "FQDN":
+            domains.add(source_entity)
+
+        if target_type == "FQDN" and relationship in ("node", "cname_record", "mx_record"):
+            domains.add(target_entity)
+
+        if target_type == "IPAddress" and relationship in ("a_record", "aaaa_record"):
+            ips.add(target_entity)
+
+        if source_type == "Netblock":
+            cidrs.add(source_entity)
+
+        if target_type == "Netblock":
+            cidrs.add(target_entity)
+
+        if source_type == "ASN":
+            try:
+                asn_num = int(source_entity)
+            except ValueError:
+                asn_num = 0
+            if asn_num > 0:
+                asns.add(str(asn_num))
+
+        if not (domains or ips or cidrs or asns):
+            return None
+
+        return {
+            "domains": sorted(domains),
+            "ips": sorted(ips),
+            "cidrs": sorted(cidrs),
+            "asns": sorted(asns),
+        }
 
     @classmethod
     def extract_domains_and_ips(cls, lines: List[str]) -> Dict[str, Set[str]]:

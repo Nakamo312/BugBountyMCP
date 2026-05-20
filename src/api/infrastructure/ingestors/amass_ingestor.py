@@ -8,7 +8,6 @@ from api.config import Settings
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 from api.infrastructure.ingestors.ingest_result import IngestResult
 from api.infrastructure.unit_of_work.interfaces.infrastructure import InfrastructureUnitOfWork
-from api.infrastructure.parsers.amass_parser import AmassGraphParser
 
 logger = logging.getLogger(__name__)
 
@@ -22,37 +21,46 @@ class AmassResultIngestor(BaseResultIngestor):
         super().__init__(uow, settings.AMASS_INGESTOR_BATCH_SIZE)
         self.settings = settings
 
-    async def ingest(self, program_id: UUID, results: List[str]) -> IngestResult:
+    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
         """
-        Ingest Amass graph lines into database.
+        Ingest normalized Amass fact records into database.
 
         Args:
             program_id: Program UUID
-            results: List of graph output lines
+            results: List of normalized fact dictionaries from AmassGraphParser
 
         Returns:
             IngestResult with domains and IPs
         """
-        parsed_data = AmassGraphParser.extract_domains_and_ips(results)
-
-        result_dicts = []
-        for line in results:
-            result_dicts.append({
-                "raw_line": line,
-                "domains": parsed_data["domains"],
-                "ips": parsed_data["ips"],
-                "cidrs": parsed_data.get("cidrs", set()),
-                "asns": parsed_data.get("asns", set())
-            })
-        
-        await super().ingest(program_id, result_dicts)
+        parsed_data = self._collect_facts(results)
+        await super().ingest(program_id, results)
         
         return IngestResult(
             raw_domains=list(parsed_data["domains"]),
             ips=list(parsed_data["ips"]),
             cidrs=list(parsed_data.get("cidrs", [])),
-            asns=[str(asn) for asn in parsed_data.get("asns", [])]
+            asns=[str(asn) for asn in parsed_data.get("asns", [])],
         )
+
+    @staticmethod
+    def _collect_facts(results: List[Dict[str, Any]]) -> Dict[str, Set[str]]:
+        domains: Set[str] = set()
+        ips: Set[str] = set()
+        cidrs: Set[str] = set()
+        asns: Set[str] = set()
+
+        for item in results:
+            domains.update(str(value) for value in item.get("domains", []) if value)
+            ips.update(str(value) for value in item.get("ips", []) if value)
+            cidrs.update(str(value) for value in item.get("cidrs", []) if value)
+            asns.update(str(value) for value in item.get("asns", []) if value)
+
+        return {
+            "domains": domains,
+            "ips": ips,
+            "cidrs": cidrs,
+            "asns": asns,
+        }
 
     async def _process_batch(self, uow: InfrastructureUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
         """
@@ -110,14 +118,17 @@ class AmassResultIngestor(BaseResultIngestor):
 
         for asn in all_asns:
             try:
+                asn_number = int(str(asn).removeprefix("AS"))
                 existing = await uow.asns.get_by_fields(
                     program_id=program_id,
-                    asn_number=asn
+                    asn_number=asn_number
                 )
                 if not existing:
                     await uow.asns.ensure(
                         program_id=program_id,
-                        asn_number=asn
+                        asn_number=asn_number
                     )
+            except (TypeError, ValueError):
+                logger.warning(f"Skipping invalid ASN from Amass result: {asn}")
             except Exception as e:
                 logger.error(f"Failed to process ASN {asn}: {e}", exc_info=True)

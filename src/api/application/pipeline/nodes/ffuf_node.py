@@ -98,7 +98,7 @@ class FFUFNode(Node):
                 self.logger.info(f"Fuzzing target: {target_url}")
 
                 results = []
-                stream = runner.run_raw(target_url) if hasattr(runner, "run_raw") else runner.run(target_url)
+                stream = runner.run_raw(target_url)
                 if isinstance(ctx, PipelineContext):
                     stream = ctx.capture_raw_stream(
                         stream,
@@ -109,8 +109,7 @@ class FFUFNode(Node):
                         run_id=run_id,
                         metadata={"runner": self.runner_key.__name__},
                     )
-                if hasattr(runner, "run_raw"):
-                    stream = FFUFStdoutParser().parse_stream(stream)
+                stream = FFUFStdoutParser().parse_stream(stream)
 
                 async for event in stream:
                     if event.type == "result" and event.payload:
