@@ -39,8 +39,12 @@ class LinkFinderResultIngestor(BaseResultIngestor):
         self._in_scope_count = 0
         self._out_of_scope_count = 0
 
-        async with self.uow as uow:
-            self._scope_rules = await uow.scope_rules.find_by_program(program_id)
+        try:
+            async with self.uow as uow:
+                self._scope_rules = await uow.scope_rules.find_by_program(program_id)
+        except Exception:
+            await self.uow.rollback()
+            raise
 
         await super().ingest(program_id, results)
 
@@ -83,8 +87,16 @@ class LinkFinderResultIngestor(BaseResultIngestor):
                 else:
                     self._out_of_scope_count += 1
 
-    async def _ingest_url(self, uow, url: str, host, ip):
+    async def _ingest_url(self, *args):
         """Ingest single URL as endpoint"""
+        if len(args) == 3:
+            uow = self.uow
+            url, host, ip = args
+        elif len(args) == 4:
+            uow, url, host, ip = args
+        else:
+            raise TypeError("_ingest_url expects (url, host, ip) or (uow, url, host, ip)")
+
         parsed = urlparse(url)
         scheme = parsed.scheme or "https"
         port = parsed.port or (443 if scheme == "https" else 80)

@@ -407,7 +407,7 @@ class NaabuScanOutputDTO(BaseModel):
     message: str = Field(..., description="Status message")
     scanner: str = Field(..., description="Scanner name")
     targets_count: int = Field(..., description="Number of targets scanned")
-    scan_mode: str = Field(..., description="Scan mode: active, passive, nmap")
+    scan_mode: str = Field(..., description="Scan mode: active or passive")
 
     model_config = ConfigDict(
         json_schema_extra = {

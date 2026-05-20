@@ -234,13 +234,12 @@ class NaabuScanRequest(BaseModel):
     """HTTP request schema for Naabu port scan"""
     program_id: str = Field(..., description="Program UUID as string")
     targets: List[str] = Field(..., description="List of hosts/IPs to scan", min_items=1)
-    scan_mode: str = Field(default="active", description="Scan mode: active, passive, or nmap")
+    scan_mode: str = Field(default="active", description="Scan mode: active or passive")
     ports: Optional[str] = Field(default=None, description="Port specification or None for top-ports")
     top_ports: str = Field(default="1000", description="Top ports preset: 100, 1000, or full")
     rate: int = Field(default=1000, ge=1, le=10000, description="Packets per second")
     scan_type: str = Field(default="c", description="Scan type: s (SYN) or c (CONNECT)")
     exclude_cdn: bool = Field(default=True, description="Skip full port scans for CDN/WAF")
-    nmap_cli: Optional[str] = Field(default="nmap -sV", description="Nmap command for service detection (nmap mode only)")
     timeout: Optional[int] = Field(default=600, ge=1, le=3600)
 
     model_config = ConfigDict(

@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, List
 from uuid import UUID
 
-from src.api.domain.models import AbstractModel
+from api.domain.models import AbstractModel
 
 class AbstractQueryRepository(ABC):
     """Базовый контракт для чтения сущностей"""

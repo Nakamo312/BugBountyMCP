@@ -8,7 +8,6 @@ from dishka.integrations.fastapi import setup_dishka
 
 from api.config import Settings
 from api.infrastructure.adapters.mappers import start_mappers
-from api.infrastructure.database.connection import DatabaseConnection
 from api.application.container import create_container
 from api.presentation.rest.handlers import (
     global_exception_handler,
@@ -16,7 +15,7 @@ from api.presentation.rest.handlers import (
     tool_not_found_handler
 )
 from api.presentation.rest.routes import router
-from src.api.application.exceptions import ScanExecutionError, ToolNotFoundError
+from api.application.exceptions import ScanExecutionError, ToolNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +25,6 @@ async def lifespan(app: FastAPI):
     container = app.state.dishka_container
 
     try:
-        db_connection = await container.get(DatabaseConnection)
-        await db_connection.create_tables()
         start_mappers()
 
         from api.application.pipeline.registry import NodeRegistry

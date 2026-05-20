@@ -1198,7 +1198,6 @@ function NaabuScan({ onScan, loading }) {
   const [rate, setRate] = useState(1000)
   const [scanType, setScanType] = useState('c')
   const [excludeCdn, setExcludeCdn] = useState(true)
-  const [nmapCli, setNmapCli] = useState('nmap -sV')
   const [timeout, setTimeout] = useState(600)
 
   const handleSubmit = (e) => {
@@ -1211,7 +1210,6 @@ function NaabuScan({ onScan, loading }) {
       rate,
       scan_type: scanType,
       exclude_cdn: excludeCdn,
-      nmap_cli: scanMode === 'nmap' ? nmapCli : null,
       timeout: timeout || null,
     })
   }
@@ -1237,7 +1235,6 @@ function NaabuScan({ onScan, loading }) {
         >
           <option value="active">Active</option>
           <option value="passive">Passive</option>
-          <option value="nmap">Nmap</option>
         </select>
       </div>
       <div>
@@ -1296,18 +1293,6 @@ function NaabuScan({ onScan, loading }) {
         />
         <label htmlFor="excludeCdn" className="text-sm text-gray-700">Exclude CDN/WAF</label>
       </div>
-      {scanMode === 'nmap' && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Nmap Command</label>
-          <input
-            type="text"
-            value={nmapCli}
-            onChange={(e) => setNmapCli(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-            placeholder="nmap -sV"
-          />
-        </div>
-      )}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Timeout (seconds)</label>
         <input

@@ -2,13 +2,11 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, Set
+from typing import Dict, Any, Set, Type
 from uuid import UUID
 
 from api.application.pipeline.node import Node
 from api.application.pipeline.context import PipelineContext
-from api.infrastructure.runners.amass_cli import AmassCliRunner
-from api.infrastructure.ingestors.amass_ingestor import AmassResultIngestor
 from api.infrastructure.events.event_types import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
 
@@ -31,11 +29,14 @@ class AmassNode(Node):
         self,
         node_id: str,
         event_in: Set[EventType],
+        runner_key: Type[Any],
+        ingestor_key: Type[Any],
+        event_out: Set[EventType] | None = None,
         max_parallelism: int = 1,
         max_concurrent_scans: int = 5,
         scope_policy=ScopePolicy.NONE
     ):
-        event_out = {
+        event_out = event_out or {
             EventType.SUBDOMAIN_DISCOVERED,
             EventType.IPS_EXPANDED,
             EventType.ASN_DISCOVERED,
@@ -48,6 +49,8 @@ class AmassNode(Node):
             max_parallelism=max_parallelism
         )
         self.logger = logging.getLogger(f"node.{node_id}")
+        self.runner_key = runner_key
+        self.ingestor_key = ingestor_key
         self.scope_policy = scope_policy
         self._scan_semaphore = asyncio.Semaphore(max_concurrent_scans)
 
@@ -91,8 +94,8 @@ class AmassNode(Node):
             f"targets={len(targets)} active={active}"
         )
 
-        runner = await ctx.get_service(AmassCliRunner)
-        ingestor = await ctx.get_service(AmassResultIngestor)
+        runner = await ctx.get_service(self.runner_key)
+        ingestor = await ctx.get_service(self.ingestor_key)
 
         async def enumerate_single_domain(domain: str) -> tuple[int, int]:
             """Enumerate a single domain and return (domains_found, ips_found)"""

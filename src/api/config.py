@@ -32,6 +32,7 @@ class Settings(BaseSettings):
 
     # Pipeline feature flag
     USE_NODE_PIPELINE: bool = True
+    PIPELINE_CONFIG_PATH: str | None = None
 
     # Batch processing settings
     SUBFINDER_BATCH_MIN: int = 50

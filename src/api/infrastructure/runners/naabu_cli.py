@@ -114,63 +114,6 @@ class NaabuCliRunner:
 
         logger.info(f"naabu scan completed: open_ports={result_count}")
 
-    async def scan_with_nmap(
-        self,
-        hosts: list[str] | str,
-        nmap_cli: str = "nmap -sV",
-        top_ports: str = "1000",
-        rate: int = 1000
-    ) -> AsyncIterator[ProcessEvent]:
-        """
-        Port scan with naabu and invoke nmap for service detection.
-
-        Args:
-            hosts: Single host/IP or list of hosts/IPs
-            nmap_cli: Nmap command for service detection (default: "nmap -sV")
-            top_ports: Top ports preset (default: "1000")
-            rate: Packets per second (default: 1000)
-
-        Yields:
-            ProcessEvent with naabu results (nmap results not captured separately)
-        """
-        if isinstance(hosts, str):
-            hosts = [hosts]
-
-        command = [
-            self.naabu_path,
-            "-json",
-            "-silent",
-            "-top-ports", top_ports,
-            "-rate", str(rate),
-            "-nmap-cli", nmap_cli,
-        ]
-
-        stdin = "\n".join(hosts)
-
-        logger.info(
-            f"Starting naabu scan with nmap: hosts={len(hosts)} "
-            f"top_ports={top_ports} nmap='{nmap_cli}'"
-        )
-
-        executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
-
-        result_count = 0
-        async for event in executor.run():
-            if event.type == "stderr" and event.payload:
-                logger.warning(f"naabu stderr: {event.payload}")
-            if event.type != "stdout" or not event.payload:
-                continue
-
-            try:
-                data = json.loads(event.payload)
-                result_count += 1
-                yield ProcessEvent(type="result", payload=data)
-            except json.JSONDecodeError:
-                logger.debug(f"Non-JSON stdout line skipped: {event.payload!r}")
-                continue
-
-        logger.info(f"naabu+nmap scan completed: results={result_count}")
-
     async def passive_scan(
         self,
         hosts: list[str] | str

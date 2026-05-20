@@ -40,22 +40,26 @@ class BaseResultIngestor(ABC):
             f"{self.__class__.__name__}: Starting ingestion program={program_id} total_results={total_results}"
         )
 
-        async with self.uow as uow:
-            for batch_index, batch in enumerate(self._chunks(results, self.batch_size)):
-                savepoint_name = f"batch_{batch_index}"
-                await uow.create_savepoint(savepoint_name)
+        try:
+            async with self.uow as uow:
+                for batch_index, batch in enumerate(self._chunks(results, self.batch_size)):
+                    savepoint_name = f"batch_{batch_index}"
+                    await uow.create_savepoint(savepoint_name)
 
-                try:
-                    await self._process_batch(uow, program_id, batch)
-                    await uow.release_savepoint(savepoint_name)
-                    successful_batches += 1
-                except Exception as exc:
-                    await uow.rollback_to_savepoint(savepoint_name)
-                    failed_batches += 1
-                    logger.error(
-                        f"{self.__class__.__name__}: Batch {batch_index} failed (size={len(batch)}): {exc}"
-                    )
-            await uow.commit()
+                    try:
+                        await self._process_batch(uow, program_id, batch)
+                        await uow.release_savepoint(savepoint_name)
+                        successful_batches += 1
+                    except Exception as exc:
+                        await uow.rollback_to_savepoint(savepoint_name)
+                        failed_batches += 1
+                        logger.error(
+                            f"{self.__class__.__name__}: Batch {batch_index} failed (size={len(batch)}): {exc}"
+                        )
+                await uow.commit()
+        except Exception:
+            await self.uow.rollback()
+            raise
 
         logger.info(
             f"{self.__class__.__name__}: Ingestion completed program={program_id} "

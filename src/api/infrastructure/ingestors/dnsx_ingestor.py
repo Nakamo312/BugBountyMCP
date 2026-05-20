@@ -25,9 +25,15 @@ class DNSxResultIngestor(BaseResultIngestor):
     - hostnames: List of CNAME targets for further resolution
     """
 
-    def __init__(self, uow: DNSxUnitOfWork, settings: Settings):
+    def __init__(
+        self,
+        uow: DNSxUnitOfWork,
+        settings: Settings,
+        create_missing_hosts: bool = False,
+    ):
         super().__init__(uow, settings.DNSX_INGESTOR_BATCH_SIZE)
         self.settings = settings
+        self.create_missing_hosts = create_missing_hosts
         self._discovered_ips: Set[str] = set()
         self._discovered_hostnames: Set[str] = set()
 
@@ -70,8 +76,11 @@ class DNSxResultIngestor(BaseResultIngestor):
 
         host = await uow.hosts.get_by_fields(program_id=program_id, host=host_name)
         if not host:
-            logger.warning(f"Host {host_name} not found in program {program_id}, creating it")
-            host = await uow.hosts.ensure(program_id=program_id, host=host_name, in_scope=True)
+            if not self.create_missing_hosts:
+                logger.warning(f"Host {host_name} not found in program {program_id}, skipping DNS records")
+                return
+            logger.info(f"Host {host_name} not found in program {program_id}, creating from DNSx result")
+            host = await uow.hosts.ensure(program_id=program_id, host=host_name)
 
         a_records = data.get("a", [])
         for record in a_records:
@@ -158,3 +167,10 @@ class DNSxResultIngestor(BaseResultIngestor):
             )
 
         logger.debug(f"Processed DNS records for host {host_name}: A={len(a_records)}, AAAA={len(aaaa_records)}, CNAME={len(cname_records)}, MX={len(mx_records)}, TXT={len(txt_records)}, NS={len(ns_records)}, SOA={len(soa_records)}, PTR={len(ptr_records)}")
+
+
+class DNSxDiscoveryResultIngestor(DNSxResultIngestor):
+    """DNSx ingestor for discovery edges that should materialize new hosts."""
+
+    def __init__(self, uow: DNSxUnitOfWork, settings: Settings):
+        super().__init__(uow=uow, settings=settings, create_missing_hosts=True)

@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from api.config import Settings
 from api.infrastructure.database.connection import DatabaseConnection
+from api.application.services.action import ActionService
+from api.application.services.policy import PolicyService
 from api.application.services.program import ProgramService
 from api.application.services.mapcidr import MapCIDRService
 from api.application.services.host import HostService
@@ -42,7 +44,7 @@ from api.infrastructure.ingestors.katana_ingestor import KatanaResultIngestor
 from api.infrastructure.ingestors.linkfinder_ingestor import LinkFinderResultIngestor
 from api.infrastructure.ingestors.mantra_ingestor import MantraResultIngestor
 from api.infrastructure.ingestors.ffuf_ingestor import FFUFResultIngestor
-from api.infrastructure.ingestors.dnsx_ingestor import DNSxResultIngestor
+from api.infrastructure.ingestors.dnsx_ingestor import DNSxDiscoveryResultIngestor, DNSxResultIngestor
 from api.infrastructure.ingestors.subjack_ingestor import SubjackResultIngestor
 from api.infrastructure.ingestors.asnmap_ingestor import ASNMapResultIngestor
 from api.infrastructure.ingestors.naabu_ingestor import NaabuResultIngestor
@@ -67,6 +69,7 @@ from api.infrastructure.runners.smap_cli import SmapCliRunner
 from api.infrastructure.runners.hakip2host_cli import Hakip2HostCliRunner
 from api.infrastructure.runners.playwright_cli import PlaywrightCliRunner
 from api.infrastructure.events.event_bus import EventBus
+from api.infrastructure.orchestration.store import OrchestrationStore
 from dishka import AsyncContainer
 
 from api.application.pipeline.registry import NodeRegistry
@@ -75,10 +78,6 @@ from api.infrastructure.runners.mapcidr_runners import MapCIDRExpandRunner
 from api.infrastructure.runners.tlsx_runners import TLSxDefaultRunner
 from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
 from api.infrastructure.ingestors.amass_ingestor import AmassResultIngestor
-from api.application.pipeline.nodes.hakip2host_node import Hakip2HostNode
-from api.application.pipeline.nodes.ffuf_node import FFUFNode
-from api.application.pipeline.nodes.amass_node import AmassNode
-from api.application.pipeline.scope_policy import ScopePolicy
 
 class DatabaseProvider(Provider):
     scope = Scope.APP
@@ -136,6 +135,31 @@ class UnitOfWorkProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def get_infrastructure_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyInfrastructureUnitOfWork:
         return SQLAlchemyInfrastructureUnitOfWork(session_factory)
+
+
+class OrchestrationProvider(Provider):
+    scope = Scope.APP
+
+    @provide(scope=Scope.APP)
+    def get_orchestration_store(self, session_factory: async_sessionmaker) -> OrchestrationStore:
+        return OrchestrationStore(session_factory)
+
+    @provide(scope=Scope.REQUEST)
+    def get_policy_service(self) -> PolicyService:
+        return PolicyService()
+
+    @provide(scope=Scope.REQUEST)
+    def get_action_service(
+        self,
+        event_bus: EventBus,
+        orchestration_store: OrchestrationStore,
+        policy_service: PolicyService,
+    ) -> ActionService:
+        return ActionService(
+            event_bus=event_bus,
+            store=orchestration_store,
+            policy=policy_service,
+        )
 
 
 class CLIRunnerProvider(Provider):
@@ -287,8 +311,12 @@ class CLIRunnerProvider(Provider):
         return DNSxPtrRunner(dnsx_runner)
 
     @provide(scope=Scope.APP)
-    def get_event_bus(self, settings: Settings) -> EventBus:
-        return EventBus(settings)
+    def get_event_bus(
+        self,
+        settings: Settings,
+        orchestration_store: OrchestrationStore,
+    ) -> EventBus:
+        return EventBus(settings, event_recorder=orchestration_store)
 
 
 class BatchProcessorProvider(Provider):
@@ -403,6 +431,14 @@ class IngestorProvider(Provider):
         return DNSxResultIngestor(uow=dnsx_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
+    def get_dnsx_discovery_ingestor(
+        self,
+        dnsx_uow: SQLAlchemyDNSxUnitOfWork,
+        settings: Settings
+    ) -> DNSxDiscoveryResultIngestor:
+        return DNSxDiscoveryResultIngestor(uow=dnsx_uow, settings=settings)
+
+    @provide(scope=Scope.REQUEST)
     def get_subjack_ingestor(
         self,
         httpx_uow: SQLAlchemyHTTPXUnitOfWork,
@@ -511,305 +547,11 @@ class PipelineProvider(Provider):
         settings: Settings,
         container: AsyncContainer,
     ) -> NodeRegistry:
-        from api.application.pipeline.factory import NodeFactory
-        from api.infrastructure.events.event_types import EventType
+        from api.application.pipeline.builder import register_yaml_nodes
 
         registry = NodeRegistry(bus, settings, container)
 
-        if not settings.USE_NODE_PIPELINE:
-            return registry
-
-        httpx_node = NodeFactory.create_scan_node(
-            node_id="httpx",
-            event_in={
-                EventType.SUBDOMAIN_DISCOVERED,
-                EventType.GAU_DISCOVERED,
-                EventType.DNSX_FILTERED_HOSTS,
-                EventType.HTTPX_SCAN_REQUESTED,
-            },
-            event_out={
-                EventType.HOST_DISCOVERED: "new_hosts",
-                EventType.JS_FILES_DISCOVERED: "js_files",
-            },
-            runner_type=HTTPXCliRunner,
-            processor_type=HTTPXBatchProcessor,
-            ingestor_type=HTTPXResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
-            scope_policy=ScopePolicy.CONFIDENCE
-        )
-        registry.register(httpx_node)
-
-        # KatanaNode - dependencies resolved from DI on each execution
-        katana_node = NodeFactory.create_scan_node(
-            node_id="katana",
-            event_in={
-                EventType.KATANA_SCAN_REQUESTED,
-                EventType.HOST_DISCOVERED,
-            },
-            event_out={
-                EventType.JS_FILES_DISCOVERED: "js_files",
-            },
-            runner_type=KatanaCliRunner,
-            processor_type=KatanaBatchProcessor,
-            ingestor_type=KatanaResultIngestor,
-            max_parallelism=2,
-            execution_delay=settings.ORCHESTRATOR_SCAN_DELAY,
-            scope_policy=ScopePolicy.CONFIDENCE
-        )
-        registry.register(katana_node)
-
-        # Playwright - interactive crawler with network interception
-        playwright_node = NodeFactory.create_scan_node(
-            node_id="playwright",
-            event_in={EventType.PLAYWRIGHT_SCAN_REQUESTED, EventType.HOST_DISCOVERED},
-            event_out={
-                EventType.JS_FILES_DISCOVERED: "js_files",
-            },
-            runner_type=PlaywrightCliRunner,
-            processor_type=PlaywrightBatchProcessor,
-            ingestor_type=KatanaResultIngestor,
-            max_parallelism=1,
-            execution_delay=settings.ORCHESTRATOR_SCAN_DELAY,
-            scope_policy=ScopePolicy.STRICT
-        )
-        registry.register(playwright_node)
-
-        linkfinder_node = NodeFactory.create_scan_node(
-            node_id="linkfinder",
-            event_in={
-                EventType.LINKFINDER_SCAN_REQUESTED,
-                EventType.JS_FILES_DISCOVERED,
-            },
-            event_out={
-                EventType.GAU_DISCOVERED: "urls",
-            },
-            runner_type=LinkFinderCliRunner,
-            processor_type=None,
-            ingestor_type=LinkFinderResultIngestor,
-            max_parallelism=3,
-            scope_policy=ScopePolicy.CONFIDENCE
-        )
-        registry.register(linkfinder_node)
-
-        mantra_node = NodeFactory.create_scan_node(
-            node_id="mantra",
-            event_in={
-                EventType.MANTRA_SCAN_REQUESTED,
-                EventType.JS_FILES_DISCOVERED,
-            },
-            event_out={},
-            runner_type=MantraCliRunner,
-            processor_type=None,
-            ingestor_type=MantraResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
-        )
-        registry.register(mantra_node)
-
-        subfinder_node = NodeFactory.create_scan_node(
-            node_id="subfinder",
-            event_in={
-                EventType.SUBFINDER_SCAN_REQUESTED,
-            },
-            event_out={
-                EventType.RAW_DOMAINS_DISCOVERED: "raw_domains",
-            },
-            runner_type=SubfinderCliRunner,
-            processor_type=SubfinderBatchProcessor,
-            ingestor_type=HostIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
-            scope_policy=ScopePolicy.NONE
-        )
-        registry.register(subfinder_node)
-
-        gau_node = NodeFactory.create_scan_node(
-            node_id="gau",
-            event_in={
-                
-            },
-            event_out={
-                EventType.GAU_DISCOVERED: "urls",
-            },
-            runner_type=GAUCliRunner,
-            processor_type=GAUBatchProcessor,
-            ingestor_type=None,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
-            scope_policy=ScopePolicy.STRICT
-        )
-        registry.register(gau_node)
-
-        waymore_node = NodeFactory.create_scan_node(
-            node_id="waymore",
-            event_in={
-                EventType.GAU_SCAN_REQUESTED,
-            },
-            event_out={
-                EventType.GAU_DISCOVERED: "urls",
-            },
-            runner_type=WaymoreCliRunner,
-            processor_type=WaymoreBatchProcessor,
-            ingestor_type=None,
-            max_parallelism=2,
-            scope_policy=ScopePolicy.STRICT
-        )
-        registry.register(waymore_node)
-
-        subjack_node = NodeFactory.create_scan_node(
-            node_id="subjack",
-            event_in={
-                EventType.SUBJACK_SCAN_REQUESTED,
-                EventType.SUBDOMAIN_DISCOVERED,
-            },
-            event_out={},
-            runner_type=SubjackCliRunner,
-            processor_type=SubjackBatchProcessor,
-            ingestor_type=SubjackResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
-        )
-        registry.register(subjack_node)
-
-        ffuf_node = FFUFNode(
-            node_id="ffuf",
-            event_in={
-                EventType.FFUF_SCAN_REQUESTED,
-                EventType.HOST_DISCOVERED,
-            },
-            max_parallelism=3,
-            max_concurrent_scans=5
-        )
-        ffuf_node.set_context_factory(bus, container, settings)
-        registry.register(ffuf_node)
-
-        amass_node = AmassNode(
-            node_id="amass",
-            event_in={
-                EventType.AMASS_SCAN_REQUESTED,
-            },
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
-            max_concurrent_scans=5,
-            scope_policy=ScopePolicy.NONE
-        )
-        amass_node.set_context_factory(bus, container, settings)
-        registry.register(amass_node)
-
-        asnmap_node = NodeFactory.create_scan_node(
-            node_id="asnmap",
-            event_in={
-                EventType.ASNMAP_SCAN_REQUESTED,
-            },
-            event_out={
-                EventType.ASN_DISCOVERED: "asns",
-                EventType.CIDR_DISCOVERED: "cidrs",
-            },
-            runner_type=ASNMapCliRunner,
-            processor_type=ASNMapBatchProcessor,
-            ingestor_type=ASNMapResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
-        )
-        registry.register(asnmap_node)
-
-        naabu_node = NodeFactory.create_scan_node(
-            node_id="naabu",
-            event_in={
-                EventType.NAABU_SCAN_REQUESTED,
-            },
-            event_out={},
-            runner_type=NaabuCliRunner,
-            processor_type=NaabuBatchProcessor,
-            ingestor_type=NaabuResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
-        )
-        registry.register(naabu_node)
-
-        mapcidr_expand_node = NodeFactory.create_scan_node(
-            node_id="mapcidr_expand",
-            event_in={
-                EventType.CIDR_DISCOVERED,
-                EventType.MAPCIDR_SCAN_REQUESTED,
-            },
-            event_out={
-                EventType.IPS_EXPANDED: "ips",
-            },
-            runner_type=MapCIDRExpandRunner,
-            processor_type=MapCIDRBatchProcessor,
-            ingestor_type=None,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
-        )
-        registry.register(mapcidr_expand_node)
-
-        tlsx_default_node = NodeFactory.create_scan_node(
-            node_id="tlsx_default",
-            event_in={
-                EventType.IPS_EXPANDED,
-                EventType.TLSX_SCAN_REQUESTED,
-            },
-            event_out={
-                EventType.RAW_DOMAINS_DISCOVERED: "raw_domains",
-            },
-            runner_type=TLSxDefaultRunner,
-            processor_type=TLSxBatchProcessor,
-            ingestor_type=TLSxResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
-            scope_policy=ScopePolicy.STRICT
-        )
-        registry.register(tlsx_default_node)
-
-        dnsx_node = NodeFactory.create_scan_node(
-            node_id="dnsx",
-            event_in={
-                EventType.RAW_DOMAINS_DISCOVERED,
-                EventType.DNSX_SCAN_REQUESTED,
-            },
-            event_out={
-                EventType.IPS_EXPANDED: "ips",
-                EventType.SUBDOMAIN_DISCOVERED: "hostnames",
-            },
-            runner_type=DNSxDeepRunner,
-            processor_type=DNSxBatchProcessor,
-            ingestor_type=DNSxResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
-            scope_policy=ScopePolicy.NONE
-        )
-        registry.register(dnsx_node)
-
-        dnsx_ptr_node = NodeFactory.create_scan_node(
-            node_id="dnsx_ptr",
-            event_in={
-                EventType.DNSX_PTR_SCAN_REQUESTED,
-            },
-            event_out={},
-            runner_type=DNSxPtrRunner,
-            processor_type=DNSxBatchProcessor,
-            ingestor_type=DNSxResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
-        )
-        registry.register(dnsx_ptr_node)
-
-        smap_node = NodeFactory.create_scan_node(
-            node_id="smap",
-            event_in={
-                EventType.SMAP_SCAN_REQUESTED,
-                EventType.CIDR_DISCOVERED,
-            },
-            event_out={
-                EventType.IPS_EXPANDED: "ips",
-                EventType.RAW_DOMAINS_DISCOVERED: "raw_domains",
-            },
-            runner_type=SmapCliRunner,
-            processor_type=SmapBatchProcessor,
-            ingestor_type=SmapResultIngestor,
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT
-        )
-        registry.register(smap_node)
-
-        hakip2host_node = Hakip2HostNode(
-            node_id="hakip2host",
-            event_in={
-                EventType.HAKIP2HOST_SCAN_REQUESTED,
-                EventType.IPS_EXPANDED,
-            },
-            max_parallelism=settings.ORCHESTRATOR_MAX_CONCURRENT,
-            scope_policy=ScopePolicy.CONFIDENCE
-        )
-        registry.register(hakip2host_node)
+        if settings.USE_NODE_PIPELINE:
+            register_yaml_nodes(registry, settings, settings.PIPELINE_CONFIG_PATH)
 
         return registry

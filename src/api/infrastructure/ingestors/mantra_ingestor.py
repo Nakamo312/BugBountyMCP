@@ -35,7 +35,13 @@ class MantraResultIngestor(BaseResultIngestor):
         self._ingested = 0
         self._skipped = 0
 
-        await super().ingest(program_id, results)
+        try:
+            async with self.uow as uow:
+                await self._process_batch(uow, program_id, results)
+                await uow.commit()
+        except Exception:
+            await self.uow.rollback()
+            raise
 
         logger.info(
             f"Mantra ingestion completed: program={program_id} "
@@ -63,7 +69,7 @@ class MantraResultIngestor(BaseResultIngestor):
             )
             self._ingested += 1
 
-    async def _find_endpoint_by_url(self, uow, program_id: UUID, url: str) -> UUID | None:
+    async def _find_endpoint_by_url(self, *args) -> UUID | None:
         """
         Find endpoint ID by URL.
 
@@ -74,6 +80,16 @@ class MantraResultIngestor(BaseResultIngestor):
         Returns:
             endpoint_id or None if not found
         """
+        if len(args) == 2:
+            uow = self.uow
+            program_id, url = args
+        elif len(args) == 3:
+            uow, program_id, url = args
+        else:
+            raise TypeError(
+                "_find_endpoint_by_url expects (program_id, url) or (uow, program_id, url)"
+            )
+
         try:
             parsed = urlparse(url)
             host_name = parsed.hostname

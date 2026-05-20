@@ -4,6 +4,7 @@ import logging
 from typing import Any, Callable, Coroutine, Dict, Set
 import aio_pika
 from api.config import Settings
+from api.application.contracts import EventEnvelope
 from api.infrastructure.events.queue_config import QueueConfig
 
 logger = logging.getLogger(__name__)
@@ -20,11 +21,18 @@ class EventBus:
     - Queues: discovery, enumeration, validation, analysis
     """
 
-    def __init__(self, settings: Settings, connection: aio_pika.RobustConnection | None = None, channel: aio_pika.Channel | None = None):
+    def __init__(
+        self,
+        settings: Settings,
+        connection: aio_pika.RobustConnection | None = None,
+        channel: aio_pika.Channel | None = None,
+        event_recorder: Any | None = None,
+    ):
         self.settings = settings
         self.connection = connection
         self.channel = channel
         self.exchange = None
+        self.event_recorder = event_recorder
         self._declared_queues: Set[str] = set()
 
     async def connect(self):
@@ -60,7 +68,7 @@ class EventBus:
             self._declared_queues.add(queue_name)
             logger.info(f"Declared queue: {queue_name} bound to {binding_pattern}")
 
-    async def publish(self, event: Dict[str, Any]):
+    async def publish(self, event: Dict[str, Any] | EventEnvelope):
         """
         Publish event to topic exchange.
 
@@ -79,17 +87,22 @@ class EventBus:
         if not self.channel or not self.exchange:
             raise RuntimeError("EventBus not connected")
 
-        event_name = event.get("event")
+        envelope = event if isinstance(event, EventEnvelope) else EventEnvelope.from_legacy(event)
+        event_dict = envelope.to_legacy_dict()
+        event_name = envelope.event
         if not event_name:
             raise ValueError("Event missing 'event' field")
 
         routing_key = QueueConfig.get_routing_key(event_name)
-        confidence = event.get("confidence", 0.5)
+        confidence = envelope.confidence
         priority = QueueConfig.confidence_to_priority(confidence)
+
+        if self.event_recorder is not None:
+            await self.event_recorder.record_event(envelope)
 
         await self.exchange.publish(
             aio_pika.Message(
-                body=json.dumps(event).encode(),
+                body=json.dumps(event_dict).encode(),
                 delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
                 priority=priority
             ),
@@ -98,7 +111,7 @@ class EventBus:
 
         logger.info(
             f"Published event: {event_name} "
-            f"(routing_key={routing_key}, priority={priority}, target={event.get('target', 'N/A')})"
+            f"(routing_key={routing_key}, priority={priority}, event_id={envelope.event_id})"
         )
 
     async def subscribe(

@@ -2,13 +2,11 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, Set
+from typing import Dict, Any, Set, Type
 from uuid import UUID
 
 from api.application.pipeline.node import Node
 from api.application.pipeline.context import PipelineContext
-from api.infrastructure.runners.ffuf_cli import FFUFCliRunner
-from api.infrastructure.ingestors.ffuf_ingestor import FFUFResultIngestor
 from api.infrastructure.events.event_types import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
 
@@ -27,18 +25,22 @@ class FFUFNode(Node):
         self,
         node_id: str,
         event_in: Set[EventType],
+        runner_key: Type[Any],
+        ingestor_key: Type[Any],
+        event_out: Set[EventType] | None = None,
         max_parallelism: int = 1,
         max_concurrent_scans: int = 5,
         scope_policy=ScopePolicy.NONE
     ):
-        event_out = set()
         super().__init__(
             node_id=node_id,
             event_in=event_in,
-            event_out=event_out,
+            event_out=event_out or set(),
             max_parallelism=max_parallelism
         )
         self.logger = logging.getLogger(f"node.{node_id}")
+        self.runner_key = runner_key
+        self.ingestor_key = ingestor_key
         self._scan_semaphore = asyncio.Semaphore(max_concurrent_scans)
         self.scope_policy = scope_policy
 
@@ -80,8 +82,8 @@ class FFUFNode(Node):
             f"Starting fuzzing: node={self.node_id} program={program_id} targets={len(targets)}"
         )
 
-        runner = await ctx.get_service(FFUFCliRunner)
-        ingestor = await ctx.get_service(FFUFResultIngestor)
+        runner = await ctx.get_service(self.runner_key)
+        ingestor = await ctx.get_service(self.ingestor_key)
 
         async def fuzz_single_target(target_url: str) -> int:
             """Fuzz a single target and return result count"""

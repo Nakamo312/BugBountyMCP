@@ -3,6 +3,7 @@ from dishka import make_async_container
 
 from api.application.di import (
     DatabaseProvider,
+    OrchestrationProvider,
     ServiceProvider,
     UnitOfWorkProvider,
     CLIRunnerProvider,
@@ -15,6 +16,7 @@ from api.application.di import (
 def create_container(context: dict):
     return make_async_container(
         DatabaseProvider(),
+        OrchestrationProvider(),
         UnitOfWorkProvider(),
         CLIRunnerProvider(),
         BatchProcessorProvider(),

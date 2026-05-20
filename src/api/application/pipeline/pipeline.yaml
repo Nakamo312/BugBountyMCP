@@ -1,0 +1,257 @@
+nodes:
+  httpx:
+    type: scan
+    inputs:
+      - subdomain_discovered
+      - gau_discovered
+      - dnsx_filtered_hosts
+      - httpx_scan_requested
+    outputs:
+      host_discovered: new_hosts
+      js_files_discovered: js_files
+    runner: HTTPXCliRunner
+    processor: HTTPXBatchProcessor
+    ingestor: HTTPXResultIngestor
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: confidence
+
+  katana:
+    type: scan
+    inputs:
+      - katana_scan_requested
+      - host_discovered
+    outputs:
+      js_files_discovered: js_files
+    runner: KatanaCliRunner
+    processor: KatanaBatchProcessor
+    ingestor: KatanaResultIngestor
+    max_parallelism: 2
+    execution_delay: ORCHESTRATOR_SCAN_DELAY
+    scope: confidence
+
+  playwright:
+    type: scan
+    inputs:
+      - playwright_scan_requested
+      - host_discovered
+    outputs:
+      js_files_discovered: js_files
+    runner: PlaywrightCliRunner
+    processor: PlaywrightBatchProcessor
+    ingestor: KatanaResultIngestor
+    max_parallelism: 1
+    execution_delay: ORCHESTRATOR_SCAN_DELAY
+    scope: strict
+
+  linkfinder:
+    type: scan
+    inputs:
+      - linkfinder_scan_requested
+      - js_files_discovered
+    outputs:
+      gau_discovered: urls
+    runner: LinkFinderCliRunner
+    processor: LinkFinderBatchProcessor
+    ingestor: LinkFinderResultIngestor
+    max_parallelism: 3
+    scope: confidence
+
+  mantra:
+    type: scan
+    inputs:
+      - mantra_scan_requested
+      - js_files_discovered
+    outputs: {}
+    runner: MantraCliRunner
+    processor: MantraBatchProcessor
+    ingestor: MantraResultIngestor
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: confidence
+
+  subfinder:
+    type: scan
+    inputs:
+      - subfinder_scan_requested
+    outputs:
+      raw_domains_discovered: raw_domains
+    runner: SubfinderCliRunner
+    processor: SubfinderBatchProcessor
+    ingestor: HostIngestor
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: none
+
+  gau:
+    type: scan
+    inputs: []
+    outputs:
+      gau_discovered: urls
+    runner: GAUCliRunner
+    processor: GAUBatchProcessor
+    ingestor:
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: strict
+
+  waymore:
+    type: scan
+    inputs:
+      - gau_scan_requested
+    outputs:
+      gau_discovered: urls
+    runner: WaymoreCliRunner
+    processor: WaymoreBatchProcessor
+    ingestor:
+    max_parallelism: 2
+    scope: strict
+
+  subjack:
+    type: scan
+    inputs:
+      - subjack_scan_requested
+      - subdomain_discovered
+    outputs: {}
+    runner: SubjackCliRunner
+    processor: SubjackBatchProcessor
+    ingestor: SubjackResultIngestor
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: confidence
+
+  ffuf:
+    type: ffuf
+    inputs:
+      - ffuf_scan_requested
+      - host_discovered
+    outputs: {}
+    runner: FFUFCliRunner
+    ingestor: FFUFResultIngestor
+    max_parallelism: 3
+    max_concurrent_scans: 5
+    scope: strict
+
+  amass:
+    type: amass
+    inputs:
+      - amass_scan_requested
+    outputs:
+      subdomain_discovered:
+      ips_expanded:
+      asn_discovered:
+      cidr_discovered:
+    runner: AmassCliRunner
+    ingestor: AmassResultIngestor
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    max_concurrent_scans: 5
+    scope: none
+
+  asnmap:
+    type: scan
+    inputs:
+      - asnmap_scan_requested
+    outputs:
+      asn_discovered: asns
+      cidr_discovered: cidrs
+    runner: ASNMapCliRunner
+    processor: ASNMapBatchProcessor
+    ingestor: ASNMapResultIngestor
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: none
+
+  naabu:
+    type: scan
+    inputs:
+      - naabu_scan_requested
+    outputs: {}
+    runner: NaabuCliRunner
+    processor: NaabuBatchProcessor
+    ingestor: NaabuResultIngestor
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: strict
+
+  mapcidr_expand:
+    type: scan
+    inputs:
+      - cidr_discovered
+      - mapcidr_scan_requested
+    outputs:
+      ips_expanded: ips
+    runner: MapCIDRExpandRunner
+    processor: MapCIDRBatchProcessor
+    ingestor:
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: none
+
+  tlsx_default:
+    type: scan
+    inputs:
+      - ips_expanded
+      - tlsx_scan_requested
+    outputs:
+      raw_domains_discovered: raw_domains
+    runner: TLSxDefaultRunner
+    processor: TLSxBatchProcessor
+    ingestor: TLSxResultIngestor
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: strict
+
+  dnsx_discovered:
+    type: scan
+    inputs:
+      - raw_domains_discovered
+    outputs:
+      ips_expanded: ips
+      subdomain_discovered: hostnames
+    runner: DNSxDeepRunner
+    processor: DNSxBatchProcessor
+    ingestor: DNSxDiscoveryResultIngestor
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: none
+
+  dnsx_validate:
+    type: scan
+    inputs:
+      - dnsx_scan_requested
+    outputs:
+      ips_expanded: ips
+      subdomain_discovered: hostnames
+    runner: DNSxDeepRunner
+    processor: DNSxBatchProcessor
+    ingestor: DNSxResultIngestor
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: strict
+
+  dnsx_ptr:
+    type: scan
+    inputs:
+      - dnsx_ptr_scan_requested
+    outputs: {}
+    runner: DNSxPtrRunner
+    processor: DNSxBatchProcessor
+    ingestor: DNSxResultIngestor
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: none
+
+  smap:
+    type: scan
+    inputs:
+      - smap_scan_requested
+      - cidr_discovered
+    outputs:
+      ips_expanded: ips
+      raw_domains_discovered: raw_domains
+    runner: SmapCliRunner
+    processor: SmapBatchProcessor
+    ingestor: SmapResultIngestor
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: none
+
+  hakip2host:
+    type: hakip2host
+    inputs:
+      - hakip2host_scan_requested
+      - ips_expanded
+    outputs:
+      raw_domains_discovered:
+    runner: Hakip2HostCliRunner
+    processor: Hakip2HostBatchProcessor
+    ingestor: HostIngestor
+    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    scope: confidence

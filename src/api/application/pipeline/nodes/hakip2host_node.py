@@ -1,12 +1,11 @@
 """Hakip2host Node - reverse IP to hostname resolution"""
 
 import logging
-from typing import Dict, Any, Set
+from typing import Dict, Any, Set, Type
 from uuid import UUID
 
 from api.application.pipeline.node import Node
 from api.application.pipeline.context import PipelineContext
-from api.infrastructure.runners.hakip2host_cli import Hakip2HostCliRunner
 from api.application.services.batch_processor import Hakip2HostBatchProcessor
 from api.infrastructure.events.event_types import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
@@ -27,11 +26,15 @@ class Hakip2HostNode(Node):
         self,
         node_id: str,
         event_in: Set[EventType],
+        runner_key: Type[Any],
+        processor_key: Type[Hakip2HostBatchProcessor],
+        host_ingestor_key: Type[Any],
+        event_out: Set[EventType] | None = None,
         max_parallelism: int = 1,
         scope_policy=ScopePolicy.NONE
     ):
-        event_out = {
-            EventType.SUBDOMAIN_DISCOVERED
+        event_out = event_out or {
+            EventType.RAW_DOMAINS_DISCOVERED
         }
         super().__init__(
             node_id=node_id,
@@ -40,6 +43,9 @@ class Hakip2HostNode(Node):
             max_parallelism=max_parallelism
         )
         self.logger = logging.getLogger(f"node.{node_id}")
+        self.runner_key = runner_key
+        self.processor_key = processor_key
+        self.host_ingestor_key = host_ingestor_key
         self.scope_policy = scope_policy
 
     def set_context_factory(self, bus, container, settings):
@@ -80,11 +86,9 @@ class Hakip2HostNode(Node):
             f"Starting reverse resolution: node={self.node_id} program={program_id} ips={len(targets)}"
         )
 
-        runner = await ctx.get_service(Hakip2HostCliRunner)
-        processor = await ctx.get_service(Hakip2HostBatchProcessor)
-
-        from api.infrastructure.ingestors.host_ingestor import HostIngestor
-        host_ingestor = await ctx.get_service(HostIngestor)
+        runner = await ctx.get_service(self.runner_key)
+        processor = await ctx.get_service(self.processor_key)
+        host_ingestor = await ctx.get_service(self.host_ingestor_key)
 
         batch_count = 0
         total_hostnames = 0

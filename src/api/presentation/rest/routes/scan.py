@@ -19,51 +19,62 @@ from api.presentation.schemas import (
     NaabuScanRequest,
     ScanResponse
 )
+from api.application.contracts import ActionStatus
+from api.application.services.action import ActionService
 from api.application.services.mapcidr import MapCIDRService
-from api.infrastructure.events.event_bus import EventBus
 
 router = APIRouter(route_class=DishkaRoute)
 
 
 async def publish_scan_event(
-    event_bus: EventBus,
+    action_service: ActionService,
     *,
     event: str,
     program_id: UUID,
     targets: list[str],
     extra: dict | None = None,
+    profile_id: str | None = None,
 ):
     if not targets:
         raise ValueError("targets list cannot be empty")
 
-    payload = {
-        "event": event,
-        "source": "api",
-        "confidence": 0.5,
-        "program_id": program_id,
-        "targets": targets,
-        "target": targets[0],
-    }
-    if extra:
-        payload.update(extra)
-
-    await event_bus.publish(payload)
+    return await action_service.request_scan(
+        event=event,
+        program_id=UUID(str(program_id)),
+        targets=targets,
+        options=extra or {},
+        requested_by="api",
+        profile_id=profile_id,
+    )
 
 
-async def scan_endpoint(request, event_bus: FromDishka[EventBus], event_name: str, extra: dict | None = None):
+async def scan_endpoint(
+    request,
+    action_service: FromDishka[ActionService],
+    event_name: str,
+    extra: dict | None = None,
+    profile_id: str | None = None,
+):
     try:
-        await publish_scan_event(
-            event_bus,
+        options = dict(extra or {})
+        if hasattr(request, "timeout") and request.timeout is not None:
+            options["timeout"] = request.timeout
+
+        submission = await publish_scan_event(
+            action_service,
             event=event_name,
             program_id=request.program_id,
             targets=request.targets,
-            extra=extra
+            extra=options,
+            profile_id=profile_id,
         )
+        status_code = 403 if submission.status == ActionStatus.BLOCKED else 202
         return JSONResponse(
-            status_code=202,
+            status_code=status_code,
             content={
-                "status": "accepted",
-                "message": f"{event_name.replace('_', ' ').title()} queued for {len(request.targets)} targets",
+                "status": submission.status.value,
+                "message": submission.message,
+                "results": submission.model_dump(mode="json"),
             },
         )
     except ValueError as e:
@@ -77,7 +88,7 @@ async def health_check():
 
 
 @router.post("/scan/subfinder", response_model=ScanResponse, summary="Run Subfinder Scan", description="Starts Subfinder subdomain enumeration. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
-async def scan_subfinder(request: SubfinderScanRequest, event_bus: FromDishka[EventBus]):
+async def scan_subfinder(request: SubfinderScanRequest, action_service: FromDishka[ActionService]):
     """
     Start Subfinder scan to discover subdomains.
 
@@ -87,11 +98,11 @@ async def scan_subfinder(request: SubfinderScanRequest, event_bus: FromDishka[Ev
 
     Returns 202 Accepted immediately. Scan executes asynchronously via SubfinderNode.
     """
-    return await scan_endpoint(request, event_bus, "subfinder_scan_requested")
+    return await scan_endpoint(request, action_service, "subfinder_scan_requested", extra={"probe": request.probe})
 
 
 @router.post("/scan/httpx", summary="Run HTTPX Scan", description="Starts HTTPX probing. Returns 202 Accepted immediately, scan runs asynchronously via node pipeline.", tags=["Scans"], status_code=202)
-async def scan_httpx(request: HTTPXScanRequest, event_bus: FromDishka[EventBus]) -> JSONResponse:
+async def scan_httpx(request: HTTPXScanRequest, action_service: FromDishka[ActionService]) -> JSONResponse:
     """
     Start HTTPX scan asynchronously via node pipeline.
 
@@ -101,11 +112,11 @@ async def scan_httpx(request: HTTPXScanRequest, event_bus: FromDishka[EventBus])
 
     Returns 202 Accepted immediately. Scan executes asynchronously via HTTPXNode.
     """
-    return await scan_endpoint(request, event_bus, "httpx_scan_requested")
+    return await scan_endpoint(request, action_service, "httpx_scan_requested")
 
 
 @router.post("/scan/gau", response_model=ScanResponse, summary="Run GAU Scan", description="Starts GAU URL discovery from web archives. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
-async def scan_gau(request: GAUScanRequest, event_bus: FromDishka[EventBus]):
+async def scan_gau(request: GAUScanRequest, action_service: FromDishka[ActionService]):
     """
     Start GAU (GetAllURLs) scan to discover historical URLs.
 
@@ -117,11 +128,11 @@ async def scan_gau(request: GAUScanRequest, event_bus: FromDishka[EventBus]):
     Returns 202 Accepted immediately. Scan executes asynchronously via GAUNode.
     """
     extra = {"include_subs": request.include_subs}
-    return await scan_endpoint(request, event_bus, "gau_scan_requested", extra=extra)
+    return await scan_endpoint(request, action_service, "gau_scan_requested", extra=extra)
 
 
 @router.post("/scan/waymore", response_model=ScanResponse, summary="Run Waymore Scan", description="Starts Waymore URL discovery from multiple sources (Wayback, URLScan, AlienVault, VirusTotal). Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
-async def scan_waymore(request: SubfinderScanRequest, event_bus: FromDishka[EventBus]):
+async def scan_waymore(request: SubfinderScanRequest, action_service: FromDishka[ActionService]):
     """
     Start Waymore scan to discover historical URLs from multiple sources.
 
@@ -133,11 +144,11 @@ async def scan_waymore(request: SubfinderScanRequest, event_bus: FromDishka[Even
     Returns 202 Accepted immediately. Scan executes asynchronously via WaymoreNode.
     URLs are sent to HTTPX for live probing.
     """
-    return await scan_endpoint(request, event_bus, "subdomain_discovered")
+    return await scan_endpoint(request, action_service, "gau_scan_requested")
 
 
 @router.post("/scan/katana", response_model=ScanResponse, summary="Run Katana Scan", description="Starts Katana web crawling. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
-async def scan_katana(request: KatanaScanRequest, event_bus: FromDishka[EventBus]):
+async def scan_katana(request: KatanaScanRequest, action_service: FromDishka[ActionService]):
     """
     Start Katana crawl to discover URLs via active web crawling.
 
@@ -155,11 +166,11 @@ async def scan_katana(request: KatanaScanRequest, event_bus: FromDishka[EventBus
         "js_crawl": request.js_crawl,
         "headless": request.headless
     }
-    return await scan_endpoint(request, event_bus, "katana_scan_requested", extra=extra)
+    return await scan_endpoint(request, action_service, "katana_scan_requested", extra=extra)
 
 
 @router.post("/scan/playwright", response_model=ScanResponse, summary="Run Playwright Interactive Scan", description="Starts Playwright browser-based crawling with full HTTP network interception. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
-async def scan_playwright(request: KatanaScanRequest, event_bus: FromDishka[EventBus]):
+async def scan_playwright(request: KatanaScanRequest, action_service: FromDishka[ActionService]):
     """
     Start Playwright interactive crawl with headless browser.
 
@@ -174,11 +185,11 @@ async def scan_playwright(request: KatanaScanRequest, event_bus: FromDishka[Even
     Returns 202 Accepted immediately. Scan executes asynchronously via PlaywrightNode.
     """
     extra = {"depth": request.depth}
-    return await scan_endpoint(request, event_bus, "playwright_scan_requested", extra=extra)
+    return await scan_endpoint(request, action_service, "playwright_scan_requested", extra=extra)
 
 
 @router.post("/scan/linkfinder", response_model=ScanResponse, summary="Run LinkFinder Scan", description="Starts LinkFinder JS analysis to discover hidden endpoints. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
-async def scan_linkfinder(request: LinkFinderScanRequest, event_bus: FromDishka[EventBus]):
+async def scan_linkfinder(request: LinkFinderScanRequest, action_service: FromDishka[ActionService]):
     """
     Start LinkFinder scan to extract endpoints from JavaScript files.
 
@@ -188,11 +199,11 @@ async def scan_linkfinder(request: LinkFinderScanRequest, event_bus: FromDishka[
 
     Returns 202 Accepted immediately. Scan executes asynchronously via LinkFinderNode.
     """
-    return await scan_endpoint(request, event_bus, "linkfinder_scan_requested")
+    return await scan_endpoint(request, action_service, "linkfinder_scan_requested")
 
 
 @router.post("/scan/mantra", response_model=ScanResponse, summary="Run Mantra Scan", description="Starts Mantra secret scanning on JavaScript files. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
-async def scan_mantra(request: MantraScanRequest, event_bus: FromDishka[EventBus]):
+async def scan_mantra(request: MantraScanRequest, action_service: FromDishka[ActionService]):
     """
     Start Mantra scan to discover leaked secrets and credentials in JavaScript files.
 
@@ -202,11 +213,11 @@ async def scan_mantra(request: MantraScanRequest, event_bus: FromDishka[EventBus
 
     Returns 202 Accepted immediately. Scan executes asynchronously via MantraNode.
     """
-    return await scan_endpoint(request, event_bus, "mantra_scan_requested")
+    return await scan_endpoint(request, action_service, "mantra_scan_requested")
 
 
 @router.post("/scan/ffuf", response_model=ScanResponse, summary="Run FFUF Scan", description="Starts FFUF directory/file fuzzing. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
-async def scan_ffuf(request: FFUFScanRequest, event_bus: FromDishka[EventBus]):
+async def scan_ffuf(request: FFUFScanRequest, action_service: FromDishka[ActionService]):
     """
     Start FFUF scan to discover hidden directories and files via fuzzing.
 
@@ -216,11 +227,11 @@ async def scan_ffuf(request: FFUFScanRequest, event_bus: FromDishka[EventBus]):
 
     Returns 202 Accepted immediately. Scan executes asynchronously via FFUFNode.
     """
-    return await scan_endpoint(request, event_bus, "ffuf_scan_requested")
+    return await scan_endpoint(request, action_service, "ffuf_scan_requested")
 
 
 @router.post("/scan/amass", response_model=ScanResponse, summary="Run Amass Scan", description="Starts Amass subdomain enumeration. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
-async def scan_amass(request: AmassScanRequest, event_bus: FromDishka[EventBus]):
+async def scan_amass(request: AmassScanRequest, action_service: FromDishka[ActionService]):
     """
     Start Amass subdomain enumeration to discover subdomains and related infrastructure.
 
@@ -235,7 +246,8 @@ async def scan_amass(request: AmassScanRequest, event_bus: FromDishka[EventBus])
         "active": request.active,
         "timeout": request.timeout
     }
-    return await scan_endpoint(request, event_bus, "amass_scan_requested", extra=extra)
+    profile_id = "active-enum" if request.active else "passive-enum"
+    return await scan_endpoint(request, action_service, "amass_scan_requested", extra=extra, profile_id=profile_id)
 
 DNSX_EVENT_MAP = {
     "default": "dnsx_scan_requested",
@@ -243,7 +255,7 @@ DNSX_EVENT_MAP = {
 }
 
 @router.post("/scan/dnsx", response_model=ScanResponse, summary="Run DNSx Scan", description="Starts DNSx DNS enumeration (default or ptr mode). Returns immediately.", tags=["Scans"], status_code=202)
-async def scan_dnsx(request: DNSxScanRequest, event_bus: FromDishka[EventBus]):
+async def scan_dnsx(request: DNSxScanRequest, action_service: FromDishka[ActionService]):
     """
     Start DNSx scan to enumerate DNS records for hosts or reverse lookup for IPs.
 
@@ -257,11 +269,11 @@ async def scan_dnsx(request: DNSxScanRequest, event_bus: FromDishka[EventBus]):
     event_name = DNSX_EVENT_MAP.get(request.mode)
     if not event_name:
         raise HTTPException(status_code=400, detail=f"Invalid DNSx mode: {request.mode}")
-    return await scan_endpoint(request, event_bus, event_name, extra={"mode": request.mode})
+    return await scan_endpoint(request, action_service, event_name, extra={"mode": request.mode})
 
 
 @router.post("/scan/subjack", response_model=ScanResponse, summary="Run Subjack Scan", description="Starts Subjack subdomain takeover detection. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
-async def scan_subjack(request: SubjackScanRequest, event_bus: FromDishka[EventBus]):
+async def scan_subjack(request: SubjackScanRequest, action_service: FromDishka[ActionService]):
     """
     Start Subjack scan to detect subdomain takeover vulnerabilities.
 
@@ -271,11 +283,11 @@ async def scan_subjack(request: SubjackScanRequest, event_bus: FromDishka[EventB
 
     Returns 202 Accepted immediately. Scan executes asynchronously via SubjackNode.
     """
-    return await scan_endpoint(request, event_bus, "subjack_scan_requested")
+    return await scan_endpoint(request, action_service, "subjack_scan_requested")
 
 
 @router.post("/scan/asnmap", response_model=ScanResponse, summary="Run ASNMap Scan", description="Starts ASNMap ASN/CIDR enumeration. Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
-async def scan_asnmap(request: ASNMapScanRequest, event_bus: FromDishka[EventBus]):
+async def scan_asnmap(request: ASNMapScanRequest, action_service: FromDishka[ActionService]):
     """
     Start ASNMap scan to enumerate ASN and CIDR ranges.
 
@@ -286,11 +298,11 @@ async def scan_asnmap(request: ASNMapScanRequest, event_bus: FromDishka[EventBus
 
     Returns 202 Accepted immediately. Scan executes asynchronously via ASNMapNode.
     """
-    return await scan_endpoint(request, event_bus, "asnmap_scan_requested", extra={"mode": request.mode})
+    return await scan_endpoint(request, action_service, "asnmap_scan_requested", extra={"mode": request.mode})
 
 
 @router.post("/scan/mapcidr", response_model=ScanResponse, summary="Run MapCIDR Operation", description="Performs CIDR operations (expand, slice, aggregate). Returns immediately.", tags=["Scans"], status_code=202)
-async def scan_mapcidr(request: MapCIDRScanRequest, event_bus: FromDishka[EventBus]):
+async def scan_mapcidr(request: MapCIDRScanRequest, action_service: FromDishka[ActionService]):
     """
     Perform MapCIDR operations on CIDR blocks.
 
@@ -308,8 +320,8 @@ async def scan_mapcidr(request: MapCIDRScanRequest, event_bus: FromDishka[EventB
         raise HTTPException(status_code=400, detail="Only 'expand' operation is supported")
 
     try:
-        await publish_scan_event(
-            event_bus,
+        submission = await publish_scan_event(
+            action_service,
             event="mapcidr_scan_requested",
             program_id=request.program_id,
             targets=request.cidrs,
@@ -319,11 +331,13 @@ async def scan_mapcidr(request: MapCIDRScanRequest, event_bus: FromDishka[EventB
                 "shuffle": request.shuffle
             }
         )
+        status_code = 403 if submission.status == ActionStatus.BLOCKED else 202
         return JSONResponse(
-            status_code=202,
+            status_code=status_code,
             content={
-                "status": "accepted",
-                "message": f"MapCIDR expand queued for {len(request.cidrs)} CIDRs",
+                "status": submission.status.value,
+                "message": submission.message,
+                "results": submission.model_dump(mode="json"),
             },
         )
     except ValueError as e:
@@ -358,24 +372,26 @@ async def scan_mapcidr_legacy(request: MapCIDRScanRequest, mapcidr_service: From
         raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
 
 
-@router.post("/scan/naabu", response_model=ScanResponse, summary="Run Naabu Port Scan", description="Starts Naabu port scanning (active, passive, or nmap mode). Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
-async def scan_naabu(request: NaabuScanRequest, event_bus: FromDishka[EventBus]):
+@router.post("/scan/naabu", response_model=ScanResponse, summary="Run Naabu Port Scan", description="Starts Naabu port scanning (active or passive mode). Returns immediately, scan runs in background.", tags=["Scans"], status_code=202)
+async def scan_naabu(request: NaabuScanRequest, action_service: FromDishka[ActionService]):
     """
     Start Naabu port scan to discover open ports and services.
 
     - **program_id**: Program UUID
     - **targets**: List of hosts/IPs to scan
-    - **scan_mode**: 'active', 'passive', or 'nmap'
+    - **scan_mode**: 'active' or 'passive'
     - **ports**: Port specification or None
     - **top_ports**: Top ports preset
     - **rate**: Packets per second
     - **scan_type**: "s" (SYN) or "c" (CONNECT)
     - **exclude_cdn**: Skip full port scans for CDN/WAF
-    - **nmap_cli**: Nmap command (nmap mode only)
     - **timeout**: Scan timeout in seconds
 
     Returns 202 Accepted immediately. Scan executes asynchronously via NaabuNode.
     """
+    if request.scan_mode not in {"active", "passive"}:
+        raise HTTPException(status_code=400, detail="scan_mode must be active or passive")
+
     extra = {
         "scan_mode": request.scan_mode,
         "ports": request.ports,
@@ -383,6 +399,6 @@ async def scan_naabu(request: NaabuScanRequest, event_bus: FromDishka[EventBus])
         "rate": request.rate,
         "scan_type": request.scan_type,
         "exclude_cdn": request.exclude_cdn,
-        "nmap_cli": request.nmap_cli,
     }
-    return await scan_endpoint(request, event_bus, "naabu_scan_requested", extra=extra)
+    profile_id = "passive-ports" if request.scan_mode == "passive" else "connect-top-100"
+    return await scan_endpoint(request, action_service, "naabu_scan_requested", extra=extra, profile_id=profile_id)

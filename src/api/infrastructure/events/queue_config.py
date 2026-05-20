@@ -33,6 +33,8 @@ class QueueConfig:
 
     EVENT_TO_QUEUE: Dict[str, str] = {
         "subfinder_scan_requested": DISCOVERY_QUEUE,
+        "amass_scan_requested": DISCOVERY_QUEUE,
+        "raw_domains_discovered": VALIDATION_QUEUE,
         "subdomain_discovered": DISCOVERY_QUEUE,
         "asnmap_scan_requested": DISCOVERY_QUEUE,
         "asn_discovered": DISCOVERY_QUEUE,
@@ -44,6 +46,7 @@ class QueueConfig:
         "ips_aggregated": ENUMERATION_QUEUE,
         "hakip2host_scan_requested": ENUMERATION_QUEUE,
 
+        "dnsx_scan_requested": VALIDATION_QUEUE,
         "dnsx_basic_scan_requested": VALIDATION_QUEUE,
         "dnsx_deep_scan_requested": VALIDATION_QUEUE,
         "dnsx_ptr_scan_requested": VALIDATION_QUEUE,

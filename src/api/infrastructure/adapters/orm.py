@@ -1,8 +1,8 @@
 """SQLAlchemy Core tables mapped from domain entities (imperative style)"""
 import uuid
 
-from sqlalchemy import (Boolean, CheckConstraint, Column, DateTime, ForeignKey,
-                        Index, Integer, MetaData, String, Table, Text,
+from sqlalchemy import (Boolean, CheckConstraint, Column, DateTime, Float,
+                        ForeignKey, Index, Integer, MetaData, String, Table, Text, func,
                         UniqueConstraint)
 from sqlalchemy.dialects.postgresql import ARRAY, JSON
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -228,6 +228,102 @@ scanner_executions = Table(
         "status IN ('pending', 'running', 'completed', 'failed', 'cancelled')",
         name='ck_scanner_executions_status_valid'
     ),
+)
+
+# ==================== ORCHESTRATION TABLES ====================
+
+action_requests = Table(
+    'action_requests',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('kind', String(50), nullable=False),
+    Column('capability_id', String(100), nullable=False, index=True),
+    Column('profile_id', String(100), nullable=False, index=True),
+    Column('requested_by', String(100), nullable=False),
+    Column('status', String(30), nullable=False, index=True),
+    Column('request', JSONType(), nullable=False, default=dict),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index('idx_action_requests_program_status', 'program_id', 'status'),
+    CheckConstraint(
+        "status IN ('allowed', 'blocked', 'requires_approval', 'queued')",
+        name='ck_action_requests_status_valid'
+    ),
+)
+
+policy_decisions = Table(
+    'policy_decisions',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('action_id', UUID(), ForeignKey('action_requests.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('status', String(30), nullable=False, index=True),
+    Column('reasons', JSONType(), nullable=False, default=list),
+    Column('allowed_targets', JSONType(), nullable=False, default=list),
+    Column('blocked_targets', JSONType(), nullable=False, default=list),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint(
+        "status IN ('allowed', 'blocked', 'requires_approval')",
+        name='ck_policy_decisions_status_valid'
+    ),
+)
+
+jobs = Table(
+    'jobs',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('action_id', UUID(), ForeignKey('action_requests.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('capability_id', String(100), nullable=False, index=True),
+    Column('profile_id', String(100), nullable=False, index=True),
+    Column('status', String(30), nullable=False, index=True),
+    Column('correlation_id', UUID(), nullable=False, index=True),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index('idx_jobs_program_status', 'program_id', 'status'),
+    CheckConstraint(
+        "status IN ('queued', 'running', 'completed', 'failed', 'cancelled')",
+        name='ck_jobs_status_valid'
+    ),
+)
+
+runs = Table(
+    'runs',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('job_id', UUID(), ForeignKey('jobs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('status', String(30), nullable=False, index=True),
+    Column('attempt', Integer, nullable=False, default=1),
+    Column('started_at', DateTime(timezone=True), nullable=True),
+    Column('finished_at', DateTime(timezone=True), nullable=True),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index('idx_runs_program_status', 'program_id', 'status'),
+    CheckConstraint("attempt > 0", name='ck_runs_attempt_positive'),
+    CheckConstraint(
+        "status IN ('queued', 'running', 'completed', 'failed', 'cancelled')",
+        name='ck_runs_status_valid'
+    ),
+)
+
+event_store = Table(
+    'event_store',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('event_id', UUID(), nullable=False, unique=True, index=True),
+    Column('event_type', String(150), nullable=False, index=True),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('job_id', UUID(), nullable=True, index=True),
+    Column('run_id', UUID(), nullable=True, index=True),
+    Column('correlation_id', UUID(), nullable=False, index=True),
+    Column('causation_id', UUID(), nullable=True, index=True),
+    Column('source', String(100), nullable=False),
+    Column('profile', String(100), nullable=True),
+    Column('confidence', Float, nullable=False),
+    Column('payload', JSONType(), nullable=False, default=dict),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index('idx_event_store_program_type_created', 'program_id', 'event_type', 'created_at'),
 )
 
 payloads = Table(
