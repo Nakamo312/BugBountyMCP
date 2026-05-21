@@ -219,3 +219,4 @@ katana_config/katana/
 postgres_data/
 katana_config/
 *.swp
+data/raw_outputs/

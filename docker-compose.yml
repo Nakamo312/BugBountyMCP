@@ -79,9 +79,11 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       TOOLS_PATH_PREFIX: ${TOOLS_PATH_PREFIX}
       PDCP_API_KEY: ${PDCP_API_KEY}
+      RAW_OUTPUT_DIR: /app/data/raw_outputs
     ports:
       - "${API_PORT}:8000"
     volumes:
+      - ./data/raw_outputs:/app/data/raw_outputs
       - ${HOST_GO_BIN:-/usr/go/bin/bin/}:/host_root/go_bin:ro
       - ${HOST_USR_BIN:-/usr/bin}:/host_root/usr_bin:ro
       - ${HOST_USR_LOCAL_BIN:-/usr/local/bin}:/host_root/usr_local_bin:ro
