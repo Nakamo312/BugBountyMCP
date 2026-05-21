@@ -30,6 +30,10 @@ def register_yaml_nodes(
 def validate_component_refs(workers: dict[str, PipelineNodeSpec]) -> None:
     for node_id, spec in workers.items():
         resolve_component(RUNNERS, spec.runner, "runner", node_id)
+        if spec.type in {"scan", "ffuf", "amass", "hakip2host"} and spec.runner is not None and spec.parser is None:
+            raise ValueError(f"{spec.type} node '{node_id}' must define an explicit parser")
+        if spec.type in {"ffuf", "amass", "hakip2host"} and spec.processor is None:
+            raise ValueError(f"{spec.type} node '{node_id}' must define an explicit processor")
         if spec.parser is not None:
             resolve_component(PARSERS, spec.parser, "parser", node_id)
         if spec.processor is not None:
@@ -64,6 +68,8 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
             event_in=event_in,
             event_out=event_out,
             runner_key=resolve_component(RUNNERS, spec.runner, "runner", node_id),
+            parser_key=resolve_component(PARSERS, spec.parser, "parser", node_id),
+            processor_key=resolve_component(PROCESSORS, spec.processor, "processor", node_id),
             ingestor_key=resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id),
             max_parallelism=max_parallelism,
             max_concurrent_scans=_resolve_int(
@@ -82,6 +88,7 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
             event_out=event_out,
             runner_key=resolve_component(RUNNERS, spec.runner, "runner", node_id),
             parser_key=resolve_component(PARSERS, spec.parser, "parser", node_id),
+            processor_key=resolve_component(PROCESSORS, spec.processor, "processor", node_id),
             ingestor_key=resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id),
             max_parallelism=max_parallelism,
             max_concurrent_scans=_resolve_int(
@@ -99,6 +106,7 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
             event_in=event_in,
             event_out=event_out,
             runner_key=resolve_component(RUNNERS, spec.runner, "runner", node_id),
+            parser_key=resolve_component(PARSERS, spec.parser, "parser", node_id),
             processor_key=resolve_component(PROCESSORS, spec.processor, "processor", node_id),
             host_ingestor_key=resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id),
             max_parallelism=max_parallelism,

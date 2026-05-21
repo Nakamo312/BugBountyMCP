@@ -344,18 +344,6 @@ workers:
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
     scope: none
 
-  gau:
-    type: scan
-    inputs: []
-    outputs:
-      gau_discovered: urls
-    runner: GAUCliRunner
-    parser: GAUStdoutParser
-    processor: GAUBatchProcessor
-    ingestor:
-    max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
-    scope: strict
-
   waymore:
     type: scan
     inputs:
@@ -389,6 +377,8 @@ workers:
       - host_discovered
     outputs: {}
     runner: FFUFCliRunner
+    parser: FFUFStdoutParser
+    processor: FFUFBatchProcessor
     ingestor: FFUFResultIngestor
     max_parallelism: 3
     max_concurrent_scans: 5
@@ -405,6 +395,7 @@ workers:
       cidr_discovered:
     runner: AmassCliRunner
     parser: AmassGraphParser
+    processor: AmassBatchProcessor
     ingestor: AmassResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
     max_concurrent_scans: 5
@@ -527,6 +518,7 @@ workers:
     outputs:
       raw_domains_discovered:
     runner: Hakip2HostCliRunner
+    parser: Hakip2HostStdoutParser
     processor: Hakip2HostBatchProcessor
     ingestor: HostIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT

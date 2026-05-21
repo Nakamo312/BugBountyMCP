@@ -14,9 +14,10 @@ from api.application.services.host import HostService
 from api.application.services.analysis import AnalysisService
 from api.application.services.infrastructure import InfrastructureService
 from api.application.services.batch_processor import (
+    AmassBatchProcessor,
+    FFUFBatchProcessor,
     HTTPXBatchProcessor,
     SubfinderBatchProcessor,
-    GAUBatchProcessor,
     WaymoreBatchProcessor,
     KatanaBatchProcessor,
     DNSxBatchProcessor,
@@ -52,7 +53,6 @@ from api.infrastructure.ingestors.smap_ingestor import SmapResultIngestor
 from api.infrastructure.ingestors.host_ingestor import HostIngestor
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.subfinder_cli import SubfinderCliRunner
-from api.infrastructure.runners.gau_cli import GAUCliRunner
 from api.infrastructure.runners.waymore_cli import WaymoreCliRunner
 from api.infrastructure.runners.katana_cli import KatanaCliRunner
 from api.infrastructure.runners.linkfinder_cli import LinkFinderCliRunner
@@ -182,13 +182,6 @@ class CLIRunnerProvider(Provider):
     def get_subfinder_runner(self, settings: Settings) -> SubfinderCliRunner:
         return SubfinderCliRunner(
             subfinder_path=settings.get_tool_path("subfinder"),
-            timeout=600,
-        )
-
-    @provide(scope=Scope.APP)
-    def get_gau_runner(self, settings: Settings) -> GAUCliRunner:
-        return GAUCliRunner(
-            gau_path=settings.get_tool_path("gau"),
             timeout=600,
         )
 
@@ -337,10 +330,6 @@ class BatchProcessorProvider(Provider):
         return SubfinderBatchProcessor(settings)
 
     @provide(scope=Scope.APP)
-    def get_gau_processor(self, settings: Settings) -> GAUBatchProcessor:
-        return GAUBatchProcessor(settings)
-
-    @provide(scope=Scope.APP)
     def get_waymore_processor(self, settings: Settings) -> WaymoreBatchProcessor:
         return WaymoreBatchProcessor(settings)
 
@@ -359,6 +348,14 @@ class BatchProcessorProvider(Provider):
     @provide(scope=Scope.APP)
     def get_asnmap_processor(self, settings: Settings) -> ASNMapBatchProcessor:
         return ASNMapBatchProcessor(settings)
+
+    @provide(scope=Scope.APP)
+    def get_amass_processor(self, settings: Settings) -> AmassBatchProcessor:
+        return AmassBatchProcessor(settings)
+
+    @provide(scope=Scope.APP)
+    def get_ffuf_processor(self, settings: Settings) -> FFUFBatchProcessor:
+        return FFUFBatchProcessor(settings)
 
     @provide(scope=Scope.APP)
     def get_naabu_processor(self, settings: Settings) -> NaabuBatchProcessor:
@@ -478,10 +475,10 @@ class IngestorProvider(Provider):
     @provide(scope=Scope.REQUEST)
     def get_tlsx_ingestor(
         self,
-        program_uow: ProgramUnitOfWork,
+        dnsx_uow: SQLAlchemyDNSxUnitOfWork,
         settings: Settings
     ) -> TLSxResultIngestor:
-        return TLSxResultIngestor(uow=program_uow, settings=settings)
+        return TLSxResultIngestor(uow=dnsx_uow, settings=settings)
 
     @provide(scope=Scope.REQUEST)
     def get_amass_ingestor(

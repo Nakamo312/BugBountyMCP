@@ -118,6 +118,23 @@ class LinkFinderBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
         return None
 
 
+class AmassBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
+    """Batch processor for Amass graph fact records"""
+
+    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
+        return {
+            "min": settings.AMASS_BATCH_MIN_SIZE,
+            "max": settings.AMASS_BATCH_MAX_SIZE,
+            "timeout": settings.AMASS_BATCH_TIMEOUT,
+        }
+
+    def _extract_item(self, event) -> Dict[str, Any] | None:
+        """Extract normalized Amass fact record from event"""
+        if event.type == "result" and event.payload:
+            return event.payload
+        return None
+
+
 class MapCIDRBatchProcessor(BaseBatchProcessor[str]):
     """Batch processor for MapCIDR results"""
 
@@ -167,56 +184,6 @@ class SubfinderBatchProcessor(BaseBatchProcessor[str]):
         if event.type == "subdomain" and event.payload:
             return event.payload
         return None
-
-
-class GAUBatchProcessor(BaseBatchProcessor[str]):
-    """Batch processor for GAU URLs with deduplication"""
-
-    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
-        return {
-            'min': settings.GAU_BATCH_MIN,
-            'max': settings.GAU_BATCH_MAX,
-            'timeout': settings.GAU_BATCH_TIMEOUT
-        }
-
-    async def batch_stream(self, stream: AsyncIterator) -> AsyncIterator[List[str]]:
-        """Collect URLs with per-scan deduplication"""
-        batch: List[str] = []
-        last_batch_time = asyncio.get_event_loop().time()
-        seen_urls: Set[str] = set()
-
-        async for event in stream:
-            item = self._extract_item(event, seen_urls)
-            if item is None:
-                continue
-
-            batch.append(item)
-            current_time = asyncio.get_event_loop().time()
-            time_elapsed = current_time - last_batch_time
-
-            if len(batch) >= self.batch_size_max:
-                yield batch
-                batch = []
-                last_batch_time = current_time
-            elif len(batch) >= self.batch_size_min and time_elapsed >= self.batch_timeout:
-                yield batch
-                batch = []
-                last_batch_time = current_time
-
-        if batch:
-            yield batch
-
-    def _extract_item(self, event, seen_urls: Set[str]) -> str | None:
-        """Extract URL from event with deduplication"""
-        if event.type != "result":
-            return None
-
-        url = event.payload
-        if url in seen_urls:
-            return None
-
-        seen_urls.add(url)
-        return url
 
 
 class KatanaBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):

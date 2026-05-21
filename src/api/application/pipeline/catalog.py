@@ -4,9 +4,10 @@ from __future__ import annotations
 from typing import Any
 
 from api.application.services.batch_processor import (
+    AmassBatchProcessor,
     ASNMapBatchProcessor,
     DNSxBatchProcessor,
-    GAUBatchProcessor,
+    FFUFBatchProcessor,
     HTTPXBatchProcessor,
     Hakip2HostBatchProcessor,
     KatanaBatchProcessor,
@@ -37,7 +38,8 @@ from api.infrastructure.ingestors.tlsx_ingestor import TLSxResultIngestor
 from api.infrastructure.parsers.amass_parser import AmassGraphParser
 from api.infrastructure.parsers.httpx_parser import HTTPXProcessEventParser
 from api.infrastructure.parsers.line_process_event_parsers import (
-    GAUStdoutParser,
+    FFUFStdoutParser,
+    Hakip2HostStdoutParser,
     LinkFinderStdoutParser,
     MantraStdoutParser,
     StdoutLineResultParser,
@@ -53,7 +55,6 @@ from api.infrastructure.runners.amass_cli import AmassCliRunner
 from api.infrastructure.runners.asnmap_cli import ASNMapCliRunner
 from api.infrastructure.runners.dnsx_runners import DNSxDeepRunner, DNSxPtrRunner
 from api.infrastructure.runners.ffuf_cli import FFUFCliRunner
-from api.infrastructure.runners.gau_cli import GAUCliRunner
 from api.infrastructure.runners.hakip2host_cli import Hakip2HostCliRunner
 from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
 from api.infrastructure.runners.katana_cli import KatanaCliRunner
@@ -77,7 +78,6 @@ RUNNERS: dict[str, type[Any]] = {
         DNSxDeepRunner,
         DNSxPtrRunner,
         FFUFCliRunner,
-        GAUCliRunner,
         Hakip2HostCliRunner,
         HTTPXCliRunner,
         KatanaCliRunner,
@@ -98,8 +98,9 @@ PROCESSORS: dict[str, type[Any]] = {
     cls.__name__: cls
     for cls in (
         ASNMapBatchProcessor,
+        AmassBatchProcessor,
         DNSxBatchProcessor,
-        GAUBatchProcessor,
+        FFUFBatchProcessor,
         HTTPXBatchProcessor,
         Hakip2HostBatchProcessor,
         KatanaBatchProcessor,
@@ -120,7 +121,8 @@ PARSERS: dict[str, type[Any]] = {
     cls.__name__: cls
     for cls in (
         AmassGraphParser,
-        GAUStdoutParser,
+        FFUFStdoutParser,
+        Hakip2HostStdoutParser,
         HTTPXProcessEventParser,
         JSONStdoutItemsProcessEventParser,
         JSONStdoutProcessEventParser,

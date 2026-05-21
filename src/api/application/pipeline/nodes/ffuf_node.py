@@ -9,7 +9,6 @@ from api.application.pipeline.node import Node
 from api.application.pipeline.context import PipelineContext
 from api.infrastructure.events.event_types import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
-from api.infrastructure.parsers.line_process_event_parsers import FFUFStdoutParser
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +26,8 @@ class FFUFNode(Node):
         node_id: str,
         event_in: Set[EventType],
         runner_key: Type[Any],
+        parser_key: Type[Any],
+        processor_key: Type[Any],
         ingestor_key: Type[Any],
         event_out: Set[EventType] | None = None,
         max_parallelism: int = 1,
@@ -41,6 +42,8 @@ class FFUFNode(Node):
         )
         self.logger = logging.getLogger(f"node.{node_id}")
         self.runner_key = runner_key
+        self.parser_key = parser_key
+        self.processor_key = processor_key
         self.ingestor_key = ingestor_key
         self._scan_semaphore = asyncio.Semaphore(max_concurrent_scans)
         self.scope_policy = scope_policy
@@ -86,7 +89,9 @@ class FFUFNode(Node):
         )
 
         runner = await ctx.get_service(self.runner_key)
+        processor = await ctx.get_service(self.processor_key)
         ingestor = await ctx.get_service(self.ingestor_key)
+        parser = self.parser_key()
 
         async def fuzz_single_target(target_url: str) -> int:
             """Fuzz a single target and return result count"""
@@ -97,7 +102,6 @@ class FFUFNode(Node):
             async with self._scan_semaphore:
                 self.logger.info(f"Fuzzing target: {target_url}")
 
-                results = []
                 stream = runner.run_raw(target_url)
                 if isinstance(ctx, PipelineContext):
                     stream = ctx.capture_raw_stream(
@@ -109,17 +113,18 @@ class FFUFNode(Node):
                         run_id=run_id,
                         metadata={"runner": self.runner_key.__name__},
                     )
-                stream = FFUFStdoutParser().parse_stream(stream)
+                stream = parser.parse_stream(stream)
 
-                async for event in stream:
-                    if event.type == "result" and event.payload:
-                        results.append(event.payload)
+                result_count = 0
+                async for batch in processor.batch_stream(stream):
+                    if not batch:
+                        continue
+                    await ingestor.ingest(program_id, batch)
+                    result_count += len(batch)
 
-                if results:
-                    await ingestor.ingest(program_id, results)
-                    self.logger.info(f"Ingested {len(results)} results for {target_url}")
-                    return len(results)
-                return 0
+                if result_count:
+                    self.logger.info(f"Ingested {result_count} results for {target_url}")
+                return result_count
 
         try:
             result_counts = await asyncio.gather(

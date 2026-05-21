@@ -23,15 +23,3 @@ class MapCIDRExpandRunner:
         parser = StdoutLineResultParser()
         async for event in parser.parse_stream(self.run_raw(targets)):
             yield event
-
-
-class MapCIDRAggregateRunner:
-    """Wrapper for MapCIDR aggregate operation"""
-
-    def __init__(self, mapcidr_runner: MapCIDRCliRunner):
-        self.mapcidr_runner = mapcidr_runner
-
-    async def run(self, targets: List[str]) -> AsyncIterator[ProcessEvent]:
-        """Aggregate IPs to CIDRs"""
-        async for event in self.mapcidr_runner.aggregate(targets):
-            yield event

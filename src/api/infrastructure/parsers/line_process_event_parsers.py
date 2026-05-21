@@ -62,37 +62,6 @@ class URLStdoutLineResultParser:
                     yield ProcessEvent(type="result", payload=value)
 
 
-class GAUStdoutParser:
-    """Parse GAU stdout into URL result events."""
-
-    _static_patterns = (
-        ".css", ".js", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".ico",
-        ".woff", ".woff2", ".ttf", ".eot", ".otf",
-        ".mp4", ".mp3", ".avi", ".webm", ".flv", ".wav",
-        ".pdf", ".zip", ".tar", ".gz", ".rar", ".7z",
-        ".exe", ".dll", ".bin", ".dmg", ".iso",
-    )
-    _noise_keywords = ("error", "failed", "no such file", "usage:", "flag")
-
-    async def parse_stream(self, stream: AsyncIterator[ProcessEvent]) -> AsyncIterator[ProcessEvent]:
-        async for event in stream:
-            if event.type != "stdout" or not event.payload:
-                continue
-            value = _string_value(event.payload, ("url", "href", "endpoint", "input"))
-            if self._is_valid_url(value):
-                yield ProcessEvent(type="result", payload=value)
-
-    def _is_valid_url(self, value: str | None) -> bool:
-        if not value or len(value) > 2048:
-            return False
-        lower_value = value.lower()
-        if any(keyword in lower_value for keyword in self._noise_keywords):
-            return False
-        if not value.startswith(("http://", "https://")):
-            return False
-        return not any(pattern in lower_value for pattern in self._static_patterns)
-
-
 class SubfinderStdoutParser:
     """Parse Subfinder JSON/text stdout into subdomain events."""
 

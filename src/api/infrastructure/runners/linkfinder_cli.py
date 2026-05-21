@@ -1,6 +1,7 @@
 import logging
 from typing import AsyncIterator, List
 from urllib.parse import urlparse
+
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.parsers.line_process_event_parsers import LinkFinderStdoutParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
@@ -50,32 +51,3 @@ class LinkFinderCliRunner:
         parser = LinkFinderStdoutParser()
         async for event in parser.parse_stream(self.run_raw(js_urls)):
             yield event
-
-    def _normalize_url(self, url: str, host: str) -> str:
-        if url.startswith("//"):
-            return f"https:{url}"
-
-        if url.startswith("/"):
-            return f"https://{host}{url}"
-
-        if url.startswith("http://") or url.startswith("https://"):
-            return url
-
-        return None
-
-    def _is_valid_url(self, url: str) -> bool:
-        if not url or not url.startswith("http"):
-            return False
-
-        static_extensions = [
-            '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg',
-            '.woff', '.ttf', '.eot', '.mp4', '.mp3', '.pdf',
-            '.doc', '.htm', '.webp'
-        ]
-
-        url_lower = url.lower()
-        for ext in static_extensions:
-            if ext in url_lower:
-                return False
-
-        return True

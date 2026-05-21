@@ -31,6 +31,7 @@ class AmassNode(Node):
         event_in: Set[EventType],
         runner_key: Type[Any],
         parser_key: Type[Any],
+        processor_key: Type[Any],
         ingestor_key: Type[Any],
         event_out: Set[EventType] | None = None,
         max_parallelism: int = 1,
@@ -52,6 +53,7 @@ class AmassNode(Node):
         self.logger = logging.getLogger(f"node.{node_id}")
         self.runner_key = runner_key
         self.parser_key = parser_key
+        self.processor_key = processor_key
         self.ingestor_key = ingestor_key
         self.scope_policy = scope_policy
         self._scan_semaphore = asyncio.Semaphore(max_concurrent_scans)
@@ -99,6 +101,7 @@ class AmassNode(Node):
         )
 
         runner = await ctx.get_service(self.runner_key)
+        processor = await ctx.get_service(self.processor_key)
         ingestor = await ctx.get_service(self.ingestor_key)
         parser = self.parser_key()
 
@@ -124,30 +127,19 @@ class AmassNode(Node):
                     )
                 stream = parser.parse_stream(stream)
 
-                batch_size = max(1, getattr(ctx.settings, "AMASS_INGESTOR_BATCH_SIZE", 50))
-                batch = []
                 raw_domains: set[str] = set()
                 ips: set[str] = set()
                 cidrs: set[str] = set()
                 asns: set[str] = set()
 
-                async def flush_batch() -> None:
+                async for batch in processor.batch_stream(stream):
                     if not batch:
-                        return
-                    ingest_result = await ingestor.ingest(program_id, list(batch))
+                        continue
+                    ingest_result = await ingestor.ingest(program_id, batch)
                     raw_domains.update(ingest_result.raw_domains or [])
                     ips.update(ingest_result.ips or [])
                     cidrs.update(ingest_result.cidrs or [])
                     asns.update(ingest_result.asns or [])
-                    batch.clear()
-
-                async for process_event in stream:
-                    if process_event.type == "result" and process_event.payload:
-                        batch.append(process_event.payload)
-                        if len(batch) >= batch_size:
-                            await flush_batch()
-
-                await flush_batch()
 
                 if raw_domains or ips or cidrs or asns:
 

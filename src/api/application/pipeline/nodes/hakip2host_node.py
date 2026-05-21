@@ -6,10 +6,8 @@ from uuid import UUID
 
 from api.application.pipeline.node import Node
 from api.application.pipeline.context import PipelineContext
-from api.application.services.batch_processor import Hakip2HostBatchProcessor
 from api.infrastructure.events.event_types import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
-from api.infrastructure.parsers.line_process_event_parsers import Hakip2HostStdoutParser
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +26,8 @@ class Hakip2HostNode(Node):
         node_id: str,
         event_in: Set[EventType],
         runner_key: Type[Any],
-        processor_key: Type[Hakip2HostBatchProcessor],
+        parser_key: Type[Any],
+        processor_key: Type[Any],
         host_ingestor_key: Type[Any],
         event_out: Set[EventType] | None = None,
         max_parallelism: int = 1,
@@ -45,6 +44,7 @@ class Hakip2HostNode(Node):
         )
         self.logger = logging.getLogger(f"node.{node_id}")
         self.runner_key = runner_key
+        self.parser_key = parser_key
         self.processor_key = processor_key
         self.host_ingestor_key = host_ingestor_key
         self.scope_policy = scope_policy
@@ -90,6 +90,7 @@ class Hakip2HostNode(Node):
         )
 
         runner = await ctx.get_service(self.runner_key)
+        parser = self.parser_key()
         processor = await ctx.get_service(self.processor_key)
         host_ingestor = await ctx.get_service(self.host_ingestor_key)
 
@@ -109,7 +110,7 @@ class Hakip2HostNode(Node):
                     run_id=run_id,
                     metadata={"runner": self.runner_key.__name__},
                 )
-            stream = Hakip2HostStdoutParser().parse_stream(stream)
+            stream = parser.parse_stream(stream)
 
             async for batch in processor.batch_stream(stream):
                 if not batch:

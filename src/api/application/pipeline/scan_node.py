@@ -102,8 +102,16 @@ class ScanNode(Node):
         batch_count = 0
 
         try:
-            parser = self.parser_type() if self.parser_type is not None else None
-            stream = runner.run_raw(targets) if parser is not None and hasattr(runner, "run_raw") else runner.run(targets)
+            if self.parser_type is None:
+                raise RuntimeError(f"ScanNode '{self.node_id}' requires an explicit parser")
+            if not hasattr(runner, "run_raw"):
+                raise RuntimeError(
+                    f"Runner '{self.runner_type.__name__}' used by ScanNode '{self.node_id}' "
+                    "must expose run_raw()"
+                )
+
+            parser = self.parser_type()
+            stream = runner.run_raw(targets)
             if isinstance(ctx, PipelineContext):
                 stream = ctx.capture_raw_stream(
                     stream,
@@ -114,8 +122,7 @@ class ScanNode(Node):
                     run_id=run_id,
                     metadata={"runner": self.runner_type.__name__},
                 )
-            if parser is not None:
-                stream = parser.parse_stream(stream)
+            stream = parser.parse_stream(stream)
 
             if processor:
                 async for batch in processor.batch_stream(stream):
