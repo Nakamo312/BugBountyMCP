@@ -9,13 +9,44 @@ from urllib.parse import urlparse
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 
+def _json_or_text(line: str) -> object:
+    value = line.strip()
+    if not value:
+        return ""
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def _string_value(line: str, keys: tuple[str, ...] = ()) -> str | None:
+    parsed = _json_or_text(line)
+    if isinstance(parsed, str):
+        value = parsed.strip()
+        return value or None
+    if isinstance(parsed, dict):
+        for key in keys:
+            value = parsed.get(key)
+            if value:
+                return str(value).strip()
+    return None
+
+
+def _dict_value(line: str) -> dict | None:
+    parsed = _json_or_text(line)
+    return parsed if isinstance(parsed, dict) else None
+
+
 class StdoutLineResultParser:
     """Emit non-empty stdout lines as result payloads."""
 
     async def parse_stream(self, stream: AsyncIterator[ProcessEvent]) -> AsyncIterator[ProcessEvent]:
         async for event in stream:
             if event.type == "stdout" and event.payload:
-                value = event.payload.strip()
+                value = _string_value(
+                    event.payload,
+                    ("value", "line", "host", "hostname", "ip", "cidr", "url", "input"),
+                )
                 if value:
                     yield ProcessEvent(type="result", payload=value)
 
@@ -26,8 +57,8 @@ class URLStdoutLineResultParser:
     async def parse_stream(self, stream: AsyncIterator[ProcessEvent]) -> AsyncIterator[ProcessEvent]:
         async for event in stream:
             if event.type == "stdout" and event.payload:
-                value = event.payload.strip()
-                if value.startswith(("http://", "https://")):
+                value = _string_value(event.payload, ("url", "href", "endpoint", "input"))
+                if value and value.startswith(("http://", "https://")):
                     yield ProcessEvent(type="result", payload=value)
 
 
@@ -47,11 +78,11 @@ class GAUStdoutParser:
         async for event in stream:
             if event.type != "stdout" or not event.payload:
                 continue
-            value = event.payload.strip()
+            value = _string_value(event.payload, ("url", "href", "endpoint", "input"))
             if self._is_valid_url(value):
                 yield ProcessEvent(type="result", payload=value)
 
-    def _is_valid_url(self, value: str) -> bool:
+    def _is_valid_url(self, value: str | None) -> bool:
         if not value or len(value) > 2048:
             return False
         lower_value = value.lower()
@@ -78,16 +109,7 @@ class SubfinderStdoutParser:
 
     @staticmethod
     def _extract_host(line: str) -> str | None:
-        if line.startswith("{"):
-            try:
-                parsed = json.loads(line)
-            except json.JSONDecodeError:
-                return None
-            if isinstance(parsed, dict):
-                value = parsed.get("host") or parsed.get("input") or parsed.get("domain")
-                return str(value).strip() if value else None
-            return None
-        return line
+        return _string_value(line, ("host", "hostname", "input", "domain", "value"))
 
 
 class MantraStdoutParser:
@@ -99,6 +121,16 @@ class MantraStdoutParser:
     async def parse_stream(self, stream: AsyncIterator[ProcessEvent]) -> AsyncIterator[ProcessEvent]:
         async for event in stream:
             if event.type != "stdout" or not event.payload:
+                continue
+            parsed = _dict_value(event.payload)
+            if parsed is not None:
+                url = parsed.get("url")
+                secret = parsed.get("secret") or parsed.get("finding") or parsed.get("match")
+                if url and secret:
+                    yield ProcessEvent(
+                        type="result",
+                        payload={"url": str(url), "secret": str(secret)},
+                    )
                 continue
             clean_line = self._ansi_escape.sub("", event.payload).strip()
             match = self._finding.match(clean_line)
@@ -116,6 +148,21 @@ class Hakip2HostStdoutParser:
         async for event in stream:
             if event.type != "stdout" or not event.payload:
                 continue
+            parsed = _dict_value(event.payload)
+            if parsed is not None:
+                ip = parsed.get("ip")
+                hostname = parsed.get("hostname") or parsed.get("host")
+                if ip and hostname:
+                    yield ProcessEvent(
+                        type="result",
+                        payload={
+                            "method": str(parsed.get("method", "unknown")),
+                            "ip": str(ip),
+                            "hostname": str(hostname),
+                        },
+                    )
+                continue
+
             parts = event.payload.strip().split(maxsplit=2)
             if len(parts) != 3 or not parts[0].startswith("["):
                 continue
@@ -136,13 +183,7 @@ class FFUFStdoutParser:
         async for event in stream:
             if event.type != "stdout" or not event.payload:
                 continue
-            line = event.payload.strip()
-            if not line.startswith("{"):
-                continue
-            try:
-                parsed = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+            parsed = _dict_value(event.payload)
             if isinstance(parsed, dict) and "url" in parsed:
                 yield ProcessEvent(type="result", payload=parsed)
 
@@ -154,9 +195,30 @@ class SubjackStdoutParser:
         async for event in stream:
             if event.type != "stdout" or not event.payload:
                 continue
-            parsed = self._parse_line(event.payload.strip())
+            parsed = self._parse_stdout(event.payload)
             if parsed is not None:
                 yield ProcessEvent(type="result", payload=parsed)
+
+    def _parse_stdout(self, line: str) -> dict[str, object] | None:
+        parsed = _dict_value(line)
+        if parsed is not None:
+            return self._parse_dict(parsed)
+        return self._parse_line(line.strip())
+
+    @staticmethod
+    def _parse_dict(data: dict) -> dict[str, object] | None:
+        subdomain = data.get("subdomain") or data.get("host") or data.get("hostname")
+        if not subdomain:
+            return None
+        vulnerable = bool(data.get("vulnerable") or data.get("takeover") or data.get("takeover_possible"))
+        if not vulnerable:
+            return None
+        return {
+            "subdomain": str(subdomain),
+            "service": str(data.get("service") or data.get("provider") or "unknown"),
+            "vulnerable": True,
+            "cname": data.get("cname"),
+        }
 
     @staticmethod
     def _parse_line(line: str) -> dict[str, object] | None:
@@ -219,7 +281,10 @@ class LinkFinderStdoutParser:
 
             if event.type != "stdout" or not event.payload or not current_host:
                 continue
-            normalized = self._normalize_url(event.payload.strip(), current_host)
+            value = _string_value(event.payload, ("url", "href", "endpoint", "path"))
+            if not value:
+                continue
+            normalized = self._normalize_url(value, current_host)
             if normalized and self._is_valid_url(normalized):
                 urls_found.append(normalized)
 

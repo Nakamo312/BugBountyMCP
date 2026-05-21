@@ -1,6 +1,5 @@
 """Host/Domain Ingestor"""
 
-import json
 import logging
 from uuid import UUID
 from typing import List, Dict, Any
@@ -97,9 +96,7 @@ class HostIngestor(BaseResultIngestor):
         """Process a batch of host results"""
         for result in batch:
             try:
-                if isinstance(result, str):
-                    result = json.loads(result)
-                host_name = result.get("host")
+                host_name = self._extract_host(result)
 
                 if not host_name:
                     logger.warning(f"Invalid host result, missing host: {result}")
@@ -126,3 +123,13 @@ class HostIngestor(BaseResultIngestor):
                     exc_info=True
                 )
                 continue
+
+    @staticmethod
+    def _extract_host(result: Dict[str, Any] | str) -> str | None:
+        if isinstance(result, str):
+            host = result.strip()
+            return host or None
+        if isinstance(result, dict):
+            host = result.get("host") or result.get("hostname")
+            return str(host).strip() if host else None
+        return None

@@ -76,12 +76,12 @@ class ProcessEventArtifactParser:
         raw_event_type = item.get("type")
         payload = item.get("payload")
 
-        if raw_event_type == "result" and isinstance(payload, dict):
-            parsed_payload = payload
-        elif raw_event_type == "stdout" and isinstance(payload, str):
-            parsed_payload = self._parse_json_object(payload)
+        if raw_event_type == "result":
+            parsed_payload = self._normalize_payload(payload)
             if parsed_payload is None:
                 return None
+        elif raw_event_type == "stdout" and isinstance(payload, str):
+            parsed_payload = self._parse_stdout_payload(payload)
         else:
             return None
 
@@ -97,9 +97,19 @@ class ProcessEventArtifactParser:
         )
 
     @staticmethod
-    def _parse_json_object(value: str) -> dict[str, Any] | None:
+    def _normalize_payload(value: Any) -> dict[str, Any] | None:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str) and value.strip():
+            return {"value": value.strip()}
+        return None
+
+    @classmethod
+    def _parse_stdout_payload(cls, value: str) -> dict[str, Any]:
         try:
             parsed = json.loads(value)
         except json.JSONDecodeError:
-            return None
-        return parsed if isinstance(parsed, dict) else None
+            return {"value": value.strip()}
+        if isinstance(parsed, dict):
+            return parsed
+        return {"value": parsed}
