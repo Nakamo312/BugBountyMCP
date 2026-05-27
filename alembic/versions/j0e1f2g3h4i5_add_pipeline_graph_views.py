@@ -17,6 +17,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    op.execute("DROP VIEW IF EXISTS pipeline_graph_edges;")
+    op.execute("DROP VIEW IF EXISTS pipeline_graph_nodes;")
+    op.execute("DROP TYPE IF EXISTS pipeline_graph_edges CASCADE;")
+    op.execute("DROP TYPE IF EXISTS pipeline_graph_nodes CASCADE;")
+
     op.execute("""
         CREATE OR REPLACE VIEW pipeline_graph_nodes AS
         SELECT

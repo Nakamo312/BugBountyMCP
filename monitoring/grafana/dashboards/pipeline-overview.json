@@ -67,11 +67,15 @@
       "type": "nodeGraph",
       "title": "Pipeline Flow Graph",
       "datasource": {"type": "postgres", "uid": "bugbounty-postgres"},
+      "options": {
+        "nodes": {},
+        "edges": {}
+      },
       "targets": [
         {
           "refId": "nodes",
           "format": "table",
-          "rawSql": "SELECT id, title, subtitle, mainstat, secondarystat, node_type, status FROM pipeline_graph_nodes ORDER BY created_at DESC LIMIT 500;"
+          "rawSql": "SELECT id, title, subtitle, mainstat, secondarystat, node_type, status, \"nodeRadius\", color FROM pipeline_graph_nodes ORDER BY created_at DESC LIMIT 500;"
         },
         {
           "refId": "edges",
