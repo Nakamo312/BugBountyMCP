@@ -2,7 +2,7 @@
 import logging
 from collections.abc import AsyncIterator
 from typing import Dict, Any, Optional, Type, TypeVar, List, Tuple
-from uuid import UUID
+from uuid import UUID, uuid4
 from dishka import AsyncContainer
 
 from api.infrastructure.events.event_bus import EventBus
@@ -11,6 +11,7 @@ from api.infrastructure.schemas.models.process_event import ProcessEvent
 from api.infrastructure.artifacts.raw_output_store import FileRawOutputStore
 from api.infrastructure.artifacts.raw_artifact_repository import RawArtifactRepository
 from api.config import Settings
+from api.application.contracts import EventEnvelope, ExecutionStatus, IngestContext
 from api.application.pipeline.scope_policy import ScopePolicy
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,18 @@ class PipelineContext:
         self._settings = settings
         self.scope_policy = scope_policy
         self.confidence_threshold = confidence_threshold
+        self.event_id: UUID | None = None
+        self.event_name: str | None = None
+        self.job_id: UUID | None = None
+        self.run_id: UUID | None = None
+        self.correlation_id: UUID | None = None
+
+    def bind_event(self, event: Dict[str, Any]) -> None:
+        self.event_name = event.get("event")
+        self.event_id = self._optional_uuid(event.get("event_id"))
+        self.job_id = self._optional_uuid(event.get("job_id"))
+        self.run_id = self._optional_uuid(event.get("run_id"))
+        self.correlation_id = self._optional_uuid(event.get("correlation_id"))
 
     async def emit(
         self,
@@ -82,13 +95,20 @@ class PipelineContext:
             logger.info(f"No targets to emit after scope filter: node={self.node_id}")
             return
 
-        await self._bus.publish({
+        envelope_kwargs: dict[str, Any] = {
             "event": event,
             "targets": targets,
             "source": source or self.node_id,
             "confidence": confidence,
-            "program_id": str(program_id),
-        })
+            "program_id": program_id,
+            "causation_id": self.event_id,
+            "job_id": self.job_id or uuid4(),
+            "run_id": uuid4(),
+        }
+        if self.correlation_id is not None:
+            envelope_kwargs["correlation_id"] = self.correlation_id
+
+        await self._bus.publish(EventEnvelope(**envelope_kwargs))
 
     async def get_service(self, service_type: Type[T]) -> T:
         if not self._container:
@@ -111,6 +131,7 @@ class PipelineContext:
         targets: list[str],
         job_id: UUID | None = None,
         run_id: UUID | None = None,
+        artifact_id: UUID | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> AsyncIterator[ProcessEvent]:
         store = FileRawOutputStore(self.settings.RAW_OUTPUT_DIR)
@@ -122,8 +143,17 @@ class PipelineContext:
             targets=targets,
             job_id=job_id,
             run_id=run_id,
+            artifact_id=artifact_id,
             metadata=metadata,
             recorder=self._record_raw_artifact,
+        )
+
+    def ingest_context(self, raw_artifact_id: UUID | None = None) -> IngestContext:
+        return IngestContext(
+            job_id=self.job_id,
+            run_id=self.run_id,
+            correlation_id=self.correlation_id,
+            raw_artifact_id=raw_artifact_id,
         )
 
     async def _record_raw_artifact(self, metadata: dict[str, Any]) -> None:
@@ -132,6 +162,43 @@ class PipelineContext:
         async with self._container() as request_container:
             repository = await request_container.get(RawArtifactRepository)
             await repository.record(metadata)
+
+    async def mark_run_started(self) -> None:
+        if not self._container or self.run_id is None:
+            return
+        from api.infrastructure.orchestration.store import OrchestrationStore
+
+        async with self._container() as request_container:
+            store = await request_container.get(OrchestrationStore)
+            await store.mark_run_started(
+                run_id=self.run_id,
+                node_id=self.node_id,
+                event_name=self.event_name,
+                trigger_event_id=self.event_id,
+            )
+
+    async def mark_run_completed(self) -> None:
+        await self._mark_run_finished(ExecutionStatus.COMPLETED)
+
+    async def mark_run_failed(self, error: Exception) -> None:
+        await self._mark_run_finished(ExecutionStatus.FAILED, error=str(error))
+
+    async def _mark_run_finished(
+        self,
+        status: ExecutionStatus,
+        error: str | None = None,
+    ) -> None:
+        if not self._container or self.run_id is None:
+            return
+        from api.infrastructure.orchestration.store import OrchestrationStore
+
+        async with self._container() as request_container:
+            store = await request_container.get(OrchestrationStore)
+            await store.mark_run_finished(
+                run_id=self.run_id,
+                status=status,
+                error=error,
+            )
 
     async def filter_by_scope(self, program_id: UUID, targets: List[str]) -> Tuple[List[str], List[str]]:
         from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
@@ -151,3 +218,11 @@ class PipelineContext:
                     )
 
                 return ScopeChecker.filter_in_scope(targets, scope_rules)
+
+    @staticmethod
+    def _optional_uuid(value: Any) -> UUID | None:
+        if value in (None, ""):
+            return None
+        if isinstance(value, UUID):
+            return value
+        return UUID(str(value))

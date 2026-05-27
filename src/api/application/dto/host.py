@@ -164,6 +164,9 @@ class EndpointWithBodyDTO(BaseModel):
     raw_body_id: Optional[UUID] = None
     body_content: Optional[str] = None
     body_hash: Optional[str] = None
+    body_ref: Optional[str] = None
+    body_preview: Optional[str] = None
+    body_length: Optional[int] = None
 
 
 class ProgramStatsDTO(BaseModel):

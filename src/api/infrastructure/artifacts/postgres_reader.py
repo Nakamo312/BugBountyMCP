@@ -5,7 +5,7 @@ import uuid
 from collections.abc import Mapping
 from typing import Any
 
-from sqlalchemy import Select, String, cast, func, literal, or_, select
+from sqlalchemy import Select, String, cast, column, func, literal, or_, select, table
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from api.application.artifact_contracts import (
@@ -40,6 +40,39 @@ from api.infrastructure.adapters.orm import (
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
+
+LATEST_HTTP_OBSERVATIONS = table(
+    "latest_http_observations",
+    column("observation_id"),
+    column("program_id"),
+    column("endpoint_id"),
+    column("service_id"),
+    column("job_id"),
+    column("run_id"),
+    column("correlation_id"),
+    column("raw_artifact_id"),
+    column("method"),
+    column("url"),
+    column("status_code"),
+    column("content_type"),
+    column("title"),
+    column("body_sha256"),
+    column("body_size_bytes"),
+    column("body_artifact_id"),
+    column("body_preview"),
+    column("source_tool"),
+    column("observed_at"),
+)
+
+LATEST_HTTP_OBSERVATION_HEADERS = table(
+    "latest_http_observation_headers",
+    column("id"),
+    column("endpoint_id"),
+    column("observation_id"),
+    column("name"),
+    column("value"),
+    column("ordinal"),
+)
 
 
 class ArtifactReaderError(ValueError):
@@ -151,7 +184,7 @@ class PostgresArtifactReader:
         if method:
             query = query.where(endpoints.c.methods.op("@>")([method.upper()]))
         if status is not None:
-            query = query.where(endpoints.c.status_code == status)
+            query = query.where(self._endpoint_status_code_expression() == status)
         if q:
             query = query.where(
                 or_(
@@ -210,6 +243,25 @@ class PostgresArtifactReader:
         limit: int | None = None,
         offset: int | None = None,
     ) -> list[HeaderArtifact]:
+        query = select(
+            LATEST_HTTP_OBSERVATION_HEADERS.c.id,
+            LATEST_HTTP_OBSERVATION_HEADERS.c.endpoint_id,
+            LATEST_HTTP_OBSERVATION_HEADERS.c.name,
+            LATEST_HTTP_OBSERVATION_HEADERS.c.value,
+        )
+        query = self._scope_endpoint_child_query(
+            query,
+            LATEST_HTTP_OBSERVATION_HEADERS,
+            LATEST_HTTP_OBSERVATION_HEADERS.c.endpoint_id,
+            endpoint_id,
+            program_id,
+        )
+        if name:
+            query = query.where(LATEST_HTTP_OBSERVATION_HEADERS.c.name.ilike(f"%{name}%"))
+        rows = await self._fetch_all(query.order_by(LATEST_HTTP_OBSERVATION_HEADERS.c.name), limit, offset)
+        if rows:
+            return [HeaderArtifact.model_validate(row) for row in rows]
+
         query = select(headers)
         query = self._scope_endpoint_child_query(query, headers, headers.c.endpoint_id, endpoint_id, program_id)
         if name:
@@ -226,6 +278,27 @@ class PostgresArtifactReader:
         limit: int | None = None,
         offset: int | None = None,
     ) -> list[BodyArtifact]:
+        query = self._latest_observation_body_query()
+        query = self._scope_endpoint_child_query(
+            query,
+            LATEST_HTTP_OBSERVATIONS,
+            LATEST_HTTP_OBSERVATIONS.c.endpoint_id,
+            endpoint_id,
+            program_id,
+        )
+        query = query.where(
+            or_(
+                LATEST_HTTP_OBSERVATIONS.c.body_sha256.is_not(None),
+                LATEST_HTTP_OBSERVATIONS.c.body_artifact_id.is_not(None),
+                LATEST_HTTP_OBSERVATIONS.c.body_preview.is_not(None),
+            )
+        )
+        if body_hash:
+            query = query.where(LATEST_HTTP_OBSERVATIONS.c.body_sha256 == body_hash)
+        rows = await self._fetch_all(query.order_by(LATEST_HTTP_OBSERVATIONS.c.observed_at.desc()), limit, offset)
+        if rows:
+            return [BodyArtifact.model_validate(row) for row in rows]
+
         query = select(
             raw_body.c.id,
             raw_body.c.endpoint_id,
@@ -233,7 +306,7 @@ class PostgresArtifactReader:
             cast(raw_body.c.id, String).label("body_ref"),
             func.length(raw_body.c.body_content).label("body_length"),
             func.substr(raw_body.c.body_content, 1, 500).label("body_preview"),
-            raw_body.c.body_content if include_content else literal(None).label("body_content"),
+            literal(None).label("body_content"),
         )
         query = self._scope_endpoint_child_query(query, raw_body, raw_body.c.endpoint_id, endpoint_id, program_id)
         if body_hash:
@@ -349,13 +422,40 @@ class PostgresArtifactReader:
                 endpoints.c.path,
                 endpoints.c.normalized_path,
                 endpoints.c.methods,
-                endpoints.c.status_code,
+                PostgresArtifactReader._endpoint_status_code_expression().label("status_code"),
             )
             .select_from(
                 endpoints
                 .join(hosts, endpoints.c.host_id == hosts.c.id)
                 .join(services, endpoints.c.service_id == services.c.id)
+                .outerjoin(
+                    LATEST_HTTP_OBSERVATIONS,
+                    LATEST_HTTP_OBSERVATIONS.c.endpoint_id == endpoints.c.id,
+                )
             )
+        )
+
+    @staticmethod
+    def _endpoint_status_code_expression():
+        return func.coalesce(LATEST_HTTP_OBSERVATIONS.c.status_code, endpoints.c.status_code)
+
+    @staticmethod
+    def _latest_observation_body_query() -> Select:
+        body_ref = func.coalesce(
+            LATEST_HTTP_OBSERVATIONS.c.body_artifact_id,
+            LATEST_HTTP_OBSERVATIONS.c.observation_id,
+        )
+        return select(
+            body_ref.label("id"),
+            LATEST_HTTP_OBSERVATIONS.c.endpoint_id,
+            func.coalesce(
+                LATEST_HTTP_OBSERVATIONS.c.body_sha256,
+                cast(body_ref, String),
+            ).label("body_hash"),
+            cast(body_ref, String).label("body_ref"),
+            func.coalesce(LATEST_HTTP_OBSERVATIONS.c.body_size_bytes, 0).label("body_length"),
+            func.coalesce(LATEST_HTTP_OBSERVATIONS.c.body_preview, literal("")).label("body_preview"),
+            literal(None).label("body_content"),
         )
 
     @staticmethod
@@ -398,6 +498,20 @@ class PostgresArtifactReader:
 
     @staticmethod
     async def _endpoint_headers(session, endpoint_id: uuid.UUID) -> list[dict[str, Any]]:
+        result = await session.execute(
+            select(
+                LATEST_HTTP_OBSERVATION_HEADERS.c.id,
+                LATEST_HTTP_OBSERVATION_HEADERS.c.endpoint_id,
+                LATEST_HTTP_OBSERVATION_HEADERS.c.name,
+                LATEST_HTTP_OBSERVATION_HEADERS.c.value,
+            )
+            .where(LATEST_HTTP_OBSERVATION_HEADERS.c.endpoint_id == endpoint_id)
+            .order_by(LATEST_HTTP_OBSERVATION_HEADERS.c.ordinal, LATEST_HTTP_OBSERVATION_HEADERS.c.name)
+        )
+        rows = [dict(row) for row in result.mappings().all()]
+        if rows:
+            return rows
+
         result = await session.execute(select(headers).where(headers.c.endpoint_id == endpoint_id))
         return [dict(row) for row in result.mappings().all()]
 
@@ -407,7 +521,22 @@ class PostgresArtifactReader:
         endpoint_id: uuid.UUID,
         include_content: bool,
     ) -> list[dict[str, Any]]:
-        body_content = raw_body.c.body_content if include_content else literal(None).label("body_content")
+        result = await session.execute(
+            PostgresArtifactReader._latest_observation_body_query()
+            .where(LATEST_HTTP_OBSERVATIONS.c.endpoint_id == endpoint_id)
+            .where(
+                or_(
+                    LATEST_HTTP_OBSERVATIONS.c.body_sha256.is_not(None),
+                    LATEST_HTTP_OBSERVATIONS.c.body_artifact_id.is_not(None),
+                    LATEST_HTTP_OBSERVATIONS.c.body_preview.is_not(None),
+                )
+            )
+            .order_by(LATEST_HTTP_OBSERVATIONS.c.observed_at.desc())
+        )
+        rows = [dict(row) for row in result.mappings().all()]
+        if rows:
+            return rows
+
         result = await session.execute(
             select(
                 raw_body.c.id,
@@ -416,7 +545,7 @@ class PostgresArtifactReader:
                 cast(raw_body.c.id, String).label("body_ref"),
                 func.length(raw_body.c.body_content).label("body_length"),
                 func.substr(raw_body.c.body_content, 1, 500).label("body_preview"),
-                body_content,
+                literal(None).label("body_content"),
             ).where(raw_body.c.endpoint_id == endpoint_id)
         )
         return [dict(row) for row in result.mappings().all()]

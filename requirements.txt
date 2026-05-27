@@ -26,6 +26,7 @@ playwright==1.57.0
 pluggy==1.6.0
 propcache==0.4.1
 protobuf==6.33.4
+prometheus-client==0.23.1
 psycopg2-binary==2.9.11
 pydantic==2.12.5
 pydantic-settings==2.12.0

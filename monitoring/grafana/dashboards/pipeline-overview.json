@@ -1,0 +1,66 @@
+{
+  "uid": "bugbounty-pipeline-overview",
+  "title": "BugBounty Pipeline Overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "tags": ["bugbounty", "pipeline"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Running Runs",
+      "datasource": {"type": "postgres", "uid": "bugbounty-postgres"},
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) AS running_runs FROM pipeline_run_overview WHERE run_status = 'running';"
+        }
+      ],
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Failed Runs",
+      "datasource": {"type": "postgres", "uid": "bugbounty-postgres"},
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) AS failed_runs FROM pipeline_run_overview WHERE run_status = 'failed';"
+        }
+      ],
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0}
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "RabbitMQ Messages Ready",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rabbitmq_queue_messages_ready)"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4}
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Recent Events",
+      "datasource": {"type": "postgres", "uid": "bugbounty-postgres"},
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT created_at, event_type, source, run_status, correlation_id FROM pipeline_event_timeline ORDER BY created_at DESC LIMIT 50;"
+        }
+      ],
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 12}
+    }
+  ]
+}

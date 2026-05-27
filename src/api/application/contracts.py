@@ -1,6 +1,7 @@
 """Typed application contracts used across orchestration and MCP boundaries."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
@@ -170,3 +171,12 @@ class ToolResult(BaseModel):
     raw_ref: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+
+@dataclass(frozen=True)
+class IngestContext:
+    """Run and artifact identity supplied to result ingestors."""
+
+    job_id: UUID | None = None
+    run_id: UUID | None = None
+    correlation_id: UUID | None = None
+    raw_artifact_id: UUID | None = None

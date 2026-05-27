@@ -1,10 +1,12 @@
+import hashlib
 from typing import List, Dict, Any
 from uuid import UUID
 from urllib.parse import urlparse, parse_qs
 import logging
 
 from api.config import Settings
-from api.domain.models import ScopeRuleModel
+from api.application.contracts import IngestContext
+from api.domain.models import HTTPObservationModel, ScopeRuleModel
 from api.infrastructure.unit_of_work.interfaces.katana import KatanaUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
@@ -26,7 +28,12 @@ class KatanaResultIngestor(BaseResultIngestor):
         self._js_files = []
         self._scope_rules: List[ScopeRuleModel] = []
 
-    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
+    async def ingest(
+        self,
+        program_id: UUID,
+        results: List[Dict[str, Any]],
+        context: IngestContext | None = None,
+    ) -> IngestResult:
         """
         Ingest Katana results and return discovered JS files.
 
@@ -55,7 +62,7 @@ class KatanaResultIngestor(BaseResultIngestor):
                 await uow.create_savepoint(savepoint_name)
 
                 try:
-                    await self._process_batch(uow, program_id, batch)
+                    await self._process_batch(uow, program_id, batch, context=context)
                     await uow.release_savepoint(savepoint_name)
                     successful_batches += 1
                 except Exception as exc:
@@ -79,10 +86,16 @@ class KatanaResultIngestor(BaseResultIngestor):
         for i in range(0, len(data), size):
             yield data[i:i + size]
 
-    async def _process_batch(self, uow: KatanaUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
+    async def _process_batch(
+        self,
+        uow: KatanaUnitOfWork,
+        program_id: UUID,
+        batch: List[Dict[str, Any]],
+        context: IngestContext | None = None,
+    ):
         """Process a batch of Katana results and collect JS files"""
         for data in batch:
-            await self._process_record(uow, program_id, data)
+            await self._process_record(uow, program_id, data, context=context)
 
             endpoint_url = data.get("request", {}).get("endpoint")
             if endpoint_url and self._is_js_file(endpoint_url):
@@ -92,7 +105,8 @@ class KatanaResultIngestor(BaseResultIngestor):
         self,
         uow: KatanaUnitOfWork,
         program_id: UUID,
-        data: Dict[str, Any]
+        data: Dict[str, Any],
+        context: IngestContext | None = None,
     ):
         request = data.get("request", {})
         response = data.get("response", {})
@@ -131,8 +145,8 @@ class KatanaResultIngestor(BaseResultIngestor):
         endpoint = await self._ensure_endpoint(uow, host, service, request, response, path)
 
         await self._process_query_params(uow, endpoint, service, query_string)
-        await self._process_body_params(uow, endpoint, request)
         await self._process_headers(uow, endpoint, response)
+        await self._record_http_observation(uow, program_id, endpoint, service, request, response, context=context)
 
     async def _ensure_endpoint(
         self,
@@ -181,25 +195,6 @@ class KatanaResultIngestor(BaseResultIngestor):
                 example_value=example_value,
             )
 
-    async def _process_body_params(
-        self,
-        uow: KatanaUnitOfWork,
-        endpoint,
-        request: Dict[str, Any]
-    ):
-        body = request.get("body")
-        if not body:
-            return
-
-        import hashlib
-        body_hash = hashlib.sha256(body.encode()).hexdigest()
-
-        await uow.raw_bodies.ensure(
-            endpoint_id=endpoint.id,
-            body_content=body,
-            body_hash=body_hash,
-        )
-
     async def _process_headers(
         self,
         uow: KatanaUnitOfWork,
@@ -218,6 +213,88 @@ class KatanaResultIngestor(BaseResultIngestor):
                 name=name.lower(),
                 value=str(value),
             )
+
+    async def _record_http_observation(
+        self,
+        uow: KatanaUnitOfWork,
+        program_id: UUID,
+        endpoint,
+        service,
+        request: Dict[str, Any],
+        response: Dict[str, Any],
+        context: IngestContext | None = None,
+    ) -> None:
+        repository = getattr(uow, "http_observations", None)
+        if repository is None:
+            return
+
+        await repository.create_with_headers(
+            HTTPObservationModel(
+                program_id=program_id,
+                endpoint_id=endpoint.id,
+                service_id=service.id,
+                job_id=context.job_id if context else None,
+                run_id=context.run_id if context else None,
+                correlation_id=context.correlation_id if context else None,
+                raw_artifact_id=context.raw_artifact_id if context else None,
+                method=str(request.get("method") or "GET").upper(),
+                url=request.get("endpoint") or self._build_url(endpoint, service),
+                status_code=self._valid_status_code(response.get("status_code")),
+                content_type=self._header_value(response.get("headers", {}), "content-type"),
+                title=response.get("title"),
+                **self._body_metadata(request.get("body"), context=context),
+                source_tool="katana",
+                metadata={},
+            ),
+            headers=self._headers_from_mapping(response.get("headers", {})),
+        )
+
+    @staticmethod
+    def _valid_status_code(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            status_code = int(value)
+        except (TypeError, ValueError):
+            return None
+        return status_code if 100 <= status_code <= 599 else None
+
+    @staticmethod
+    def _headers_from_mapping(headers: Any) -> list[dict[str, Any]]:
+        if not isinstance(headers, dict):
+            return []
+        return [
+            {"name": name, "value": value}
+            for name, value in headers.items()
+            if name
+        ]
+
+    @staticmethod
+    def _body_metadata(body: Any, context: IngestContext | None = None) -> dict[str, Any]:
+        if body is None or body == "":
+            return {}
+        body_text = body if isinstance(body, str) else str(body)
+        body_bytes = body_text.encode("utf-8")
+        return {
+            "body_sha256": hashlib.sha256(body_bytes).hexdigest(),
+            "body_size_bytes": len(body_bytes),
+            "body_artifact_id": context.raw_artifact_id if context else None,
+            "body_preview": body_text[:500],
+        }
+
+    @staticmethod
+    def _header_value(headers: Any, name: str) -> str | None:
+        if not isinstance(headers, dict):
+            return None
+        lowered = name.lower()
+        for header_name, value in headers.items():
+            if str(header_name).lower() == lowered:
+                return str(value)
+        return None
+
+    @staticmethod
+    def _build_url(endpoint, service) -> str:
+        return f"{getattr(service, 'scheme', 'http')}://{getattr(endpoint, 'host', '')}{getattr(endpoint, 'path', '/')}"
 
     def _is_js_file(self, url: str) -> bool:
         """Check if URL points to a JavaScript file"""

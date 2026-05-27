@@ -1,7 +1,7 @@
 """Domain entities - Pure business objects without framework dependencies"""
 from abc import ABC
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set
 from uuid import UUID, uuid4
@@ -150,6 +150,41 @@ class RawBodyModel(AbstractModel):
     endpoint_id: UUID
     body_content: str
     body_hash: str
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass
+class HTTPObservationModel(AbstractModel):
+    """One HTTP response observation captured during a scan run."""
+    program_id: UUID
+    endpoint_id: UUID
+    service_id: UUID
+    method: str
+    url: str
+    source_tool: str
+    job_id: Optional[UUID] = None
+    run_id: Optional[UUID] = None
+    correlation_id: Optional[UUID] = None
+    raw_artifact_id: Optional[UUID] = None
+    status_code: Optional[int] = None
+    content_type: Optional[str] = None
+    title: Optional[str] = None
+    body_sha256: Optional[str] = None
+    body_size_bytes: Optional[int] = None
+    body_artifact_id: Optional[UUID] = None
+    body_preview: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    observed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass
+class HTTPObservationHeaderModel(AbstractModel):
+    """HTTP header value attached to a specific HTTP observation."""
+    observation_id: UUID
+    name: str
+    value: str
+    ordinal: int = 0
     id: UUID = field(default_factory=uuid4)
 
 

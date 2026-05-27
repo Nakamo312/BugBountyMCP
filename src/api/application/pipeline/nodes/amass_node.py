@@ -3,12 +3,13 @@
 import asyncio
 import logging
 from typing import Dict, Any, Set, Type
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from api.application.pipeline.node import Node
 from api.application.pipeline.context import PipelineContext
 from api.infrastructure.events.event_types import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
+from api.application.pipeline.ingestion import ingest_with_optional_context
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,7 @@ class AmassNode(Node):
                 self.logger.info(f"Enumerating domain: {domain} (active={active})")
 
                 stream = runner.run_raw(domain, active)
+                raw_artifact_id = uuid4()
                 if isinstance(ctx, PipelineContext):
                     stream = ctx.capture_raw_stream(
                         stream,
@@ -123,9 +125,11 @@ class AmassNode(Node):
                         targets=[domain],
                         job_id=job_id,
                         run_id=run_id,
+                        artifact_id=raw_artifact_id,
                         metadata={"runner": self.runner_key.__name__, "active": active},
                     )
                 stream = parser.parse_stream(stream)
+                ingest_context = ctx.ingest_context(raw_artifact_id) if isinstance(ctx, PipelineContext) else None
 
                 raw_domains: set[str] = set()
                 ips: set[str] = set()
@@ -135,7 +139,12 @@ class AmassNode(Node):
                 async for batch in processor.batch_stream(stream):
                     if not batch:
                         continue
-                    ingest_result = await ingestor.ingest(program_id, batch)
+                    ingest_result = await ingest_with_optional_context(
+                        ingestor,
+                        program_id,
+                        batch,
+                        ingest_context,
+                    )
                     raw_domains.update(ingest_result.raw_domains or [])
                     ips.update(ingest_result.ips or [])
                     cidrs.update(ingest_result.cidrs or [])

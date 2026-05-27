@@ -2,12 +2,13 @@
 
 import logging
 from typing import Dict, Any, Set, Type
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from api.application.pipeline.node import Node
 from api.application.pipeline.context import PipelineContext
 from api.infrastructure.events.event_types import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
+from api.application.pipeline.ingestion import ingest_with_optional_context
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,7 @@ class Hakip2HostNode(Node):
 
         try:
             stream = runner.run_raw(targets)
+            raw_artifact_id = uuid4()
             if isinstance(ctx, PipelineContext):
                 stream = ctx.capture_raw_stream(
                     stream,
@@ -108,9 +110,11 @@ class Hakip2HostNode(Node):
                     targets=targets,
                     job_id=job_id,
                     run_id=run_id,
+                    artifact_id=raw_artifact_id,
                     metadata={"runner": self.runner_key.__name__},
                 )
             stream = parser.parse_stream(stream)
+            ingest_context = ctx.ingest_context(raw_artifact_id) if isinstance(ctx, PipelineContext) else None
 
             async for batch in processor.batch_stream(stream):
                 if not batch:
@@ -134,7 +138,12 @@ class Hakip2HostNode(Node):
                     )
 
                 if batch_data:
-                    await host_ingestor.ingest(program_id, batch_data)
+                    await ingest_with_optional_context(
+                        host_ingestor,
+                        program_id,
+                        batch_data,
+                        ingest_context,
+                    )
 
             if discovered_hostnames:
                 await ctx.emit(

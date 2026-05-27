@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: BugBounty Pipeline
+    orgId: 1
+    folder: BugBounty
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

@@ -3,12 +3,13 @@ from uuid import UUID
 import logging
 
 from api.config import Settings
+from api.application.contracts import IngestContext
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 from api.infrastructure.ingestors.ingest_result import IngestResult
 from api.application.utils.scope_checker import ScopeChecker
-from api.domain.models import ScopeRuleModel
+from api.domain.models import HTTPObservationModel, ScopeRuleModel
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,12 @@ class HTTPXResultIngestor(BaseResultIngestor):
         self._js_files: List[str] = []
         self._scope_rules: List[ScopeRuleModel] = []
 
-    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
+    async def ingest(
+        self,
+        program_id: UUID,
+        results: List[Dict[str, Any]],
+        context: IngestContext | None = None,
+    ) -> IngestResult:
         """
         Ingest HTTPX results and return only NEW entities.
 
@@ -59,7 +65,7 @@ class HTTPXResultIngestor(BaseResultIngestor):
                 await uow.create_savepoint(savepoint_name)
 
                 try:
-                    await self._process_batch(uow, program_id, batch)
+                    await self._process_batch(uow, program_id, batch, context=context)
                     await uow.release_savepoint(savepoint_name)
                     successful_batches += 1
                 except Exception as exc:
@@ -86,10 +92,16 @@ class HTTPXResultIngestor(BaseResultIngestor):
         for i in range(0, len(data), size):
             yield data[i:i + size]
 
-    async def _process_batch(self, uow: HTTPXUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
+    async def _process_batch(
+        self,
+        uow: HTTPXUnitOfWork,
+        program_id: UUID,
+        batch: List[Dict[str, Any]],
+        context: IngestContext | None = None,
+    ):
         """Process a batch of HTTPX results and collect live JS files and extracted FQDNs"""
         for data in batch:
-            host_url, is_new = await self._process_record(uow, program_id, data, self._seen_hosts)
+            host_url, is_new = await self._process_record(uow, program_id, data, self._seen_hosts, context=context)
             if host_url and is_new:
                 self._new_hosts.add(host_url)
 
@@ -109,7 +121,8 @@ class HTTPXResultIngestor(BaseResultIngestor):
         uow: HTTPXUnitOfWork,
         program_id: UUID,
         data: Dict[str, Any],
-        seen_hosts: Set[str]
+        seen_hosts: Set[str],
+        context: IngestContext | None = None,
     ) -> tuple[Optional[str], bool]:
         host_name = data.get("host") or data.get("input")
         if not host_name:
@@ -136,6 +149,7 @@ class HTTPXResultIngestor(BaseResultIngestor):
         service = await self._ensure_service(uow, ip, data)
         endpoint = await self._ensure_endpoint(uow, host, service, data)
         await self._process_query_params(uow, endpoint, service, data)
+        await self._record_http_observation(uow, program_id, endpoint, service, data, context=context)
 
         if is_new_host:
             scheme = data.get("scheme", "http")
@@ -222,6 +236,74 @@ class HTTPXResultIngestor(BaseResultIngestor):
                 location="query",
                 example_value=value,
             )
+
+    async def _record_http_observation(
+        self,
+        uow: HTTPXUnitOfWork,
+        program_id: UUID,
+        endpoint,
+        service,
+        data: Dict[str, Any],
+        context: IngestContext | None = None,
+    ) -> None:
+        repository = getattr(uow, "http_observations", None)
+        if repository is None:
+            return
+
+        method = str(data.get("method") or "GET").upper()
+        url = data.get("url") or self._build_url(data, endpoint, service)
+        await repository.create_with_headers(
+            HTTPObservationModel(
+                program_id=program_id,
+                endpoint_id=endpoint.id,
+                service_id=service.id,
+                job_id=context.job_id if context else None,
+                run_id=context.run_id if context else None,
+                correlation_id=context.correlation_id if context else None,
+                raw_artifact_id=context.raw_artifact_id if context else None,
+                method=method,
+                url=url,
+                status_code=self._valid_status_code(data.get("status_code")),
+                content_type=data.get("content_type"),
+                title=data.get("title"),
+                source_tool="httpx",
+                metadata={
+                    "technologies": data.get("tech", []),
+                    "favicon_hash": data.get("favicon"),
+                    "websocket": data.get("websocket"),
+                },
+            ),
+            headers=self._headers_from_mapping(data.get("headers", {})),
+        )
+
+    @staticmethod
+    def _valid_status_code(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            status_code = int(value)
+        except (TypeError, ValueError):
+            return None
+        return status_code if 100 <= status_code <= 599 else None
+
+    @staticmethod
+    def _headers_from_mapping(headers: Any) -> list[dict[str, Any]]:
+        if not isinstance(headers, dict):
+            return []
+        return [
+            {"name": name, "value": value}
+            for name, value in headers.items()
+            if name
+        ]
+
+    @staticmethod
+    def _build_url(data: Dict[str, Any], endpoint, service) -> str:
+        scheme = data.get("scheme") or getattr(service, "scheme", "http")
+        host = data.get("host") or data.get("input") or ""
+        port = data.get("port") or getattr(service, "port", None)
+        path = getattr(endpoint, "path", None) or data.get("path") or "/"
+        port_part = "" if port in (None, 80, 443, "80", "443") else f":{port}"
+        return f"{scheme}://{host}{port_part}{path}"
 
     def _is_js_file(self, url: str) -> bool:
         """Check if URL points to a JavaScript file"""

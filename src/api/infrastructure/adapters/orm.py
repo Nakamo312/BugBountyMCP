@@ -293,13 +293,18 @@ runs = Table(
     Column('id', UUID(), primary_key=True, default=uuid.uuid4),
     Column('job_id', UUID(), ForeignKey('jobs.id', ondelete='CASCADE'), nullable=False, index=True),
     Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('node_id', String(100), nullable=True, index=True),
+    Column('event_name', String(150), nullable=True, index=True),
+    Column('trigger_event_id', UUID(), nullable=True, index=True),
     Column('status', String(30), nullable=False, index=True),
     Column('attempt', Integer, nullable=False, default=1),
     Column('started_at', DateTime(timezone=True), nullable=True),
     Column('finished_at', DateTime(timezone=True), nullable=True),
+    Column('error', Text, nullable=True),
     Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
     Index('idx_runs_program_status', 'program_id', 'status'),
+    Index('idx_runs_node_event_created', 'node_id', 'event_name', 'created_at'),
     CheckConstraint("attempt > 0", name='ck_runs_attempt_positive'),
     CheckConstraint(
         "status IN ('queued', 'running', 'completed', 'failed', 'cancelled')",
@@ -346,6 +351,58 @@ raw_artifacts = Table(
     CheckConstraint("artifact_type != ''", name='ck_raw_artifacts_type_not_empty'),
     CheckConstraint("storage_uri != ''", name='ck_raw_artifacts_storage_uri_not_empty'),
     CheckConstraint("size_bytes >= 0", name='ck_raw_artifacts_size_non_negative'),
+)
+
+http_observations = Table(
+    'http_observations',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('endpoint_id', UUID(), ForeignKey('endpoints.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('service_id', UUID(), ForeignKey('services.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('job_id', UUID(), ForeignKey('jobs.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('run_id', UUID(), ForeignKey('runs.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('correlation_id', UUID(), nullable=True, index=True),
+    Column('raw_artifact_id', UUID(), ForeignKey('raw_artifacts.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('method', String(10), nullable=False),
+    Column('url', Text, nullable=False),
+    Column('status_code', Integer, nullable=True),
+    Column('content_type', Text, nullable=True),
+    Column('title', Text, nullable=True),
+    Column('body_sha256', String(64), nullable=True),
+    Column('body_size_bytes', Integer, nullable=True),
+    Column('body_artifact_id', UUID(), ForeignKey('raw_artifacts.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('body_preview', Text, nullable=True),
+    Column('source_tool', String(100), nullable=False),
+    Column('metadata', JSONType(), nullable=False, default=dict),
+    Column('observed_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index('idx_http_observations_program_observed', 'program_id', 'observed_at'),
+    Index('idx_http_observations_endpoint_observed', 'endpoint_id', 'observed_at'),
+    Index('idx_http_observations_run_observed', 'run_id', 'observed_at'),
+    CheckConstraint("method != ''", name='ck_http_observations_method_not_empty'),
+    CheckConstraint("url != ''", name='ck_http_observations_url_not_empty'),
+    CheckConstraint("source_tool != ''", name='ck_http_observations_source_tool_not_empty'),
+    CheckConstraint(
+        "status_code IS NULL OR (status_code >= 100 AND status_code <= 599)",
+        name='ck_http_observations_status_code_range'
+    ),
+    CheckConstraint(
+        "body_size_bytes IS NULL OR body_size_bytes >= 0",
+        name='ck_http_observations_body_size_non_negative'
+    ),
+)
+
+http_observation_headers = Table(
+    'http_observation_headers',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('observation_id', UUID(), ForeignKey('http_observations.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('name', String(255), nullable=False),
+    Column('value', Text, nullable=False),
+    Column('ordinal', Integer, nullable=False, default=0),
+    Index('idx_http_observation_headers_lookup', 'observation_id', 'name'),
+    CheckConstraint("name != ''", name='ck_http_observation_headers_name_not_empty'),
+    CheckConstraint("ordinal >= 0", name='ck_http_observation_headers_ordinal_non_negative'),
 )
 
 payloads = Table(

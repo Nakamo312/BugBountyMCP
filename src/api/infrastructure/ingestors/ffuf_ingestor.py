@@ -3,6 +3,8 @@ from typing import List, Dict, Any
 from uuid import UUID
 from urllib.parse import urlparse
 
+from api.application.contracts import IngestContext
+from api.domain.models import HTTPObservationModel
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
@@ -22,7 +24,12 @@ class FFUFResultIngestor(BaseResultIngestor):
         self._ingested = 0
         self._skipped = 0
 
-    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
+    async def ingest(
+        self,
+        program_id: UUID,
+        results: List[Dict[str, Any]],
+        context: IngestContext | None = None,
+    ) -> IngestResult:
         """
         Ingest FFUF results batch.
 
@@ -33,7 +40,7 @@ class FFUFResultIngestor(BaseResultIngestor):
         self._ingested = 0
         self._skipped = 0
 
-        await super().ingest(program_id, results)
+        await super().ingest(program_id, results, context=context)
 
         logger.info(
             f"FFUF ingestion completed: program={program_id} "
@@ -42,7 +49,13 @@ class FFUFResultIngestor(BaseResultIngestor):
 
         return IngestResult()
 
-    async def _process_batch(self, uow: HTTPXUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
+    async def _process_batch(
+        self,
+        uow: HTTPXUnitOfWork,
+        program_id: UUID,
+        batch: List[Dict[str, Any]],
+        context: IngestContext | None = None,
+    ):
         """Process a batch of FFUF results"""
         for result in batch:
             url = result.get("url")
@@ -96,13 +109,23 @@ class FFUFResultIngestor(BaseResultIngestor):
 
                 normalized_path = PathNormalizer.normalize_path(url)
 
-                await uow.endpoints.ensure(
+                endpoint = await uow.endpoints.ensure(
                     host_id=host.id,
                     service_id=service.id,
                     path=path,
                     normalized_path=normalized_path,
                     method="GET",
                     status_code=status_code,
+                )
+                await self._record_http_observation(
+                    uow,
+                    program_id=program_id,
+                    endpoint=endpoint,
+                    service=service,
+                    url=url,
+                    status_code=status_code,
+                    result=result,
+                    context=context,
                 )
 
                 self._ingested += 1
@@ -111,3 +134,59 @@ class FFUFResultIngestor(BaseResultIngestor):
                 logger.warning(f"Failed to ingest FFUF result {url}: {e}")
                 self._skipped += 1
                 continue
+
+    async def _record_http_observation(
+        self,
+        uow: HTTPXUnitOfWork,
+        *,
+        program_id: UUID,
+        endpoint,
+        service,
+        url: str,
+        status_code: Any,
+        result: Dict[str, Any],
+        context: IngestContext | None = None,
+    ) -> None:
+        repository = getattr(uow, "http_observations", None)
+        if repository is None:
+            return
+        await repository.create_with_headers(
+            HTTPObservationModel(
+                program_id=program_id,
+                endpoint_id=endpoint.id,
+                service_id=service.id,
+                job_id=context.job_id if context else None,
+                run_id=context.run_id if context else None,
+                correlation_id=context.correlation_id if context else None,
+                raw_artifact_id=context.raw_artifact_id if context else None,
+                method="GET",
+                url=url,
+                status_code=self._valid_status_code(status_code),
+                body_size_bytes=self._non_negative_int(result.get("length")),
+                source_tool="ffuf",
+                metadata={
+                    "words": result.get("words"),
+                    "lines": result.get("lines"),
+                    "redirect_location": result.get("redirectlocation"),
+                },
+            ),
+            headers=[],
+        )
+
+    @staticmethod
+    def _valid_status_code(value: Any) -> int | None:
+        try:
+            status_code = int(value)
+        except (TypeError, ValueError):
+            return None
+        return status_code if 100 <= status_code <= 599 else None
+
+    @staticmethod
+    def _non_negative_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed >= 0 else None

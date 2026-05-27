@@ -5,6 +5,7 @@ from api.infrastructure.repositories.adapters.service import SQLAlchemyServiceRe
 from api.infrastructure.repositories.adapters.endpoint import SQLAlchemyEndpointRepository
 from api.infrastructure.repositories.adapters.input_parameters import SQLAlchemyInputParameterRepository
 from api.infrastructure.repositories.adapters.header import SQLAlchemyHeaderRepository
+from api.infrastructure.repositories.adapters.http_observation import SQLAlchemyHTTPObservationRepository
 from api.infrastructure.repositories.adapters.raw_body import SQLAlchemyRawBodyRepository
 from api.infrastructure.repositories.adapters.scope_rule import SQLAlchemyScopeRuleRepository
 from api.infrastructure.unit_of_work.adapters.base import SQLAlchemyAbstractUnitOfWork
@@ -23,6 +24,7 @@ class SQLAlchemyKatanaUnitOfWork(SQLAlchemyAbstractUnitOfWork, KatanaUnitOfWork)
         self.endpoints = SQLAlchemyEndpointRepository(session=self._session)
         self.input_parameters = SQLAlchemyInputParameterRepository(session=self._session)
         self.headers = SQLAlchemyHeaderRepository(session=self._session)
+        self.http_observations = SQLAlchemyHTTPObservationRepository(session=self._session)
         self.raw_bodies = SQLAlchemyRawBodyRepository(session=self._session)
         self.scope_rules = SQLAlchemyScopeRuleRepository(session=self._session)
 

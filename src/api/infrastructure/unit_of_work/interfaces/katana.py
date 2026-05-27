@@ -7,6 +7,7 @@ from api.infrastructure.repositories.interfaces.service import ServiceRepository
 from api.infrastructure.repositories.interfaces.endpoint import EndpointRepository
 from api.infrastructure.repositories.interfaces.input_parameters import InputParameterRepository
 from api.infrastructure.repositories.interfaces.header import HeaderRepository
+from api.infrastructure.repositories.interfaces.http_observation import HTTPObservationRepository
 from api.infrastructure.repositories.interfaces.raw_body import RawBodyRepository
 from api.infrastructure.repositories.interfaces.scope_rule import ScopeRuleRepository
 from api.infrastructure.unit_of_work.interfaces.base import AbstractUnitOfWork
@@ -22,5 +23,6 @@ class KatanaUnitOfWork(AbstractUnitOfWork, ABC):
     endpoints: EndpointRepository
     input_parameters: InputParameterRepository
     headers: HeaderRepository
+    http_observations: HTTPObservationRepository
     raw_bodies: RawBodyRepository
     scope_rules: ScopeRuleRepository

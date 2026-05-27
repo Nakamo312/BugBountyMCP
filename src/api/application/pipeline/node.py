@@ -96,8 +96,16 @@ class Node(ABC):
                     await asyncio.sleep(self.execution_delay)
 
                 ctx = await self._create_context()
+                ctx.bind_event(event)
+                await ctx.mark_run_started()
                 await self.execute(event, ctx)
+                await ctx.mark_run_completed()
             except Exception as exc:
+                try:
+                    if "ctx" in locals():
+                        await ctx.mark_run_failed(exc)
+                except Exception:
+                    self.logger.warning("Failed to mark run as failed", exc_info=True)
                 self.logger.error(
                     f"Execution failed for event type={event.get('_event_type')}: {exc}",
                     exc_info=True

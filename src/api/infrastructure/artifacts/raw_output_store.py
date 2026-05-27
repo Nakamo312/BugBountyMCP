@@ -39,10 +39,11 @@ class FileRawOutputStore:
         targets: list[str],
         job_id: UUID | None = None,
         run_id: UUID | None = None,
+        artifact_id: UUID | None = None,
         metadata: dict[str, Any] | None = None,
         recorder: ArtifactRecorder | None = None,
     ) -> AsyncIterator[ProcessEvent]:
-        artifact_id = uuid4()
+        artifact_id = artifact_id or uuid4()
         artifact_path = self._artifact_path(
             program_id=program_id,
             node_id=node_id,

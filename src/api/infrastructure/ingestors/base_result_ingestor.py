@@ -2,7 +2,9 @@
 from typing import List, Any, Dict
 from uuid import UUID
 from abc import ABC, abstractmethod
+from inspect import signature
 import logging
+from api.application.contracts import IngestContext
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,12 @@ class BaseResultIngestor(ABC):
         self.uow = uow
         self.batch_size = batch_size
 
-    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]):
+    async def ingest(
+        self,
+        program_id: UUID,
+        results: List[Dict[str, Any]],
+        context: IngestContext | None = None,
+    ):
         """
         Ingest results with savepoint-based batch processing.
 
@@ -47,7 +54,10 @@ class BaseResultIngestor(ABC):
                     await uow.create_savepoint(savepoint_name)
 
                     try:
-                        await self._process_batch(uow, program_id, batch)
+                        if self._process_batch_accepts_context():
+                            await self._process_batch(uow, program_id, batch, context=context)
+                        else:
+                            await self._process_batch(uow, program_id, batch)
                         await uow.release_savepoint(savepoint_name)
                         successful_batches += 1
                     except Exception as exc:
@@ -78,6 +88,9 @@ class BaseResultIngestor(ABC):
             batch: Batch of result records to process
         """
         pass
+
+    def _process_batch_accepts_context(self) -> bool:
+        return "context" in signature(self._process_batch).parameters
 
     def _chunks(self, data: List[Any], size: int):
         """

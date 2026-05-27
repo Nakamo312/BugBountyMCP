@@ -15,6 +15,7 @@ from api.presentation.rest.handlers import (
     tool_not_found_handler
 )
 from api.presentation.rest.routes import router
+from api.presentation.rest.metrics import setup_metrics
 from api.application.exceptions import ScanExecutionError, ToolNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(ScanExecutionError, scan_execution_handler)
     app.add_exception_handler(Exception, global_exception_handler)
     setup_dishka(container, app)
+    setup_metrics(app)
     app.include_router(router)
     logging.basicConfig(level=settings.LOG_LEVEL)
 

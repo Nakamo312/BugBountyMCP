@@ -3,7 +3,8 @@ from sqlalchemy.orm import registry, relationship
 
 from api.domain.models import (ASNModel, CIDRModel, DNSRecordModel,
                                EndpointModel, FindingModel, HeaderModel,
-                               HostIPModel, HostModel, InputParameterModel,
+                               HostIPModel, HostModel, HTTPObservationHeaderModel,
+                               HTTPObservationModel, InputParameterModel,
                                IPAddressModel, LeakModel,
                                OrganizationModel, PayloadModel, ProgramModel,
                                RawBodyModel, RootInputModel, ScannerExecutionModel,
@@ -11,7 +12,8 @@ from api.domain.models import (ASNModel, CIDRModel, DNSRecordModel,
                                ServiceModel, VulnTypeModel)
 from api.infrastructure.adapters.orm import (asns, cidrs, dns_records,
                                              endpoints, findings, headers,
-                                             host_ips, hosts, input_parameters,
+                                             host_ips, hosts, http_observation_headers,
+                                             http_observations, input_parameters,
                                              ip_addresses, leaks, metadata,
                                              organizations, payloads, programs,
                                              raw_body, root_inputs, scanner_executions,
@@ -226,6 +228,24 @@ def start_mappers():
     )
 
     mapper_registry.map_imperatively(
+        class_=HTTPObservationModel,
+        local_table=http_observations,
+        properties={
+            'headers': relationship(
+                HTTPObservationHeaderModel,
+                backref='observation',
+                cascade='all, delete-orphan',
+                lazy='select'
+            ),
+        }
+    )
+
+    mapper_registry.map_imperatively(
+        class_=HTTPObservationHeaderModel,
+        local_table=http_observation_headers
+    )
+
+    mapper_registry.map_imperatively(
         class_=VulnTypeModel,
         local_table=vuln_types,
         properties={
@@ -341,6 +361,8 @@ def get_mapped_classes():
         EndpointModel,
         InputParameterModel,
         HeaderModel,
+        HTTPObservationModel,
+        HTTPObservationHeaderModel,
         VulnTypeModel,
         ScannerTemplateModel,
         ScannerExecutionModel,

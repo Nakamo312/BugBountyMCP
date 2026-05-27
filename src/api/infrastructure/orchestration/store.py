@@ -163,6 +163,8 @@ class OrchestrationStore:
                     id=envelope.run_id,
                     job_id=envelope.job_id,
                     program_id=action.program_id,
+                    event_name=envelope.event,
+                    trigger_event_id=envelope.event_id,
                     status=ExecutionStatus.QUEUED.value,
                     attempt=1,
                     created_at=now,
@@ -223,6 +225,8 @@ class OrchestrationStore:
                     id=envelope.run_id,
                     job_id=envelope.job_id,
                     program_id=action.program_id,
+                    event_name=envelope.event,
+                    trigger_event_id=envelope.event_id,
                     status=ExecutionStatus.QUEUED.value,
                     attempt=1,
                     created_at=now,
@@ -231,6 +235,60 @@ class OrchestrationStore:
             )
             await session.commit()
             return True
+
+    async def mark_run_started(
+        self,
+        *,
+        run_id: uuid.UUID,
+        node_id: str,
+        event_name: str | None,
+        trigger_event_id: uuid.UUID | None = None,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        values = {
+            "node_id": node_id,
+            "event_name": event_name,
+            "trigger_event_id": trigger_event_id,
+            "status": ExecutionStatus.RUNNING.value,
+            "started_at": now,
+            "updated_at": now,
+            "error": None,
+        }
+        async with self.session_factory() as session:
+            await session.execute(
+                update(runs)
+                .where(runs.c.id == run_id)
+                .values(**values)
+            )
+            await session.commit()
+
+    async def mark_run_finished(
+        self,
+        *,
+        run_id: uuid.UUID,
+        status: ExecutionStatus,
+        error: str | None = None,
+    ) -> None:
+        if status not in {
+            ExecutionStatus.COMPLETED,
+            ExecutionStatus.FAILED,
+            ExecutionStatus.CANCELLED,
+        }:
+            raise ValueError(f"Invalid terminal run status: {status}")
+
+        now = datetime.now(timezone.utc)
+        async with self.session_factory() as session:
+            await session.execute(
+                update(runs)
+                .where(runs.c.id == run_id)
+                .values(
+                    status=status.value,
+                    finished_at=now,
+                    updated_at=now,
+                    error=error,
+                )
+            )
+            await session.commit()
 
     async def reject_action(
         self,
@@ -275,6 +333,7 @@ class OrchestrationStore:
 
         async with self.session_factory() as session:
             try:
+                await self._ensure_run_for_event(session, envelope)
                 await session.execute(
                     insert(event_store).values(
                         id=uuid.uuid4(),
@@ -295,3 +354,26 @@ class OrchestrationStore:
                 await session.commit()
             except IntegrityError:
                 await session.rollback()
+
+    @staticmethod
+    async def _ensure_run_for_event(session, envelope: EventEnvelope) -> None:
+        result = await session.execute(
+            select(runs.c.id).where(runs.c.id == envelope.run_id)
+        )
+        if result.one_or_none() is not None:
+            return
+
+        now = datetime.now(timezone.utc)
+        await session.execute(
+            insert(runs).values(
+                id=envelope.run_id,
+                job_id=envelope.job_id,
+                program_id=envelope.program_id,
+                event_name=envelope.event,
+                trigger_event_id=envelope.causation_id or envelope.event_id,
+                status=ExecutionStatus.QUEUED.value,
+                attempt=1,
+                created_at=now,
+                updated_at=now,
+            )
+        )
