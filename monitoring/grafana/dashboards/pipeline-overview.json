@@ -61,6 +61,25 @@
         }
       ],
       "gridPos": {"h": 10, "w": 24, "x": 0, "y": 12}
+    },
+    {
+      "id": 5,
+      "type": "nodeGraph",
+      "title": "Pipeline Flow Graph",
+      "datasource": {"type": "postgres", "uid": "bugbounty-postgres"},
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT id, title, subtitle, mainstat, secondarystat, node_type, status FROM pipeline_graph_nodes ORDER BY created_at DESC LIMIT 500;"
+        },
+        {
+          "refId": "B",
+          "format": "table",
+          "rawSql": "SELECT id, source, target, mainstat, secondarystat, edge_type FROM pipeline_graph_edges ORDER BY created_at DESC LIMIT 1000;"
+        }
+      ],
+      "gridPos": {"h": 14, "w": 24, "x": 0, "y": 22}
     }
   ]
 }
