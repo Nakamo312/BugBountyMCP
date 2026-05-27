@@ -2,7 +2,7 @@
   "uid": "bugbounty-pipeline-overview",
   "title": "BugBounty Pipeline Overview",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "15s",
   "tags": ["bugbounty", "pipeline"],
   "timezone": "browser",
@@ -68,13 +68,19 @@
       "title": "Pipeline Flow Graph",
       "datasource": {"type": "postgres", "uid": "bugbounty-postgres"},
       "options": {
+        "nodes": {},
         "edges": {}
       },
       "targets": [
         {
+          "refId": "nodes",
+          "format": "table",
+          "rawSql": "SELECT id::text AS id, title::text AS title, subtitle::text AS subtitle, mainstat::text AS mainstat, secondarystat::text AS secondarystat, node_type::text AS node_type, status::text AS status, \"nodeRadius\", color::text AS color FROM pipeline_graph_nodes WHERE created_at >= now() - interval '24 hours' UNION ALL SELECT 'placeholder:no-recent-flow' AS id, 'No recent pipeline flow' AS title, 'last 24 hours' AS subtitle, 'idle' AS mainstat, '' AS secondarystat, 'placeholder' AS node_type, NULL::text AS status, 42::numeric AS \"nodeRadius\", 'gray' AS color WHERE NOT EXISTS (SELECT 1 FROM pipeline_graph_nodes WHERE created_at >= now() - interval '24 hours') ORDER BY id;"
+        },
+        {
           "refId": "edges",
           "format": "table",
-          "rawSql": "SELECT id, source, target, mainstat, secondarystat, edge_type FROM pipeline_graph_edges WHERE created_at >= now() - interval '24 hours' ORDER BY created_at DESC;"
+          "rawSql": "SELECT id::text AS id, source::text AS source, target::text AS target, mainstat::text AS mainstat, secondarystat::text AS secondarystat, edge_type::text AS edge_type FROM pipeline_graph_edges WHERE created_at >= now() - interval '24 hours' ORDER BY id;"
         }
       ],
       "gridPos": {"h": 14, "w": 24, "x": 0, "y": 22}
