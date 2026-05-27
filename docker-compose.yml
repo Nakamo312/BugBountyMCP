@@ -36,9 +36,10 @@ services:
       - "15692:15692"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      start_period: 240s
       interval: 10s
-      timeout: 5s
-      retries: 5
+      timeout: 10s
+      retries: 18
     restart: unless-stopped
 
   playwright:
