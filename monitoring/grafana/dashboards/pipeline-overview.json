@@ -69,12 +69,12 @@
       "datasource": {"type": "postgres", "uid": "bugbounty-postgres"},
       "targets": [
         {
-          "refId": "A",
+          "refId": "nodes",
           "format": "table",
           "rawSql": "SELECT id, title, subtitle, mainstat, secondarystat, node_type, status FROM pipeline_graph_nodes ORDER BY created_at DESC LIMIT 500;"
         },
         {
-          "refId": "B",
+          "refId": "edges",
           "format": "table",
           "rawSql": "SELECT id, source, target, mainstat, secondarystat, edge_type FROM pipeline_graph_edges ORDER BY created_at DESC LIMIT 1000;"
         }
