@@ -3,6 +3,11 @@
 Infrastructure code talks to external systems: CLI tools, Postgres, RabbitMQ,
 filesystem artifacts, MCP transport, and concrete repositories.
 
+Read first when changing this layer:
+
+- [Pipeline boundaries](../../../docs/architecture/pipeline-boundaries.md)
+- [MCP read model](../../../docs/architecture/mcp-read-model.md)
+
 ## Rules
 
 - Infrastructure may implement concrete adapters, but should not decide

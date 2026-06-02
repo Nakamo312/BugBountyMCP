@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 import requests
+from urllib3.exceptions import InsecureRequestWarning
 
 
 def build_bulk_payload(index_name: str, documents: Iterable[Mapping[str, Any]]) -> str:
@@ -32,10 +33,14 @@ class OpenSearchClient:
         timeout_seconds: float = 30.0,
         username: str | None = None,
         password: str | None = None,
+        verify_certs: bool = True,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.auth = (username, password) if username and password else None
+        self.verify_certs = verify_certs
+        if not verify_certs:
+            requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
     def bulk_index(self, index_name: str, documents: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
         payload = build_bulk_payload(index_name, documents)
@@ -48,6 +53,7 @@ class OpenSearchClient:
             headers={"Content-Type": "application/x-ndjson"},
             timeout=self.timeout_seconds,
             auth=self.auth,
+            verify=self.verify_certs,
         )
         response.raise_for_status()
         result = response.json()
@@ -61,9 +67,9 @@ class OpenSearchClient:
             json=mapping,
             timeout=self.timeout_seconds,
             auth=self.auth,
+            verify=self.verify_certs,
         )
         if response.status_code not in {200, 201, 400}:
             response.raise_for_status()
         if response.status_code == 400 and "resource_already_exists_exception" not in response.text:
             response.raise_for_status()
-

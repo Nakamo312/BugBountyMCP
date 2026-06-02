@@ -162,6 +162,7 @@ def run_reindex(
         timeout_seconds=settings.opensearch_timeout_seconds,
         username=settings.opensearch_username,
         password=settings.opensearch_password,
+        verify_certs=settings.opensearch_verify_certs,
     )
     return {
         name: reindex_target(

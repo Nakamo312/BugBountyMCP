@@ -26,11 +26,12 @@ services:
     profiles:
       - search
     environment:
+      cluster.name: bugbounty-opensearch
+      node.name: bb-opensearch
       discovery.type: single-node
-      DISABLE_SECURITY_PLUGIN: "true"
-      DISABLE_INSTALL_DEMO_CONFIG: "true"
       bootstrap.memory_lock: "true"
       OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-BugBountyMCP_Admin_123!}
     ulimits:
       memlock:
         soft: -1
@@ -43,7 +44,7 @@ services:
     ports:
       - "${OPENSEARCH_PORT:-9200}:9200"
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -kfsS -u admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-BugBountyMCP_Admin_123!} https://localhost:9200/_cluster/health >/dev/null || exit 1"]
       start_period: 60s
       interval: 10s
       timeout: 5s
@@ -56,8 +57,10 @@ services:
     profiles:
       - search
     environment:
-      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
-      DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
+      OPENSEARCH_HOSTS: '["https://opensearch:9200"]'
+      OPENSEARCH_USERNAME: admin
+      OPENSEARCH_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-BugBountyMCP_Admin_123!}
+      OPENSEARCH_SSL_VERIFICATIONMODE: none
     ports:
       - "${OPENSEARCH_DASHBOARDS_PORT:-5601}:5601"
     depends_on:
@@ -81,7 +84,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      OPENSEARCH_URL: http://opensearch:9200
+      OPENSEARCH_URL: https://opensearch:9200
+      OPENSEARCH_USERNAME: admin
+      OPENSEARCH_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-BugBountyMCP_Admin_123!}
+      OPENSEARCH_VERIFY_CERTS: "false"
     depends_on:
       postgres:
         condition: service_healthy

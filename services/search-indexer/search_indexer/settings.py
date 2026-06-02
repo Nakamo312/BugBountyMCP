@@ -16,6 +16,7 @@ class Settings:
     opensearch_url: str
     opensearch_username: str | None = None
     opensearch_password: str | None = None
+    opensearch_verify_certs: bool = True
     opensearch_timeout_seconds: float = 30.0
 
     @property
@@ -38,6 +39,10 @@ def load_settings() -> Settings:
         opensearch_url=os.getenv("OPENSEARCH_URL", "http://opensearch:9200"),
         opensearch_username=os.getenv("OPENSEARCH_USERNAME") or None,
         opensearch_password=os.getenv("OPENSEARCH_PASSWORD") or None,
+        opensearch_verify_certs=os.getenv("OPENSEARCH_VERIFY_CERTS", "true").lower() in {
+            "1",
+            "true",
+            "yes",
+        },
         opensearch_timeout_seconds=float(os.getenv("OPENSEARCH_TIMEOUT_SECONDS", "30")),
     )
-
