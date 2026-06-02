@@ -31,7 +31,7 @@ services:
       discovery.type: single-node
       bootstrap.memory_lock: "true"
       OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
-      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-BugBountyMCP_Admin_123!}
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-S3cure-Search-2026!Zq7}
     ulimits:
       memlock:
         soft: -1
@@ -59,7 +59,7 @@ services:
     environment:
       OPENSEARCH_HOSTS: '["https://opensearch:9200"]'
       OPENSEARCH_USERNAME: admin
-      OPENSEARCH_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-BugBountyMCP_Admin_123!}
+      OPENSEARCH_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-S3cure-Search-2026!Zq7}
       OPENSEARCH_SSL_VERIFICATIONMODE: none
     ports:
       - "${OPENSEARCH_DASHBOARDS_PORT:-5601}:5601"
@@ -86,7 +86,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       OPENSEARCH_URL: https://opensearch:9200
       OPENSEARCH_USERNAME: admin
-      OPENSEARCH_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-BugBountyMCP_Admin_123!}
+      OPENSEARCH_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-S3cure-Search-2026!Zq7}
       OPENSEARCH_VERIFY_CERTS: "false"
     depends_on:
       postgres:
