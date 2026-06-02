@@ -60,9 +60,26 @@ services:
     ports:
       - "${OPENSEARCH_DASHBOARDS_PORT:-5601}:5601"
     depends_on:
+      opensearch-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  opensearch-init:
+    image: curlimages/curl:8.8.0
+    container_name: bb-opensearch-init
+    profiles:
+      - search
+    command:
+      - sh
+      - -c
+      - |
+        curl -fsS -X PUT "http://opensearch:9200/_cluster/settings" \
+          -H "Content-Type: application/json" \
+          -d '{"persistent":{"cluster.blocks.create_index":null},"transient":{"cluster.blocks.create_index":null}}'
+    depends_on:
       opensearch:
         condition: service_healthy
-    restart: unless-stopped
+    restart: "no"
 
   search-indexer:
     build:
@@ -84,8 +101,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      opensearch:
-        condition: service_healthy
+      opensearch-init:
+        condition: service_completed_successfully
     restart: "no"
 
   rabbitmq:
