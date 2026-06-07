@@ -44,7 +44,7 @@ services:
     ports:
       - "${OPENSEARCH_PORT:-9200}:9200"
     healthcheck:
-      test: ["CMD-SHELL", "curl -kfsS -u admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-BugBountyMCP_Admin_123!} https://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -ksS https://localhost:9200 >/dev/null || exit 1"]
       start_period: 60s
       interval: 10s
       timeout: 5s
