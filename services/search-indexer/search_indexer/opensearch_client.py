@@ -72,7 +72,7 @@ class OpenSearchClient:
         if response.status_code not in {200, 201, 400}:
             response.raise_for_status()
         if response.status_code == 400 and "resource_already_exists_exception" not in response.text:
-            response.raise_for_status()
+            raise RuntimeError(f"Failed to create OpenSearch index {index_name}: {response.text}")
 
     def ensure_ism_policy(self, policy_id: str, policy: Mapping[str, Any]) -> None:
         existing = requests.get(
