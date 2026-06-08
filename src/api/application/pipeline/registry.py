@@ -50,6 +50,7 @@ class NodeRegistry:
         self._event_to_nodes: Dict[str, Set[str]] = {}
         self._subscription_tasks: Set[asyncio.Task] = set()
         self._scheduled_executor_task: asyncio.Task | None = None
+        self._worker_heartbeat_task: asyncio.Task | None = None
 
     def register(self, node: Node):
         """
@@ -92,6 +93,9 @@ class NodeRegistry:
             self._subscription_tasks.add(task)
             task.add_done_callback(self._subscription_tasks.discard)
 
+        self._heartbeat_workers()
+        self._worker_heartbeat_task = asyncio.create_task(self._run_worker_heartbeat())
+
         if self._should_start_scheduled_executor():
             self._scheduled_executor_task = asyncio.create_task(
                 self._run_scheduled_executor()
@@ -113,6 +117,11 @@ class NodeRegistry:
             self._scheduled_executor_task.cancel()
             await asyncio.gather(self._scheduled_executor_task, return_exceptions=True)
             self._scheduled_executor_task = None
+
+        if self._worker_heartbeat_task is not None:
+            self._worker_heartbeat_task.cancel()
+            await asyncio.gather(self._worker_heartbeat_task, return_exceptions=True)
+            self._worker_heartbeat_task = None
 
         if self._subscription_tasks:
             for task in self._subscription_tasks:
@@ -301,6 +310,23 @@ class NodeRegistry:
             for node_id, node in self._nodes.items()
             if node.execution_mode == ExecutionMode.SCHEDULED
         }
+
+    async def _run_worker_heartbeat(self) -> None:
+        while True:
+            try:
+                self._heartbeat_workers()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Worker heartbeat tick failed")
+            await asyncio.sleep(15)
+
+    def _heartbeat_workers(self) -> None:
+        for node in self._nodes.values():
+            node.heartbeat()
+
+    def worker_snapshots(self) -> list[dict[str, int | float | str]]:
+        return [node.runtime_snapshot() for node in self._nodes.values()]
 
     async def _get_orchestration_store(self):
         if self._orchestration_store is not None:

@@ -1,38 +1,83 @@
 groups:
-  - name: pipeline
+  - name: pipeline-obligations
     rules:
-      - alert: PipelineScheduledQueueBacklog
-        expr: sum(pipeline_scheduled_queue_depth) > 100
-        for: 5m
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 2m
         labels:
-          severity: warning
+          severity: critical
         annotations:
-          summary: Scheduled pipeline queue backlog is growing
-          description: More than 100 scheduled node runs are queued.
+          summary: Prometheus scrape target is down
+          description: A monitored target has stopped responding to Prometheus scrapes.
 
-      - alert: PipelineRetryDueRuns
-        expr: sum(pipeline_retry_due_runs) > 0
+      - alert: ContainerMemoryHigh
+        expr: sum by (name) (container_memory_working_set_bytes{name!=""}) / clamp_min(sum by (name) (container_spec_memory_limit_bytes{name!=""}), 1) > 0.85
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: Pipeline runs are due for retry
-          description: Failed scheduled node runs are eligible for explicit retry.
+          summary: Container memory usage is high
+          description: A container is using more than 85 percent of its configured memory limit.
 
-      - alert: PipelineReconcileRequired
-        expr: sum(pipeline_reconcile_runs) > 0
+      - alert: RabbitMQReadyWithoutConsumers
+        expr: sum by (queue) (rabbitmq_queue_messages_ready) > 0 and sum by (queue) (rabbitmq_queue_consumers) == 0
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: Pipeline runs require reconcile
-          description: Raw artifact metadata or other durable state needs operator reconcile.
+          summary: RabbitMQ queue has ready messages and no consumers
+          description: Messages are waiting in a queue that no worker is consuming.
 
-      - alert: RabbitMQDeadLetterMessages
-        expr: sum(rabbitmq_queue_messages_ready{queue=~".*\\.dlq"}) > 0
+      - alert: RabbitMQUnackedGrowing
+        expr: deriv(sum by (queue) (rabbitmq_queue_messages_unacked)[10m:]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: RabbitMQ unacked messages are growing
+          description: Workers are receiving messages but not acknowledging them fast enough.
+
+      - alert: PipelineScheduledOldestAgeHigh
+        expr: max(pipeline_scheduled_oldest_age_seconds) > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Scheduled pipeline work is too old
+          description: The oldest queued scheduled node run has waited longer than 15 minutes.
+
+      - alert: PipelineRetryDueOldestAgeHigh
+        expr: max(pipeline_retry_due_oldest_age_seconds) > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Retry due work is too old
+          description: A retry-eligible node run has remained due for longer than 15 minutes.
+
+      - alert: PipelineReconcileOldestAgeHigh
+        expr: max(pipeline_reconcile_oldest_age_seconds) > 300
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: RabbitMQ dead-letter queue has messages
-          description: Trigger delivery failures are present in a DLQ and need inspection.
+          summary: Reconcile-required work is too old
+          description: A run requiring reconcile has remained unresolved for longer than 5 minutes.
+
+      - alert: PipelineWorkerHeartbeatStale
+        expr: time() - pipeline_worker_last_heartbeat_timestamp_seconds > 120
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Pipeline worker heartbeat is stale
+          description: A configured pipeline worker has not produced a fresh heartbeat.
+
+      - alert: PipelineWorkersSaturatedWithBacklog
+        expr: sum(pipeline_worker_busy) / clamp_min(sum(pipeline_worker_capacity), 1) > 0.9 and sum(pipeline_scheduled_queue_depth) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Pipeline workers are saturated while backlog exists
+          description: Runtime worker slots are mostly busy while scheduled work remains queued.

@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Set
 import asyncio
 import logging
+import time
 
 from api.infrastructure.events.event_types import EventType
 from api.application.contracts import ExecutionMode
@@ -59,6 +60,8 @@ class Node(ABC):
 
         self._semaphore = asyncio.Semaphore(max_parallelism)
         self._tasks: Set[asyncio.Task] = set()
+        self._active_executions = 0
+        self._last_heartbeat_timestamp_seconds = 0.0
 
     @abstractmethod
     async def execute(self, event: Dict[str, Any], ctx: "PipelineContext"):
@@ -92,6 +95,20 @@ class Node(ABC):
 
         self.logger.info(f"Node stopped: {self.node_id}")
 
+    def heartbeat(self) -> None:
+        """Mark this worker node runtime as alive for monitoring."""
+        self._last_heartbeat_timestamp_seconds = time.time()
+
+    def runtime_snapshot(self) -> dict[str, int | float | str]:
+        """Return low-cardinality runtime metrics for this worker node."""
+        return {
+            "node_id": self.node_id,
+            "configured": 1,
+            "capacity": self.max_parallelism,
+            "busy": self._active_executions,
+            "last_heartbeat_timestamp_seconds": self._last_heartbeat_timestamp_seconds,
+        }
+
     async def _execute_with_semaphore(self, event: Dict[str, Any]):
         """
         Execute with semaphore-based backpressure and optional delay.
@@ -100,6 +117,8 @@ class Node(ABC):
             event: Event to process
         """
         async with self._semaphore:
+            self._active_executions += 1
+            self.heartbeat()
             try:
                 if self.execution_delay > 0:
                     self.logger.debug(f"Delaying execution by {self.execution_delay}s")
@@ -121,6 +140,8 @@ class Node(ABC):
                     f"Execution failed for event type={event.get('_event_type')}: {exc}",
                     exc_info=True
                 )
+            finally:
+                self._active_executions -= 1
 
     async def _create_context(self) -> "PipelineContext":
         """

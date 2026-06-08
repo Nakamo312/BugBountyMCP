@@ -73,7 +73,14 @@ async def _collect_pipeline_metrics(app: FastAPI) -> str:
         return PipelineMetricsCollector.unavailable_sample()
     try:
         session_factory = await container.get(async_sessionmaker)
-        return await PipelineMetricsCollector(session_factory).collect()
+        node_registry = getattr(app.state, "node_registry", None)
+        worker_snapshots = (
+            node_registry.worker_snapshots if node_registry is not None else None
+        )
+        return await PipelineMetricsCollector(
+            session_factory,
+            worker_snapshots=worker_snapshots,
+        ).collect()
     except Exception:
         logger.exception("Failed to collect pipeline metrics")
         return PipelineMetricsCollector.unavailable_sample()

@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
 
         from api.application.pipeline.registry import NodeRegistry
         registry: NodeRegistry = await container.get(NodeRegistry)
+        app.state.node_registry = registry
         await registry.start()  
 
         if settings.USE_SCHEDULER:
@@ -66,6 +67,11 @@ async def lifespan(app: FastAPI):
     scheduler = getattr(app.state, "action_scheduler", None)
     if scheduler is not None:
         await scheduler.stop()
+
+    registry = getattr(app.state, "node_registry", None)
+    if registry is not None:
+        await registry.stop()
+        del app.state.node_registry
 
     await container.close()
     logger.info("Application shutdown complete")
