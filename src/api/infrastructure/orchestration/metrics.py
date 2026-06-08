@@ -234,12 +234,40 @@ class PipelineMetricsCollector:
         return "\n".join(lines) + "\n"
 
     def _worker_metric_lines(self) -> list[str]:
-        snapshots_source = self.worker_snapshots
+        return self.worker_metric_lines(
+            self.worker_snapshots,
+            now=self.now,
+            worker_heartbeat_ttl_seconds=self.worker_heartbeat_ttl_seconds,
+        )
+
+    @classmethod
+    def worker_metric_lines(
+        cls,
+        worker_snapshots: Iterable[dict[str, Any]] | Callable[[], Iterable[dict[str, Any]]] | None,
+        *,
+        now: datetime | None = None,
+        worker_heartbeat_ttl_seconds: int = 60,
+    ) -> list[str]:
+        snapshots_source = worker_snapshots
         if snapshots_source is None:
-            return []
+            return [
+                "# HELP pipeline_worker_registry_available Whether the live worker registry is available to the metrics endpoint.",
+                "# TYPE pipeline_worker_registry_available gauge",
+                "pipeline_worker_registry_available 0",
+                "# HELP pipeline_worker_registry_nodes Number of worker nodes in the live worker registry.",
+                "# TYPE pipeline_worker_registry_nodes gauge",
+                "pipeline_worker_registry_nodes 0",
+            ]
         snapshots = snapshots_source() if callable(snapshots_source) else snapshots_source
-        now_timestamp = (self.now or datetime.now(timezone.utc)).timestamp()
+        snapshots = list(snapshots)
+        now_timestamp = (now or datetime.now(timezone.utc)).timestamp()
         lines = [
+            "# HELP pipeline_worker_registry_available Whether the live worker registry is available to the metrics endpoint.",
+            "# TYPE pipeline_worker_registry_available gauge",
+            "pipeline_worker_registry_available 1",
+            "# HELP pipeline_worker_registry_nodes Number of worker nodes in the live worker registry.",
+            "# TYPE pipeline_worker_registry_nodes gauge",
+            cls.format_sample("pipeline_worker_registry_nodes", {}, len(snapshots)),
             "# HELP pipeline_worker_configured Whether a worker node exists in the runtime registry.",
             "# TYPE pipeline_worker_configured gauge",
             "# HELP pipeline_worker_capacity Maximum concurrent runtime slots for a worker node.",
@@ -254,37 +282,37 @@ class PipelineMetricsCollector:
         for snapshot in snapshots:
             node_id = snapshot.get("node_id") or "unknown"
             last_heartbeat = float(snapshot.get("last_heartbeat_timestamp_seconds") or 0)
-            up = 1 if last_heartbeat and now_timestamp - last_heartbeat <= self.worker_heartbeat_ttl_seconds else 0
+            up = 1 if last_heartbeat and now_timestamp - last_heartbeat <= worker_heartbeat_ttl_seconds else 0
             lines.append(
-                self.format_sample(
+                cls.format_sample(
                     "pipeline_worker_configured",
                     {"node_id": node_id},
                     int(snapshot.get("configured", 1)),
                 )
             )
             lines.append(
-                self.format_sample(
+                cls.format_sample(
                     "pipeline_worker_capacity",
                     {"node_id": node_id},
                     int(snapshot.get("capacity", 0)),
                 )
             )
             lines.append(
-                self.format_sample(
+                cls.format_sample(
                     "pipeline_worker_busy",
                     {"node_id": node_id},
                     int(snapshot.get("busy", 0)),
                 )
             )
             lines.append(
-                self.format_sample(
+                cls.format_sample(
                     "pipeline_worker_last_heartbeat_timestamp_seconds",
                     {"node_id": node_id},
                     last_heartbeat,
                 )
             )
             lines.append(
-                self.format_sample(
+                cls.format_sample(
                     "pipeline_worker_up",
                     {"node_id": node_id},
                     up,

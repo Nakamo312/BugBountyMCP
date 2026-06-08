@@ -69,18 +69,21 @@ def setup_metrics(app: FastAPI) -> None:
 
 async def _collect_pipeline_metrics(app: FastAPI) -> str:
     container = getattr(app.state, "dishka_container", None)
+    node_registry = getattr(app.state, "node_registry", None)
+    worker_snapshots = (
+        node_registry.worker_snapshots if node_registry is not None else None
+    )
+    worker_metrics = "\n".join(
+        PipelineMetricsCollector.worker_metric_lines(worker_snapshots)
+    ) + "\n"
     if container is None:
-        return PipelineMetricsCollector.unavailable_sample()
+        return PipelineMetricsCollector.unavailable_sample() + worker_metrics
     try:
         session_factory = await container.get(async_sessionmaker)
-        node_registry = getattr(app.state, "node_registry", None)
-        worker_snapshots = (
-            node_registry.worker_snapshots if node_registry is not None else None
-        )
-        return await PipelineMetricsCollector(
+        durable_metrics = await PipelineMetricsCollector(
             session_factory,
-            worker_snapshots=worker_snapshots,
         ).collect()
+        return durable_metrics + worker_metrics
     except Exception:
         logger.exception("Failed to collect pipeline metrics")
-        return PipelineMetricsCollector.unavailable_sample()
+        return PipelineMetricsCollector.unavailable_sample() + worker_metrics

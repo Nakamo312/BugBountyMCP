@@ -23,6 +23,32 @@
     {
       "id": 2,
       "type": "stat",
+      "title": "Worker Registry",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_worker_registry_available"
+        }
+      ],
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Worker Nodes",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_worker_registry_nodes"
+        }
+      ],
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0}
+    },
+    {
+      "id": 4,
+      "type": "stat",
       "title": "Workers Capacity",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
@@ -31,10 +57,10 @@
           "expr": "sum by (node_id) (pipeline_worker_capacity)"
         }
       ],
-      "gridPos": {"h": 4, "w": 5, "x": 4, "y": 0}
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0}
     },
     {
-      "id": 3,
+      "id": 5,
       "type": "stat",
       "title": "Workers Busy",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
@@ -44,10 +70,10 @@
           "expr": "sum by (node_id) (pipeline_worker_busy)"
         }
       ],
-      "gridPos": {"h": 4, "w": 5, "x": 9, "y": 0}
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0}
     },
     {
-      "id": 4,
+      "id": 19,
       "type": "stat",
       "title": "Scheduled Oldest Age",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
@@ -57,10 +83,10 @@
           "expr": "max by (node_id) (pipeline_scheduled_oldest_age_seconds)"
         }
       ],
-      "gridPos": {"h": 4, "w": 5, "x": 14, "y": 0}
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0}
     },
     {
-      "id": 5,
+      "id": 20,
       "type": "stat",
       "title": "Reconcile Oldest Age",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
@@ -70,7 +96,7 @@
           "expr": "max by (node_id, reconcile_reason) (pipeline_reconcile_oldest_age_seconds)"
         }
       ],
-      "gridPos": {"h": 4, "w": 5, "x": 19, "y": 0}
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 20}
     },
     {
       "id": 6,
@@ -187,7 +213,7 @@
           "expr": "time() - pipeline_worker_last_heartbeat_timestamp_seconds"
         }
       ],
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 20}
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 20}
     },
     {
       "id": 15,
@@ -200,7 +226,7 @@
           "expr": "max by (node_id, retry_reason) (pipeline_retry_due_oldest_age_seconds)"
         }
       ],
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 20}
+      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 20}
     },
     {
       "id": 16,
@@ -213,7 +239,7 @@
           "expr": "sum by (node_id) (pipeline_scheduled_queue_depth)"
         }
       ],
-      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 20}
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 20}
     },
     {
       "id": 17,
