@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import date, datetime
+import re
 from typing import Any
 from uuid import UUID
 
@@ -22,6 +23,22 @@ SENSITIVE_HEADER_NAMES = {
     "x-api-key",
     "x-auth-token",
 }
+SENSITIVE_KEY_NAMES = SENSITIVE_HEADER_NAMES | {
+    "access_token",
+    "api_key",
+    "apikey",
+    "password",
+    "passwd",
+    "pwd",
+    "refresh_token",
+    "secret",
+    "token",
+}
+SECRET_PAIR_RE = re.compile(
+    r"(?i)\b("
+    r"password|passwd|pwd|token|access_token|refresh_token|api[_-]?key|apikey|secret"
+    r")=([^&\s]+)"
+)
 
 
 def stringify(value: Any) -> Any:
@@ -42,24 +59,35 @@ def truncate_text(value: Any, *, limit: int) -> str | None:
     return text[:limit]
 
 
+def sanitize_text(value: Any, *, limit: int = MAX_EVIDENCE_STRING_CHARS) -> str | None:
+    text = truncate_text(value, limit=limit)
+    if text is None:
+        return None
+    return SECRET_PAIR_RE.sub(lambda match: f"{match.group(1)}=[redacted]", text)
+
+
 def safe_header_value(name: str, value: Any) -> str:
     if name.lower() in SENSITIVE_HEADER_NAMES:
         return "[redacted]"
-    return truncate_text(value, limit=MAX_HEADER_VALUE_CHARS) or ""
+    return sanitize_text(value, limit=MAX_HEADER_VALUE_CHARS) or ""
 
 
 def bounded_json(value: Any, *, string_limit: int = MAX_EVIDENCE_STRING_CHARS) -> Any:
     """Recursively bound strings in JSON-like evidence/metadata payloads."""
     value = stringify(value)
     if isinstance(value, str):
-        return truncate_text(value, limit=string_limit)
+        return sanitize_text(value, limit=string_limit)
     if isinstance(value, list):
         return [bounded_json(item, string_limit=string_limit) for item in value]
     if isinstance(value, tuple):
         return [bounded_json(item, string_limit=string_limit) for item in value]
     if isinstance(value, Mapping):
         return {
-            str(key): bounded_json(item, string_limit=string_limit)
+            str(key): (
+                "[redacted]"
+                if str(key).strip().lower() in SENSITIVE_KEY_NAMES
+                else bounded_json(item, string_limit=string_limit)
+            )
             for key, item in value.items()
         }
     return value
@@ -102,11 +130,11 @@ def build_http_observation_document(row: Mapping[str, Any]) -> dict[str, Any]:
         "path": row.get("path"),
         "status_code": row.get("status_code"),
         "content_type": row.get("content_type"),
-        "title": truncate_text(row.get("title"), limit=MAX_EVIDENCE_STRING_CHARS),
+        "title": sanitize_text(row.get("title"), limit=MAX_EVIDENCE_STRING_CHARS),
         "headers": headers_to_document(row.get("headers")),
         "body_sha256": row.get("body_sha256"),
         "body_size_bytes": row.get("body_size_bytes"),
-        "body_preview": truncate_text(row.get("body_preview"), limit=MAX_BODY_PREVIEW_CHARS),
+        "body_preview": sanitize_text(row.get("body_preview"), limit=MAX_BODY_PREVIEW_CHARS),
         "source_tool": row.get("source_tool"),
         "metadata": bounded_json(row.get("metadata") or {}),
         "observed_at": observed_at,
@@ -129,7 +157,7 @@ def build_artifact_preview_document(row: Mapping[str, Any]) -> dict[str, Any]:
         "sha256": row.get("sha256"),
         "size_bytes": row.get("size_bytes"),
         "metadata": bounded_json(row.get("artifact_metadata") or row.get("metadata") or {}),
-        "preview": truncate_text(row.get("preview"), limit=MAX_BODY_PREVIEW_CHARS),
+        "preview": sanitize_text(row.get("preview"), limit=MAX_BODY_PREVIEW_CHARS),
         "created_at": created_at,
         "@timestamp": created_at,
     }
@@ -149,7 +177,7 @@ def build_finding_document(row: Mapping[str, Any]) -> dict[str, Any]:
         "parameter_id": stringify(row.get("parameter_id")),
         "payload_id": stringify(row.get("payload_id")),
         "execution_id": stringify(row.get("execution_id")),
-        "description": truncate_text(row.get("description"), limit=MAX_EVIDENCE_STRING_CHARS),
+        "description": sanitize_text(row.get("description"), limit=MAX_EVIDENCE_STRING_CHARS),
         "evidence": bounded_json(row.get("evidence") or {}),
         "verified": row.get("verified"),
         "false_positive": row.get("false_positive"),

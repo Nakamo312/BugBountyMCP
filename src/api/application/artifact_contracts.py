@@ -134,5 +134,4 @@ class EventArtifact(ArtifactModel):
     source: str
     profile: str | None = None
     confidence: float
-    payload: Any = None
     created_at: datetime

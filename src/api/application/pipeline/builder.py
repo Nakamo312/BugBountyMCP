@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from api.application.pipeline.catalog import INGESTORS, PARSERS, PROCESSORS, RUNNERS, resolve_component
+from api.application.contracts import ExecutionMode
 from api.application.pipeline.factory import NodeFactory
 from api.application.pipeline.nodes.amass_node import AmassNode
 from api.application.pipeline.nodes.ffuf_node import FFUFNode
@@ -46,6 +47,8 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
     event_in = _resolve_event_set(spec.inputs, node_id, "inputs")
     event_out = _resolve_event_set(spec.outputs.keys(), node_id, "outputs")
     max_parallelism = _resolve_int(spec.max_parallelism, settings, node_id, "max_parallelism")
+    execution_mode = ExecutionMode(spec.execution_mode)
+    retry_policy = _resolve_retry_policy(spec.retry, settings, node_id)
     scope_policy = _resolve_scope(spec.scope, node_id)
 
     if spec.type == "scan":
@@ -59,6 +62,8 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
             ingestor_type=resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id),
             max_parallelism=max_parallelism,
             execution_delay=_resolve_number(spec.execution_delay, settings, node_id, "execution_delay"),
+            execution_mode=execution_mode,
+            retry_policy=retry_policy,
             scope_policy=scope_policy,
         )
 
@@ -79,6 +84,8 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
                 "max_concurrent_scans",
             ),
             scope_policy=scope_policy,
+            execution_mode=execution_mode,
+            retry_policy=retry_policy,
         )
 
     if spec.type == "amass":
@@ -98,6 +105,8 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
                 "max_concurrent_scans",
             ),
             scope_policy=scope_policy,
+            execution_mode=execution_mode,
+            retry_policy=retry_policy,
         )
 
     if spec.type == "hakip2host":
@@ -111,6 +120,8 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
             host_ingestor_key=resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id),
             max_parallelism=max_parallelism,
             scope_policy=scope_policy,
+            execution_mode=execution_mode,
+            retry_policy=retry_policy,
         )
 
     raise ValueError(f"Unsupported pipeline node type '{spec.type}' for node '{node_id}'")
@@ -145,6 +156,19 @@ def _resolve_scope(scope: str, node_id: str) -> ScopePolicy:
         return ScopePolicy(scope)
     except ValueError as exc:
         raise ValueError(f"Unknown scope policy '{scope}' for pipeline node '{node_id}'") from exc
+
+
+def _resolve_retry_policy(spec, settings: Settings, node_id: str) -> dict[str, Any]:
+    return {
+        "max_attempts": spec.max_attempts,
+        "backoff_seconds": _resolve_number(
+            spec.backoff_seconds,
+            settings,
+            node_id,
+            "retry.backoff_seconds",
+        ),
+        "terminal_outcomes": list(spec.terminal_outcomes),
+    }
 
 
 def _resolve_int(value: int | str, settings: Settings, node_id: str, field_name: str) -> int:

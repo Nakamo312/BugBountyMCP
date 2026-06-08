@@ -8,6 +8,7 @@ from api.application.pipeline.context import PipelineContext
 from api.infrastructure.events.event_types import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
 from api.application.pipeline.ingestion import ingest_with_optional_context
+from api.application.contracts import ExecutionMode
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,8 @@ class ScanNode(Node):
         target_extractor: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
         max_parallelism: int = 1,
         execution_delay: int = 0,
+        execution_mode: ExecutionMode = ExecutionMode.INLINE,
+        retry_policy: dict | None = None,
         scope_policy=ScopePolicy.NONE
     ):
         """
@@ -61,7 +64,9 @@ class ScanNode(Node):
             event_in=event_in,
             event_out=set(event_out.keys()),
             max_parallelism=max_parallelism,
-            execution_delay=execution_delay
+            execution_delay=execution_delay,
+            execution_mode=execution_mode,
+            retry_policy=retry_policy,
         )
         self.event_out_map = event_out
         self.runner_type = runner_type

@@ -28,6 +28,7 @@ class QueueConfig:
 
     EXCHANGE_NAME = "scan.events"
     EXCHANGE_TYPE = "topic"
+    DEAD_LETTER_EXCHANGE_NAME = "scan.events.dlx"
 
     DISCOVERY_QUEUE = "discovery"
     ENUMERATION_QUEUE = "enumeration"
@@ -88,6 +89,14 @@ class QueueConfig:
         Example: "discovery.#" matches all events with routing key starting with "discovery."
         """
         return f"{queue_name}.#"
+
+    @classmethod
+    def get_dead_letter_queue_name(cls, queue_name: str) -> str:
+        return f"{queue_name}.dlq"
+
+    @classmethod
+    def get_dead_letter_routing_key(cls, queue_name: str) -> str:
+        return f"dlq.{queue_name}"
 
     @classmethod
     def confidence_to_priority(cls, confidence: float) -> int:

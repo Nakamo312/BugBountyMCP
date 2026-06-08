@@ -5,6 +5,7 @@ import asyncio
 import logging
 
 from api.infrastructure.events.event_types import EventType
+from api.application.contracts import ExecutionMode
 
 
 class Node(ABC):
@@ -30,6 +31,8 @@ class Node(ABC):
         event_out: Set[EventType],
         max_parallelism: int = 1,
         execution_delay: int = 0,
+        execution_mode: ExecutionMode = ExecutionMode.INLINE,
+        retry_policy: dict | None = None,
     ):
         """
         Initialize node.
@@ -46,6 +49,12 @@ class Node(ABC):
         self.event_out = event_out
         self.max_parallelism = max_parallelism
         self.execution_delay = execution_delay
+        self.execution_mode = execution_mode
+        self.retry_policy = retry_policy or {
+            "max_attempts": 1,
+            "backoff_seconds": 0,
+            "terminal_outcomes": [],
+        }
         self.logger = logging.getLogger(f"node.{node_id}")
 
         self._semaphore = asyncio.Semaphore(max_parallelism)
@@ -73,6 +82,7 @@ class Node(ABC):
         task = asyncio.create_task(self._execute_with_semaphore(event))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        await task
 
     async def stop(self):
         """Stop node and await all active executions"""
@@ -96,6 +106,7 @@ class Node(ABC):
                     await asyncio.sleep(self.execution_delay)
 
                 ctx = await self._create_context()
+                ctx.retry_policy = self.retry_policy
                 ctx.bind_event(event)
                 await ctx.mark_run_started()
                 await self.execute(event, ctx)

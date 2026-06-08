@@ -5,6 +5,7 @@ from api.application.pipeline.scan_node import ScanNode
 from api.application.pipeline.extractors import default_target_extractor
 from api.infrastructure.events.event_types import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
+from api.application.contracts import ExecutionMode
 
 
 class NodeFactory:
@@ -22,6 +23,8 @@ class NodeFactory:
         target_extractor: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
         max_parallelism: int = 1,
         execution_delay: int = 0,
+        execution_mode: ExecutionMode = ExecutionMode.INLINE,
+        retry_policy: dict | None = None,
         scope_policy: ScopePolicy = ScopePolicy.NONE
     ) -> ScanNode:
         """
@@ -71,5 +74,7 @@ class NodeFactory:
             target_extractor=target_extractor or default_target_extractor,
             max_parallelism=max_parallelism,
             execution_delay=execution_delay,
+            execution_mode=execution_mode,
+            retry_policy=retry_policy,
             scope_policy=scope_policy
         )

@@ -132,8 +132,19 @@ class FileRawOutputStore:
                         "size_bytes": size_bytes,
                     }
                 )
-            except Exception:
+            except Exception as exc:
                 logger.exception("Failed to record raw artifact metadata: %s", artifact_path)
+                self._write_reconcile_marker(
+                    artifact_path=artifact_path,
+                    artifact_metadata={
+                        **record_metadata,
+                        "storage_uri": artifact_path.as_posix(),
+                        "sha256": sha256,
+                        "size_bytes": size_bytes,
+                    },
+                    error=exc,
+                )
+                raise
 
     @staticmethod
     def _event_to_record(event: ProcessEvent) -> dict[str, Any]:
@@ -157,3 +168,28 @@ class FileRawOutputStore:
             for chunk in iter(lambda: file.read(1024 * 1024), b""):
                 digest.update(chunk)
         return digest.hexdigest()
+
+    @staticmethod
+    def _write_reconcile_marker(
+        *,
+        artifact_path: Path,
+        artifact_metadata: dict[str, Any],
+        error: Exception,
+    ) -> None:
+        marker_path = artifact_path.with_suffix(artifact_path.suffix + ".reconcile.json")
+        marker = {
+            "type": "raw_artifact_metadata_record_failed",
+            "artifact": artifact_metadata,
+            "error": {
+                "type": type(error).__name__,
+                "message": str(error),
+            },
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            marker_path.write_text(
+                json.dumps(marker, default=str, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        except Exception:
+            logger.exception("Failed to write raw artifact reconcile marker: %s", marker_path)

@@ -22,6 +22,7 @@ from api.application.artifact_contracts import (
     ParameterArtifact,
     ServiceArtifact,
 )
+from api.application.research.sanitizer import sanitize_header, sanitize_text
 from api.infrastructure.adapters.orm import (
     dns_records,
     endpoints,
@@ -260,14 +261,14 @@ class PostgresArtifactReader:
             query = query.where(LATEST_HTTP_OBSERVATION_HEADERS.c.name.ilike(f"%{name}%"))
         rows = await self._fetch_all(query.order_by(LATEST_HTTP_OBSERVATION_HEADERS.c.name), limit, offset)
         if rows:
-            return [HeaderArtifact.model_validate(row) for row in rows]
+            return [HeaderArtifact.model_validate(self._sanitize_header_row(row)) for row in rows]
 
         query = select(headers)
         query = self._scope_endpoint_child_query(query, headers, headers.c.endpoint_id, endpoint_id, program_id)
         if name:
             query = query.where(headers.c.name.ilike(f"%{name}%"))
         rows = await self._fetch_all(query.order_by(headers.c.name), limit, offset)
-        return [HeaderArtifact.model_validate(row) for row in rows]
+        return [HeaderArtifact.model_validate(self._sanitize_header_row(row)) for row in rows]
 
     async def list_bodies(
         self,
@@ -297,7 +298,7 @@ class PostgresArtifactReader:
             query = query.where(LATEST_HTTP_OBSERVATIONS.c.body_sha256 == body_hash)
         rows = await self._fetch_all(query.order_by(LATEST_HTTP_OBSERVATIONS.c.observed_at.desc()), limit, offset)
         if rows:
-            return [BodyArtifact.model_validate(row) for row in rows]
+            return [BodyArtifact.model_validate(self._sanitize_body_row(row)) for row in rows]
 
         query = select(
             raw_body.c.id,
@@ -312,7 +313,7 @@ class PostgresArtifactReader:
         if body_hash:
             query = query.where(raw_body.c.body_hash == body_hash)
         rows = await self._fetch_all(query.order_by(raw_body.c.id), limit, offset)
-        return [BodyArtifact.model_validate(row) for row in rows]
+        return [BodyArtifact.model_validate(self._sanitize_body_row(row)) for row in rows]
 
     async def list_dns_records(
         self,
@@ -390,7 +391,7 @@ class PostgresArtifactReader:
         if verified is not None:
             query = query.where(leaks.c.verified == verified)
         rows = await self._fetch_all(query.order_by(leaks.c.id), limit, offset)
-        return [LeakArtifact.model_validate(row) for row in rows]
+        return [LeakArtifact.model_validate(self._sanitize_leak_row(row)) for row in rows]
 
     async def list_events(
         self,
@@ -400,13 +401,45 @@ class PostgresArtifactReader:
         limit: int | None = None,
         offset: int | None = None,
     ) -> list[EventArtifact]:
-        query = select(event_store).where(event_store.c.program_id == program_id)
+        query = select(
+            event_store.c.id,
+            event_store.c.event_id,
+            event_store.c.event_type,
+            event_store.c.program_id,
+            event_store.c.job_id,
+            event_store.c.run_id,
+            event_store.c.correlation_id,
+            event_store.c.causation_id,
+            event_store.c.source,
+            event_store.c.profile,
+            event_store.c.confidence,
+            event_store.c.created_at,
+        ).where(event_store.c.program_id == program_id)
         if event_type:
             query = query.where(event_store.c.event_type == event_type)
         if profile:
             query = query.where(event_store.c.profile == profile)
         rows = await self._fetch_all(query.order_by(event_store.c.created_at.desc()), limit, offset)
         return [EventArtifact.model_validate(row) for row in rows]
+
+    @staticmethod
+    def _sanitize_header_row(row: Mapping[str, Any]) -> dict[str, Any]:
+        data = dict(row)
+        data["value"] = sanitize_header(str(data.get("name") or ""), data.get("value")).safe_excerpt
+        return data
+
+    @staticmethod
+    def _sanitize_body_row(row: Mapping[str, Any]) -> dict[str, Any]:
+        data = dict(row)
+        data["body_preview"] = sanitize_text(data.get("body_preview")).safe_excerpt
+        data["body_content"] = None
+        return data
+
+    @staticmethod
+    def _sanitize_leak_row(row: Mapping[str, Any]) -> dict[str, Any]:
+        data = dict(row)
+        data["content"] = sanitize_text(data.get("content")).safe_excerpt
+        return data
 
     @staticmethod
     def _endpoint_base_query() -> Select:
@@ -510,10 +543,13 @@ class PostgresArtifactReader:
         )
         rows = [dict(row) for row in result.mappings().all()]
         if rows:
-            return rows
+            return [PostgresArtifactReader._sanitize_header_row(row) for row in rows]
 
         result = await session.execute(select(headers).where(headers.c.endpoint_id == endpoint_id))
-        return [dict(row) for row in result.mappings().all()]
+        return [
+            PostgresArtifactReader._sanitize_header_row(row)
+            for row in result.mappings().all()
+        ]
 
     @staticmethod
     async def _endpoint_bodies(
@@ -535,7 +571,7 @@ class PostgresArtifactReader:
         )
         rows = [dict(row) for row in result.mappings().all()]
         if rows:
-            return rows
+            return [PostgresArtifactReader._sanitize_body_row(row) for row in rows]
 
         result = await session.execute(
             select(
@@ -548,4 +584,7 @@ class PostgresArtifactReader:
                 literal(None).label("body_content"),
             ).where(raw_body.c.endpoint_id == endpoint_id)
         )
-        return [dict(row) for row in result.mappings().all()]
+        return [
+            PostgresArtifactReader._sanitize_body_row(row)
+            for row in result.mappings().all()
+        ]

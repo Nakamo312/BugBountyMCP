@@ -38,6 +38,19 @@ class ExecutionStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class ExecutionMode(str, Enum):
+    INLINE = "inline"
+    SCHEDULED = "scheduled"
+
+
+class TerminalOutcome(str, Enum):
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    TOOL_FAILED = "tool_failed"
+    SKIPPED = "skipped"
+    POLICY_BLOCKED = "policy_blocked"
+
+
 class SafetyLevel(str, Enum):
     PASSIVE = "passive"
     SAFE_ACTIVE = "safe_active"
@@ -170,6 +183,35 @@ class ToolResult(BaseModel):
     result_count: int = 0
     raw_ref: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class NodeRunClaim:
+    """Durable ownership claim for one pipeline node handling one trigger."""
+
+    run_id: UUID
+    claim_key: str
+    status: ExecutionStatus
+    terminal_outcome: TerminalOutcome | None = None
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.terminal_outcome in {
+            TerminalOutcome.COMPLETED,
+            TerminalOutcome.PARTIAL,
+            TerminalOutcome.TOOL_FAILED,
+            TerminalOutcome.SKIPPED,
+            TerminalOutcome.POLICY_BLOCKED,
+        }
+
+
+@dataclass(frozen=True)
+class ScheduledNodeRun:
+    """Leased scheduled node run plus reconstructed input event."""
+
+    run_id: UUID
+    node_id: str
+    event: dict[str, Any]
 
 
 @dataclass(frozen=True)
