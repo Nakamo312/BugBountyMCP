@@ -41,48 +41,54 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Prometheus Targets",
+      "title": "Targets",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
       "targets": [{"refId": "A", "expr": "up{job=~\"bugbounty-api|rabbitmq|cadvisor|node-exporter\"}"}],
       "gridPos": {"h": 4, "w": 3, "x": 0, "y": 0}
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "Host Memory Used",
+      "title": "Host RAM",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1}, "overrides": []},
       "targets": [{"refId": "A", "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))"}],
       "gridPos": {"h": 4, "w": 3, "x": 3, "y": 0}
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "Container Memory Max",
+      "title": "Top Container RAM",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"refId": "A", "expr": "max by (name) (container_memory_working_set_bytes{image!=\"\"})"}],
+      "fieldConfig": {"defaults": {"unit": "bytes", "decimals": 1}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "topk(1, max by (name) (container_memory_working_set_bytes{image!=\"\"}))"}],
       "gridPos": {"h": 4, "w": 3, "x": 6, "y": 0}
     },
     {
       "id": 4,
       "type": "stat",
-      "title": "Worker Saturation",
+      "title": "Worker Use",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 1}, "overrides": []},
       "targets": [{"refId": "A", "expr": "sum(pipeline_worker_busy) / clamp_min(sum(pipeline_worker_capacity), 1)"}],
       "gridPos": {"h": 4, "w": 3, "x": 9, "y": 0}
     },
     {
       "id": 5,
       "type": "stat",
-      "title": "Largest Scheduled Backlog",
+      "title": "Max Backlog",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
       "targets": [{"refId": "A", "expr": "max(pipeline_scheduled_queue_depth)"}],
       "gridPos": {"h": 4, "w": 3, "x": 12, "y": 0}
     },
     {
       "id": 6,
       "type": "stat",
-      "title": "Oldest Scheduled Debt",
+      "title": "Oldest Queue",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 0}, "overrides": []},
       "targets": [{"refId": "A", "expr": "max(pipeline_scheduled_oldest_age_seconds)"}],
       "gridPos": {"h": 4, "w": 3, "x": 15, "y": 0}
     },
@@ -91,6 +97,7 @@
       "type": "stat",
       "title": "Retry Debt",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 0}, "overrides": []},
       "targets": [{"refId": "A", "expr": "max(pipeline_retry_due_oldest_age_seconds)"}],
       "gridPos": {"h": 4, "w": 3, "x": 18, "y": 0}
     },
@@ -99,6 +106,7 @@
       "type": "stat",
       "title": "Reconcile Debt",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 0}, "overrides": []},
       "targets": [{"refId": "A", "expr": "max(pipeline_reconcile_oldest_age_seconds)"}],
       "gridPos": {"h": 4, "w": 3, "x": 21, "y": 0}
     },
@@ -114,6 +122,7 @@
           "type": "timeseries",
           "title": "Host CPU",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1}, "overrides": []},
           "targets": [{"refId": "A", "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[$__rate_interval])))"}],
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5}
         },
@@ -122,6 +131,7 @@
           "type": "timeseries",
           "title": "Host Memory",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1}, "overrides": []},
           "targets": [{"refId": "A", "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))"}],
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5}
         }
@@ -139,6 +149,7 @@
           "type": "timeseries",
           "title": "Container CPU",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"decimals": 3}, "overrides": []},
           "targets": [{"refId": "A", "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{image!=\"\"}[$__rate_interval]))"}],
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6}
         },
@@ -147,6 +158,7 @@
           "type": "timeseries",
           "title": "Container Memory",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "bytes", "decimals": 1}, "overrides": []},
           "targets": [{"refId": "A", "expr": "sum by (name) (container_memory_working_set_bytes{image!=\"\"})"}],
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6}
         }
@@ -205,6 +217,7 @@
           "type": "stat",
           "title": "Worker Registry",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
           "targets": [{"refId": "A", "expr": "pipeline_worker_registry_available"}],
           "gridPos": {"h": 4, "w": 4, "x": 0, "y": 8}
         },
@@ -213,6 +226,7 @@
           "type": "stat",
           "title": "Worker Nodes",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
           "targets": [{"refId": "A", "expr": "pipeline_worker_registry_nodes"}],
           "gridPos": {"h": 4, "w": 4, "x": 4, "y": 8}
         },
@@ -221,6 +235,7 @@
           "type": "bargauge",
           "title": "Workers Capacity",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
           "targets": [{"refId": "A", "expr": "sum by (node_id) (pipeline_worker_capacity)"}],
           "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8}
         },
@@ -229,6 +244,7 @@
           "type": "bargauge",
           "title": "Workers Busy",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
           "targets": [{"refId": "A", "expr": "sum by (node_id) (pipeline_worker_busy)"}],
           "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8}
         },
@@ -237,6 +253,7 @@
           "type": "timeseries",
           "title": "Worker Heartbeat Age",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "s", "decimals": 0}, "overrides": []},
           "targets": [{"refId": "A", "expr": "time() - pipeline_worker_last_heartbeat_timestamp_seconds"}],
           "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
         }
@@ -254,6 +271,7 @@
           "type": "bargauge",
           "title": "Scheduled Queue Depth",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
           "targets": [{"refId": "A", "expr": "sum by (node_id) (pipeline_scheduled_queue_depth)"}],
           "gridPos": {"h": 8, "w": 8, "x": 0, "y": 9}
         },
@@ -262,6 +280,7 @@
           "type": "bargauge",
           "title": "Scheduled Oldest Age",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "s", "decimals": 0}, "overrides": []},
           "targets": [{"refId": "A", "expr": "max by (node_id) (pipeline_scheduled_oldest_age_seconds)"}],
           "gridPos": {"h": 8, "w": 8, "x": 8, "y": 9}
         },
@@ -270,6 +289,7 @@
           "type": "stat",
           "title": "Retry Oldest Age",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "s", "decimals": 0}, "overrides": []},
           "targets": [{"refId": "A", "expr": "max by (node_id, retry_reason) (pipeline_retry_due_oldest_age_seconds)"}],
           "gridPos": {"h": 8, "w": 8, "x": 16, "y": 9}
         },
@@ -278,6 +298,7 @@
           "type": "stat",
           "title": "Reconcile Oldest Age",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "s", "decimals": 0}, "overrides": []},
           "targets": [{"refId": "A", "expr": "max by (node_id, reconcile_reason) (pipeline_reconcile_oldest_age_seconds)"}],
           "gridPos": {"h": 8, "w": 8, "x": 0, "y": 17}
         },
