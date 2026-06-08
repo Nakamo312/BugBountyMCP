@@ -41,10 +41,10 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Targets",
+      "title": "Targets Up",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
-      "targets": [{"refId": "A", "expr": "up{job=~\"bugbounty-api|rabbitmq|cadvisor|node-exporter\"}"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 0}, "overrides": []},
+      "targets": [{"refId": "A", "expr": "sum(up{job=~\"bugbounty-api|rabbitmq|cadvisor|node-exporter\"}) / clamp_min(count(up{job=~\"bugbounty-api|rabbitmq|cadvisor|node-exporter\"}), 1)"}],
       "gridPos": {"h": 4, "w": 3, "x": 0, "y": 0}
     },
     {
@@ -58,11 +58,11 @@
     },
     {
       "id": 3,
-      "type": "stat",
+      "type": "bargauge",
       "title": "Top Container RAM",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "bytes", "decimals": 1}, "overrides": []},
-      "targets": [{"refId": "A", "expr": "topk(1, max by (name) (container_memory_working_set_bytes{image!=\"\"}))"}],
+      "targets": [{"refId": "A", "expr": "topk(5, max by (name) (container_memory_working_set_bytes{image!=\"\", name=~\"bb-.*\"}))", "legendFormat": "{{name}}"}],
       "gridPos": {"h": 4, "w": 3, "x": 6, "y": 0}
     },
     {
@@ -71,7 +71,7 @@
       "title": "Worker Use",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 1}, "overrides": []},
-      "targets": [{"refId": "A", "expr": "sum(pipeline_worker_busy) / clamp_min(sum(pipeline_worker_capacity), 1)"}],
+      "targets": [{"refId": "A", "expr": "(sum(pipeline_worker_busy) / clamp_min(sum(pipeline_worker_capacity), 1)) and on() (max(pipeline_worker_registry_available) == 1)"}],
       "gridPos": {"h": 4, "w": 3, "x": 9, "y": 0}
     },
     {
@@ -124,7 +124,16 @@
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1}, "overrides": []},
           "targets": [{"refId": "A", "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[$__rate_interval])))"}],
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5}
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 5}
+        },
+        {
+          "id": 103,
+          "type": "timeseries",
+          "title": "Host IO Wait",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1}, "overrides": []},
+          "targets": [{"refId": "A", "expr": "100 * avg(rate(node_cpu_seconds_total{mode=\"iowait\"}[$__rate_interval]))"}],
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 5}
         },
         {
           "id": 102,
@@ -133,7 +142,16 @@
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1}, "overrides": []},
           "targets": [{"refId": "A", "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))"}],
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5}
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 5}
+        },
+        {
+          "id": 104,
+          "type": "table",
+          "title": "Target Status",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
+          "targets": [{"refId": "A", "expr": "up{job=~\"bugbounty-api|rabbitmq|cadvisor|node-exporter\"}", "legendFormat": "{{job}}"}],
+          "gridPos": {"h": 6, "w": 24, "x": 0, "y": 13}
         }
       ]
     },
@@ -147,10 +165,10 @@
         {
           "id": 201,
           "type": "timeseries",
-          "title": "Container CPU",
+          "title": "Container CPU Cores",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "fieldConfig": {"defaults": {"decimals": 3}, "overrides": []},
-          "targets": [{"refId": "A", "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{image!=\"\"}[$__rate_interval]))"}],
+          "fieldConfig": {"defaults": {"unit": "cores", "decimals": 3}, "overrides": []},
+          "targets": [{"refId": "A", "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{image!=\"\", name=~\"$container\"}[$__rate_interval]))", "legendFormat": "{{name}}"}],
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6}
         },
         {
@@ -159,7 +177,7 @@
           "title": "Container Memory",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {"defaults": {"unit": "bytes", "decimals": 1}, "overrides": []},
-          "targets": [{"refId": "A", "expr": "sum by (name) (container_memory_working_set_bytes{image!=\"\"})"}],
+          "targets": [{"refId": "A", "expr": "sum by (name) (container_memory_working_set_bytes{image!=\"\", name=~\"$container\"})", "legendFormat": "{{name}}"}],
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6}
         }
       ]
@@ -176,7 +194,7 @@
           "type": "timeseries",
           "title": "RabbitMQ Ready",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "targets": [{"refId": "A", "expr": "sum by (queue) (rabbitmq_queue_messages_ready)"}],
+          "targets": [{"refId": "A", "expr": "sum by (queue) (rabbitmq_queue_messages_ready)", "legendFormat": "{{queue}}"}],
           "gridPos": {"h": 8, "w": 6, "x": 0, "y": 7}
         },
         {
@@ -184,7 +202,7 @@
           "type": "timeseries",
           "title": "RabbitMQ Unacked",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "targets": [{"refId": "A", "expr": "sum by (queue) (rabbitmq_queue_messages_unacked)"}],
+          "targets": [{"refId": "A", "expr": "sum by (queue) (rabbitmq_queue_messages_unacked)", "legendFormat": "{{queue}}"}],
           "gridPos": {"h": 8, "w": 6, "x": 6, "y": 7}
         },
         {
@@ -192,7 +210,7 @@
           "type": "timeseries",
           "title": "RabbitMQ Consumers",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "targets": [{"refId": "A", "expr": "sum by (queue) (rabbitmq_queue_consumers)"}],
+          "targets": [{"refId": "A", "expr": "sum by (queue) (rabbitmq_queue_consumers)", "legendFormat": "{{queue}}"}],
           "gridPos": {"h": 8, "w": 6, "x": 12, "y": 7}
         },
         {
@@ -200,8 +218,35 @@
           "type": "timeseries",
           "title": "Queue Backlog Growth",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "targets": [{"refId": "A", "expr": "deriv(sum by (queue) (rabbitmq_queue_messages_ready)[10m:])"}],
+          "targets": [{"refId": "A", "expr": "deriv(sum by (queue) (rabbitmq_queue_messages_ready)[10m:])", "legendFormat": "{{queue}}"}],
           "gridPos": {"h": 8, "w": 6, "x": 18, "y": 7}
+        },
+        {
+          "id": 305,
+          "type": "timeseries",
+          "title": "Queues Without Consumers",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
+          "targets": [{"refId": "A", "expr": "(sum by (queue) (rabbitmq_queue_messages_ready) > 0) and (sum by (queue) (rabbitmq_queue_consumers) == 0)", "legendFormat": "{{queue}}"}],
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 15}
+        },
+        {
+          "id": 306,
+          "type": "timeseries",
+          "title": "RabbitMQ Publish Rate",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "ops", "decimals": 1}, "overrides": []},
+          "targets": [{"refId": "A", "expr": "sum(rate(rabbitmq_global_messages_published_total[$__rate_interval]))"}],
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 15}
+        },
+        {
+          "id": 307,
+          "type": "timeseries",
+          "title": "RabbitMQ Ack Rate",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {"defaults": {"unit": "ops", "decimals": 1}, "overrides": []},
+          "targets": [{"refId": "A", "expr": "sum(rate(rabbitmq_global_messages_acknowledged_total[$__rate_interval]))"}],
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 15}
         }
       ]
     },
@@ -218,7 +263,7 @@
           "title": "Worker Registry",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
-          "targets": [{"refId": "A", "expr": "pipeline_worker_registry_available"}],
+          "targets": [{"refId": "A", "expr": "max(pipeline_worker_registry_available)"}],
           "gridPos": {"h": 4, "w": 4, "x": 0, "y": 8}
         },
         {
@@ -227,7 +272,7 @@
           "title": "Worker Nodes",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
-          "targets": [{"refId": "A", "expr": "pipeline_worker_registry_nodes"}],
+          "targets": [{"refId": "A", "expr": "max(pipeline_worker_registry_nodes)"}],
           "gridPos": {"h": 4, "w": 4, "x": 4, "y": 8}
         },
         {
@@ -236,7 +281,7 @@
           "title": "Workers Capacity",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
-          "targets": [{"refId": "A", "expr": "sum by (node_id) (pipeline_worker_capacity)"}],
+          "targets": [{"refId": "A", "expr": "sum by (node_id) (pipeline_worker_capacity{node_id=~\"$node_id\"}) and on() (max(pipeline_worker_registry_available) == 1)", "legendFormat": "{{node_id}}"}],
           "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8}
         },
         {
@@ -245,7 +290,7 @@
           "title": "Workers Busy",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
-          "targets": [{"refId": "A", "expr": "sum by (node_id) (pipeline_worker_busy)"}],
+          "targets": [{"refId": "A", "expr": "sum by (node_id) (pipeline_worker_busy{node_id=~\"$node_id\"}) and on() (max(pipeline_worker_registry_available) == 1)", "legendFormat": "{{node_id}}"}],
           "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8}
         },
         {
@@ -254,7 +299,7 @@
           "title": "Worker Heartbeat Age",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {"defaults": {"unit": "s", "decimals": 0}, "overrides": []},
-          "targets": [{"refId": "A", "expr": "time() - pipeline_worker_last_heartbeat_timestamp_seconds"}],
+          "targets": [{"refId": "A", "expr": "(time() - pipeline_worker_last_heartbeat_timestamp_seconds{node_id=~\"$node_id\"}) and on() (max(pipeline_worker_registry_available) == 1)", "legendFormat": "{{node_id}}"}],
           "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
         }
       ]
@@ -272,7 +317,7 @@
           "title": "Scheduled Queue Depth",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
-          "targets": [{"refId": "A", "expr": "sum by (node_id) (pipeline_scheduled_queue_depth)"}],
+          "targets": [{"refId": "A", "expr": "sum by (node_id) (pipeline_scheduled_queue_depth)", "legendFormat": "{{node_id}}"}],
           "gridPos": {"h": 8, "w": 8, "x": 0, "y": 9}
         },
         {
@@ -281,7 +326,7 @@
           "title": "Scheduled Oldest Age",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {"defaults": {"unit": "s", "decimals": 0}, "overrides": []},
-          "targets": [{"refId": "A", "expr": "max by (node_id) (pipeline_scheduled_oldest_age_seconds)"}],
+          "targets": [{"refId": "A", "expr": "max by (node_id) (pipeline_scheduled_oldest_age_seconds)", "legendFormat": "{{node_id}}"}],
           "gridPos": {"h": 8, "w": 8, "x": 8, "y": 9}
         },
         {
@@ -304,6 +349,20 @@
         },
         {
           "id": 505,
+          "type": "table",
+          "title": "Scheduled Dispatch Debt",
+          "datasource": {"type": "postgres", "uid": "bugbounty-postgres"},
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "rawSql": "SELECT node_id, count(*)::bigint AS scheduled_count, max(extract(epoch from now() - created_at)) AS oldest_age_seconds, min(created_at) AS oldest_created_at, max(updated_at) AS last_updated_at FROM runs WHERE execution_mode = 'scheduled' AND status = 'queued' AND needs_reconcile = false GROUP BY node_id ORDER BY scheduled_count DESC, oldest_age_seconds DESC;"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 16, "x": 8, "y": 17}
+        },
+        {
+          "id": 506,
           "type": "nodeGraph",
           "title": "Pipeline Flow Graph",
           "datasource": {"type": "postgres", "uid": "bugbounty-postgres"},
@@ -312,15 +371,15 @@
             {
               "refId": "nodes",
               "format": "table",
-              "rawSql": "SELECT id::text AS id, title::text AS title, subtitle::text AS subtitle, mainstat::text AS mainstat, secondarystat::text AS secondarystat, node_type::text AS node_type, status::text AS status, \"nodeRadius\", color::text AS color FROM pipeline_graph_nodes WHERE created_at >= now() - interval '24 hours' UNION ALL SELECT 'placeholder:no-recent-flow' AS id, 'No recent pipeline flow' AS title, 'last 24 hours' AS subtitle, 'idle' AS mainstat, '' AS secondarystat, 'placeholder' AS node_type, NULL::text AS status, 42::numeric AS \"nodeRadius\", 'gray' AS color WHERE NOT EXISTS (SELECT 1 FROM pipeline_graph_nodes WHERE created_at >= now() - interval '24 hours') ORDER BY id;"
+              "rawSql": "WITH run_stats AS (SELECT r.node_id, count(*) AS runs_total, count(*) FILTER (WHERE r.execution_mode = 'scheduled' AND r.status = 'queued' AND r.needs_reconcile = false) AS queue_depth, count(*) FILTER (WHERE r.status = 'running') AS running_count, count(*) FILTER (WHERE r.status = 'failed') AS failed_count, max(extract(epoch from now() - r.created_at)) FILTER (WHERE r.execution_mode = 'scheduled' AND r.status = 'queued' AND r.needs_reconcile = false) AS oldest_scheduled_age_seconds FROM runs r WHERE r.node_id IS NOT NULL AND $__timeFilter(r.created_at) GROUP BY r.node_id), source_stats AS (SELECT es.source AS node_id, count(*) AS events_total FROM event_store es WHERE es.source IS NOT NULL AND $__timeFilter(es.created_at) GROUP BY es.source), node_ids AS (SELECT node_id FROM run_stats UNION SELECT node_id FROM source_stats) SELECT n.node_id::text AS id, n.node_id::text AS title, ('runs ' || COALESCE(rs.runs_total, 0)::text || ' events ' || COALESCE(ss.events_total, 0)::text)::text AS subtitle, ('q ' || COALESCE(rs.queue_depth, 0)::text || ' run ' || COALESCE(rs.running_count, 0)::text)::text AS mainstat, ('failed ' || COALESCE(rs.failed_count, 0)::text || ' oldest ' || COALESCE(round(rs.oldest_scheduled_age_seconds)::text, '0') || 's')::text AS secondarystat, 'worker' AS node_type, CASE WHEN COALESCE(rs.failed_count, 0) > 0 THEN 'failed' WHEN COALESCE(rs.queue_depth, 0) > 0 THEN 'queued' WHEN COALESCE(rs.running_count, 0) > 0 THEN 'running' ELSE 'idle' END AS status, LEAST(72, 38 + sqrt(GREATEST(COALESCE(rs.runs_total, 0), COALESCE(ss.events_total, 0))) * 4)::numeric AS \"nodeRadius\", CASE WHEN COALESCE(rs.failed_count, 0) > 0 THEN 'red' WHEN COALESCE(rs.queue_depth, 0) > 0 THEN 'orange' WHEN COALESCE(rs.running_count, 0) > 0 THEN 'green' ELSE 'gray' END AS color FROM node_ids n LEFT JOIN run_stats rs ON rs.node_id = n.node_id LEFT JOIN source_stats ss ON ss.node_id = n.node_id UNION ALL SELECT 'placeholder:no-recent-flow' AS id, 'No recent pipeline flow' AS title, 'selected range' AS subtitle, 'idle' AS mainstat, '' AS secondarystat, 'placeholder' AS node_type, NULL::text AS status, 42::numeric AS \"nodeRadius\", 'gray' AS color WHERE NOT EXISTS (SELECT 1 FROM node_ids) ORDER BY id;"
             },
             {
               "refId": "edges",
               "format": "table",
-              "rawSql": "SELECT id::text AS id, source::text AS source, target::text AS target, mainstat::text AS mainstat, secondarystat::text AS secondarystat, edge_type::text AS edge_type FROM pipeline_graph_edges WHERE created_at >= now() - interval '24 hours' ORDER BY id;"
+              "rawSql": "SELECT (es.source || '->' || r.node_id)::text AS id, es.source::text AS source, r.node_id::text AS target, count(*)::text AS mainstat, (count(*) FILTER (WHERE r.status = 'failed')::text || ' failed')::text AS secondarystat, 'event_to_run' AS edge_type FROM runs r JOIN event_store es ON es.event_id = r.trigger_event_id WHERE r.node_id IS NOT NULL AND es.source IS NOT NULL AND es.source <> r.node_id AND $__timeFilter(r.created_at) GROUP BY es.source, r.node_id ORDER BY count(*) DESC LIMIT 100;"
             }
           ],
-          "gridPos": {"h": 14, "w": 16, "x": 8, "y": 17}
+          "gridPos": {"h": 14, "w": 24, "x": 0, "y": 25}
         }
       ]
     },

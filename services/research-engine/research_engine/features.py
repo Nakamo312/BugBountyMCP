@@ -18,6 +18,9 @@ VALID_LOCATIONS = {
     "response_body",
 }
 
+EXTRACTOR_VERSION = "value-shape-v1"
+MARKER_VOCABULARY_VERSION = "markers-v1"
+
 SENSITIVE_NAMES = {
     "access_token",
     "api_key",
@@ -173,6 +176,8 @@ def extract_value_shape(
     classes = _dedupe(classes)
     markers = _dedupe(markers)
 
+    source_contains_secret = secret_name or secret_value
+    source_contains_pii = pii
     sample = _redacted_sample(
         decoded,
         classes=classes,
@@ -180,12 +185,31 @@ def extract_value_shape(
         pii=pii,
         is_absolute_url=is_absolute_url,
     )
-    contains_secret = secret_name or (secret_value and not is_absolute_url)
-    safe_for_external = not contains_secret and not pii
-    safe_for_local = not contains_secret and not pii
+    sample_contains_secret = False
+    sample_contains_pii = False
+    safe_for_external = not sample_contains_secret and not sample_contains_pii and not secret_name and not source_contains_pii
+    safe_for_local = safe_for_external
     claim_type = _claim_type(classes, is_absolute_url)
+    claim = _claim(claim_type, name, location, field_path)
+    length_bucket = _length_bucket(decoded)
+    entropy_class = _entropy_class(decoded)
+    host_relation = "external" if is_absolute_url else None
+    fingerprint = _fingerprint(
+        name=name,
+        location=location,
+        field_path=field_path,
+        observation_ref=observation_ref,
+        classes=classes,
+        markers=markers,
+        encodings=encodings,
+        length_bucket=length_bucket,
+        host_relation=host_relation,
+        claim_type=claim_type,
+    )
 
     return {
+        "extractor_version": EXTRACTOR_VERSION,
+        "marker_vocabulary_version": MARKER_VOCABULARY_VERSION,
         "name": name,
         "location": location,
         "field_path": field_path,
@@ -193,22 +217,28 @@ def extract_value_shape(
         "classes": classes,
         "encodings": encodings,
         "markers": markers,
-        "length_bucket": _length_bucket(decoded),
-        "entropy_class": _entropy_class(decoded),
+        "length_bucket": length_bucket,
+        "entropy_class": entropy_class,
         "sample_redacted": sample,
         "sample_policy": "shape_only",
-        "host_relation": "external" if is_absolute_url else None,
+        "host_relation": host_relation,
         "claim_type": claim_type,
-        "fingerprint": _fingerprint(name, location, classes, decoded, is_absolute_url),
+        "claim": claim,
+        "fingerprint": fingerprint,
+        "evidence_fingerprint": fingerprint,
         "redaction_rules_triggered": sorted(set(redaction_rules)),
         "safety": {
-            "safe_for_search": not contains_secret,
+            "safe_for_search": not source_contains_secret,
             "safe_for_embedding": safe_for_external,
             "safe_for_external_llm": safe_for_external,
             "safe_for_local_llm": safe_for_local,
             "safe_for_manual_review": True,
-            "contains_secret": contains_secret,
-            "contains_pii": pii,
+            "contains_secret": source_contains_secret,
+            "contains_pii": source_contains_pii,
+            "source_contains_secret": source_contains_secret,
+            "source_contains_pii": source_contains_pii,
+            "sample_contains_secret": sample_contains_secret,
+            "sample_contains_pii": sample_contains_pii,
         },
     }
 
@@ -295,19 +325,22 @@ def _redacted_sample(value: str, *, classes: list[str], secret: bool, pii: bool,
         return "O:<n>:<class>:..."
     if is_absolute_url:
         parsed = urlparse(value)
-        return f"{parsed.scheme}://<external-domain>{parsed.path or '/'}".rstrip("/")
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        return f"{parsed.scheme}://<external-domain>/<path:{len(segments)}-segments>"
     if "sql_like_expression" in classes:
         sample = re.sub(r"'", "<quote>", value)
         sample = re.sub(r"\b\d+\b", "<number>", sample)
         sample = sample.replace("--", "<comment>")
         return sample
+    if "graphql_query" in classes:
+        return f"<graphql-query:length={len(value)}>"
+    if "template_syntax" in classes:
+        return f"<template-syntax:length={len(value)}>"
     if pii:
         return "<redacted-pii>"
     if _is_base64_like(value):
         return "<base64-like:length=%d>" % len(value)
-    if len(value) > 32:
-        return f"{value[:8]}<redacted:length={len(value)}>"
-    return value
+    return f"<value:length={len(value)}>"
 
 
 def _claim_type(classes: list[str], is_absolute_url: bool) -> str:
@@ -322,18 +355,48 @@ def _claim_type(classes: list[str], is_absolute_url: bool) -> str:
     return "value_shape_observed"
 
 
-def _fingerprint(name: str, location: str, classes: list[str], value: str, is_absolute_url: bool) -> str:
-    normalized_value = value
-    if is_absolute_url:
-        parsed = urlparse(value)
-        normalized_value = f"{parsed.scheme}://<external-domain>{parsed.path or '/'}".rstrip("/")
-    elif "jwt_like" in classes:
-        normalized_value = "<jwt>"
-    elif "java_serialized_object" in classes:
-        normalized_value = "<java-serialized>"
-    elif "php_serialized_object" in classes:
-        normalized_value = "<php-serialized>"
-    material = "|".join([location, name.lower(), ",".join(sorted(classes)), normalized_value])
+def _claim(claim_type: str, name: str, location: str, field_path: str | None) -> str:
+    subject = field_path or f"{location}.{name}"
+    if claim_type == "param_value_has_external_url":
+        return f"{subject} has external URL shape"
+    if claim_type == "param_value_has_sql_metacharacters":
+        return f"{subject} has SQL metacharacter shape"
+    if claim_type == "param_value_looks_serialized":
+        return f"{subject} has serialized value shape"
+    if claim_type == "body_contains_graphql_query":
+        return f"{subject} has GraphQL query shape"
+    return f"{subject} value shape observed"
+
+
+def _fingerprint(
+    *,
+    name: str,
+    location: str,
+    field_path: str | None,
+    observation_ref: dict[str, str] | None,
+    classes: list[str],
+    markers: list[str],
+    encodings: list[str],
+    length_bucket: str,
+    host_relation: str | None,
+    claim_type: str,
+) -> str:
+    ref_type = (observation_ref or {}).get("ref_type", "")
+    material = "|".join(
+        [
+            EXTRACTOR_VERSION,
+            MARKER_VOCABULARY_VERSION,
+            location,
+            field_path or "",
+            ref_type,
+            name.lower(),
+            ",".join(sorted(classes)),
+            ",".join(sorted(markers)),
+            length_bucket,
+            host_relation or "",
+            claim_type,
+        ]
+    )
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 

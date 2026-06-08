@@ -69,10 +69,7 @@ def setup_metrics(app: FastAPI) -> None:
 
 async def _collect_pipeline_metrics(app: FastAPI) -> str:
     container = getattr(app.state, "dishka_container", None)
-    node_registry = getattr(app.state, "node_registry", None)
-    worker_snapshots = (
-        node_registry.worker_snapshots if node_registry is not None else None
-    )
+    worker_snapshots = await _resolve_worker_snapshots(app, container)
     worker_metrics = "\n".join(
         PipelineMetricsCollector.worker_metric_lines(worker_snapshots)
     ) + "\n"
@@ -87,3 +84,19 @@ async def _collect_pipeline_metrics(app: FastAPI) -> str:
     except Exception:
         logger.exception("Failed to collect pipeline metrics")
         return PipelineMetricsCollector.unavailable_sample() + worker_metrics
+
+
+async def _resolve_worker_snapshots(app: FastAPI, container) -> Callable | None:
+    node_registry = getattr(app.state, "node_registry", None)
+    if node_registry is None and container is not None:
+        try:
+            from api.application.pipeline.registry import NodeRegistry
+
+            node_registry = await container.get(NodeRegistry)
+        except Exception:
+            logger.exception("Failed to resolve NodeRegistry for pipeline metrics")
+            return None
+
+    if node_registry is None:
+        return None
+    return node_registry.worker_snapshots
