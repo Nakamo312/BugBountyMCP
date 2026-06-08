@@ -79,8 +79,9 @@ async def _collect_pipeline_metrics(app: FastAPI) -> str:
         session_factory = await container.get(async_sessionmaker)
         durable_metrics = await PipelineMetricsCollector(
             session_factory,
+            worker_snapshots=worker_snapshots,
         ).collect()
-        return durable_metrics + worker_metrics
+        return durable_metrics
     except Exception:
         logger.exception("Failed to collect pipeline metrics")
         return PipelineMetricsCollector.unavailable_sample() + worker_metrics

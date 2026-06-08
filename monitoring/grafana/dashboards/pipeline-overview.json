@@ -150,7 +150,7 @@
           "title": "Target Status",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
-          "targets": [{"refId": "A", "expr": "up{job=~\"bugbounty-api|rabbitmq|cadvisor|node-exporter\"}", "legendFormat": "{{job}}"}],
+          "targets": [{"refId": "A", "expr": "up{job=~\"bugbounty-api|rabbitmq|cadvisor|node-exporter\"}", "legendFormat": "{{job}}", "instant": true}],
           "gridPos": {"h": 6, "w": 24, "x": 0, "y": 13}
         }
       ]
@@ -227,7 +227,7 @@
           "title": "Queues Without Consumers",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {"defaults": {"decimals": 0}, "overrides": []},
-          "targets": [{"refId": "A", "expr": "(sum by (queue) (rabbitmq_queue_messages_ready) > 0) and (sum by (queue) (rabbitmq_queue_consumers) == 0)", "legendFormat": "{{queue}}"}],
+          "targets": [{"refId": "A", "expr": "(sum by (queue) (rabbitmq_queue_messages_ready) > bool 0) * on(queue) (sum by (queue) (rabbitmq_queue_consumers) == bool 0)", "legendFormat": "{{queue}}"}],
           "gridPos": {"h": 8, "w": 8, "x": 0, "y": 15}
         },
         {
@@ -236,7 +236,7 @@
           "title": "RabbitMQ Publish Rate",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {"defaults": {"unit": "ops", "decimals": 1}, "overrides": []},
-          "targets": [{"refId": "A", "expr": "sum(rate(rabbitmq_global_messages_published_total[$__rate_interval]))"}],
+          "targets": [{"refId": "A", "expr": "sum(rate(rabbitmq_global_messages_received_total[$__rate_interval]))"}],
           "gridPos": {"h": 8, "w": 8, "x": 8, "y": 15}
         },
         {
