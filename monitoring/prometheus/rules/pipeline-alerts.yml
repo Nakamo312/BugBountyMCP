@@ -11,7 +11,7 @@ groups:
           description: A monitored target has stopped responding to Prometheus scrapes.
 
       - alert: ContainerMemoryHigh
-        expr: sum by (name) (container_memory_working_set_bytes{name!=""}) / clamp_min(sum by (name) (container_spec_memory_limit_bytes{name!=""}), 1) > 0.85
+        expr: sum by (name) (container_memory_working_set_bytes{image!=""}) / clamp_min(sum by (name) (container_spec_memory_limit_bytes{image!=""}), 1) > 0.85
         for: 10m
         labels:
           severity: warning

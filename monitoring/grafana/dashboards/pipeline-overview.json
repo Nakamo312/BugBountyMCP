@@ -10,12 +10,12 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Pipeline Health",
+      "title": "Prometheus Targets",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
           "refId": "A",
-          "expr": "min(pipeline_metrics_available)"
+          "expr": "up{job=~\"bugbounty-api|rabbitmq|cadvisor|node-exporter\"}"
         }
       ],
       "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0}
@@ -80,7 +80,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name!=\"\"}[$__rate_interval]))"
+          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{image!=\"\"}[$__rate_interval]))"
         }
       ],
       "gridPos": {"h": 8, "w": 8, "x": 0, "y": 4}
@@ -93,7 +93,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (name) (container_memory_working_set_bytes{name!=\"\"})"
+          "expr": "sum by (name) (container_memory_working_set_bytes{image!=\"\"})"
         }
       ],
       "gridPos": {"h": 8, "w": 8, "x": 8, "y": 4}
@@ -204,7 +204,7 @@
     },
     {
       "id": 16,
-      "type": "timeseries",
+      "type": "bargauge",
       "title": "Scheduled Queue Depth",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
@@ -247,7 +247,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT created_at, event_type, source, run_status, correlation_id FROM pipeline_event_timeline ORDER BY created_at DESC LIMIT 50;"
+          "rawSql": "SELECT created_at, event_type, source, run_status, correlation_id FROM pipeline_event_timeline WHERE $__timeFilter(created_at) ORDER BY created_at DESC LIMIT 50;"
         }
       ],
       "gridPos": {"h": 8, "w": 24, "x": 0, "y": 42}

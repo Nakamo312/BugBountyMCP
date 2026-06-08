@@ -171,6 +171,8 @@ class PipelineMetricsCollector:
                     float(row["oldest_age_seconds"] or 0),
                 )
             )
+        if not scheduled_age_rows:
+            lines.append(self.format_sample("pipeline_scheduled_oldest_age_seconds", {}, 0))
 
         lines.extend(
             [
@@ -189,6 +191,8 @@ class PipelineMetricsCollector:
                     float(row["oldest_age_seconds"] or 0),
                 )
             )
+        if not retry_age_rows:
+            lines.append(self.format_sample("pipeline_retry_due_oldest_age_seconds", {}, 0))
 
         lines.extend(
             [
@@ -207,6 +211,8 @@ class PipelineMetricsCollector:
                     float(row["oldest_age_seconds"] or 0),
                 )
             )
+        if not reconcile_age_rows:
+            lines.append(self.format_sample("pipeline_reconcile_oldest_age_seconds", {}, 0))
 
         lines.extend(
             [
