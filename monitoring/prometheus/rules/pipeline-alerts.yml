@@ -1,0 +1,38 @@
+groups:
+  - name: pipeline
+    rules:
+      - alert: PipelineScheduledQueueBacklog
+        expr: sum(pipeline_scheduled_queue_depth) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Scheduled pipeline queue backlog is growing
+          description: More than 100 scheduled node runs are queued.
+
+      - alert: PipelineRetryDueRuns
+        expr: sum(pipeline_retry_due_runs) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Pipeline runs are due for retry
+          description: Failed scheduled node runs are eligible for explicit retry.
+
+      - alert: PipelineReconcileRequired
+        expr: sum(pipeline_reconcile_runs) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Pipeline runs require reconcile
+          description: Raw artifact metadata or other durable state needs operator reconcile.
+
+      - alert: RabbitMQDeadLetterMessages
+        expr: sum(rabbitmq_queue_messages_ready{queue=~".*\\.dlq"}) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: RabbitMQ dead-letter queue has messages
+          description: Trigger delivery failures are present in a DLQ and need inspection.

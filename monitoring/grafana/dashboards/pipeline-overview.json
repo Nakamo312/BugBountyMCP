@@ -2,7 +2,7 @@
   "uid": "bugbounty-pipeline-overview",
   "title": "BugBounty Pipeline Overview",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "refresh": "15s",
   "tags": ["bugbounty", "pipeline"],
   "timezone": "browser",
@@ -84,6 +84,71 @@
         }
       ],
       "gridPos": {"h": 14, "w": 24, "x": 0, "y": 22}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Scheduled Queue Depth",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (node_id) (pipeline_scheduled_queue_depth)"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Running Node Runs",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (node_id) (pipeline_runs{status=\"running\"})"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Retry Due Runs",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (node_id, retry_reason) (pipeline_retry_due_runs)"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 44}
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Reconcile Required",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (node_id, reconcile_reason) (pipeline_reconcile_runs)"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 44}
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Run Duration Seconds",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (node_id, terminal_outcome) (pipeline_run_duration_seconds_sum) / clamp_min(sum by (node_id, terminal_outcome) (pipeline_run_duration_seconds_count), 1)"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 44}
     }
   ]
 }
