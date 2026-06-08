@@ -2,281 +2,329 @@
   "uid": "bugbounty-pipeline-overview",
   "title": "BugBounty Pipeline Overview",
   "schemaVersion": 39,
-  "version": 5,
+  "version": 6,
   "refresh": "15s",
   "tags": ["bugbounty", "pipeline", "observability"],
   "timezone": "browser",
+  "templating": {
+    "list": [
+      {
+        "name": "node_id",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(pipeline_worker_capacity, node_id)",
+        "includeAll": true,
+        "multi": true,
+        "current": {"selected": true, "text": "All", "value": "$__all"}
+      },
+      {
+        "name": "queue",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(rabbitmq_queue_messages_ready, queue)",
+        "includeAll": true,
+        "multi": true,
+        "current": {"selected": true, "text": "All", "value": "$__all"}
+      },
+      {
+        "name": "container",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(container_memory_working_set_bytes{image!=\"\"}, name)",
+        "includeAll": true,
+        "multi": true,
+        "current": {"selected": true, "text": "All", "value": "$__all"}
+      }
+    ]
+  },
   "panels": [
     {
       "id": 1,
       "type": "stat",
       "title": "Prometheus Targets",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "up{job=~\"bugbounty-api|rabbitmq|cadvisor|node-exporter\"}"
-        }
-      ],
-      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0}
+      "targets": [{"refId": "A", "expr": "up{job=~\"bugbounty-api|rabbitmq|cadvisor|node-exporter\"}"}],
+      "gridPos": {"h": 4, "w": 3, "x": 0, "y": 0}
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "Worker Registry",
+      "title": "Host Memory Used",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "pipeline_worker_registry_available"
-        }
-      ],
-      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0}
+      "targets": [{"refId": "A", "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))"}],
+      "gridPos": {"h": 4, "w": 3, "x": 3, "y": 0}
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "Worker Nodes",
+      "title": "Container Memory Max",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "pipeline_worker_registry_nodes"
-        }
-      ],
-      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0}
+      "targets": [{"refId": "A", "expr": "max by (name) (container_memory_working_set_bytes{image!=\"\"})"}],
+      "gridPos": {"h": 4, "w": 3, "x": 6, "y": 0}
     },
     {
       "id": 4,
       "type": "stat",
-      "title": "Workers Capacity",
+      "title": "Worker Saturation",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (node_id) (pipeline_worker_capacity)"
-        }
-      ],
-      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0}
+      "targets": [{"refId": "A", "expr": "sum(pipeline_worker_busy) / clamp_min(sum(pipeline_worker_capacity), 1)"}],
+      "gridPos": {"h": 4, "w": 3, "x": 9, "y": 0}
     },
     {
       "id": 5,
       "type": "stat",
-      "title": "Workers Busy",
+      "title": "Largest Scheduled Backlog",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (node_id) (pipeline_worker_busy)"
-        }
-      ],
-      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0}
-    },
-    {
-      "id": 19,
-      "type": "stat",
-      "title": "Scheduled Oldest Age",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max by (node_id) (pipeline_scheduled_oldest_age_seconds)"
-        }
-      ],
-      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0}
-    },
-    {
-      "id": 20,
-      "type": "stat",
-      "title": "Reconcile Oldest Age",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max by (node_id, reconcile_reason) (pipeline_reconcile_oldest_age_seconds)"
-        }
-      ],
-      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 20}
+      "targets": [{"refId": "A", "expr": "max(pipeline_scheduled_queue_depth)"}],
+      "gridPos": {"h": 4, "w": 3, "x": 12, "y": 0}
     },
     {
       "id": 6,
-      "type": "timeseries",
-      "title": "Container CPU",
+      "type": "stat",
+      "title": "Oldest Scheduled Debt",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{image!=\"\"}[$__rate_interval]))"
-        }
-      ],
-      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 4}
+      "targets": [{"refId": "A", "expr": "max(pipeline_scheduled_oldest_age_seconds)"}],
+      "gridPos": {"h": 4, "w": 3, "x": 15, "y": 0}
     },
     {
       "id": 7,
-      "type": "timeseries",
-      "title": "Container Memory",
+      "type": "stat",
+      "title": "Retry Debt",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (name) (container_memory_working_set_bytes{image!=\"\"})"
-        }
-      ],
-      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 4}
+      "targets": [{"refId": "A", "expr": "max(pipeline_retry_due_oldest_age_seconds)"}],
+      "gridPos": {"h": 4, "w": 3, "x": 18, "y": 0}
     },
     {
       "id": 8,
-      "type": "timeseries",
-      "title": "Host CPU",
+      "type": "stat",
+      "title": "Reconcile Debt",
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[$__rate_interval])))"
-        }
-      ],
-      "gridPos": {"h": 8, "w": 4, "x": 16, "y": 4}
+      "targets": [{"refId": "A", "expr": "max(pipeline_reconcile_oldest_age_seconds)"}],
+      "gridPos": {"h": 4, "w": 3, "x": 21, "y": 0}
     },
     {
-      "id": 9,
-      "type": "timeseries",
-      "title": "Host Memory",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
+      "id": 100,
+      "type": "row",
+      "title": "Infrastructure",
+      "collapsed": true,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 4},
+      "panels": [
         {
-          "refId": "A",
-          "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))"
-        }
-      ],
-      "gridPos": {"h": 8, "w": 4, "x": 20, "y": 4}
-    },
-    {
-      "id": 10,
-      "type": "timeseries",
-      "title": "RabbitMQ Ready",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (queue) (rabbitmq_queue_messages_ready)"
-        }
-      ],
-      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 12}
-    },
-    {
-      "id": 11,
-      "type": "timeseries",
-      "title": "RabbitMQ Unacked",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (queue) (rabbitmq_queue_messages_unacked)"
-        }
-      ],
-      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 12}
-    },
-    {
-      "id": 12,
-      "type": "timeseries",
-      "title": "RabbitMQ Consumers",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (queue) (rabbitmq_queue_consumers)"
-        }
-      ],
-      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 12}
-    },
-    {
-      "id": 13,
-      "type": "timeseries",
-      "title": "Queue Backlog Growth",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "deriv(sum by (queue) (rabbitmq_queue_messages_ready)[10m:])"
-        }
-      ],
-      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 12}
-    },
-    {
-      "id": 14,
-      "type": "timeseries",
-      "title": "Worker Heartbeat Age",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "time() - pipeline_worker_last_heartbeat_timestamp_seconds"
-        }
-      ],
-      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 20}
-    },
-    {
-      "id": 15,
-      "type": "timeseries",
-      "title": "Retry Oldest Age",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max by (node_id, retry_reason) (pipeline_retry_due_oldest_age_seconds)"
-        }
-      ],
-      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 20}
-    },
-    {
-      "id": 16,
-      "type": "bargauge",
-      "title": "Scheduled Queue Depth",
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (node_id) (pipeline_scheduled_queue_depth)"
-        }
-      ],
-      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 20}
-    },
-    {
-      "id": 17,
-      "type": "nodeGraph",
-      "title": "Pipeline Flow Graph",
-      "datasource": {"type": "postgres", "uid": "bugbounty-postgres"},
-      "options": {
-        "nodes": {},
-        "edges": {}
-      },
-      "targets": [
-        {
-          "refId": "nodes",
-          "format": "table",
-          "rawSql": "SELECT id::text AS id, title::text AS title, subtitle::text AS subtitle, mainstat::text AS mainstat, secondarystat::text AS secondarystat, node_type::text AS node_type, status::text AS status, \"nodeRadius\", color::text AS color FROM pipeline_graph_nodes WHERE created_at >= now() - interval '24 hours' UNION ALL SELECT 'placeholder:no-recent-flow' AS id, 'No recent pipeline flow' AS title, 'last 24 hours' AS subtitle, 'idle' AS mainstat, '' AS secondarystat, 'placeholder' AS node_type, NULL::text AS status, 42::numeric AS \"nodeRadius\", 'gray' AS color WHERE NOT EXISTS (SELECT 1 FROM pipeline_graph_nodes WHERE created_at >= now() - interval '24 hours') ORDER BY id;"
+          "id": 101,
+          "type": "timeseries",
+          "title": "Host CPU",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[$__rate_interval])))"}],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5}
         },
         {
-          "refId": "edges",
-          "format": "table",
-          "rawSql": "SELECT id::text AS id, source::text AS source, target::text AS target, mainstat::text AS mainstat, secondarystat::text AS secondarystat, edge_type::text AS edge_type FROM pipeline_graph_edges WHERE created_at >= now() - interval '24 hours' ORDER BY id;"
+          "id": 102,
+          "type": "timeseries",
+          "title": "Host Memory",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))"}],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5}
         }
-      ],
-      "gridPos": {"h": 14, "w": 24, "x": 0, "y": 28}
+      ]
     },
     {
-      "id": 18,
-      "type": "table",
-      "title": "Recent Events",
-      "datasource": {"type": "postgres", "uid": "bugbounty-postgres"},
-      "targets": [
+      "id": 200,
+      "type": "row",
+      "title": "Containers",
+      "collapsed": true,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
+      "panels": [
         {
-          "refId": "A",
-          "format": "table",
-          "rawSql": "SELECT created_at, event_type, source, run_status, correlation_id FROM pipeline_event_timeline WHERE $__timeFilter(created_at) ORDER BY created_at DESC LIMIT 50;"
+          "id": 201,
+          "type": "timeseries",
+          "title": "Container CPU",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{image!=\"\"}[$__rate_interval]))"}],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6}
+        },
+        {
+          "id": 202,
+          "type": "timeseries",
+          "title": "Container Memory",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "sum by (name) (container_memory_working_set_bytes{image!=\"\"})"}],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6}
         }
-      ],
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 42}
+      ]
+    },
+    {
+      "id": 300,
+      "type": "row",
+      "title": "RabbitMQ",
+      "collapsed": true,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 6},
+      "panels": [
+        {
+          "id": 301,
+          "type": "timeseries",
+          "title": "RabbitMQ Ready",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "sum by (queue) (rabbitmq_queue_messages_ready)"}],
+          "gridPos": {"h": 8, "w": 6, "x": 0, "y": 7}
+        },
+        {
+          "id": 302,
+          "type": "timeseries",
+          "title": "RabbitMQ Unacked",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "sum by (queue) (rabbitmq_queue_messages_unacked)"}],
+          "gridPos": {"h": 8, "w": 6, "x": 6, "y": 7}
+        },
+        {
+          "id": 303,
+          "type": "timeseries",
+          "title": "RabbitMQ Consumers",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "sum by (queue) (rabbitmq_queue_consumers)"}],
+          "gridPos": {"h": 8, "w": 6, "x": 12, "y": 7}
+        },
+        {
+          "id": 304,
+          "type": "timeseries",
+          "title": "Queue Backlog Growth",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "deriv(sum by (queue) (rabbitmq_queue_messages_ready)[10m:])"}],
+          "gridPos": {"h": 8, "w": 6, "x": 18, "y": 7}
+        }
+      ]
+    },
+    {
+      "id": 400,
+      "type": "row",
+      "title": "Workers",
+      "collapsed": true,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 7},
+      "panels": [
+        {
+          "id": 401,
+          "type": "stat",
+          "title": "Worker Registry",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "pipeline_worker_registry_available"}],
+          "gridPos": {"h": 4, "w": 4, "x": 0, "y": 8}
+        },
+        {
+          "id": 402,
+          "type": "stat",
+          "title": "Worker Nodes",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "pipeline_worker_registry_nodes"}],
+          "gridPos": {"h": 4, "w": 4, "x": 4, "y": 8}
+        },
+        {
+          "id": 403,
+          "type": "bargauge",
+          "title": "Workers Capacity",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "sum by (node_id) (pipeline_worker_capacity)"}],
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8}
+        },
+        {
+          "id": 404,
+          "type": "bargauge",
+          "title": "Workers Busy",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "sum by (node_id) (pipeline_worker_busy)"}],
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8}
+        },
+        {
+          "id": 405,
+          "type": "timeseries",
+          "title": "Worker Heartbeat Age",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "time() - pipeline_worker_last_heartbeat_timestamp_seconds"}],
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+        }
+      ]
+    },
+    {
+      "id": 500,
+      "type": "row",
+      "title": "Pipeline Debt",
+      "collapsed": true,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 8},
+      "panels": [
+        {
+          "id": 501,
+          "type": "bargauge",
+          "title": "Scheduled Queue Depth",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "sum by (node_id) (pipeline_scheduled_queue_depth)"}],
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 9}
+        },
+        {
+          "id": 502,
+          "type": "bargauge",
+          "title": "Scheduled Oldest Age",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "max by (node_id) (pipeline_scheduled_oldest_age_seconds)"}],
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 9}
+        },
+        {
+          "id": 503,
+          "type": "stat",
+          "title": "Retry Oldest Age",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "max by (node_id, retry_reason) (pipeline_retry_due_oldest_age_seconds)"}],
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 9}
+        },
+        {
+          "id": 504,
+          "type": "stat",
+          "title": "Reconcile Oldest Age",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"refId": "A", "expr": "max by (node_id, reconcile_reason) (pipeline_reconcile_oldest_age_seconds)"}],
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 17}
+        },
+        {
+          "id": 505,
+          "type": "nodeGraph",
+          "title": "Pipeline Flow Graph",
+          "datasource": {"type": "postgres", "uid": "bugbounty-postgres"},
+          "options": {"nodes": {}, "edges": {}},
+          "targets": [
+            {
+              "refId": "nodes",
+              "format": "table",
+              "rawSql": "SELECT id::text AS id, title::text AS title, subtitle::text AS subtitle, mainstat::text AS mainstat, secondarystat::text AS secondarystat, node_type::text AS node_type, status::text AS status, \"nodeRadius\", color::text AS color FROM pipeline_graph_nodes WHERE created_at >= now() - interval '24 hours' UNION ALL SELECT 'placeholder:no-recent-flow' AS id, 'No recent pipeline flow' AS title, 'last 24 hours' AS subtitle, 'idle' AS mainstat, '' AS secondarystat, 'placeholder' AS node_type, NULL::text AS status, 42::numeric AS \"nodeRadius\", 'gray' AS color WHERE NOT EXISTS (SELECT 1 FROM pipeline_graph_nodes WHERE created_at >= now() - interval '24 hours') ORDER BY id;"
+            },
+            {
+              "refId": "edges",
+              "format": "table",
+              "rawSql": "SELECT id::text AS id, source::text AS source, target::text AS target, mainstat::text AS mainstat, secondarystat::text AS secondarystat, edge_type::text AS edge_type FROM pipeline_graph_edges WHERE created_at >= now() - interval '24 hours' ORDER BY id;"
+            }
+          ],
+          "gridPos": {"h": 14, "w": 16, "x": 8, "y": 17}
+        }
+      ]
+    },
+    {
+      "id": 600,
+      "type": "row",
+      "title": "Events",
+      "collapsed": true,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 9},
+      "panels": [
+        {
+          "id": 601,
+          "type": "table",
+          "title": "Recent Events",
+          "datasource": {"type": "postgres", "uid": "bugbounty-postgres"},
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "rawSql": "SELECT created_at, event_type, source, run_status, correlation_id FROM pipeline_event_timeline WHERE $__timeFilter(created_at) ORDER BY created_at DESC LIMIT 50;"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 10}
+        }
+      ]
     }
   ]
 }
