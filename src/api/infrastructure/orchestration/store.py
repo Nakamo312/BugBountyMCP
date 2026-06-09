@@ -249,7 +249,7 @@ class OrchestrationStore:
         node_id: str,
         event_name: str | None,
         trigger_event_id: uuid.UUID | None = None,
-    ) -> None:
+    ) -> bool:
         now = datetime.now(timezone.utc)
         values = {
             "node_id": node_id,
@@ -264,8 +264,9 @@ class OrchestrationStore:
             "updated_at": now,
             "error": None,
         }
+
         async with self.session_factory() as session:
-            await session.execute(
+            result = await session.execute(
                 update(runs)
                 .where(runs.c.id == run_id)
                 .where(
@@ -277,6 +278,8 @@ class OrchestrationStore:
                 .values(**values)
             )
             await session.commit()
+
+        return int(getattr(result, "rowcount", 0) or 0) == 1
 
     async def claim_node_run(
         self,
@@ -627,14 +630,18 @@ class OrchestrationStore:
         self,
         *,
         run_id: uuid.UUID,
-    ) -> None:
+    ) -> bool:
         now = datetime.now(timezone.utc)
+
         async with self.session_factory() as session:
-            await session.execute(
+            result = await session.execute(
                 update(runs)
+                .where(runs.c.id == run_id)
                 .where(
-                    runs.c.id == run_id,
-                    runs.c.status == ExecutionStatus.RUNNING.value,
+                    or_(
+                        runs.c.execution_mode != ExecutionMode.SCHEDULED.value,
+                        runs.c.status == ExecutionStatus.RUNNING.value,
+                    )
                 )
                 .values(
                     status=ExecutionStatus.FLUSHING.value,
@@ -644,6 +651,8 @@ class OrchestrationStore:
             )
             await session.commit()
 
+        return int(getattr(result, "rowcount", 0) or 0) == 1
+
     async def mark_run_finished(
         self,
         *,
@@ -652,7 +661,7 @@ class OrchestrationStore:
         error: str | None = None,
         terminal_outcome: TerminalOutcome | None = None,
         retry_policy: dict | None = None,
-    ) -> None:
+    ) -> bool:
         if status not in {
             ExecutionStatus.COMPLETED,
             ExecutionStatus.FAILED,
@@ -661,6 +670,25 @@ class OrchestrationStore:
         }:
             raise ValueError(f"Invalid terminal run status: {status}")
 
+        if status == ExecutionStatus.COMPLETED:
+            allowed_source_statuses = [ExecutionStatus.FLUSHING.value]
+        elif status == ExecutionStatus.FAILED:
+            allowed_source_statuses = [
+                ExecutionStatus.RUNNING.value,
+                ExecutionStatus.FLUSHING.value,
+            ]
+        elif status == ExecutionStatus.DEAD:
+            allowed_source_statuses = [ExecutionStatus.FAILED.value]
+        elif status == ExecutionStatus.CANCELLED:
+            allowed_source_statuses = [
+                ExecutionStatus.QUEUED.value,
+                ExecutionStatus.LEASED.value,
+                ExecutionStatus.RUNNING.value,
+                ExecutionStatus.FLUSHING.value,
+            ]
+        else:
+            allowed_source_statuses = []
+
         now = datetime.now(timezone.utc)
         retry_values = self._retry_values(
             now=now,
@@ -668,10 +696,17 @@ class OrchestrationStore:
             terminal_outcome=terminal_outcome,
             retry_policy=retry_policy,
         )
+
         async with self.session_factory() as session:
-            await session.execute(
+            result = await session.execute(
                 update(runs)
                 .where(runs.c.id == run_id)
+                .where(
+                    or_(
+                        runs.c.execution_mode != ExecutionMode.SCHEDULED.value,
+                        runs.c.status.in_(allowed_source_statuses),
+                    )
+                )
                 .values(
                     status=status.value,
                     finished_at=now,
@@ -684,6 +719,8 @@ class OrchestrationStore:
                 )
             )
             await session.commit()
+
+        return int(getattr(result, "rowcount", 0) or 0) == 1
 
     async def requeue_retryable_node_runs(
         self,

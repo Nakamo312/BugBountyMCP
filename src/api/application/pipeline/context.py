@@ -189,37 +189,39 @@ class PipelineContext:
         except Exception:
             logger.warning("Failed to mark run as needing reconcile", exc_info=True)
 
-    async def mark_run_started(self) -> None:
+    async def mark_run_started(self) -> bool:
         if not self._container or self.run_id is None:
-            return
+            return True
+
         from api.infrastructure.orchestration.store import OrchestrationStore
 
         async with self._container() as request_container:
             store = await request_container.get(OrchestrationStore)
-            await store.mark_run_started(
+            return await store.mark_run_started(
                 run_id=self.run_id,
                 node_id=self.node_id,
                 event_name=self.event_name,
                 trigger_event_id=self.event_id,
             )
 
-    async def mark_run_completed(self) -> None:
-        await self._mark_run_finished(
+    async def mark_run_completed(self) -> bool:
+        return await self._mark_run_finished(
             ExecutionStatus.COMPLETED,
             terminal_outcome=TerminalOutcome.COMPLETED,
         )
 
-    async def mark_run_flushing(self) -> None:
+    async def mark_run_flushing(self) -> bool:
         if not self._container or self.run_id is None:
-            return
+            return True
+
         from api.infrastructure.orchestration.store import OrchestrationStore
 
         async with self._container() as request_container:
             store = await request_container.get(OrchestrationStore)
-            await store.mark_run_flushing(run_id=self.run_id)
+            return await store.mark_run_flushing(run_id=self.run_id)
 
-    async def mark_run_failed(self, error: Exception) -> None:
-        await self._mark_run_finished(
+    async def mark_run_failed(self, error: Exception) -> bool:
+        return await self._mark_run_finished(
             ExecutionStatus.FAILED,
             error=str(error),
             terminal_outcome=TerminalOutcome.TOOL_FAILED,
@@ -230,14 +232,15 @@ class PipelineContext:
         status: ExecutionStatus,
         error: str | None = None,
         terminal_outcome: TerminalOutcome | None = None,
-    ) -> None:
+    ) -> bool:
         if not self._container or self.run_id is None:
-            return
+            return True
+
         from api.infrastructure.orchestration.store import OrchestrationStore
 
         async with self._container() as request_container:
             store = await request_container.get(OrchestrationStore)
-            await store.mark_run_finished(
+            return await store.mark_run_finished(
                 run_id=self.run_id,
                 status=status,
                 error=error,

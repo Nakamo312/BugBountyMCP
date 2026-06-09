@@ -125,6 +125,8 @@ class Node(ABC):
         async with self._semaphore:
             self._active_executions += 1
             self.heartbeat()
+            ctx = None
+
             try:
                 if self.execution_delay > 0 and not event.get("_skip_execution_delay"):
                     self.logger.debug(f"Delaying execution by {self.execution_delay}s")
@@ -133,19 +135,57 @@ class Node(ABC):
                 ctx = await self._create_context()
                 ctx.retry_policy = self.retry_policy
                 ctx.bind_event(event)
-                await ctx.mark_run_started()
+
+                started = await ctx.mark_run_started()
+                if not started:
+                    self.logger.warning(
+                        "Skipping node execution because run start transition was rejected: "
+                        "node=%s run_id=%s event_type=%s",
+                        self.node_id,
+                        event.get("run_id"),
+                        event.get("_event_type") or event.get("event"),
+                    )
+                    return
+
                 await self.execute(event, ctx)
-                await ctx.mark_run_flushing()
-                await ctx.mark_run_completed()
+
+                flushing = await ctx.mark_run_flushing()
+                if not flushing:
+                    self.logger.warning(
+                        "Skipping completion because run flushing transition was rejected: "
+                        "node=%s run_id=%s event_type=%s",
+                        self.node_id,
+                        event.get("run_id"),
+                        event.get("_event_type") or event.get("event"),
+                    )
+                    return
+
+                completed = await ctx.mark_run_completed()
+                if not completed:
+                    self.logger.warning(
+                        "Run completion transition was rejected: node=%s run_id=%s event_type=%s",
+                        self.node_id,
+                        event.get("run_id"),
+                        event.get("_event_type") or event.get("event"),
+                    )
+
             except Exception as exc:
                 try:
-                    if "ctx" in locals():
-                        await ctx.mark_run_failed(exc)
+                    if ctx is not None:
+                        failed = await ctx.mark_run_failed(exc)
+                        if not failed:
+                            self.logger.warning(
+                                "Run failure transition was rejected: node=%s run_id=%s event_type=%s",
+                                self.node_id,
+                                event.get("run_id"),
+                                event.get("_event_type") or event.get("event"),
+                            )
                 except Exception:
                     self.logger.warning("Failed to mark run as failed", exc_info=True)
+
                 self.logger.error(
                     f"Execution failed for event type={event.get('_event_type')}: {exc}",
-                    exc_info=True
+                    exc_info=True,
                 )
             finally:
                 self._active_executions -= 1
