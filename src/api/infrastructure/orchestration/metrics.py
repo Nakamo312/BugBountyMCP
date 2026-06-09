@@ -39,6 +39,9 @@ class PipelineMetricsCollector:
             leased_rows = (
                 await session.execute(self._scheduled_leased_query(program_id=program_id))
             ).mappings().all()
+            dedup_rows = (
+                    await session.execute(self._scheduled_work_dedup_query(program_id=program_id))
+                ).mappings().all()
             retry_rows = (
                 await session.execute(self._retry_due_query(program_id=program_id))
             ).mappings().all()
@@ -85,7 +88,20 @@ class PipelineMetricsCollector:
                     row["count"],
                 )
             )
-
+        lines.extend(
+            [
+                "# HELP pipeline_scheduled_work_dedup_total Duplicate scheduled work triggers coalesced into existing runs.",
+                "# TYPE pipeline_scheduled_work_dedup_total counter",
+            ]
+        )
+        for row in dedup_rows:
+            lines.append(
+                self.format_sample(
+                    "pipeline_scheduled_work_dedup_total",
+                    {"node_id": row["node_id"] or "unknown"},
+                    int(row["count"] or 0),
+                )
+            )
         lines.extend(
             [
                 "# HELP pipeline_scheduled_queue_depth Queued scheduled node runs by node.",
@@ -426,7 +442,23 @@ class PipelineMetricsCollector:
             .order_by(runs.c.node_id)
         )
         return cls._with_program_filter(query, program_id)
-
+    
+    @classmethod
+    def _scheduled_work_dedup_query(cls, *, program_id: UUID | None):
+        query = (
+            select(
+                runs.c.node_id,
+                func.sum(runs.c.coalesced_trigger_count).label("count"),
+            )
+            .where(
+                runs.c.execution_mode == "scheduled",
+                runs.c.coalesced_trigger_count > 0,
+            )
+            .group_by(runs.c.node_id)
+            .order_by(runs.c.node_id)
+        )
+        return cls._with_program_filter(query, program_id)
+    
     @classmethod
     def _scheduled_leased_query(cls, *, program_id: UUID | None):
         query = (

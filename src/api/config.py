@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE: int = 10
     PIPELINE_SCHEDULER_V2_ENABLED: bool = False
     PIPELINE_SCHEDULER_V2_LEASE_TTL_SECONDS: int = 60
+    PIPELINE_RETRY_REQUEUE_LIMIT_PER_NODE: int = 25
+    PIPELINE_RETRY_REQUEUE_JITTER_SECONDS: float = 10.0
 
     # Declarative action scheduler
     USE_SCHEDULER: bool = True

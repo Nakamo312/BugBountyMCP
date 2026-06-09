@@ -299,6 +299,7 @@ runs = Table(
     Column('claim_key', String(64), nullable=True),
     Column('work_key', String(64), nullable=True),
     Column('coalesced_triggers', JSONType(), nullable=True),
+    Column('coalesced_trigger_count', Integer, nullable=False, server_default="0"),
     Column('input_fingerprint', String(64), nullable=True, index=True),
     Column('target_fingerprint', String(64), nullable=True, index=True),
     Column('execution_mode', String(20), nullable=False, default='inline'),

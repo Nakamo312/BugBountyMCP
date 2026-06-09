@@ -403,6 +403,8 @@ class NodeRegistry:
 
         await store.requeue_retryable_node_runs(
             retry_policies=self._retry_policies_by_node(),
+            max_requeues_per_node=self.settings.PIPELINE_RETRY_REQUEUE_LIMIT_PER_NODE,
+            retry_jitter_seconds=self.settings.PIPELINE_RETRY_REQUEUE_JITTER_SECONDS,
         )
         node_limits = self._scheduled_node_available_slot_limits(
             self.settings.PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE,
@@ -475,6 +477,8 @@ class NodeRegistry:
         await store.recover_stale_leases()
         await store.requeue_retryable_node_runs(
             retry_policies=self._retry_policies_by_node(),
+            max_requeues_per_node=self.settings.PIPELINE_RETRY_REQUEUE_LIMIT_PER_NODE,
+            retry_jitter_seconds=self.settings.PIPELINE_RETRY_REQUEUE_JITTER_SECONDS,
         )
         node_limits = self._scheduled_node_available_slot_limits_v2(
             self.settings.PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE,

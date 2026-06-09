@@ -1,12 +1,14 @@
 """SQLAlchemy persistence for action, job, run, and event state."""
 from __future__ import annotations
 
+import json
+import random
 import uuid
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import insert, or_, select, update
+from sqlalchemy import insert, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -323,6 +325,7 @@ class OrchestrationStore:
                         existing_triggers=existing_work.get("coalesced_triggers"),
                         coalesced_trigger=coalesced_trigger,
                         now=now,
+                        reason=self._work_dedup_reason(existing_work.get("status")),
                     )
                     await session.commit()
                     return self._node_run_claim_from_row(existing_work)
@@ -376,6 +379,7 @@ class OrchestrationStore:
                             existing_triggers=existing_work.get("coalesced_triggers"),
                             coalesced_trigger=coalesced_trigger,
                             now=now,
+                            reason=self._work_dedup_reason(existing_work.get("status")),
                         )
                         await session.commit()
                         return self._node_run_claim_from_row(existing_work)
@@ -726,9 +730,13 @@ class OrchestrationStore:
         self,
         *,
         retry_policies: dict[str, dict],
+        max_requeues_per_node: int | None = None,
+        retry_jitter_seconds: float = 0.0,
     ) -> int:
         now = datetime.now(timezone.utc)
         requeued = 0
+        requeue_limit = int(max_requeues_per_node or 0)
+        jitter_seconds = max(float(retry_jitter_seconds or 0.0), 0.0)
 
         async with self.session_factory() as session:
             for node_id, policy in retry_policies.items():
@@ -737,7 +745,7 @@ class OrchestrationStore:
                 if max_attempts <= 1 or not terminal_outcomes:
                     continue
 
-                result = await session.execute(
+                retry_query = (
                     select(runs.c.id)
                     .where(
                         runs.c.node_id == node_id,
@@ -753,14 +761,22 @@ class OrchestrationStore:
                     )
                     .order_by(runs.c.updated_at.asc())
                 )
+                if requeue_limit > 0:
+                    retry_query = retry_query.limit(requeue_limit)
+
+                result = await session.execute(retry_query)
                 run_ids = [
                     row["id"] if isinstance(row, dict) else row[0]
                     for row in result.all()
                 ]
-                if not run_ids:
-                    run_ids = []
 
                 if run_ids:
+                    next_run_at = None
+                    if jitter_seconds > 0:
+                        next_run_at = now + timedelta(
+                            seconds=random.uniform(0.0, jitter_seconds)
+                        )
+
                     await session.execute(
                         update(runs)
                         .where(runs.c.id.in_(run_ids))
@@ -777,6 +793,7 @@ class OrchestrationStore:
                             terminal_outcome=None,
                             error=None,
                             next_retry_at=None,
+                            next_run_at=next_run_at,
                             retry_reason=terminal_outcomes[0],
                             updated_at=now,
                         )
@@ -1027,6 +1044,23 @@ class OrchestrationStore:
         return result.mappings().one_or_none()
 
     @staticmethod
+    def _work_dedup_reason(status: str | ExecutionStatus | None) -> str:
+        status_value = status.value if isinstance(status, ExecutionStatus) else status
+
+        if status_value == ExecutionStatus.QUEUED.value:
+            return "queued_work_key"
+        if status_value == ExecutionStatus.LEASED.value:
+            return "leased_work_key"
+        if status_value == ExecutionStatus.RUNNING.value:
+            return "running_work_key"
+        if status_value == ExecutionStatus.FLUSHING.value:
+            return "flushing_work_key"
+        if status_value == ExecutionStatus.FAILED.value:
+            return "retryable_failed_work_key"
+
+        return "active_work_key"
+    
+    @staticmethod
     async def _append_coalesced_trigger(
         session,
         *,
@@ -1034,15 +1068,51 @@ class OrchestrationStore:
         existing_triggers,
         coalesced_trigger: Mapping[str, Any] | None,
         now: datetime,
+        reason: str | None = None,
+        sample_limit: int = 50,
     ) -> None:
         if coalesced_trigger is None:
             return
-        triggers = list(existing_triggers or [])
-        triggers.append(dict(coalesced_trigger))
+
+        trigger_ref = dict(coalesced_trigger)
+        trigger_ref["reason"] = reason or trigger_ref.get("reason") or "active_work_key"
+        trigger_ref["coalesced_at"] = now.isoformat().replace("+00:00", "Z")
+
+        trigger_sample_json = json.dumps(
+            [trigger_ref],
+            separators=(",", ":"),
+            sort_keys=True,
+            default=str,
+        )
+
         await session.execute(
-            update(runs)
-            .where(runs.c.id == run_id)
-            .values(coalesced_triggers=triggers, updated_at=now)
+            text(
+                """
+                UPDATE runs
+                SET
+                    coalesced_trigger_count = COALESCE(coalesced_trigger_count, 0) + 1,
+                    coalesced_triggers = (
+                        SELECT COALESCE(jsonb_agg(item ORDER BY ord), '[]'::jsonb)
+                        FROM (
+                            SELECT item, ord
+                            FROM jsonb_array_elements(
+                                COALESCE(coalesced_triggers, '[]'::jsonb)
+                                || CAST(:trigger_sample AS jsonb)
+                            ) WITH ORDINALITY AS elems(item, ord)
+                            ORDER BY ord DESC
+                            LIMIT :sample_limit
+                        ) AS tail
+                    ),
+                    updated_at = :now
+                WHERE id = :run_id
+                """
+            ),
+            {
+                "run_id": run_id,
+                "trigger_sample": trigger_sample_json,
+                "sample_limit": sample_limit,
+                "now": now,
+            },
         )
 
     @staticmethod
