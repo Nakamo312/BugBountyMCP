@@ -2,7 +2,8 @@
 from typing import Dict, Set, Any
 import asyncio
 import logging
-from uuid import UUID
+from datetime import datetime, timedelta, timezone
+from uuid import UUID, uuid4
 
 from api.application.contracts import ExecutionMode
 from api.application.pipeline.fingerprints import (
@@ -49,8 +50,10 @@ class NodeRegistry:
         self._nodes: Dict[str, Node] = {}
         self._event_to_nodes: Dict[str, Set[str]] = {}
         self._subscription_tasks: Set[asyncio.Task] = set()
+        self._scheduled_node_tasks: dict[str, set[asyncio.Task]] = {}
         self._scheduled_executor_task: asyncio.Task | None = None
         self._worker_heartbeat_task: asyncio.Task | None = None
+        self._scheduler_lease_owner = f"scheduler-{uuid4()}"
 
     def register(self, node: Node):
         """
@@ -128,6 +131,15 @@ class NodeRegistry:
                 task.cancel()
             await asyncio.gather(*self._subscription_tasks, return_exceptions=True)
             self._subscription_tasks.clear()
+
+        scheduled_tasks = [
+            task
+            for tasks in self._scheduled_node_tasks.values()
+            for task in tasks
+        ]
+        if scheduled_tasks:
+            await asyncio.gather(*scheduled_tasks, return_exceptions=True)
+            self._scheduled_node_tasks.clear()
 
         stop_tasks = [node.stop() for node in self._nodes.values()]
         await asyncio.gather(*stop_tasks, return_exceptions=True)
@@ -208,34 +220,78 @@ class NodeRegistry:
         if store is None:
             return dict(event)
 
+        node = self._nodes[node_id]
         trigger_event_id = UUID(str(event["event_id"]))
-        input_fingerprint = build_node_input_fingerprint(node_id, event)
-        target_fingerprint = build_target_fingerprint(event.get("targets", []))
-        claim_key = build_node_claim_key(
-            trigger_event_id=trigger_event_id,
-            node_id=node_id,
-            input_fingerprint=input_fingerprint,
-        )
-        claim = await store.claim_node_run(
-            claim_key=claim_key,
-            job_id=UUID(str(event["job_id"])),
-            program_id=UUID(str(event["program_id"])),
-            node_id=node_id,
-            event_name=event_name,
-            trigger_event_id=trigger_event_id,
-            input_fingerprint=input_fingerprint,
-            target_fingerprint=target_fingerprint,
-            execution_mode=self._nodes[node_id].execution_mode,
-        )
-        if claim.is_terminal:
+        claim_events = self._claim_events_for_node(node, event)
+        last_claim = None
+        for claim_event in claim_events:
+            input_fingerprint = build_node_input_fingerprint(node_id, claim_event)
+            target_fingerprint = build_target_fingerprint(claim_event.get("targets", []))
+            claim_key = build_node_claim_key(
+                trigger_event_id=trigger_event_id,
+                node_id=node_id,
+                input_fingerprint=input_fingerprint,
+            )
+            last_claim = await store.claim_node_run(
+                claim_key=claim_key,
+                job_id=UUID(str(event["job_id"])),
+                program_id=UUID(str(event["program_id"])),
+                node_id=node_id,
+                event_name=event_name,
+                trigger_event_id=trigger_event_id,
+                input_fingerprint=input_fingerprint,
+                target_fingerprint=target_fingerprint,
+                execution_mode=node.execution_mode,
+                next_run_at=self._scheduled_next_run_at(node_id),
+                target_count=self._target_count(claim_event),
+                run_payload=self._run_payload_for_event(claim_event),
+            )
+            if last_claim.is_terminal and node.execution_mode != ExecutionMode.SCHEDULED:
+                return None
+
+        if node.execution_mode == ExecutionMode.SCHEDULED:
             return None
 
-        if self._nodes[node_id].execution_mode == ExecutionMode.SCHEDULED:
+        if last_claim is None or last_claim.is_terminal:
             return None
 
-        claimed_event = dict(event)
-        claimed_event["run_id"] = str(claim.run_id)
+        claimed_event = dict(claim_events[0])
+        claimed_event["run_id"] = str(last_claim.run_id)
         return claimed_event
+
+    def _claim_events_for_node(self, node: Node, event: Dict[str, Any]) -> list[Dict[str, Any]]:
+        if node.execution_mode != ExecutionMode.SCHEDULED:
+            return [dict(event)]
+
+        max_targets = node.max_targets_per_run
+        targets = list(event.get("targets") or [])
+        if max_targets is None or max_targets <= 0 or len(targets) <= max_targets:
+            return [dict(event)]
+
+        chunks = []
+        for offset in range(0, len(targets), max_targets):
+            chunk_targets = targets[offset : offset + max_targets]
+            chunk_event = dict(event)
+            chunk_event["targets"] = chunk_targets
+            if chunk_targets:
+                chunk_event["target"] = chunk_targets[0]
+            chunks.append(chunk_event)
+        return chunks
+
+    @staticmethod
+    def _target_count(event: Dict[str, Any]) -> int | None:
+        targets = event.get("targets")
+        if isinstance(targets, list):
+            return len(targets)
+        return None
+
+    @staticmethod
+    def _run_payload_for_event(event: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            key: value
+            for key, value in event.items()
+            if key not in {"event_id", "created_at"}
+        }
 
     def _should_start_scheduled_executor(self) -> bool:
         if not self.settings.PIPELINE_SCHEDULED_EXECUTOR_ENABLED:
@@ -258,6 +314,10 @@ class NodeRegistry:
             await asyncio.sleep(self.settings.PIPELINE_SCHEDULED_EXECUTOR_POLL_SECONDS)
 
     async def _drain_scheduled_node_runs_once(self) -> None:
+        if self.settings.PIPELINE_SCHEDULER_V2_ENABLED:
+            await self._drain_scheduled_node_runs_once_v2()
+            return
+
         store = await self._get_orchestration_store()
         if store is None:
             return
@@ -265,8 +325,14 @@ class NodeRegistry:
         await store.requeue_retryable_node_runs(
             retry_policies=self._retry_policies_by_node(),
         )
-        leased_runs = await store.lease_scheduled_node_runs(
-            limit=self.settings.PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE,
+        node_limits = self._scheduled_node_available_slot_limits(
+            self.settings.PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE,
+        )
+        if not node_limits:
+            return
+
+        leased_runs = await store.lease_scheduled_node_runs_by_node_limits(
+            node_limits=node_limits,
         )
         if not leased_runs:
             return
@@ -303,6 +369,112 @@ class NodeRegistry:
                     result,
                     exc_info=(type(result), result, result.__traceback__),
                 )
+
+    def _scheduled_node_available_slot_limits(self, batch_size: int) -> dict[str, int]:
+        if batch_size <= 0:
+            return {}
+
+        remaining = batch_size
+        limits: dict[str, int] = {}
+        for node_id, node in sorted(self._nodes.items()):
+            if node.execution_mode != ExecutionMode.SCHEDULED:
+                continue
+            node_limit = min(node.available_slots(), remaining)
+            if node_limit <= 0:
+                continue
+            limits[node_id] = node_limit
+            remaining -= node_limit
+            if remaining <= 0:
+                break
+        return limits
+
+    async def _drain_scheduled_node_runs_once_v2(self) -> None:
+        store = await self._get_orchestration_store()
+        if store is None:
+            return
+
+        await store.recover_stale_leases()
+        await store.requeue_retryable_node_runs(
+            retry_policies=self._retry_policies_by_node(),
+        )
+        node_limits = self._scheduled_node_available_slot_limits_v2(
+            self.settings.PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE,
+        )
+        if not node_limits:
+            return
+
+        leased_runs = await store.lease_ready_scheduled_node_runs(
+            node_limits=node_limits,
+            lease_owner=self._scheduler_lease_owner,
+            lease_ttl_seconds=self.settings.PIPELINE_SCHEDULER_V2_LEASE_TTL_SECONDS,
+        )
+        for leased_run in leased_runs:
+            node = self._nodes.get(leased_run.node_id)
+            if node is None:
+                logger.error(
+                    "Leased scheduled run for unknown node: node=%s run_id=%s",
+                    leased_run.node_id,
+                    leased_run.run_id,
+                )
+                continue
+            event = dict(leased_run.event)
+            event["_skip_execution_delay"] = True
+            self._launch_scheduled_node_task(leased_run.node_id, node, event)
+
+    def _scheduled_node_available_slot_limits_v2(self, batch_size: int) -> dict[str, int]:
+        if batch_size <= 0:
+            return {}
+
+        remaining = batch_size
+        limits: dict[str, int] = {}
+        for node_id, node in sorted(self._nodes.items()):
+            if node.execution_mode != ExecutionMode.SCHEDULED:
+                continue
+            inflight = len(self._scheduled_node_tasks.get(node_id, set()))
+            node_limit = min(max(node.max_parallelism - inflight, 0), remaining)
+            if node_limit <= 0:
+                continue
+            limits[node_id] = node_limit
+            remaining -= node_limit
+            if remaining <= 0:
+                break
+        return limits
+
+    def _launch_scheduled_node_task(
+        self,
+        node_id: str,
+        node: Node,
+        event: dict[str, Any],
+    ) -> None:
+        task = asyncio.create_task(node.handle_event(event))
+        node_tasks = self._scheduled_node_tasks.setdefault(node_id, set())
+        node_tasks.add(task)
+
+        def _discard_scheduled_task(completed: asyncio.Task) -> None:
+            node_tasks.discard(completed)
+            if not node_tasks:
+                self._scheduled_node_tasks.pop(node_id, None)
+            try:
+                result = completed.result()
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                logger.exception("Scheduled node run failed: node=%s", node_id)
+                return
+            if isinstance(result, Exception):
+                logger.error("Scheduled node run failed: node=%s error=%s", node_id, result)
+
+        task.add_done_callback(_discard_scheduled_task)
+
+    def _scheduled_next_run_at(self, node_id: str) -> datetime | None:
+        node = self._nodes[node_id]
+        if (
+            not self.settings.PIPELINE_SCHEDULER_V2_ENABLED
+            or node.execution_mode != ExecutionMode.SCHEDULED
+            or node.execution_delay <= 0
+        ):
+            return None
+        return datetime.now(timezone.utc) + timedelta(seconds=node.execution_delay)
 
     def _retry_policies_by_node(self) -> dict[str, dict[str, Any]]:
         return {

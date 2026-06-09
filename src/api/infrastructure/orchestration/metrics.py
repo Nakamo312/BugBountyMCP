@@ -36,6 +36,9 @@ class PipelineMetricsCollector:
             queue_rows = (
                 await session.execute(self._scheduled_queue_query(program_id=program_id))
             ).mappings().all()
+            leased_rows = (
+                await session.execute(self._scheduled_leased_query(program_id=program_id))
+            ).mappings().all()
             retry_rows = (
                 await session.execute(self._retry_due_query(program_id=program_id))
             ).mappings().all()
@@ -47,6 +50,9 @@ class PipelineMetricsCollector:
             ).mappings().all()
             scheduled_age_rows = (
                 await session.execute(self._scheduled_oldest_age_query(program_id=program_id))
+            ).mappings().all()
+            leased_age_rows = (
+                await session.execute(self._scheduled_leased_oldest_age_query(program_id=program_id))
             ).mappings().all()
             retry_age_rows = (
                 await session.execute(self._retry_due_oldest_age_query(program_id=program_id))
@@ -90,6 +96,21 @@ class PipelineMetricsCollector:
             lines.append(
                 self.format_sample(
                     "pipeline_scheduled_queue_depth",
+                    {"node_id": row["node_id"] or "unknown"},
+                    row["count"],
+                )
+            )
+
+        lines.extend(
+            [
+                "# HELP pipeline_scheduled_leased_runs Leased scheduled node runs by node.",
+                "# TYPE pipeline_scheduled_leased_runs gauge",
+            ]
+        )
+        for row in leased_rows:
+            lines.append(
+                self.format_sample(
+                    "pipeline_scheduled_leased_runs",
                     {"node_id": row["node_id"] or "unknown"},
                     row["count"],
                 )
@@ -173,6 +194,23 @@ class PipelineMetricsCollector:
             )
         if not scheduled_age_rows:
             lines.append(self.format_sample("pipeline_scheduled_oldest_age_seconds", {}, 0))
+
+        lines.extend(
+            [
+                "# HELP pipeline_scheduled_leased_oldest_age_seconds Age of the oldest leased scheduled node run.",
+                "# TYPE pipeline_scheduled_leased_oldest_age_seconds gauge",
+            ]
+        )
+        for row in leased_age_rows:
+            lines.append(
+                self.format_sample(
+                    "pipeline_scheduled_leased_oldest_age_seconds",
+                    {"node_id": row["node_id"] or "unknown"},
+                    float(row["oldest_age_seconds"] or 0),
+                )
+            )
+        if not leased_age_rows:
+            lines.append(self.format_sample("pipeline_scheduled_leased_oldest_age_seconds", {}, 0))
 
         lines.extend(
             [
@@ -390,6 +428,20 @@ class PipelineMetricsCollector:
         return cls._with_program_filter(query, program_id)
 
     @classmethod
+    def _scheduled_leased_query(cls, *, program_id: UUID | None):
+        query = (
+            select(runs.c.node_id, func.count().label("count"))
+            .where(
+                runs.c.execution_mode == "scheduled",
+                runs.c.status == "leased",
+                runs.c.needs_reconcile.is_(False),
+            )
+            .group_by(runs.c.node_id)
+            .order_by(runs.c.node_id)
+        )
+        return cls._with_program_filter(query, program_id)
+
+    @classmethod
     def _retry_due_query(cls, *, program_id: UUID | None):
         now = datetime.now(timezone.utc)
         query = (
@@ -451,6 +503,22 @@ class PipelineMetricsCollector:
             .where(
                 runs.c.execution_mode == "scheduled",
                 runs.c.status == "queued",
+                runs.c.needs_reconcile.is_(False),
+            )
+            .group_by(runs.c.node_id)
+            .order_by(runs.c.node_id)
+        )
+        return cls._with_program_filter(query, program_id)
+
+    @classmethod
+    def _scheduled_leased_oldest_age_query(cls, *, program_id: UUID | None):
+        oldest_age = func.extract("epoch", func.now() - func.min(runs.c.leased_at))
+        query = (
+            select(runs.c.node_id, oldest_age.label("oldest_age_seconds"))
+            .where(
+                runs.c.execution_mode == "scheduled",
+                runs.c.status == "leased",
+                runs.c.leased_at.is_not(None),
                 runs.c.needs_reconcile.is_(False),
             )
             .group_by(runs.c.node_id)

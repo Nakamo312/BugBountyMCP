@@ -3,7 +3,7 @@ import uuid
 
 from sqlalchemy import (Boolean, CheckConstraint, Column, DateTime, Float,
                         ForeignKey, Index, Integer, MetaData, String, Table, Text, func,
-                        UniqueConstraint)
+                        UniqueConstraint, text)
 from sqlalchemy.dialects.postgresql import ARRAY, JSON
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
@@ -302,8 +302,15 @@ runs = Table(
     Column('execution_mode', String(20), nullable=False, default='inline'),
     Column('status', String(30), nullable=False, index=True),
     Column('attempt', Integer, nullable=False, default=1),
+    Column('leased_at', DateTime(timezone=True), nullable=True),
+    Column('lease_owner', String(100), nullable=True),
+    Column('lease_expires_at', DateTime(timezone=True), nullable=True),
     Column('started_at', DateTime(timezone=True), nullable=True),
     Column('scanner_started_at', DateTime(timezone=True), nullable=True),
+    Column('flushing_at', DateTime(timezone=True), nullable=True),
+    Column('next_run_at', DateTime(timezone=True), nullable=True),
+    Column('target_count', Integer, nullable=True),
+    Column('run_payload', JSONType(), nullable=True),
     Column('next_retry_at', DateTime(timezone=True), nullable=True, index=True),
     Column('finished_at', DateTime(timezone=True), nullable=True),
     Column('terminal_outcome', String(50), nullable=True, index=True),
@@ -317,6 +324,28 @@ runs = Table(
     Index('idx_runs_program_status', 'program_id', 'status'),
     Index('idx_runs_node_event_created', 'node_id', 'event_name', 'created_at'),
     Index('idx_runs_execution_mode_status', 'execution_mode', 'status'),
+    Index(
+        'idx_runs_scheduled_ready_node_next_run_created',
+        'node_id',
+        'next_run_at',
+        'created_at',
+        'id',
+        postgresql_where=text(
+            "execution_mode = 'scheduled' "
+            "AND status = 'queued' "
+            "AND terminal_outcome IS NULL "
+            "AND needs_reconcile = false"
+        ),
+    ),
+    Index(
+        'idx_runs_scheduled_lease_expiry',
+        'lease_expires_at',
+        'id',
+        postgresql_where=text(
+            "execution_mode = 'scheduled' "
+            "AND status = 'leased'"
+        ),
+    ),
     CheckConstraint("attempt > 0", name='ck_runs_attempt_positive'),
     CheckConstraint(
         "claim_key IS NULL OR claim_key != ''",
@@ -332,7 +361,7 @@ runs = Table(
         name='ck_runs_terminal_outcome_valid',
     ),
     CheckConstraint(
-        "status IN ('queued', 'running', 'completed', 'failed', 'cancelled')",
+        "status IN ('queued', 'leased', 'running', 'flushing', 'completed', 'failed', 'dead', 'cancelled')",
         name='ck_runs_status_valid'
     ),
 )

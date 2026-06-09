@@ -13,7 +13,7 @@ def build_observation_pack(row: dict[str, Any]) -> EvidencePack:
 
     program_id = _required_text(row, "program_id")
     endpoint_id = _optional_text(row, "endpoint_id")
-    observation_id = _required_text(row, "observation_id")
+    observation_id = _optional_text(row, "observation_id") or _required_text(row, "id")
     pack_id = f"http-observation:{program_id}:{endpoint_id or 'none'}:{observation_id}"
 
     headers = _headers(row.get("headers"))

@@ -34,6 +34,7 @@ class Hakip2HostNode(Node):
         event_out: Set[EventType] | None = None,
         max_parallelism: int = 1,
         execution_mode: ExecutionMode = ExecutionMode.INLINE,
+        max_targets_per_run: int | None = None,
         retry_policy: dict | None = None,
         scope_policy=ScopePolicy.NONE
     ):
@@ -46,6 +47,7 @@ class Hakip2HostNode(Node):
             event_out=event_out,
             max_parallelism=max_parallelism,
             execution_mode=execution_mode,
+            max_targets_per_run=max_targets_per_run,
             retry_policy=retry_policy,
         )
         self.logger = logging.getLogger(f"node.{node_id}")

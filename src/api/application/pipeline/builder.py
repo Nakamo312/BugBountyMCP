@@ -50,6 +50,12 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
     execution_mode = ExecutionMode(spec.execution_mode)
     retry_policy = _resolve_retry_policy(spec.retry, settings, node_id)
     scope_policy = _resolve_scope(spec.scope, node_id)
+    max_targets_per_run = _resolve_optional_int(
+        spec.max_targets_per_run,
+        settings,
+        node_id,
+        "max_targets_per_run",
+    )
 
     if spec.type == "scan":
         return NodeFactory.create_scan_node(
@@ -63,6 +69,7 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
             max_parallelism=max_parallelism,
             execution_delay=_resolve_number(spec.execution_delay, settings, node_id, "execution_delay"),
             execution_mode=execution_mode,
+            max_targets_per_run=max_targets_per_run,
             retry_policy=retry_policy,
             scope_policy=scope_policy,
         )
@@ -85,6 +92,7 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
             ),
             scope_policy=scope_policy,
             execution_mode=execution_mode,
+            max_targets_per_run=max_targets_per_run,
             retry_policy=retry_policy,
         )
 
@@ -106,6 +114,7 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
             ),
             scope_policy=scope_policy,
             execution_mode=execution_mode,
+            max_targets_per_run=max_targets_per_run,
             retry_policy=retry_policy,
         )
 
@@ -121,6 +130,7 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
             max_parallelism=max_parallelism,
             scope_policy=scope_policy,
             execution_mode=execution_mode,
+            max_targets_per_run=max_targets_per_run,
             retry_policy=retry_policy,
         )
 
@@ -175,6 +185,20 @@ def _resolve_int(value: int | str, settings: Settings, node_id: str, field_name:
     resolved = _resolve_number(value, settings, node_id, field_name)
     if not isinstance(resolved, int):
         raise ValueError(f"Pipeline node '{node_id}' field '{field_name}' must resolve to int")
+    return resolved
+
+
+def _resolve_optional_int(
+    value: int | str | None,
+    settings: Settings,
+    node_id: str,
+    field_name: str,
+) -> int | None:
+    if value is None:
+        return None
+    resolved = _resolve_int(value, settings, node_id, field_name)
+    if resolved < 1:
+        raise ValueError(f"Pipeline node '{node_id}' field '{field_name}' must be >= 1")
     return resolved
 
 

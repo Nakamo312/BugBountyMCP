@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlalchemy import insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -255,6 +257,10 @@ class OrchestrationStore:
             "trigger_event_id": trigger_event_id,
             "status": ExecutionStatus.RUNNING.value,
             "started_at": now,
+            "scanner_started_at": now,
+            "leased_at": None,
+            "lease_owner": None,
+            "lease_expires_at": None,
             "updated_at": now,
             "error": None,
         }
@@ -262,6 +268,12 @@ class OrchestrationStore:
             await session.execute(
                 update(runs)
                 .where(runs.c.id == run_id)
+                .where(
+                    or_(
+                        runs.c.execution_mode != ExecutionMode.SCHEDULED.value,
+                        runs.c.status == ExecutionStatus.LEASED.value,
+                    )
+                )
                 .values(**values)
             )
             await session.commit()
@@ -278,6 +290,9 @@ class OrchestrationStore:
         input_fingerprint: str,
         target_fingerprint: str,
         execution_mode: ExecutionMode = ExecutionMode.INLINE,
+        next_run_at: datetime | None = None,
+        target_count: int | None = None,
+        run_payload: Mapping[str, Any] | None = None,
     ) -> NodeRunClaim:
         now = datetime.now(timezone.utc)
 
@@ -302,6 +317,9 @@ class OrchestrationStore:
                         execution_mode=execution_mode.value,
                         status=ExecutionStatus.QUEUED.value,
                         attempt=1,
+                        next_run_at=next_run_at,
+                        target_count=target_count,
+                        run_payload=dict(run_payload) if run_payload is not None else None,
                         needs_reconcile=False,
                         created_at=now,
                         updated_at=now,
@@ -343,6 +361,8 @@ class OrchestrationStore:
                 event_store.c.profile,
                 event_store.c.confidence,
                 event_store.c.payload,
+                runs.c.run_payload,
+                runs.c.target_count,
             )
             .select_from(
                 runs.join(
@@ -382,6 +402,208 @@ class OrchestrationStore:
 
         return [self._scheduled_node_run_from_row(row) for row in rows]
 
+    async def lease_scheduled_node_runs_by_node_limits(
+        self,
+        *,
+        node_limits: Mapping[str, int],
+    ) -> list[ScheduledNodeRun]:
+        positive_limits = {
+            node_id: limit
+            for node_id, limit in node_limits.items()
+            if node_id and limit > 0
+        }
+        if not positive_limits:
+            return []
+
+        now = datetime.now(timezone.utc)
+        leased_rows = []
+
+        async with self.session_factory() as session:
+            for node_id, limit in sorted(positive_limits.items()):
+                query = (
+                    select(
+                        runs.c.id.label("run_id"),
+                        runs.c.node_id,
+                        runs.c.job_id,
+                        runs.c.program_id,
+                        runs.c.trigger_event_id,
+                        event_store.c.event_type,
+                        event_store.c.correlation_id,
+                        event_store.c.causation_id,
+                        event_store.c.source,
+                        event_store.c.profile,
+                        event_store.c.confidence,
+                        event_store.c.payload,
+                        runs.c.run_payload,
+                        runs.c.target_count,
+                    )
+                    .select_from(
+                        runs.join(
+                            event_store,
+                            runs.c.trigger_event_id == event_store.c.event_id,
+                        )
+                    )
+                    .where(
+                        runs.c.execution_mode == ExecutionMode.SCHEDULED.value,
+                        runs.c.status == ExecutionStatus.QUEUED.value,
+                        runs.c.node_id == node_id,
+                        runs.c.terminal_outcome.is_(None),
+                        runs.c.needs_reconcile.is_(False),
+                    )
+                    .order_by(runs.c.created_at.asc())
+                    .limit(limit)
+                    .with_for_update(skip_locked=True, of=runs)
+                )
+                result = await session.execute(query)
+                rows = result.mappings().all()
+                if not rows:
+                    continue
+
+                run_ids = [row["run_id"] for row in rows]
+                await session.execute(
+                    update(runs)
+                    .where(runs.c.id.in_(run_ids))
+                    .values(
+                        status=ExecutionStatus.RUNNING.value,
+                        scanner_started_at=now,
+                        updated_at=now,
+                    )
+                )
+                leased_rows.extend(rows)
+
+            await session.commit()
+
+        return [self._scheduled_node_run_from_row(row) for row in leased_rows]
+
+    async def lease_ready_scheduled_node_runs(
+        self,
+        *,
+        node_limits: Mapping[str, int],
+        lease_owner: str,
+        lease_ttl_seconds: int,
+    ) -> list[ScheduledNodeRun]:
+        positive_limits = {
+            node_id: limit
+            for node_id, limit in node_limits.items()
+            if node_id and limit > 0
+        }
+        if not positive_limits:
+            return []
+
+        now = datetime.now(timezone.utc)
+        lease_expires_at = now + timedelta(seconds=max(1, lease_ttl_seconds))
+        leased_rows = []
+
+        async with self.session_factory() as session:
+            for node_id, limit in sorted(positive_limits.items()):
+                query = (
+                    select(
+                        runs.c.id.label("run_id"),
+                        runs.c.node_id,
+                        runs.c.job_id,
+                        runs.c.program_id,
+                        runs.c.trigger_event_id,
+                        event_store.c.event_type,
+                        event_store.c.correlation_id,
+                        event_store.c.causation_id,
+                        event_store.c.source,
+                        event_store.c.profile,
+                        event_store.c.confidence,
+                        event_store.c.payload,
+                        runs.c.run_payload,
+                        runs.c.target_count,
+                    )
+                    .select_from(
+                        runs.join(
+                            event_store,
+                            runs.c.trigger_event_id == event_store.c.event_id,
+                        )
+                    )
+                    .where(
+                        runs.c.execution_mode == ExecutionMode.SCHEDULED.value,
+                        runs.c.status == ExecutionStatus.QUEUED.value,
+                        runs.c.node_id == node_id,
+                        runs.c.terminal_outcome.is_(None),
+                        runs.c.needs_reconcile.is_(False),
+                        or_(
+                            runs.c.next_run_at.is_(None),
+                            runs.c.next_run_at <= now,
+                        ),
+                    )
+                    .order_by(runs.c.created_at.asc())
+                    .limit(limit)
+                    .with_for_update(skip_locked=True, of=runs)
+                )
+                result = await session.execute(query)
+                rows = result.mappings().all()
+                if not rows:
+                    continue
+
+                run_ids = [row["run_id"] for row in rows]
+                await session.execute(
+                    update(runs)
+                    .where(runs.c.id.in_(run_ids))
+                    .values(
+                        status=ExecutionStatus.LEASED.value,
+                        leased_at=now,
+                        lease_owner=lease_owner,
+                        lease_expires_at=lease_expires_at,
+                        updated_at=now,
+                    )
+                )
+                leased_rows.extend(rows)
+
+            await session.commit()
+
+        return [self._scheduled_node_run_from_row(row) for row in leased_rows]
+
+    async def recover_stale_leases(
+        self,
+        *,
+        now: datetime | None = None,
+    ) -> int:
+        now = now or datetime.now(timezone.utc)
+        async with self.session_factory() as session:
+            result = await session.execute(
+                update(runs)
+                .where(
+                    runs.c.execution_mode == ExecutionMode.SCHEDULED.value,
+                    runs.c.status == ExecutionStatus.LEASED.value,
+                    runs.c.lease_expires_at.is_not(None),
+                    runs.c.lease_expires_at <= now,
+                )
+                .values(
+                    status=ExecutionStatus.QUEUED.value,
+                    leased_at=None,
+                    lease_owner=None,
+                    lease_expires_at=None,
+                    updated_at=now,
+                )
+            )
+            await session.commit()
+            return int(getattr(result, "rowcount", 0) or 0)
+
+    async def mark_run_flushing(
+        self,
+        *,
+        run_id: uuid.UUID,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        async with self.session_factory() as session:
+            await session.execute(
+                update(runs)
+                .where(
+                    runs.c.id == run_id,
+                    runs.c.status == ExecutionStatus.RUNNING.value,
+                )
+                .values(
+                    status=ExecutionStatus.FLUSHING.value,
+                    flushing_at=now,
+                    updated_at=now,
+                )
+            )
+            await session.commit()
+
     async def mark_run_finished(
         self,
         *,
@@ -394,6 +616,7 @@ class OrchestrationStore:
         if status not in {
             ExecutionStatus.COMPLETED,
             ExecutionStatus.FAILED,
+            ExecutionStatus.DEAD,
             ExecutionStatus.CANCELLED,
         }:
             raise ValueError(f"Invalid terminal run status: {status}")
@@ -458,25 +681,62 @@ class OrchestrationStore:
                     for row in result.all()
                 ]
                 if not run_ids:
-                    continue
+                    run_ids = []
 
-                await session.execute(
-                    update(runs)
-                    .where(runs.c.id.in_(run_ids))
-                    .values(
-                        status=ExecutionStatus.QUEUED.value,
-                        attempt=runs.c.attempt + 1,
-                        started_at=None,
-                        scanner_started_at=None,
-                        finished_at=None,
-                        terminal_outcome=None,
-                        error=None,
-                        next_retry_at=None,
-                        retry_reason=terminal_outcomes[0],
-                        updated_at=now,
+                if run_ids:
+                    await session.execute(
+                        update(runs)
+                        .where(runs.c.id.in_(run_ids))
+                        .values(
+                            status=ExecutionStatus.QUEUED.value,
+                            attempt=runs.c.attempt + 1,
+                            leased_at=None,
+                            lease_owner=None,
+                            lease_expires_at=None,
+                            started_at=None,
+                            scanner_started_at=None,
+                            flushing_at=None,
+                            finished_at=None,
+                            terminal_outcome=None,
+                            error=None,
+                            next_retry_at=None,
+                            retry_reason=terminal_outcomes[0],
+                            updated_at=now,
+                        )
                     )
+                    requeued += len(run_ids)
+
+                exhausted_result = await session.execute(
+                    select(runs.c.id)
+                    .where(
+                        runs.c.node_id == node_id,
+                        runs.c.execution_mode == ExecutionMode.SCHEDULED.value,
+                        runs.c.status == ExecutionStatus.FAILED.value,
+                        runs.c.terminal_outcome.in_(terminal_outcomes),
+                        runs.c.attempt >= max_attempts,
+                        runs.c.needs_reconcile.is_(False),
+                        or_(
+                            runs.c.next_retry_at.is_(None),
+                            runs.c.next_retry_at <= now,
+                        ),
+                    )
+                    .order_by(runs.c.updated_at.asc())
                 )
-                requeued += len(run_ids)
+                exhausted_run_ids = [
+                    row["id"] if isinstance(row, dict) else row[0]
+                    for row in exhausted_result.all()
+                ]
+                if exhausted_run_ids:
+                    await session.execute(
+                        update(runs)
+                        .where(runs.c.id.in_(exhausted_run_ids))
+                        .values(
+                            status=ExecutionStatus.DEAD.value,
+                            next_retry_at=None,
+                            retry_reason=terminal_outcomes[0],
+                            updated_at=now,
+                        )
+                    )
 
             await session.commit()
 
@@ -661,7 +921,7 @@ class OrchestrationStore:
 
     @staticmethod
     def _scheduled_node_run_from_row(row) -> ScheduledNodeRun:
-        event = dict(row["payload"] or {})
+        event = dict(row.get("run_payload") or row["payload"] or {})
         event.update(
             {
                 "event": row["event_type"],

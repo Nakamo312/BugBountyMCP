@@ -32,9 +32,12 @@ class ActionStatus(str, Enum):
 
 class ExecutionStatus(str, Enum):
     QUEUED = "queued"
+    LEASED = "leased"
     RUNNING = "running"
+    FLUSHING = "flushing"
     COMPLETED = "completed"
     FAILED = "failed"
+    DEAD = "dead"
     CANCELLED = "cancelled"
 
 

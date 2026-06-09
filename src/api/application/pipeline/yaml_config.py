@@ -24,6 +24,7 @@ class PipelineDefaults(BaseModel):
     max_parallelism: int | str = 1
     execution_delay: int | float | str = 0
     execution_mode: ExecutionModeName = "inline"
+    max_targets_per_run: int | str | None = None
     retry: "RetryPolicyConfig" = Field(default_factory=lambda: RetryPolicyConfig())
     scope: ScopePolicyName = "none"
 
@@ -109,6 +110,7 @@ class PipelineNodeSpec(BaseModel):
     max_parallelism: int | str = 1
     execution_delay: int | float | str = 0
     execution_mode: ExecutionModeName = "inline"
+    max_targets_per_run: int | str | None = None
     retry: RetryPolicyConfig = Field(default_factory=RetryPolicyConfig)
     max_concurrent_scans: int | str | None = None
     scope: ScopePolicyName = "none"
@@ -145,6 +147,7 @@ class PipelineConfig(BaseModel):
                 "max_parallelism",
                 "execution_delay",
                 "execution_mode",
+                "max_targets_per_run",
                 "retry",
                 "scope",
             )

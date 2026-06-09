@@ -33,6 +33,7 @@ class Node(ABC):
         max_parallelism: int = 1,
         execution_delay: int = 0,
         execution_mode: ExecutionMode = ExecutionMode.INLINE,
+        max_targets_per_run: int | None = None,
         retry_policy: dict | None = None,
     ):
         """
@@ -51,6 +52,7 @@ class Node(ABC):
         self.max_parallelism = max_parallelism
         self.execution_delay = execution_delay
         self.execution_mode = execution_mode
+        self.max_targets_per_run = max_targets_per_run
         self.retry_policy = retry_policy or {
             "max_attempts": 1,
             "backoff_seconds": 0,
@@ -109,6 +111,10 @@ class Node(ABC):
             "last_heartbeat_timestamp_seconds": self._last_heartbeat_timestamp_seconds,
         }
 
+    def available_slots(self) -> int:
+        """Return how many executions this node can start immediately."""
+        return max(self.max_parallelism - self._active_executions, 0)
+
     async def _execute_with_semaphore(self, event: Dict[str, Any]):
         """
         Execute with semaphore-based backpressure and optional delay.
@@ -120,7 +126,7 @@ class Node(ABC):
             self._active_executions += 1
             self.heartbeat()
             try:
-                if self.execution_delay > 0:
+                if self.execution_delay > 0 and not event.get("_skip_execution_delay"):
                     self.logger.debug(f"Delaying execution by {self.execution_delay}s")
                     await asyncio.sleep(self.execution_delay)
 
@@ -129,6 +135,7 @@ class Node(ABC):
                 ctx.bind_event(event)
                 await ctx.mark_run_started()
                 await self.execute(event, ctx)
+                await ctx.mark_run_flushing()
                 await ctx.mark_run_completed()
             except Exception as exc:
                 try:

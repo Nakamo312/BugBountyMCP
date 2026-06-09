@@ -89,6 +89,22 @@ services:
         condition: service_healthy
     restart: "no"
 
+  research-engine:
+    build:
+      context: ./services/research-engine
+      dockerfile: Dockerfile
+    container_name: bb-research-engine
+    profiles:
+      - research
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: bb-rabbitmq

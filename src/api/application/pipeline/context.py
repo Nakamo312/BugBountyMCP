@@ -209,6 +209,15 @@ class PipelineContext:
             terminal_outcome=TerminalOutcome.COMPLETED,
         )
 
+    async def mark_run_flushing(self) -> None:
+        if not self._container or self.run_id is None:
+            return
+        from api.infrastructure.orchestration.store import OrchestrationStore
+
+        async with self._container() as request_container:
+            store = await request_container.get(OrchestrationStore)
+            await store.mark_run_flushing(run_id=self.run_id)
+
     async def mark_run_failed(self, error: Exception) -> None:
         await self._mark_run_finished(
             ExecutionStatus.FAILED,

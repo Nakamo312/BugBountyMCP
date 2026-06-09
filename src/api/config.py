@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     PIPELINE_SCHEDULED_EXECUTOR_ENABLED: bool = True
     PIPELINE_SCHEDULED_EXECUTOR_POLL_SECONDS: float = 1.0
     PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE: int = 10
+    PIPELINE_SCHEDULER_V2_ENABLED: bool = False
+    PIPELINE_SCHEDULER_V2_LEASE_TTL_SECONDS: int = 60
 
     # Declarative action scheduler
     USE_SCHEDULER: bool = True

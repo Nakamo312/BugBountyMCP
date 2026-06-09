@@ -42,6 +42,7 @@ class ScanNode(Node):
         max_parallelism: int = 1,
         execution_delay: int = 0,
         execution_mode: ExecutionMode = ExecutionMode.INLINE,
+        max_targets_per_run: int | None = None,
         retry_policy: dict | None = None,
         scope_policy=ScopePolicy.NONE
     ):
@@ -66,6 +67,7 @@ class ScanNode(Node):
             max_parallelism=max_parallelism,
             execution_delay=execution_delay,
             execution_mode=execution_mode,
+            max_targets_per_run=max_targets_per_run,
             retry_policy=retry_policy,
         )
         self.event_out_map = event_out
