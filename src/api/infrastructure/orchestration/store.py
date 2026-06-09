@@ -630,6 +630,57 @@ class OrchestrationStore:
             await session.commit()
             return int(getattr(result, "rowcount", 0) or 0)
 
+    async def fail_stale_scheduled_active_runs(
+        self,
+        *,
+        running_timeout_seconds: int,
+        flushing_timeout_seconds: int,
+        now: datetime | None = None,
+    ) -> int:
+        now = now or datetime.now(timezone.utc)
+        running_cutoff = now - timedelta(seconds=max(1, running_timeout_seconds))
+        flushing_cutoff = now - timedelta(seconds=max(1, flushing_timeout_seconds))
+
+        async with self.session_factory() as session:
+            result = await session.execute(
+                update(runs)
+                .where(
+                    runs.c.execution_mode == ExecutionMode.SCHEDULED.value,
+                    runs.c.terminal_outcome.is_(None),
+                    runs.c.needs_reconcile.is_(False),
+                    or_(
+                        (
+                            (runs.c.status == ExecutionStatus.RUNNING.value)
+                            & (
+                                or_(
+                                    runs.c.started_at.is_(None),
+                                    runs.c.started_at <= running_cutoff,
+                                )
+                            )
+                        ),
+                        (
+                            (runs.c.status == ExecutionStatus.FLUSHING.value)
+                            & (
+                                or_(
+                                    runs.c.flushing_at.is_(None),
+                                    runs.c.flushing_at <= flushing_cutoff,
+                                )
+                            )
+                        ),
+                    ),
+                )
+                .values(
+                    status=ExecutionStatus.FAILED.value,
+                    terminal_outcome=TerminalOutcome.TOOL_FAILED.value,
+                    error="Marked failed: stale scheduled active run exceeded timeout",
+                    needs_reconcile=True,
+                    finished_at=now,
+                    updated_at=now,
+                )
+            )
+            await session.commit()
+            return int(getattr(result, "rowcount", 0) or 0)
+
     async def mark_run_flushing(
         self,
         *,

@@ -107,8 +107,8 @@ class NodeRegistry:
         ]
 
         logger.info(
-            "Scheduled node executor start check: enabled=%s container=%s store=%s scheduled_nodes=%s",
-            self.settings.PIPELINE_SCHEDULED_EXECUTOR_ENABLED,
+            "Scheduled executor start check: enabled=%s container=%s store=%s scheduled_nodes=%s",
+            self.settings.PIPELINE_SCHEDULER_ENABLED,
             self.container is not None,
             self._orchestration_store is not None,
             scheduled_nodes,
@@ -116,10 +116,9 @@ class NodeRegistry:
 
         if self._should_start_scheduled_executor():
             logger.info(
-                "Starting scheduled node executor: poll_seconds=%s batch_size=%s v2=%s",
+                "Starting scheduled executor: poll_seconds=%s batch_size=%s",
                 self.settings.PIPELINE_SCHEDULED_EXECUTOR_POLL_SECONDS,
                 self.settings.PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE,
-                self.settings.PIPELINE_SCHEDULER_V2_ENABLED,
             )
             self._scheduled_executor_task = asyncio.create_task(
                 self._run_scheduled_executor()
@@ -129,8 +128,8 @@ class NodeRegistry:
             )
         else:
             logger.warning(
-                "Scheduled node executor not started: enabled=%s container=%s store=%s scheduled_nodes=%s",
-                self.settings.PIPELINE_SCHEDULED_EXECUTOR_ENABLED,
+                "Scheduled executor not started: enabled=%s container=%s store=%s scheduled_nodes=%s",
+                self.settings.PIPELINE_SCHEDULER_ENABLED,
                 self.container is not None,
                 self._orchestration_store is not None,
                 scheduled_nodes,
@@ -180,19 +179,19 @@ class NodeRegistry:
 
     def _log_scheduled_executor_done(self, task: asyncio.Task) -> None:
         if task.cancelled():
-            logger.info("Scheduled node executor task cancelled")
+            logger.info("Scheduled executor task cancelled")
             return
 
         exc = task.exception()
         if exc is not None:
             logger.error(
-                "Scheduled node executor task stopped with exception: %s",
+                "Scheduled executor task stopped with exception: %s",
                 exc,
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
             return
 
-        logger.warning("Scheduled node executor task stopped without exception")
+        logger.warning("Scheduled executor task stopped without exception")
 
     async def _dispatch_event(self, event: Dict[str, Any]):
         """
@@ -420,7 +419,7 @@ class NodeRegistry:
         return {key: value for key, value in identity.items() if value not in (None, "")}
 
     def _should_start_scheduled_executor(self) -> bool:
-        if not self.settings.PIPELINE_SCHEDULED_EXECUTOR_ENABLED:
+        if not self.settings.PIPELINE_SCHEDULER_ENABLED:
             return False
         if self.container is None and self._orchestration_store is None:
             return False
@@ -430,163 +429,21 @@ class NodeRegistry:
         )
 
     async def _run_scheduled_executor(self) -> None:
-        logger.info("Scheduled node executor loop started")
+        logger.info(
+            "Scheduled executor loop started: poll_seconds=%s batch_size=%s",
+            self.settings.PIPELINE_SCHEDULED_EXECUTOR_POLL_SECONDS,
+            self.settings.PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE,
+        )
         while True:
             try:
                 await self._drain_scheduled_node_runs_once()
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("Scheduled node executor tick failed")
+                logger.exception("Scheduled executor tick failed")
             await asyncio.sleep(self.settings.PIPELINE_SCHEDULED_EXECUTOR_POLL_SECONDS)
 
-    async def _drain_scheduled_node_runs_once(self) -> None:
-        if self.settings.PIPELINE_SCHEDULER_V2_ENABLED:
-            logger.info("Scheduled executor tick routed to V2")
-            await self._drain_scheduled_node_runs_once_v2()
-            return
-    
-        logger.info("Scheduled executor V1 tick started")
-    
-        store = await self._get_orchestration_store()
-        if store is None:
-            logger.warning("Scheduled executor V1 tick skipped: orchestration store is missing")
-            return
-    
-        logger.info("Scheduled executor V1 requeue retryable runs started")
-        requeued = await store.requeue_retryable_node_runs(
-            retry_policies=self._retry_policies_by_node(),
-        )
-        logger.info(
-            "Scheduled executor V1 requeue retryable runs finished: requeued=%s",
-            requeued,
-        )
-    
-        node_limits = self._scheduled_node_available_slot_limits(
-            self.settings.PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE,
-        )
-        logger.info("Scheduled executor V1 node limits: %s", node_limits)
-    
-        if not node_limits:
-            logger.info("Scheduled executor V1 tick skipped: no available node slots")
-            return
-    
-        logger.info("Scheduled executor V1 lease started")
-        leased_runs = await store.lease_scheduled_node_runs_by_node_limits(
-            node_limits=node_limits,
-        )
-        logger.info(
-            "Scheduled executor V1 lease finished: leased_count=%s",
-            len(leased_runs or []),
-        )
-    
-        if not leased_runs:
-            logger.info("Scheduled executor V1 tick leased no runs")
-            return
-    
-        logger.info(
-            "Scheduled executor V1 leased runs: count=%s nodes=%s",
-            len(leased_runs),
-            [leased_run.node_id for leased_run in leased_runs],
-        )
-    
-        tasks = []
-        for leased_run in leased_runs:
-            node = self._nodes.get(leased_run.node_id)
-            if node is None:
-                logger.error(
-                    "Leased scheduled run for unknown node: node=%s run_id=%s",
-                    leased_run.node_id,
-                    leased_run.run_id,
-                )
-                continue
-            
-            logger.info(
-                "Launching scheduled node run: node=%s run_id=%s event=%s",
-                leased_run.node_id,
-                leased_run.run_id,
-                leased_run.event.get("event") or leased_run.event.get("_event_type"),
-            )
-            tasks.append(
-                (
-                    leased_run.node_id,
-                    asyncio.create_task(node.handle_event(leased_run.event)),
-                )
-            )
-    
-        if not tasks:
-            logger.info("Scheduled executor V1 tick had leased runs but no launchable tasks")
-            return
-    
-        logger.info("Scheduled executor V1 waiting for launched tasks: count=%s", len(tasks))
-        results = await asyncio.gather(
-            *(task for _, task in tasks),
-            return_exceptions=True,
-        )
-        logger.info("Scheduled executor V1 launched tasks finished: count=%s", len(tasks))
-    
-        for (node_id, _), result in zip(tasks, results):
-            if isinstance(result, Exception):
-                logger.error(
-                    "Scheduled node run failed: node=%s error=%s",
-                    node_id,
-                    result,
-                    exc_info=(type(result), result, result.__traceback__),
-                )
     def _scheduled_node_available_slot_limits(self, batch_size: int) -> dict[str, int]:
-        if batch_size <= 0:
-            return {}
-
-        remaining = batch_size
-        limits: dict[str, int] = {}
-        for node_id, node in sorted(self._nodes.items()):
-            if node.execution_mode != ExecutionMode.SCHEDULED:
-                continue
-            node_limit = min(node.available_slots(), remaining)
-            if node_limit <= 0:
-                continue
-            limits[node_id] = node_limit
-            remaining -= node_limit
-            if remaining <= 0:
-                break
-        return limits
-
-    async def _drain_scheduled_node_runs_once_v2(self) -> None:
-        store = await self._get_orchestration_store()
-        if store is None:
-            return
-
-        await store.recover_stale_leases()
-        await store.requeue_retryable_node_runs(
-            retry_policies=self._retry_policies_by_node(),
-            max_requeues_per_node=self.settings.PIPELINE_RETRY_REQUEUE_LIMIT_PER_NODE,
-            retry_jitter_seconds=self.settings.PIPELINE_RETRY_REQUEUE_JITTER_SECONDS,
-        )
-        node_limits = self._scheduled_node_available_slot_limits_v2(
-            self.settings.PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE,
-        )
-        if not node_limits:
-            return
-
-        leased_runs = await store.lease_ready_scheduled_node_runs(
-            node_limits=node_limits,
-            lease_owner=self._scheduler_lease_owner,
-            lease_ttl_seconds=self.settings.PIPELINE_SCHEDULER_V2_LEASE_TTL_SECONDS,
-        )
-        for leased_run in leased_runs:
-            node = self._nodes.get(leased_run.node_id)
-            if node is None:
-                logger.error(
-                    "Leased scheduled run for unknown node: node=%s run_id=%s",
-                    leased_run.node_id,
-                    leased_run.run_id,
-                )
-                continue
-            event = dict(leased_run.event)
-            event["_skip_execution_delay"] = True
-            self._launch_scheduled_node_task(leased_run.node_id, node, event)
-
-    def _scheduled_node_available_slot_limits_v2(self, batch_size: int) -> dict[str, int]:
         if batch_size <= 0:
             return {}
 
@@ -604,6 +461,70 @@ class NodeRegistry:
             if remaining <= 0:
                 break
         return limits
+
+    async def _drain_scheduled_node_runs_once(self) -> None:
+        store = await self._get_orchestration_store()
+        if store is None:
+            logger.warning("Scheduled executor tick skipped: orchestration store is missing")
+            return
+
+        await store.recover_stale_leases()
+
+        stale_failed = await store.fail_stale_scheduled_active_runs(
+            running_timeout_seconds=self.settings.PIPELINE_SCHEDULER_RUNNING_TIMEOUT_SECONDS,
+            flushing_timeout_seconds=self.settings.PIPELINE_SCHEDULER_FLUSHING_TIMEOUT_SECONDS,
+        )
+        if stale_failed:
+            logger.warning(
+                "Marked stale scheduled active runs as failed: count=%s",
+                stale_failed,
+            )
+
+        requeued = await store.requeue_retryable_node_runs(
+            retry_policies=self._retry_policies_by_node(),
+            max_requeues_per_node=self.settings.PIPELINE_RETRY_REQUEUE_LIMIT_PER_NODE,
+            retry_jitter_seconds=self.settings.PIPELINE_RETRY_REQUEUE_JITTER_SECONDS,
+        )
+        if requeued:
+            logger.info("Requeued retryable scheduled runs: count=%s", requeued)
+
+        node_limits = self._scheduled_node_available_slot_limits(
+            self.settings.PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE,
+        )
+        if not node_limits:
+            logger.debug("Scheduled executor tick skipped: no available node slots")
+            return
+
+        leased_runs = await store.lease_ready_scheduled_node_runs(
+            node_limits=node_limits,
+            lease_owner=self._scheduler_lease_owner,
+            lease_ttl_seconds=self.settings.PIPELINE_SCHEDULER_LEASE_TTL_SECONDS,
+        )
+        if not leased_runs:
+            logger.debug("Scheduled executor tick leased no runs")
+            return
+
+        logger.info(
+            "Scheduled executor leased runs: count=%s nodes=%s",
+            len(leased_runs),
+            [leased_run.node_id for leased_run in leased_runs],
+        )
+
+        for leased_run in leased_runs:
+            node = self._nodes.get(leased_run.node_id)
+            if node is None:
+                logger.error(
+                    "Leased scheduled run for unknown node: node=%s run_id=%s",
+                    leased_run.node_id,
+                    leased_run.run_id,
+                )
+                continue
+
+            self._launch_scheduled_node_task(
+                node_id=leased_run.node_id,
+                node=node,
+                event=leased_run.event,
+            )
 
     def _launch_scheduled_node_task(
         self,
@@ -633,11 +554,7 @@ class NodeRegistry:
 
     def _scheduled_next_run_at(self, node_id: str) -> datetime | None:
         node = self._nodes[node_id]
-        if (
-            not self.settings.PIPELINE_SCHEDULER_V2_ENABLED
-            or node.execution_mode != ExecutionMode.SCHEDULED
-            or node.execution_delay <= 0
-        ):
+        if node.execution_mode != ExecutionMode.SCHEDULED or node.execution_delay <= 0:
             return None
         return datetime.now(timezone.utc) + timedelta(seconds=node.execution_delay)
 
