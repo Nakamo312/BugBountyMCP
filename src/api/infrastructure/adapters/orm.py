@@ -297,6 +297,8 @@ runs = Table(
     Column('event_name', String(150), nullable=True, index=True),
     Column('trigger_event_id', UUID(), nullable=True, index=True),
     Column('claim_key', String(64), nullable=True),
+    Column('work_key', String(64), nullable=True),
+    Column('coalesced_triggers', JSONType(), nullable=True),
     Column('input_fingerprint', String(64), nullable=True, index=True),
     Column('target_fingerprint', String(64), nullable=True, index=True),
     Column('execution_mode', String(20), nullable=False, default='inline'),
@@ -325,6 +327,28 @@ runs = Table(
     Index('idx_runs_node_event_created', 'node_id', 'event_name', 'created_at'),
     Index('idx_runs_execution_mode_status', 'execution_mode', 'status'),
     Index(
+        'idx_runs_scheduled_active_work_key_unique',
+        'work_key',
+        unique=True,
+        postgresql_where=text(
+            "execution_mode = 'scheduled' "
+            "AND work_key IS NOT NULL "
+            "AND status IN ('queued', 'leased', 'running', 'flushing') "
+            "AND terminal_outcome IS NULL"
+        ),
+    ),
+    Index(
+        'idx_runs_scheduled_work_lookup',
+        'node_id',
+        'program_id',
+        'status',
+        'work_key',
+        postgresql_where=text(
+            "execution_mode = 'scheduled' "
+            "AND work_key IS NOT NULL"
+        ),
+    ),
+    Index(
         'idx_runs_scheduled_ready_node_next_run_created',
         'node_id',
         'next_run_at',
@@ -350,6 +374,10 @@ runs = Table(
     CheckConstraint(
         "claim_key IS NULL OR claim_key != ''",
         name='ck_runs_claim_key_not_empty',
+    ),
+    CheckConstraint(
+        "work_key IS NULL OR work_key != ''",
+        name='ck_runs_work_key_not_empty',
     ),
     CheckConstraint(
         "execution_mode IN ('inline', 'scheduled')",

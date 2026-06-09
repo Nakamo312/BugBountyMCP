@@ -9,6 +9,7 @@ from api.application.contracts import ExecutionMode
 from api.application.pipeline.fingerprints import (
     build_node_claim_key,
     build_node_input_fingerprint,
+    build_node_work_key,
     build_target_fingerprint,
 )
 from api.infrastructure.events.event_bus import EventBus
@@ -245,6 +246,17 @@ class NodeRegistry:
                 next_run_at=self._scheduled_next_run_at(node_id),
                 target_count=self._target_count(claim_event),
                 run_payload=self._run_payload_for_event(claim_event),
+                work_key=self._work_key_for_event(node, event_name, claim_event),
+                coalesced_trigger=(
+                    self._coalesced_trigger_for_event(claim_event)
+                    if node.execution_mode == ExecutionMode.SCHEDULED
+                    else None
+                ),
+                retry_policy=(
+                    dict(node.retry_policy)
+                    if node.execution_mode == ExecutionMode.SCHEDULED
+                    else None
+                ),
             )
             if last_claim.is_terminal and node.execution_mode != ExecutionMode.SCHEDULED:
                 return None
@@ -292,6 +304,73 @@ class NodeRegistry:
             for key, value in event.items()
             if key not in {"event_id", "created_at"}
         }
+
+    def _work_key_for_event(
+        self,
+        node: Node,
+        event_name: str,
+        event: Dict[str, Any],
+    ) -> str | None:
+        if node.execution_mode != ExecutionMode.SCHEDULED:
+            return None
+        return build_node_work_key(
+            program_id=event["program_id"],
+            node_id=node.node_id,
+            event_name=event_name,
+            targets=event.get("targets", []),
+            profile=event.get("profile"),
+            options=event.get("options") or event.get("payload") or {},
+            scan_mode=event.get("scan_mode") or event.get("mode"),
+            node_work_identity=self._node_work_identity(node),
+        )
+
+    @staticmethod
+    def _coalesced_trigger_for_event(event: Dict[str, Any]) -> Dict[str, Any] | None:
+        if not event.get("event_id"):
+            return None
+        metadata = {
+            "trigger_event_id": str(event["event_id"]),
+            "job_id": str(event["job_id"]) if event.get("job_id") else None,
+            "run_id": str(event["run_id"]) if event.get("run_id") else None,
+            "correlation_id": (
+                str(event["correlation_id"]) if event.get("correlation_id") else None
+            ),
+            "reason": "scheduled_active_exact_dedup",
+        }
+        return {key: value for key, value in metadata.items() if value is not None}
+
+    @staticmethod
+    def _node_work_identity(node: Node) -> Dict[str, Any]:
+        def component_name(value) -> str | None:
+            if value is None:
+                return None
+            return getattr(value, "__name__", str(value))
+
+        identity = {
+            "node_class": type(node).__name__,
+            "runner": component_name(
+                getattr(node, "runner_type", None) or getattr(node, "runner_key", None)
+            ),
+            "parser": component_name(
+                getattr(node, "parser_type", None) or getattr(node, "parser_key", None)
+            ),
+            "processor": component_name(
+                getattr(node, "processor_type", None) or getattr(node, "processor_key", None)
+            ),
+            "ingestor": component_name(
+                getattr(node, "ingestor_type", None)
+                or getattr(node, "ingestor_key", None)
+                or getattr(node, "host_ingestor_key", None)
+            ),
+            "target_extractor": component_name(getattr(node, "target_extractor", None)),
+            "scope_policy": str(getattr(node, "scope_policy", "")),
+            "max_targets_per_run": node.max_targets_per_run,
+            "event_out": sorted(
+                event.value if hasattr(event, "value") else str(event)
+                for event in node.event_out
+            ),
+        }
+        return {key: value for key, value in identity.items() if value not in (None, "")}
 
     def _should_start_scheduled_executor(self) -> bool:
         if not self.settings.PIPELINE_SCHEDULED_EXECUTOR_ENABLED:

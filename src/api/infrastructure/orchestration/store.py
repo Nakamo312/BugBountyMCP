@@ -293,13 +293,36 @@ class OrchestrationStore:
         next_run_at: datetime | None = None,
         target_count: int | None = None,
         run_payload: Mapping[str, Any] | None = None,
+        work_key: str | None = None,
+        coalesced_trigger: Mapping[str, Any] | None = None,
+        retry_policy: dict | None = None,
     ) -> NodeRunClaim:
         now = datetime.now(timezone.utc)
+        initial_coalesced_triggers = (
+            [dict(coalesced_trigger)] if coalesced_trigger is not None else None
+        )
 
         async with self.session_factory() as session:
             existing = await self._select_node_run_claim(session, claim_key)
             if existing is not None:
                 return existing
+
+            if execution_mode == ExecutionMode.SCHEDULED and work_key and retry_policy:
+                existing_work = await self._select_retryable_failed_work_claim(
+                    session,
+                    work_key=work_key,
+                    retry_policy=retry_policy,
+                )
+                if existing_work is not None:
+                    await self._append_coalesced_trigger(
+                        session,
+                        run_id=existing_work["id"],
+                        existing_triggers=existing_work.get("coalesced_triggers"),
+                        coalesced_trigger=coalesced_trigger,
+                        now=now,
+                    )
+                    await session.commit()
+                    return self._node_run_claim_from_row(existing_work)
 
             run_id = uuid.uuid4()
             try:
@@ -312,6 +335,8 @@ class OrchestrationStore:
                         event_name=event_name,
                         trigger_event_id=trigger_event_id,
                         claim_key=claim_key,
+                        work_key=work_key,
+                        coalesced_triggers=initial_coalesced_triggers,
                         input_fingerprint=input_fingerprint,
                         target_fingerprint=target_fingerprint,
                         execution_mode=execution_mode.value,
@@ -336,6 +361,21 @@ class OrchestrationStore:
                 existing = await self._select_node_run_claim(session, claim_key)
                 if existing is not None:
                     return existing
+                if execution_mode == ExecutionMode.SCHEDULED and work_key:
+                    existing_work = await self._select_active_work_claim(
+                        session,
+                        work_key=work_key,
+                    )
+                    if existing_work is not None:
+                        await self._append_coalesced_trigger(
+                            session,
+                            run_id=existing_work["id"],
+                            existing_triggers=existing_work.get("coalesced_triggers"),
+                            coalesced_trigger=coalesced_trigger,
+                            now=now,
+                        )
+                        await session.commit()
+                        return self._node_run_claim_from_row(existing_work)
                 raise
 
     async def lease_scheduled_node_runs(
@@ -881,6 +921,95 @@ class OrchestrationStore:
         if row is None:
             return None
 
+        terminal_outcome = (
+            TerminalOutcome(row["terminal_outcome"])
+            if row["terminal_outcome"] is not None
+            else None
+        )
+        return NodeRunClaim(
+            run_id=row["id"],
+            claim_key=row["claim_key"],
+            status=ExecutionStatus(row["status"]),
+            terminal_outcome=terminal_outcome,
+        )
+
+    @staticmethod
+    async def _select_active_work_claim(session, *, work_key: str):
+        result = await session.execute(
+            select(
+                runs.c.id,
+                runs.c.claim_key,
+                runs.c.status,
+                runs.c.terminal_outcome,
+                runs.c.coalesced_triggers,
+            )
+            .where(runs.c.execution_mode == ExecutionMode.SCHEDULED.value)
+            .where(runs.c.work_key == work_key)
+            .where(
+                runs.c.status.in_(
+                    [
+                        ExecutionStatus.QUEUED.value,
+                        ExecutionStatus.LEASED.value,
+                        ExecutionStatus.RUNNING.value,
+                        ExecutionStatus.FLUSHING.value,
+                    ]
+                )
+            )
+            .where(runs.c.terminal_outcome.is_(None))
+            .order_by(runs.c.created_at.asc())
+        )
+        return result.mappings().one_or_none()
+
+    @staticmethod
+    async def _select_retryable_failed_work_claim(
+        session,
+        *,
+        work_key: str,
+        retry_policy: dict,
+    ):
+        terminal_outcomes = list(retry_policy.get("terminal_outcomes") or [])
+        max_attempts = int(retry_policy.get("max_attempts", 1) or 1)
+        if not terminal_outcomes or max_attempts <= 1:
+            return None
+
+        result = await session.execute(
+            select(
+                runs.c.id,
+                runs.c.claim_key,
+                runs.c.status,
+                runs.c.terminal_outcome,
+                runs.c.coalesced_triggers,
+            )
+            .where(runs.c.execution_mode == ExecutionMode.SCHEDULED.value)
+            .where(runs.c.work_key == work_key)
+            .where(runs.c.status == ExecutionStatus.FAILED.value)
+            .where(runs.c.terminal_outcome.in_(terminal_outcomes))
+            .where(runs.c.attempt < max_attempts)
+            .order_by(runs.c.updated_at.asc())
+        )
+        return result.mappings().one_or_none()
+
+    @staticmethod
+    async def _append_coalesced_trigger(
+        session,
+        *,
+        run_id: uuid.UUID,
+        existing_triggers,
+        coalesced_trigger: Mapping[str, Any] | None,
+        now: datetime,
+    ) -> None:
+        if coalesced_trigger is None:
+            return
+        triggers = list(existing_triggers or [])
+        triggers.append(dict(coalesced_trigger))
+        await session.execute(
+            update(runs)
+            .where(runs.c.id == run_id)
+            .values(coalesced_triggers=triggers, updated_at=now)
+        )
+
+    @staticmethod
+    def _node_run_claim_from_row(row) -> NodeRunClaim:
         terminal_outcome = (
             TerminalOutcome(row["terminal_outcome"])
             if row["terminal_outcome"] is not None

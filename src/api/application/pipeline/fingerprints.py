@@ -43,6 +43,35 @@ def build_target_fingerprint(targets: list[Any] | tuple[Any, ...] | None) -> str
     return _sha256_json({"targets": _normalized_targets(targets or [])})
 
 
+def build_node_work_key(
+    *,
+    program_id: UUID | str,
+    node_id: str,
+    event_name: str,
+    targets: list[Any] | tuple[Any, ...] | None,
+    profile: str | None = None,
+    options: dict[str, Any] | None = None,
+    scan_mode: str | None = None,
+    node_work_identity: dict[str, Any] | None = None,
+    version: int = 1,
+    **_: Any,
+) -> str:
+    """Hash exact scheduled work identity, excluding delivery metadata."""
+    return _sha256_json(
+        {
+            "version": version,
+            "program_id": str(program_id),
+            "node_id": node_id,
+            "event_name": event_name,
+            "targets": _normalized_targets(targets or []),
+            "profile": profile,
+            "options": options or {},
+            "scan_mode": scan_mode,
+            "node_work_identity": node_work_identity or {},
+        }
+    )
+
+
 def build_node_claim_key(
     *,
     trigger_event_id: UUID,
