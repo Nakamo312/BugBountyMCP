@@ -38,13 +38,41 @@ groups:
           description: Workers are receiving messages but not acknowledging them fast enough.
 
       - alert: PipelineScheduledOldestAgeHigh
-        expr: max(pipeline_scheduled_oldest_age_seconds) > 900
+        expr: max(pipeline_scheduled_state_oldest_age_seconds{status="queued"}) > 900
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: Scheduled pipeline work is too old
           description: The oldest queued scheduled node run has waited longer than 15 minutes.
+
+
+      - alert: PipelineScheduledLeaseStuck
+        expr: max(pipeline_scheduled_state_oldest_age_seconds{status="leased"}) > 180
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Scheduled lease is stuck
+          description: A scheduled run has remained leased for more than 3 minutes without transitioning to running.
+
+      - alert: PipelineScheduledRunningStale
+        expr: max(pipeline_scheduled_state_oldest_age_seconds{status="running"}) > 7200
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Scheduled running run is stale
+          description: A scheduled run has remained running for longer than the configured stale-running timeout.
+
+      - alert: PipelineScheduledFlushingStale
+        expr: max(pipeline_scheduled_state_oldest_age_seconds{status="flushing"}) > 900
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Scheduled flushing run is stale
+          description: A scheduled run has remained flushing for longer than the configured stale-flushing timeout.
 
       - alert: PipelineRetryDueOldestAgeHigh
         expr: max(pipeline_retry_due_oldest_age_seconds) > 900
@@ -74,7 +102,7 @@ groups:
           description: A configured pipeline worker has not produced a fresh heartbeat.
 
       - alert: PipelineWorkersSaturatedWithBacklog
-        expr: sum(pipeline_worker_busy) / clamp_min(sum(pipeline_worker_capacity), 1) > 0.9 and sum(pipeline_scheduled_queue_depth) > 0
+        expr: sum(pipeline_worker_busy) / clamp_min(sum(pipeline_worker_capacity), 1) > 0.9 and sum(pipeline_scheduled_state_runs{status="queued"}) > 0
         for: 10m
         labels:
           severity: warning
