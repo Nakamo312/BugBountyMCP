@@ -759,7 +759,7 @@ class OrchestrationStore:
                             runs.c.next_retry_at <= now,
                         ),
                     )
-                    .order_by(runs.c.updated_at.asc())
+                    .order_by(runs.c.updated_at.asc(), runs.c.id.asc())
                 )
                 if requeue_limit > 0:
                     retry_query = retry_query.limit(requeue_limit)
@@ -770,7 +770,7 @@ class OrchestrationStore:
                     for row in result.all()
                 ]
 
-                if run_ids:
+                for run_id in run_ids:
                     next_run_at = None
                     if jitter_seconds > 0:
                         next_run_at = now + timedelta(
@@ -779,7 +779,7 @@ class OrchestrationStore:
 
                     await session.execute(
                         update(runs)
-                        .where(runs.c.id.in_(run_ids))
+                        .where(runs.c.id == run_id)
                         .values(
                             status=ExecutionStatus.QUEUED.value,
                             attempt=runs.c.attempt + 1,
@@ -798,7 +798,8 @@ class OrchestrationStore:
                             updated_at=now,
                         )
                     )
-                    requeued += len(run_ids)
+
+                requeued += len(run_ids)
 
                 exhausted_result = await session.execute(
                     select(runs.c.id)
@@ -814,7 +815,7 @@ class OrchestrationStore:
                             runs.c.next_retry_at <= now,
                         ),
                     )
-                    .order_by(runs.c.updated_at.asc())
+                    .order_by(runs.c.updated_at.asc(), runs.c.id.asc())
                 )
                 exhausted_run_ids = [
                     row["id"] if isinstance(row, dict) else row[0]
