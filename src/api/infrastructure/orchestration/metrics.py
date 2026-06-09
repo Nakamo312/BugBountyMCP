@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from api.infrastructure.adapters.orm import runs
@@ -32,6 +32,14 @@ class PipelineMetricsCollector:
         async with self.session_factory() as session:
             run_rows = (
                 await session.execute(self._run_state_query(program_id=program_id))
+            ).mappings().all()
+            scheduled_state_rows = (
+                await session.execute(self._scheduled_state_query(program_id=program_id))
+            ).mappings().all()
+            scheduled_state_age_rows = (
+                await session.execute(
+                    self._scheduled_state_oldest_age_query(program_id=program_id)
+                )
             ).mappings().all()
             queue_rows = (
                 await session.execute(self._scheduled_queue_query(program_id=program_id))
@@ -88,6 +96,47 @@ class PipelineMetricsCollector:
                     row["count"],
                 )
             )
+
+        lines.extend(
+            [
+                "# HELP pipeline_scheduled_state_runs Active scheduled runs grouped by node and state.",
+                "# TYPE pipeline_scheduled_state_runs gauge",
+            ]
+        )
+        for row in scheduled_state_rows:
+            lines.append(
+                self.format_sample(
+                    "pipeline_scheduled_state_runs",
+                    {
+                        "node_id": row["node_id"] or "unknown",
+                        "status": row["status"],
+                    },
+                    row["count"],
+                )
+            )
+
+        lines.extend(
+            [
+                "# HELP pipeline_scheduled_state_oldest_age_seconds Age of the oldest active scheduled run grouped by node and state.",
+                "# TYPE pipeline_scheduled_state_oldest_age_seconds gauge",
+            ]
+        )
+        for row in scheduled_state_age_rows:
+            lines.append(
+                self.format_sample(
+                    "pipeline_scheduled_state_oldest_age_seconds",
+                    {
+                        "node_id": row["node_id"] or "unknown",
+                        "status": row["status"],
+                    },
+                    float(row["oldest_age_seconds"] or 0),
+                )
+            )
+        if not scheduled_state_age_rows:
+            lines.append(
+                self.format_sample("pipeline_scheduled_state_oldest_age_seconds", {}, 0)
+            )
+
         lines.extend(
             [
                 "# HELP pipeline_scheduled_work_dedup_total Duplicate scheduled work triggers coalesced into existing runs.",
@@ -443,6 +492,57 @@ class PipelineMetricsCollector:
         )
         return cls._with_program_filter(query, program_id)
     
+    @classmethod
+    def _scheduled_state_query(cls, *, program_id: UUID | None):
+        query = (
+            select(
+                runs.c.node_id,
+                runs.c.status,
+                func.count().label("count"),
+            )
+            .where(
+                runs.c.execution_mode == "scheduled",
+                runs.c.status.in_(["queued", "leased", "running", "flushing"]),
+                runs.c.terminal_outcome.is_(None),
+                runs.c.needs_reconcile.is_(False),
+            )
+            .group_by(runs.c.node_id, runs.c.status)
+            .order_by(runs.c.node_id, runs.c.status)
+        )
+        return cls._with_program_filter(query, program_id)
+
+    @classmethod
+    def _scheduled_state_oldest_age_query(cls, *, program_id: UUID | None):
+        state_started_at = case(
+            (runs.c.status == "leased", runs.c.leased_at),
+            (runs.c.status == "running", runs.c.started_at),
+            (runs.c.status == "flushing", runs.c.flushing_at),
+            else_=runs.c.created_at,
+        )
+        oldest_age = func.extract(
+            "epoch",
+            func.now()
+            - func.min(
+                func.coalesce(state_started_at, runs.c.updated_at, runs.c.created_at)
+            ),
+        )
+        query = (
+            select(
+                runs.c.node_id,
+                runs.c.status,
+                oldest_age.label("oldest_age_seconds"),
+            )
+            .where(
+                runs.c.execution_mode == "scheduled",
+                runs.c.status.in_(["queued", "leased", "running", "flushing"]),
+                runs.c.terminal_outcome.is_(None),
+                runs.c.needs_reconcile.is_(False),
+            )
+            .group_by(runs.c.node_id, runs.c.status)
+            .order_by(runs.c.node_id, runs.c.status)
+        )
+        return cls._with_program_filter(query, program_id)
+
     @classmethod
     def _scheduled_work_dedup_query(cls, *, program_id: UUID | None):
         query = (

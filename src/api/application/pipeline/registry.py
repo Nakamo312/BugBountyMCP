@@ -106,7 +106,7 @@ class NodeRegistry:
             if node.execution_mode == ExecutionMode.SCHEDULED
         ]
 
-        logger.info(
+        logger.debug(
             "Scheduled executor start check: enabled=%s container=%s store=%s scheduled_nodes=%s",
             self.settings.PIPELINE_SCHEDULER_ENABLED,
             self.container is not None,
@@ -468,7 +468,12 @@ class NodeRegistry:
             logger.warning("Scheduled executor tick skipped: orchestration store is missing")
             return
 
-        await store.recover_stale_leases()
+        recovered_leases = await store.recover_stale_leases()
+        if recovered_leases:
+            logger.warning(
+                "Recovered stale scheduled leases: count=%s",
+                recovered_leases,
+            )
 
         stale_failed = await store.fail_stale_scheduled_active_runs(
             running_timeout_seconds=self.settings.PIPELINE_SCHEDULER_RUNNING_TIMEOUT_SECONDS,
