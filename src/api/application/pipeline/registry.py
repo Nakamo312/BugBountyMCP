@@ -442,32 +442,46 @@ class NodeRegistry:
 
     async def _drain_scheduled_node_runs_once(self) -> None:
         if self.settings.PIPELINE_SCHEDULER_V2_ENABLED:
+            logger.info("Scheduled executor tick routed to V2")
             await self._drain_scheduled_node_runs_once_v2()
             return
+    
+        logger.info("Scheduled executor V1 tick started")
     
         store = await self._get_orchestration_store()
         if store is None:
             logger.warning("Scheduled executor V1 tick skipped: orchestration store is missing")
             return
     
-        await store.requeue_retryable_node_runs(
+        logger.info("Scheduled executor V1 requeue retryable runs started")
+        requeued = await store.requeue_retryable_node_runs(
             retry_policies=self._retry_policies_by_node(),
+        )
+        logger.info(
+            "Scheduled executor V1 requeue retryable runs finished: requeued=%s",
+            requeued,
         )
     
         node_limits = self._scheduled_node_available_slot_limits(
             self.settings.PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE,
         )
+        logger.info("Scheduled executor V1 node limits: %s", node_limits)
+    
         if not node_limits:
-            logger.debug("Scheduled executor V1 tick skipped: no available node slots")
+            logger.info("Scheduled executor V1 tick skipped: no available node slots")
             return
     
-        logger.debug("Scheduled executor V1 node limits: %s", node_limits)
-    
+        logger.info("Scheduled executor V1 lease started")
         leased_runs = await store.lease_scheduled_node_runs_by_node_limits(
             node_limits=node_limits,
         )
+        logger.info(
+            "Scheduled executor V1 lease finished: leased_count=%s",
+            len(leased_runs or []),
+        )
+    
         if not leased_runs:
-            logger.debug("Scheduled executor V1 tick leased no runs")
+            logger.info("Scheduled executor V1 tick leased no runs")
             return
     
         logger.info(
@@ -501,12 +515,16 @@ class NodeRegistry:
             )
     
         if not tasks:
+            logger.info("Scheduled executor V1 tick had leased runs but no launchable tasks")
             return
     
+        logger.info("Scheduled executor V1 waiting for launched tasks: count=%s", len(tasks))
         results = await asyncio.gather(
             *(task for _, task in tasks),
             return_exceptions=True,
         )
+        logger.info("Scheduled executor V1 launched tasks finished: count=%s", len(tasks))
+    
         for (node_id, _), result in zip(tasks, results):
             if isinstance(result, Exception):
                 logger.error(
@@ -515,7 +533,6 @@ class NodeRegistry:
                     result,
                     exc_info=(type(result), result, result.__traceback__),
                 )
-    
     def _scheduled_node_available_slot_limits(self, batch_size: int) -> dict[str, int]:
         if batch_size <= 0:
             return {}
