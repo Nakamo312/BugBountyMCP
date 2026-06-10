@@ -488,8 +488,8 @@ class OrchestrationStore:
 
             leased_rows.sort(
                 key=lambda row: (
-                    row["next_run_at"] or row["created_at"] or now,
-                    row["created_at"] or now,
+                    row.get("next_run_at") or row.get("created_at") or now,
+                    row.get("created_at") or now,
                     str(row["run_id"]),
                 )
             )
@@ -581,7 +581,11 @@ class OrchestrationStore:
                     status=ExecutionStatus.FAILED.value,
                     terminal_outcome=TerminalOutcome.TOOL_FAILED.value,
                     error="Marked failed: stale scheduled active run exceeded timeout",
-                    needs_reconcile=True,
+                    needs_reconcile=False,
+                    reconcile_reason=None,
+                    lease_owner=None,
+                    leased_at=None,
+                    lease_expires_at=None,
                     finished_at=now,
                     updated_at=now,
                 )
