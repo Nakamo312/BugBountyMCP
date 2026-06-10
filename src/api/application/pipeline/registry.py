@@ -1,5 +1,5 @@
 """Node registry for event routing"""
-from typing import Dict, Set, Any
+from typing import Any, Dict, Mapping, Set
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
@@ -443,23 +443,34 @@ class NodeRegistry:
                 logger.exception("Scheduled executor tick failed")
             await asyncio.sleep(self.settings.PIPELINE_SCHEDULED_EXECUTOR_POLL_SECONDS)
 
-    def _scheduled_node_available_slot_limits(self, batch_size: int) -> dict[str, int]:
+    def _scheduled_node_available_slot_limits(
+        self,
+        batch_size: int,
+        active_runs_by_node: Mapping[str, int] | None = None,
+    ) -> dict[str, int]:
         if batch_size <= 0:
             return {}
 
-        remaining = batch_size
+        active_runs_by_node = active_runs_by_node or {}
         limits: dict[str, int] = {}
         for node_id, node in sorted(self._nodes.items()):
             if node.execution_mode != ExecutionMode.SCHEDULED:
                 continue
-            inflight = len(self._scheduled_node_tasks.get(node_id, set()))
-            node_limit = min(max(node.max_parallelism - inflight, 0), remaining)
+
+            local_inflight = sum(
+                1
+                for task in self._scheduled_node_tasks.get(node_id, set())
+                if not task.done()
+            )
+            durable_inflight = int(active_runs_by_node.get(node_id, 0) or 0)
+            inflight = max(local_inflight, durable_inflight)
+            available = max(node.max_parallelism - inflight, 0)
+            node_limit = min(available, batch_size)
             if node_limit <= 0:
                 continue
+
             limits[node_id] = node_limit
-            remaining -= node_limit
-            if remaining <= 0:
-                break
+
         return limits
 
     async def _drain_scheduled_node_runs_once(self) -> None:
@@ -493,8 +504,11 @@ class NodeRegistry:
         if requeued:
             logger.info("Requeued retryable scheduled runs: count=%s", requeued)
 
+        active_counter = getattr(store, "count_scheduled_active_runs_by_node", None)
+        active_runs_by_node = await active_counter() if active_counter else {}
         node_limits = self._scheduled_node_available_slot_limits(
             self.settings.PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE,
+            active_runs_by_node=active_runs_by_node,
         )
         if not node_limits:
             logger.debug("Scheduled executor tick skipped: no available node slots")

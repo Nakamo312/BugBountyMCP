@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import insert, or_, select, text, update
+from sqlalchemy import func, insert, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -384,6 +384,35 @@ class OrchestrationStore:
                         await session.commit()
                         return self._node_run_claim_from_row(existing_work)
                 raise
+
+    async def count_scheduled_active_runs_by_node(self) -> dict[str, int]:
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(
+                    runs.c.node_id,
+                    func.count().label("count"),
+                )
+                .where(
+                    runs.c.execution_mode == ExecutionMode.SCHEDULED.value,
+                    runs.c.status.in_(
+                        [
+                            ExecutionStatus.LEASED.value,
+                            ExecutionStatus.RUNNING.value,
+                            ExecutionStatus.FLUSHING.value,
+                        ]
+                    ),
+                    runs.c.terminal_outcome.is_(None),
+                    runs.c.needs_reconcile.is_(False),
+                )
+                .group_by(runs.c.node_id)
+            )
+            rows = result.mappings().all()
+
+        return {
+            row["node_id"]: int(row["count"] or 0)
+            for row in rows
+            if row["node_id"]
+        }
 
     async def lease_ready_scheduled_node_runs(
         self,
