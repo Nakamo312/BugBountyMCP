@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
-from api.application.contracts import ExecutionMode
+from api.application.contracts import ExecutionMode, ExecutionStatus, TerminalOutcome
 from api.application.pipeline.fingerprints import (
     build_node_claim_key,
     build_node_input_fingerprint,
@@ -457,14 +457,10 @@ class NodeRegistry:
             if node.execution_mode != ExecutionMode.SCHEDULED:
                 continue
 
-            local_inflight = sum(
-                1
-                for task in self._scheduled_node_tasks.get(node_id, set())
-                if not task.done()
-            )
+            local_available = node.available_slots()
             durable_inflight = int(active_runs_by_node.get(node_id, 0) or 0)
-            inflight = max(local_inflight, durable_inflight)
-            available = max(node.max_parallelism - inflight, 0)
+            durable_available = max(node.max_parallelism - durable_inflight, 0)
+            available = min(local_available, durable_available)
             node_limit = min(available, batch_size)
             if node_limit <= 0:
                 continue
@@ -533,9 +529,14 @@ class NodeRegistry:
             node = self._nodes.get(leased_run.node_id)
             if node is None:
                 logger.error(
-                    "Leased scheduled run for unknown node: node=%s run_id=%s",
+                    "Leased scheduled run for unknown node; cancelling run: node=%s run_id=%s",
                     leased_run.node_id,
                     leased_run.run_id,
+                )
+                await self._cancel_unknown_scheduled_node_run(
+                    store=store,
+                    node_id=leased_run.node_id,
+                    run_id=leased_run.run_id,
                 )
                 continue
 
@@ -543,6 +544,36 @@ class NodeRegistry:
                 node_id=leased_run.node_id,
                 node=node,
                 event=leased_run.event,
+            )
+
+
+    async def _cancel_unknown_scheduled_node_run(
+        self,
+        *,
+        store,
+        node_id: str,
+        run_id,
+    ) -> None:
+        try:
+            cancelled = await store.mark_run_finished(
+                run_id=run_id,
+                status=ExecutionStatus.CANCELLED,
+                error=f"Cancelled: leased scheduled run for unknown node {node_id}",
+                terminal_outcome=TerminalOutcome.SKIPPED,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to cancel leased scheduled run for unknown node: node=%s run_id=%s",
+                node_id,
+                run_id,
+            )
+            return
+
+        if not cancelled:
+            logger.warning(
+                "Unknown scheduled node run cancellation transition was rejected: node=%s run_id=%s",
+                node_id,
+                run_id,
             )
 
     def _launch_scheduled_node_task(
