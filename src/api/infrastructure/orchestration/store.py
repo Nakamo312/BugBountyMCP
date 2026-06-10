@@ -451,6 +451,8 @@ class OrchestrationStore:
                         event_store.c.payload,
                         runs.c.run_payload,
                         runs.c.target_count,
+                        runs.c.next_run_at,
+                        runs.c.created_at,
                     )
                     .select_from(
                         runs.join(
@@ -478,20 +480,34 @@ class OrchestrationStore:
                 if not rows:
                     continue
 
-                run_ids = [row["run_id"] for row in rows]
-                await session.execute(
-                    update(runs)
-                    .where(runs.c.id.in_(run_ids))
-                    .values(
-                        status=ExecutionStatus.LEASED.value,
-                        leased_at=now,
-                        lease_owner=lease_owner,
-                        lease_expires_at=lease_expires_at,
-                        updated_at=now,
-                    )
-                )
                 leased_rows.extend(rows)
 
+            if not leased_rows:
+                await session.commit()
+                return []
+
+            leased_rows.sort(
+                key=lambda row: (
+                    row["next_run_at"] or row["created_at"] or now,
+                    row["created_at"] or now,
+                    str(row["run_id"]),
+                )
+            )
+            run_ids = [row["run_id"] for row in leased_rows]
+            await session.execute(
+                update(runs)
+                .where(
+                    runs.c.id.in_(run_ids),
+                    runs.c.status == ExecutionStatus.QUEUED.value,
+                )
+                .values(
+                    status=ExecutionStatus.LEASED.value,
+                    leased_at=now,
+                    lease_owner=lease_owner,
+                    lease_expires_at=lease_expires_at,
+                    updated_at=now,
+                )
+            )
             await session.commit()
 
         return [self._scheduled_node_run_from_row(row) for row in leased_rows]
