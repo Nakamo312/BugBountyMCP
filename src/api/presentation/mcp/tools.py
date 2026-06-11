@@ -108,7 +108,6 @@ async def list_bodies(reader: PostgresArtifactReader, args: dict[str, Any]) -> A
         endpoint_id=_optional_uuid_arg(args, "endpoint_id"),
         program_id=_optional_uuid_arg(args, "program_id"),
         body_hash=args.get("body_hash"),
-        include_content=bool(args.get("include_content", False)),
         limit=args.get("limit"),
         offset=args.get("offset"),
     ))
@@ -260,14 +259,13 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "name": "list_bodies",
-        "description": "List body refs and previews by endpoint or program; full content is opt-in.",
+        "description": "List body refs and sanitized previews by endpoint or program; full content is not exposed.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "endpoint_id": {"type": "string", "format": "uuid"},
                 "program_id": {"type": "string", "format": "uuid"},
                 "body_hash": {"type": "string"},
-                "include_content": {"type": "boolean"},
                 **COMMON_PAGING,
             },
         },

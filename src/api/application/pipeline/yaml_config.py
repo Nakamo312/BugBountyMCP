@@ -14,6 +14,8 @@ ScopePolicyName = Literal["none", "confidence", "strict", "approval_required"]
 SafetyLevelName = Literal["passive", "safe_active", "active", "sensitive"]
 CapabilityMode = Literal["routed", "compatibility", "manual"]
 QueueName = Literal["discovery", "enumeration", "validation", "analysis"]
+ExecutionModeName = Literal["inline", "scheduled"]
+RetryOutcomeName = Literal["tool_failed"]
 
 
 class PipelineDefaults(BaseModel):
@@ -21,7 +23,18 @@ class PipelineDefaults(BaseModel):
 
     max_parallelism: int | str = 1
     execution_delay: int | float | str = 0
+    execution_mode: ExecutionModeName = "inline"
+    max_targets_per_run: int | str | None = None
+    retry: "RetryPolicyConfig" = Field(default_factory=lambda: RetryPolicyConfig())
     scope: ScopePolicyName = "none"
+
+
+class RetryPolicyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_attempts: int = Field(default=1, ge=1)
+    backoff_seconds: int | float | str = Field(default=0)
+    terminal_outcomes: list[RetryOutcomeName] = Field(default_factory=list)
 
 
 class ToolRuntimeSpec(BaseModel):
@@ -96,6 +109,9 @@ class PipelineNodeSpec(BaseModel):
     ingestor: str | None = None
     max_parallelism: int | str = 1
     execution_delay: int | float | str = 0
+    execution_mode: ExecutionModeName = "inline"
+    max_targets_per_run: int | str | None = None
+    retry: RetryPolicyConfig = Field(default_factory=RetryPolicyConfig)
     max_concurrent_scans: int | str | None = None
     scope: ScopePolicyName = "none"
     runtime: ToolRuntimeSpec | None = None
@@ -127,7 +143,14 @@ class PipelineConfig(BaseModel):
         defaults = data.get("defaults") or {}
         workers = data.get("workers") or {}
         if isinstance(defaults, dict) and isinstance(workers, dict):
-            defaultable_fields = ("max_parallelism", "execution_delay", "scope")
+            defaultable_fields = (
+                "max_parallelism",
+                "execution_delay",
+                "execution_mode",
+                "max_targets_per_run",
+                "retry",
+                "scope",
+            )
             data["workers"] = {
                 worker_id: {
                     **{

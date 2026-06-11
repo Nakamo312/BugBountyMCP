@@ -3,6 +3,11 @@
 This layer owns control-plane use cases and typed contracts. Keep it mostly
 independent from infrastructure details.
 
+Read first when changing this layer:
+
+- [Control plane](../../../docs/architecture/control-plane.md)
+- [Refactor roadmap](../../../docs/architecture/refactor-roadmap.md)
+
 ## Rules
 
 - Use application contracts from `contracts.py` for actions, policy decisions,

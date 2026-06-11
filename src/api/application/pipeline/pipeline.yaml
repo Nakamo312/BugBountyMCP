@@ -1,6 +1,7 @@
 defaults:
   max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
   execution_delay: 0
+  execution_mode: scheduled
   scope: none
 
 events:
@@ -272,6 +273,11 @@ workers:
     processor: HTTPXBatchProcessor
     ingestor: HTTPXResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
+    max_targets_per_run: 100
+    retry:
+      max_attempts: 2
+      backoff_seconds: 30
+      terminal_outcomes: [tool_failed]
     scope: confidence
 
   katana:
@@ -286,6 +292,7 @@ workers:
     processor: KatanaBatchProcessor
     ingestor: KatanaResultIngestor
     max_parallelism: 2
+    max_targets_per_run: 20
     execution_delay: ORCHESTRATOR_SCAN_DELAY
     scope: confidence
 
@@ -301,6 +308,7 @@ workers:
     processor: PlaywrightBatchProcessor
     ingestor: KatanaResultIngestor
     max_parallelism: 1
+    max_targets_per_run: 5
     execution_delay: ORCHESTRATOR_SCAN_DELAY
     scope: strict
 
@@ -355,6 +363,7 @@ workers:
     processor: WaymoreBatchProcessor
     ingestor:
     max_parallelism: 2
+    max_targets_per_run: 1
     scope: strict
 
   subjack:
@@ -382,6 +391,7 @@ workers:
     ingestor: FFUFResultIngestor
     max_parallelism: 3
     max_concurrent_scans: 5
+    max_targets_per_run: 1
     scope: strict
 
   amass:

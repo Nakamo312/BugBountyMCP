@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+import logging
 
 from fastapi import FastAPI, Request, Response
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from api.infrastructure.orchestration.metrics import PipelineMetricsCollector
 
 try:
     from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
@@ -29,6 +33,8 @@ if Counter is not None and Histogram is not None:
 else:
     REQUEST_COUNT = None
     REQUEST_DURATION = None
+
+logger = logging.getLogger(__name__)
 
 
 def setup_metrics(app: FastAPI) -> None:
@@ -56,4 +62,42 @@ def setup_metrics(app: FastAPI) -> None:
                 "prometheus_client_available 0\n",
                 media_type=CONTENT_TYPE_LATEST,
             )
-        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+        body = generate_latest()
+        body += (await _collect_pipeline_metrics(app)).encode("utf-8")
+        return Response(body, media_type=CONTENT_TYPE_LATEST)
+
+
+async def _collect_pipeline_metrics(app: FastAPI) -> str:
+    container = getattr(app.state, "dishka_container", None)
+    worker_snapshots = await _resolve_worker_snapshots(app, container)
+    worker_metrics = "\n".join(
+        PipelineMetricsCollector.worker_metric_lines(worker_snapshots)
+    ) + "\n"
+    if container is None:
+        return PipelineMetricsCollector.unavailable_sample() + worker_metrics
+    try:
+        session_factory = await container.get(async_sessionmaker)
+        durable_metrics = await PipelineMetricsCollector(
+            session_factory,
+            worker_snapshots=worker_snapshots,
+        ).collect()
+        return durable_metrics
+    except Exception:
+        logger.exception("Failed to collect pipeline metrics")
+        return PipelineMetricsCollector.unavailable_sample() + worker_metrics
+
+
+async def _resolve_worker_snapshots(app: FastAPI, container) -> Callable | None:
+    node_registry = getattr(app.state, "node_registry", None)
+    if node_registry is None and container is not None:
+        try:
+            from api.application.pipeline.registry import NodeRegistry
+
+            node_registry = await container.get(NodeRegistry)
+        except Exception:
+            logger.exception("Failed to resolve NodeRegistry for pipeline metrics")
+            return None
+
+    if node_registry is None:
+        return None
+    return node_registry.worker_snapshots

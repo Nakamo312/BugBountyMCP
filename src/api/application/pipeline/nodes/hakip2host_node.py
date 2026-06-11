@@ -9,6 +9,7 @@ from api.application.pipeline.context import PipelineContext
 from api.infrastructure.events.event_types import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
 from api.application.pipeline.ingestion import ingest_with_optional_context
+from api.application.contracts import ExecutionMode
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,9 @@ class Hakip2HostNode(Node):
         host_ingestor_key: Type[Any],
         event_out: Set[EventType] | None = None,
         max_parallelism: int = 1,
+        execution_mode: ExecutionMode = ExecutionMode.INLINE,
+        max_targets_per_run: int | None = None,
+        retry_policy: dict | None = None,
         scope_policy=ScopePolicy.NONE
     ):
         event_out = event_out or {
@@ -41,7 +45,10 @@ class Hakip2HostNode(Node):
             node_id=node_id,
             event_in=event_in,
             event_out=event_out,
-            max_parallelism=max_parallelism
+            max_parallelism=max_parallelism,
+            execution_mode=execution_mode,
+            max_targets_per_run=max_targets_per_run,
+            retry_policy=retry_policy,
         )
         self.logger = logging.getLogger(f"node.{node_id}")
         self.runner_key = runner_key

@@ -6,6 +6,7 @@ import logging
 
 from api.config import Settings
 from api.application.contracts import IngestContext
+from api.application.research.sanitizer import sanitize_text
 from api.domain.models import HTTPObservationModel, ScopeRuleModel
 from api.infrastructure.unit_of_work.interfaces.katana import KatanaUnitOfWork
 from api.infrastructure.normalization.path_normalizer import PathNormalizer
@@ -279,7 +280,7 @@ class KatanaResultIngestor(BaseResultIngestor):
             "body_sha256": hashlib.sha256(body_bytes).hexdigest(),
             "body_size_bytes": len(body_bytes),
             "body_artifact_id": context.raw_artifact_id if context else None,
-            "body_preview": body_text[:500],
+            "body_preview": sanitize_text(body_text, limit=500).safe_excerpt,
         }
 
     @staticmethod

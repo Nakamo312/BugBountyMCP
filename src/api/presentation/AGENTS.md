@@ -3,6 +3,11 @@
 Presentation code exposes REST and MCP interfaces. It should not become a
 shortcut around the control plane.
 
+Read first when changing this layer:
+
+- [Control plane](../../../docs/architecture/control-plane.md)
+- [MCP read model](../../../docs/architecture/mcp-read-model.md)
+
 ## Rules
 
 - REST/MCP scan requests must go through application services and policy.

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     RABBITMQ_USER: str = "guest"
     RABBITMQ_PASSWORD: str = "guest"
     RABBITMQ_VHOST: str = "/"
+    RABBITMQ_PREFETCH_COUNT: int = 10
 
     LOG_LEVEL: str = "INFO"
     TOOLS_PATH_PREFIX: str = "/usr/local"
@@ -37,6 +38,14 @@ class Settings(BaseSettings):
     # Pipeline feature flag
     USE_NODE_PIPELINE: bool = True
     PIPELINE_CONFIG_PATH: str | None = None
+    PIPELINE_SCHEDULED_EXECUTOR_POLL_SECONDS: float = 1.0
+    PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE: int = 100
+    PIPELINE_SCHEDULER_ENABLED: bool = True
+    PIPELINE_SCHEDULER_LEASE_TTL_SECONDS: int = 60
+    PIPELINE_SCHEDULER_RUNNING_TIMEOUT_SECONDS: int = 7200
+    PIPELINE_SCHEDULER_FLUSHING_TIMEOUT_SECONDS: int = 900
+    PIPELINE_RETRY_REQUEUE_LIMIT_PER_NODE: int = 25
+    PIPELINE_RETRY_REQUEUE_JITTER_SECONDS: float = 10.0
 
     # Declarative action scheduler
     USE_SCHEDULER: bool = True

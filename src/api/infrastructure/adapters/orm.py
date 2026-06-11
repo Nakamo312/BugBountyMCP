@@ -3,7 +3,7 @@ import uuid
 
 from sqlalchemy import (Boolean, CheckConstraint, Column, DateTime, Float,
                         ForeignKey, Index, Integer, MetaData, String, Table, Text, func,
-                        UniqueConstraint)
+                        UniqueConstraint, text)
 from sqlalchemy.dialects.postgresql import ARRAY, JSON
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
@@ -296,18 +296,101 @@ runs = Table(
     Column('node_id', String(100), nullable=True, index=True),
     Column('event_name', String(150), nullable=True, index=True),
     Column('trigger_event_id', UUID(), nullable=True, index=True),
+    Column('claim_key', String(64), nullable=True),
+    Column('work_key', String(64), nullable=True),
+    Column('coalesced_triggers', JSONType(), nullable=True),
+    Column('coalesced_trigger_count', Integer, nullable=False, server_default="0"),
+    Column('input_fingerprint', String(64), nullable=True, index=True),
+    Column('target_fingerprint', String(64), nullable=True, index=True),
+    Column('execution_mode', String(20), nullable=False, default='inline'),
     Column('status', String(30), nullable=False, index=True),
     Column('attempt', Integer, nullable=False, default=1),
+    Column('leased_at', DateTime(timezone=True), nullable=True),
+    Column('lease_owner', String(100), nullable=True),
+    Column('lease_expires_at', DateTime(timezone=True), nullable=True),
     Column('started_at', DateTime(timezone=True), nullable=True),
+    Column('scanner_started_at', DateTime(timezone=True), nullable=True),
+    Column('flushing_at', DateTime(timezone=True), nullable=True),
+    Column('next_run_at', DateTime(timezone=True), nullable=True),
+    Column('target_count', Integer, nullable=True),
+    Column('run_payload', JSONType(), nullable=True),
+    Column('next_retry_at', DateTime(timezone=True), nullable=True, index=True),
     Column('finished_at', DateTime(timezone=True), nullable=True),
+    Column('terminal_outcome', String(50), nullable=True, index=True),
+    Column('retry_reason', String(100), nullable=True),
+    Column('needs_reconcile', Boolean, nullable=False, default=False),
+    Column('reconcile_reason', Text, nullable=True),
     Column('error', Text, nullable=True),
     Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint('claim_key', name='uq_runs_claim_key'),
     Index('idx_runs_program_status', 'program_id', 'status'),
     Index('idx_runs_node_event_created', 'node_id', 'event_name', 'created_at'),
+    Index('idx_runs_execution_mode_status', 'execution_mode', 'status'),
+    Index(
+        'idx_runs_scheduled_active_work_key_unique',
+        'work_key',
+        unique=True,
+        postgresql_where=text(
+            "execution_mode = 'scheduled' "
+            "AND work_key IS NOT NULL "
+            "AND status IN ('queued', 'leased', 'running', 'flushing') "
+            "AND terminal_outcome IS NULL"
+        ),
+    ),
+    Index(
+        'idx_runs_scheduled_work_lookup',
+        'node_id',
+        'program_id',
+        'status',
+        'work_key',
+        postgresql_where=text(
+            "execution_mode = 'scheduled' "
+            "AND work_key IS NOT NULL"
+        ),
+    ),
+    Index(
+        'idx_runs_scheduled_ready_node_next_run_created',
+        'node_id',
+        'next_run_at',
+        'created_at',
+        'id',
+        postgresql_where=text(
+            "execution_mode = 'scheduled' "
+            "AND status = 'queued' "
+            "AND terminal_outcome IS NULL "
+            "AND needs_reconcile = false"
+        ),
+    ),
+    Index(
+        'idx_runs_scheduled_lease_expiry',
+        'lease_expires_at',
+        'id',
+        postgresql_where=text(
+            "execution_mode = 'scheduled' "
+            "AND status = 'leased'"
+        ),
+    ),
     CheckConstraint("attempt > 0", name='ck_runs_attempt_positive'),
     CheckConstraint(
-        "status IN ('queued', 'running', 'completed', 'failed', 'cancelled')",
+        "claim_key IS NULL OR claim_key != ''",
+        name='ck_runs_claim_key_not_empty',
+    ),
+    CheckConstraint(
+        "work_key IS NULL OR work_key != ''",
+        name='ck_runs_work_key_not_empty',
+    ),
+    CheckConstraint(
+        "execution_mode IN ('inline', 'scheduled')",
+        name='ck_runs_execution_mode_valid',
+    ),
+    CheckConstraint(
+        "terminal_outcome IS NULL OR terminal_outcome IN "
+        "('completed', 'partial', 'tool_failed', 'skipped', 'policy_blocked')",
+        name='ck_runs_terminal_outcome_valid',
+    ),
+    CheckConstraint(
+        "status IN ('queued', 'leased', 'running', 'flushing', 'completed', 'failed', 'dead', 'cancelled')",
         name='ck_runs_status_valid'
     ),
 )
@@ -403,6 +486,262 @@ http_observation_headers = Table(
     Index('idx_http_observation_headers_lookup', 'observation_id', 'name'),
     CheckConstraint("name != ''", name='ck_http_observation_headers_name_not_empty'),
     CheckConstraint("ordinal >= 0", name='ck_http_observation_headers_ordinal_non_negative'),
+)
+
+# ==================== RESEARCH TABLES ====================
+
+research_producer_runs = Table(
+    'research_producer_runs',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('producer_name', String(100), nullable=False, index=True),
+    Column('producer_version', String(100), nullable=False),
+    Column('rule_version', String(100), nullable=False),
+    Column('status', String(30), nullable=False, index=True),
+    Column('input_watermark', Text, nullable=True),
+    Column('stats_json', JSONType(), nullable=False, default=dict),
+    Column('error', Text, nullable=True),
+    Column('started_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('finished_at', DateTime(timezone=True), nullable=True),
+    Index('idx_research_producer_runs_status_started', 'status', 'started_at'),
+    CheckConstraint("producer_name != ''", name='ck_research_producer_runs_name_not_empty'),
+    CheckConstraint("producer_version != ''", name='ck_research_producer_runs_version_not_empty'),
+    CheckConstraint("rule_version != ''", name='ck_research_producer_runs_rule_version_not_empty'),
+    CheckConstraint(
+        "status IN ('running', 'completed', 'failed')",
+        name='ck_research_producer_runs_status_valid',
+    ),
+)
+
+research_signals = Table(
+    'research_signals',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('producer_run_id', UUID(), ForeignKey('research_producer_runs.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('signal_type', String(100), nullable=False, index=True),
+    Column('signal_version', String(100), nullable=False),
+    Column('rule_id', String(100), nullable=False),
+    Column('rule_version', String(100), nullable=False),
+    Column('asset_type', String(50), nullable=True, index=True),
+    Column('asset_id', Text, nullable=True),
+    Column('observation_id', UUID(), ForeignKey('http_observations.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('evidence_fingerprint', String(64), nullable=False),
+    Column('confidence', Float, nullable=False),
+    Column('payload_json', JSONType(), nullable=False, default=dict),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint(
+        'program_id',
+        'signal_type',
+        'signal_version',
+        'evidence_fingerprint',
+        name='uq_research_signal_fingerprint',
+    ),
+    Index('idx_research_signals_program_type_created', 'program_id', 'signal_type', 'created_at'),
+    CheckConstraint("signal_type != ''", name='ck_research_signals_type_not_empty'),
+    CheckConstraint("signal_version != ''", name='ck_research_signals_version_not_empty'),
+    CheckConstraint("rule_id != ''", name='ck_research_signals_rule_id_not_empty'),
+    CheckConstraint("rule_version != ''", name='ck_research_signals_rule_version_not_empty'),
+    CheckConstraint("evidence_fingerprint != ''", name='ck_research_signals_fingerprint_not_empty'),
+    CheckConstraint(
+        "confidence >= 0 AND confidence <= 1",
+        name='ck_research_signals_confidence_range',
+    ),
+)
+
+research_hypotheses = Table(
+    'research_hypotheses',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('hypothesis_type', String(100), nullable=False, index=True),
+    Column('hypothesis_fingerprint', String(64), nullable=False),
+    Column('status', String(30), nullable=False, index=True),
+    Column('state_version', Integer, nullable=False, default=1),
+    Column('priority_score', Integer, nullable=False, default=0),
+    Column('confidence', Float, nullable=False, default=0),
+    Column('severity_guess', String(20), nullable=True, index=True),
+    Column('safety_level', String(30), nullable=False, default='passive'),
+    Column('score_version', String(100), nullable=False),
+    Column('inputs_hash', String(64), nullable=False),
+    Column('source_signal_fingerprints', JSONType(), nullable=False, default=list),
+    Column('duplicate_of_hypothesis_id', UUID(), ForeignKey('research_hypotheses.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('first_seen', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('last_seen', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint(
+        'program_id',
+        'hypothesis_type',
+        'hypothesis_fingerprint',
+        name='uq_research_hypothesis_fingerprint',
+    ),
+    Index('idx_research_hypotheses_program_status_score', 'program_id', 'status', 'priority_score'),
+    CheckConstraint("hypothesis_type != ''", name='ck_research_hypotheses_type_not_empty'),
+    CheckConstraint("hypothesis_fingerprint != ''", name='ck_research_hypotheses_fingerprint_not_empty'),
+    CheckConstraint("state_version > 0", name='ck_research_hypotheses_state_version_positive'),
+    CheckConstraint(
+        "status IN ('new', 'needs_verification', 'reviewing', 'dismissed', 'duplicate', 'promoted', 'stale')",
+        name='ck_research_hypotheses_status_valid',
+    ),
+    CheckConstraint(
+        "priority_score >= 0 AND priority_score <= 100",
+        name='ck_research_hypotheses_priority_range',
+    ),
+    CheckConstraint(
+        "confidence >= 0 AND confidence <= 1",
+        name='ck_research_hypotheses_confidence_range',
+    ),
+    CheckConstraint(
+        "duplicate_of_hypothesis_id IS NULL OR duplicate_of_hypothesis_id != id",
+        name='ck_research_hypotheses_duplicate_not_self',
+    ),
+    CheckConstraint(
+        "status != 'duplicate' OR duplicate_of_hypothesis_id IS NOT NULL",
+        name='ck_research_hypotheses_duplicate_status_requires_ref',
+    ),
+    CheckConstraint(
+        "duplicate_of_hypothesis_id IS NULL OR status = 'duplicate'",
+        name='ck_research_hypotheses_duplicate_ref_requires_status',
+    ),
+)
+
+research_hypothesis_evidence = Table(
+    'research_hypothesis_evidence',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('hypothesis_id', UUID(), ForeignKey('research_hypotheses.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('ref_type', String(50), nullable=False, index=True),
+    Column('ref_id', Text, nullable=False),
+    Column('field_path', Text, nullable=True),
+    Column('role', String(30), nullable=False),
+    Column('claim_type', String(100), nullable=False),
+    Column('claim', Text, nullable=False),
+    Column('evidence_fingerprint', String(64), nullable=False),
+    Column('safe_excerpt', Text, nullable=True),
+    Column('safe_excerpt_truncated', Boolean, nullable=False, default=False),
+    Column('safe_excerpt_hash', String(64), nullable=True),
+    Column('evidence_source', String(30), nullable=False),
+    Column('normalized_content_hash', String(64), nullable=True),
+    Column('sanitized_content_hash', String(64), nullable=True),
+    Column('sanitizer_version', String(100), nullable=False),
+    Column('redaction_policy_version', String(100), nullable=False),
+    Column('sensitivity_level', String(50), nullable=False),
+    Column('redaction_rules_triggered', JSONType(), nullable=False, default=list),
+    Column('safe_for_search', Boolean, nullable=False, default=False),
+    Column('safe_for_embedding', Boolean, nullable=False, default=False),
+    Column('safe_for_llm', Boolean, nullable=False, default=False),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint(
+        'hypothesis_id',
+        'evidence_fingerprint',
+        name='uq_research_hypothesis_evidence_fingerprint',
+    ),
+    Index('idx_research_evidence_hypothesis_role', 'hypothesis_id', 'role'),
+    CheckConstraint("ref_type != ''", name='ck_research_evidence_ref_type_not_empty'),
+    CheckConstraint("ref_id != ''", name='ck_research_evidence_ref_id_not_empty'),
+    CheckConstraint("claim_type != ''", name='ck_research_evidence_claim_type_not_empty'),
+    CheckConstraint("claim != ''", name='ck_research_evidence_claim_not_empty'),
+    CheckConstraint("evidence_fingerprint != ''", name='ck_research_evidence_fingerprint_not_empty'),
+    CheckConstraint(
+        "role IN ('primary', 'supporting', 'context', 'contradicting')",
+        name='ck_research_evidence_role_valid',
+    ),
+    CheckConstraint(
+        "evidence_source IN ('sanitizer', 'metadata_only', 'manual', 'legacy')",
+        name='ck_research_evidence_source_valid',
+    ),
+    CheckConstraint(
+        "safe_excerpt IS NULL OR safe_for_search = true",
+        name='ck_research_evidence_safe_excerpt_requires_search_safe',
+    ),
+)
+
+research_hypothesis_events = Table(
+    'research_hypothesis_events',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('hypothesis_id', UUID(), ForeignKey('research_hypotheses.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('event_type', String(100), nullable=False, index=True),
+    Column('aggregate_version', Integer, nullable=False),
+    Column('actor', String(100), nullable=False),
+    Column('reason', Text, nullable=True),
+    Column('payload_json', JSONType(), nullable=False, default=dict),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint(
+        'hypothesis_id',
+        'aggregate_version',
+        name='uq_research_hypothesis_events_version',
+    ),
+    Index('idx_research_hypothesis_events_hypothesis_version', 'hypothesis_id', 'aggregate_version'),
+    CheckConstraint("event_type != ''", name='ck_research_hypothesis_events_type_not_empty'),
+    CheckConstraint("actor != ''", name='ck_research_hypothesis_events_actor_not_empty'),
+    CheckConstraint(
+        "aggregate_version > 0",
+        name='ck_research_hypothesis_events_aggregate_version_positive',
+    ),
+)
+
+research_hypothesis_score_history = Table(
+    'research_hypothesis_score_history',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('hypothesis_id', UUID(), ForeignKey('research_hypotheses.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('score_version', String(100), nullable=False),
+    Column('priority_score', Integer, nullable=False),
+    Column('confidence', Float, nullable=False),
+    Column('severity_guess', String(20), nullable=True),
+    Column('safety_level', String(30), nullable=False),
+    Column('inputs_hash', String(64), nullable=False),
+    Column('factors_json', JSONType(), nullable=False, default=dict),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index('idx_research_score_history_hypothesis_created', 'hypothesis_id', 'created_at'),
+    CheckConstraint("score_version != ''", name='ck_research_score_history_version_not_empty'),
+    CheckConstraint("inputs_hash != ''", name='ck_research_score_history_inputs_hash_not_empty'),
+    CheckConstraint(
+        "priority_score >= 0 AND priority_score <= 100",
+        name='ck_research_score_history_priority_range',
+    ),
+    CheckConstraint(
+        "confidence >= 0 AND confidence <= 1",
+        name='ck_research_score_history_confidence_range',
+    ),
+)
+
+research_suppression_rules = Table(
+    'research_suppression_rules',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('scope', String(50), nullable=False),
+    Column('match_type', String(50), nullable=False),
+    Column('match_value', Text, nullable=False),
+    Column('match_fingerprint', String(64), nullable=False),
+    Column('reason', Text, nullable=False),
+    Column('enabled', Boolean, nullable=False, default=True),
+    Column('created_from_hypothesis_id', UUID(), ForeignKey('research_hypotheses.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('expires_at', DateTime(timezone=True), nullable=True),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint(
+        'program_id',
+        'scope',
+        'match_type',
+        'match_fingerprint',
+        name='uq_research_suppression_fingerprint',
+    ),
+    Index('idx_research_suppression_program_scope', 'program_id', 'scope'),
+    CheckConstraint("scope != ''", name='ck_research_suppression_scope_not_empty'),
+    CheckConstraint("match_type != ''", name='ck_research_suppression_match_type_not_empty'),
+    CheckConstraint("match_value != ''", name='ck_research_suppression_match_value_not_empty'),
+    CheckConstraint("match_fingerprint != ''", name='ck_research_suppression_fingerprint_not_empty'),
+    CheckConstraint("reason != ''", name='ck_research_suppression_reason_not_empty'),
+    CheckConstraint(
+        "scope IN ('global', 'program', 'asset', 'hypothesis_type', 'signal_type', 'dedupe_group')",
+        name='ck_research_suppression_scope_valid',
+    ),
+    CheckConstraint(
+        "match_type IN ('exact', 'fingerprint', 'prefix', 'regex', 'tag')",
+        name='ck_research_suppression_match_type_valid',
+    ),
 )
 
 payloads = Table(

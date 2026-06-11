@@ -17,6 +17,8 @@ from api.application.services.batch_processor import (
     AmassBatchProcessor,
     FFUFBatchProcessor,
     HTTPXBatchProcessor,
+    LinkFinderBatchProcessor,
+    MantraBatchProcessor,
     SubfinderBatchProcessor,
     WaymoreBatchProcessor,
     KatanaBatchProcessor,
@@ -336,6 +338,14 @@ class BatchProcessorProvider(Provider):
     @provide(scope=Scope.APP)
     def get_katana_processor(self, settings: Settings) -> KatanaBatchProcessor:
         return KatanaBatchProcessor(settings)
+
+    @provide(scope=Scope.APP)
+    def get_linkfinder_processor(self, settings: Settings) -> LinkFinderBatchProcessor:
+        return LinkFinderBatchProcessor(settings)
+
+    @provide(scope=Scope.APP)
+    def get_mantra_processor(self, settings: Settings) -> MantraBatchProcessor:
+        return MantraBatchProcessor(settings)
 
     @provide(scope=Scope.APP)
     def get_dnsx_processor(self, settings: Settings) -> DNSxBatchProcessor:

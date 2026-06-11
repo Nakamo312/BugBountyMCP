@@ -1,0 +1,2 @@
+"""Standalone OpenSearch indexing service."""
+

@@ -11,7 +11,7 @@ from api.infrastructure.schemas.models.process_event import ProcessEvent
 from api.infrastructure.artifacts.raw_output_store import FileRawOutputStore
 from api.infrastructure.artifacts.raw_artifact_repository import RawArtifactRepository
 from api.config import Settings
-from api.application.contracts import EventEnvelope, ExecutionStatus, IngestContext
+from api.application.contracts import EventEnvelope, ExecutionStatus, IngestContext, TerminalOutcome
 from api.application.pipeline.scope_policy import ScopePolicy
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,11 @@ class PipelineContext:
         self.job_id: UUID | None = None
         self.run_id: UUID | None = None
         self.correlation_id: UUID | None = None
+        self.retry_policy: dict[str, Any] = {
+            "max_attempts": 1,
+            "backoff_seconds": 0,
+            "terminal_outcomes": [],
+        }
 
     def bind_event(self, event: Dict[str, Any]) -> None:
         self.event_name = event.get("event")
@@ -161,43 +166,86 @@ class PipelineContext:
             raise RuntimeError("DI container not available in context")
         async with self._container() as request_container:
             repository = await request_container.get(RawArtifactRepository)
-            await repository.record(metadata)
+            try:
+                await repository.record(metadata)
+            except Exception:
+                await self._mark_run_needs_reconcile(
+                    "raw_artifact_metadata_record_failed"
+                )
+                raise
 
-    async def mark_run_started(self) -> None:
+    async def _mark_run_needs_reconcile(self, reason: str) -> None:
         if not self._container or self.run_id is None:
             return
         from api.infrastructure.orchestration.store import OrchestrationStore
 
+        try:
+            async with self._container() as request_container:
+                store = await request_container.get(OrchestrationStore)
+                await store.mark_run_needs_reconcile(
+                    run_id=self.run_id,
+                    reason=reason,
+                )
+        except Exception:
+            logger.warning("Failed to mark run as needing reconcile", exc_info=True)
+
+    async def mark_run_started(self) -> bool:
+        if not self._container or self.run_id is None:
+            return True
+
+        from api.infrastructure.orchestration.store import OrchestrationStore
+
         async with self._container() as request_container:
             store = await request_container.get(OrchestrationStore)
-            await store.mark_run_started(
+            return await store.mark_run_started(
                 run_id=self.run_id,
                 node_id=self.node_id,
                 event_name=self.event_name,
                 trigger_event_id=self.event_id,
             )
 
-    async def mark_run_completed(self) -> None:
-        await self._mark_run_finished(ExecutionStatus.COMPLETED)
+    async def mark_run_completed(self) -> bool:
+        return await self._mark_run_finished(
+            ExecutionStatus.COMPLETED,
+            terminal_outcome=TerminalOutcome.COMPLETED,
+        )
 
-    async def mark_run_failed(self, error: Exception) -> None:
-        await self._mark_run_finished(ExecutionStatus.FAILED, error=str(error))
+    async def mark_run_flushing(self) -> bool:
+        if not self._container or self.run_id is None:
+            return True
+
+        from api.infrastructure.orchestration.store import OrchestrationStore
+
+        async with self._container() as request_container:
+            store = await request_container.get(OrchestrationStore)
+            return await store.mark_run_flushing(run_id=self.run_id)
+
+    async def mark_run_failed(self, error: Exception) -> bool:
+        return await self._mark_run_finished(
+            ExecutionStatus.FAILED,
+            error=str(error),
+            terminal_outcome=TerminalOutcome.TOOL_FAILED,
+        )
 
     async def _mark_run_finished(
         self,
         status: ExecutionStatus,
         error: str | None = None,
-    ) -> None:
+        terminal_outcome: TerminalOutcome | None = None,
+    ) -> bool:
         if not self._container or self.run_id is None:
-            return
+            return True
+
         from api.infrastructure.orchestration.store import OrchestrationStore
 
         async with self._container() as request_container:
             store = await request_container.get(OrchestrationStore)
-            await store.mark_run_finished(
+            return await store.mark_run_finished(
                 run_id=self.run_id,
                 status=status,
                 error=error,
+                terminal_outcome=terminal_outcome,
+                retry_policy=self.retry_policy,
             )
 
     async def filter_by_scope(self, program_id: UUID, targets: List[str]) -> Tuple[List[str], List[str]]:

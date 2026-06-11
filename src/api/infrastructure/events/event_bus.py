@@ -1,4 +1,5 @@
 # infrastructure/event_bus.py
+import asyncio
 import json
 import logging
 from typing import Any, Callable, Coroutine, Dict, Set
@@ -32,6 +33,7 @@ class EventBus:
         self.connection = connection
         self.channel = channel
         self.exchange = None
+        self.dead_letter_exchange = None
         self.event_recorder = event_recorder
         self._declared_queues: Set[str] = set()
 
@@ -42,6 +44,7 @@ class EventBus:
             self.connection = await aio_pika.connect_robust(rabbit_url)
         if not self.channel:
             self.channel = await self.connection.channel()
+        await self.channel.set_qos(prefetch_count=self.settings.RABBITMQ_PREFETCH_COUNT)
         if not self.exchange:
             self.exchange = await self.channel.declare_exchange(
                 QueueConfig.EXCHANGE_NAME,
@@ -49,6 +52,16 @@ class EventBus:
                 durable=True
             )
             logger.info(f"Declared topic exchange: {QueueConfig.EXCHANGE_NAME}")
+        if not self.dead_letter_exchange:
+            self.dead_letter_exchange = await self.channel.declare_exchange(
+                QueueConfig.DEAD_LETTER_EXCHANGE_NAME,
+                aio_pika.ExchangeType.DIRECT,
+                durable=True,
+            )
+            logger.info(
+                "Declared dead-letter exchange: %s",
+                QueueConfig.DEAD_LETTER_EXCHANGE_NAME,
+            )
 
     async def _ensure_queue(self, queue_name: str, binding_pattern: str):
         """
@@ -59,10 +72,24 @@ class EventBus:
             binding_pattern: Topic pattern (e.g., "discovery.#")
         """
         if queue_name not in self._declared_queues:
+            dead_letter_queue_name = QueueConfig.get_dead_letter_queue_name(queue_name)
+            dead_letter_routing_key = QueueConfig.get_dead_letter_routing_key(queue_name)
+            dead_letter_queue = await self.channel.declare_queue(
+                dead_letter_queue_name,
+                durable=True,
+            )
+            await dead_letter_queue.bind(
+                self.dead_letter_exchange,
+                routing_key=dead_letter_routing_key,
+            )
             queue = await self.channel.declare_queue(
                 queue_name,
                 durable=True,
-                arguments={"x-max-priority": 10}
+                arguments={
+                    "x-max-priority": 10,
+                    "x-dead-letter-exchange": QueueConfig.DEAD_LETTER_EXCHANGE_NAME,
+                    "x-dead-letter-routing-key": dead_letter_routing_key,
+                },
             )
             await queue.bind(self.exchange, routing_key=binding_pattern)
             self._declared_queues.add(queue_name)
@@ -135,8 +162,45 @@ class EventBus:
 
         logger.info(f"Subscribed to queue: {queue_name}")
 
-        async with queue.iterator() as queue_iter:
-            async for message in queue_iter:
-                async with message.process():
-                    event = json.loads(message.body.decode())
-                    await callback(event)
+        pending: Set[asyncio.Task] = set()
+        try:
+            async with queue.iterator() as queue_iter:
+                async for message in queue_iter:
+                    task = asyncio.create_task(
+                        self._process_message(queue_name, message, callback)
+                    )
+                    pending.add(task)
+                    task.add_done_callback(
+                        lambda completed, tasks=pending: self._discard_message_task(
+                            tasks,
+                            completed,
+                        )
+                    )
+        finally:
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+
+    async def _process_message(
+        self,
+        queue_name: str,
+        message,
+        callback: Callable[[Dict[str, Any]], Coroutine[Any, Any, None]],
+    ) -> None:
+        async with message.process():
+            event = json.loads(message.body.decode())
+            event_name = event.get("event")
+            logger.debug("Processing RabbitMQ message: queue=%s event=%s", queue_name, event_name)
+            await callback(event)
+
+    @staticmethod
+    def _discard_message_task(tasks: Set[asyncio.Task], task: asyncio.Task) -> None:
+        tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(
+                "RabbitMQ message processing failed: %s",
+                exc,
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
