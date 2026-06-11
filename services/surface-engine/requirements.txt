@@ -1,1 +1,1 @@
-# Phase 2 has no third-party runtime dependencies.
+psycopg2-binary>=2.9,<3

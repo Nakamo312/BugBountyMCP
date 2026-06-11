@@ -23,3 +23,26 @@ multiplexed, keep_alive, server_sent_events, websocket_upgrade, or long_polling.
 Nested JSON, GraphQL, XML, protobuf/thrift schemas, and inferred business-entity
 relationships are intentionally not expanded into full graphs in Phase 2. They
 are recorded as follow-up layers so canonicalization stays small and stable.
+
+Phase 3 adds snapshot/node construction from `http_observations`. It writes only
+`surface_snapshots` and `surface_nodes`; edges, clusters, OpenSearch projections,
+and LLM labels remain later phases.
+
+Example dry run against a JSON file of observation rows:
+
+```bash
+PYTHONPATH="$PWD/src:$PWD/services/surface-engine" \
+python -m surface_engine build-snapshot \
+  --program-id 00000000-0000-0000-0000-000000000001 \
+  --dry-run-input ./observations.json
+```
+
+Example PostgreSQL run:
+
+```bash
+PYTHONPATH="$PWD/src:$PWD/services/surface-engine" \
+python -m surface_engine build-snapshot \
+  --dsn "$DATABASE_URL" \
+  --program-id 00000000-0000-0000-0000-000000000001 \
+  --limit 10000
+```

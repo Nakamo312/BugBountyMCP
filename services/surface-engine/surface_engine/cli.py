@@ -4,6 +4,7 @@ import argparse
 import json
 
 from .canonicalize import canonicalize_endpoint
+from .nodes import build_snapshot_draft, build_surface_nodes_from_observations
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -36,6 +37,25 @@ def build_parser() -> argparse.ArgumentParser:
     canonicalize.add_argument("--response-xml-tag", action="append", default=[])
     canonicalize.add_argument("--header-name", action="append", default=[])
     canonicalize.set_defaults(func=_canonicalize_url)
+
+    build_snapshot = subparsers.add_parser(
+        "build-snapshot",
+        help="Build Surface Map V1 snapshot nodes from http_observations.",
+    )
+    build_snapshot.add_argument("--dsn", help="PostgreSQL DSN. Required unless --dry-run-input is used.")
+    build_snapshot.add_argument("--program-id", required=True)
+    build_snapshot.add_argument("--limit", type=int, default=1000)
+    build_snapshot.add_argument("--offset", type=int, default=0)
+    build_snapshot.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build and print snapshot stats without writing surface_* tables.",
+    )
+    build_snapshot.add_argument(
+        "--dry-run-input",
+        help="Optional JSON file with observation rows for local contract testing.",
+    )
+    build_snapshot.set_defaults(func=_build_snapshot)
     return parser
 
 
@@ -65,6 +85,60 @@ def _canonicalize_url(args: argparse.Namespace) -> int:
     print(json.dumps(endpoint.to_features(), indent=2, sort_keys=True))
     return 0
 
+
+
+def _build_snapshot(args: argparse.Namespace) -> int:
+    rows = _load_observation_rows(args)
+    nodes = build_surface_nodes_from_observations(rows)
+    snapshot = build_snapshot_draft(program_id=args.program_id, nodes=nodes, source_rows=rows)
+    result = {
+        "snapshot": {
+            "program_id": snapshot.program_id,
+            "snapshot_fingerprint": snapshot.snapshot_fingerprint,
+            "algorithm": snapshot.algorithm,
+            "algorithm_version": snapshot.algorithm_version,
+            "input_watermark": snapshot.input_watermark,
+            "source_window_start": str(snapshot.source_window_start) if snapshot.source_window_start else None,
+            "source_window_end": str(snapshot.source_window_end) if snapshot.source_window_end else None,
+            "stats_json": snapshot.stats_json,
+        },
+        "nodes": {
+            "count": len(nodes),
+            "types": snapshot.stats_json.get("node_types", {}),
+        },
+        "dry_run": bool(args.dry_run or args.dry_run_input),
+    }
+    if args.dry_run or args.dry_run_input:
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if not args.dsn:
+        raise SystemExit("--dsn is required unless --dry-run or --dry-run-input is used")
+    from .postgres import PostgresSurfaceStore
+
+    store = PostgresSurfaceStore(args.dsn)
+    snapshot_id = store.upsert_snapshot(snapshot)
+    nodes_written = store.upsert_nodes(snapshot_id=snapshot_id, nodes=nodes)
+    result["snapshot"]["id"] = snapshot_id
+    result["nodes"]["written"] = nodes_written
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def _load_observation_rows(args: argparse.Namespace) -> list[dict]:
+    if args.dry_run_input:
+        with open(args.dry_run_input, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if not isinstance(data, list):
+            raise SystemExit("--dry-run-input must point to a JSON array of observation rows")
+        return [dict(row) for row in data]
+
+    if not args.dsn:
+        raise SystemExit("--dsn is required unless --dry-run-input is used")
+    from .postgres import PostgresSurfaceStore
+
+    store = PostgresSurfaceStore(args.dsn)
+    return store.fetch_http_observations(program_id=args.program_id, limit=args.limit, offset=args.offset)
 
 
 def _parse_bool(value: str | None) -> bool | None:

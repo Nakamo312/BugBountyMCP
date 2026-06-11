@@ -12,6 +12,43 @@ REQUEST_SHAPE_VERSION = "request-shape-v1"
 RESPONSE_SHAPE_VERSION = "response-shape-v2"
 FEATURE_FINGERPRINT_VERSION = "surface-feature-v2"
 
+NODE_FINGERPRINT_VERSION = "surface-node-v1"
+SNAPSHOT_FINGERPRINT_VERSION = "surface-snapshot-v1"
+
+
+def build_node_fingerprint(
+    *,
+    program_id: str,
+    node_type: str,
+    primary_fingerprint: str,
+) -> str:
+    return stable_hash(
+        {
+            "version": NODE_FINGERPRINT_VERSION,
+            "program_id": program_id,
+            "node_type": node_type,
+            "primary_fingerprint": primary_fingerprint,
+        }
+    )
+
+
+def build_snapshot_fingerprint(
+    *,
+    program_id: str,
+    algorithm_version: str,
+    node_fingerprints: list[str],
+    input_ids: list[str],
+) -> str:
+    return stable_hash(
+        {
+            "version": SNAPSHOT_FINGERPRINT_VERSION,
+            "program_id": program_id,
+            "algorithm_version": algorithm_version,
+            "node_fingerprints": sorted(node_fingerprints),
+            "input_ids": sorted(input_ids),
+        }
+    )
+
 
 def stable_hash(payload: Any) -> str:
     """Return a deterministic SHA-256 hash for JSON-like payloads.
