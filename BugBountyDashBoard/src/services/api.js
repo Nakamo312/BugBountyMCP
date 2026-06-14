@@ -68,53 +68,13 @@ export const getProgramStats = (programId) =>
 export const getEndpointsWithBody = (programId, params = {}) => 
   api.get(`/hosts/program/${programId}/endpoints-with-body`, { params })
 
-// Scans
-export const scanSubfinder = (data) => 
-  api.post('/scan/subfinder', data)
-
-export const scanHTTPX = (data) => 
-  api.post('/scan/httpx', data)
-
-export const scanGAU = (data) => 
-  api.post('/scan/gau', data)
-
-export const scanWaymore = (data) => 
-  api.post('/scan/waymore', data)
-
-export const scanKatana = (data) => 
-  api.post('/scan/katana', data)
-
-export const scanPlaywright = (data) => 
-  api.post('/scan/playwright', data)
-
-export const scanLinkFinder = (data) => 
-  api.post('/scan/linkfinder', data)
-
-export const scanMantra = (data) => 
-  api.post('/scan/mantra', data)
-
-export const scanFFUF = (data) =>
-  api.post('/scan/ffuf', data)
-
-export const scanAmass = (data) =>
-  api.post('/scan/amass', data)
-
-export const scanDNSx = (data) =>
-  api.post('/scan/dnsx', data)
-
-export const scanSubjack = (data) => 
-  api.post('/scan/subjack', data)
-
-export const scanASNMap = (data) => 
-  api.post('/scan/asnmap', data)
-
-export const scanMapCIDR = (data) => 
-  api.post('/scan/mapcidr', data)
-
-export const scanNaabu = (data) => 
-  api.post('/scan/naabu', data)
-
 // Actions
+export const listActionCatalog = () =>
+  api.get('/actions/catalog')
+
+export const getActionCatalogItem = (catalogId) =>
+  api.get(`/actions/catalog/${catalogId}`)
+
 export const listActions = (params = {}) =>
   api.get('/actions', { params })
 
@@ -126,6 +86,94 @@ export const approveAction = (actionId, data = {}) =>
 
 export const rejectAction = (actionId, data = {}) =>
   api.post(`/actions/${actionId}/reject`, data)
+
+let actionCatalogCache = null
+
+const resolveCatalogId = async (capability, profile) => {
+  if (!actionCatalogCache) {
+    const response = await listActionCatalog()
+    actionCatalogCache = response.data?.items || []
+  }
+  const item = actionCatalogCache.find(
+    (entry) => entry.capability === capability && entry.profile === profile,
+  )
+  if (!item) {
+    throw new Error(`Action catalog entry not found: ${capability}/${profile}`)
+  }
+  return item.id
+}
+
+export const createAction = ({ catalog_id, program_id, targets, options = {}, requested_by = 'ui' }) =>
+  api.post('/actions', {
+    program_id,
+    catalog_id,
+    targets,
+    options,
+    requested_by,
+  })
+
+const asAction = async (capability, profile, data, { targetField = 'targets' } = {}) => {
+  const { program_id, [targetField]: targetValue, targets: ignoredTargets, ...options } = data
+  const catalog_id = await resolveCatalogId(capability, profile)
+  return createAction({
+    catalog_id,
+    program_id,
+    targets: targetValue,
+    options,
+  })
+}
+
+export const runSubfinder = (data) =>
+  asAction('subfinder', 'passive-enumeration', data)
+
+export const runHTTPX = (data) =>
+  asAction('httpx', 'safe-web-probe', data)
+
+export const runGAU = (data) =>
+  asAction('gau', 'archive-url-discovery', data)
+
+export const runWaymore = (data) =>
+  asAction('waymore', 'archive-url-discovery', data)
+
+export const runKatana = (data) =>
+  asAction('katana', 'safe-crawl', data)
+
+export const runPlaywright = (data) =>
+  asAction('playwright', 'browser-crawl', data)
+
+export const runLinkFinder = (data) =>
+  asAction('linkfinder', 'js-link-analysis', data)
+
+export const runMantra = (data) =>
+  asAction('mantra', 'js-secret-scan', data)
+
+export const runFFUF = (data) =>
+  asAction('ffuf', 'content-discovery-light', data)
+
+export const runAmass = (data) =>
+  asAction('amass', data.active ? 'active-enumeration' : 'passive-enumeration', data)
+
+export const runDNSx = (data) =>
+  asAction('dnsx', data.mode === 'ptr' ? 'reverse-dns' : 'forward-dns', data)
+
+export const runSubjack = (data) =>
+  asAction('subjack', 'takeover-check', data)
+
+export const runASNMap = (data) =>
+  asAction('asnmap', 'asn-discovery', data)
+
+export const runMapCIDR = async ({ program_id, cidrs, skip_base, skip_broadcast, shuffle, timeout }) => {
+  const catalog_id = await resolveCatalogId('mapcidr', 'cidr-expand')
+  return createAction({
+    catalog_id,
+    program_id,
+    targets: cidrs,
+    options: { skip_base, skip_broadcast, shuffle, timeout },
+  })
+}
+
+export const runNaabu = (data) =>
+  asAction('naabu', data.scan_mode === 'active' ? 'connect-top-100' : 'passive-ports', data)
 
 export const getInjectionCandidates = (programId, params = {}) => 
   api.get(`/analysis/program/${programId}/injection-candidates`, { params })

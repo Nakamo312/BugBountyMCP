@@ -95,7 +95,13 @@ class EventBus:
             self._declared_queues.add(queue_name)
             logger.info(f"Declared queue: {queue_name} bound to {binding_pattern}")
 
-    async def publish(self, event: Dict[str, Any] | EventEnvelope):
+    async def publish(
+        self,
+        event: Dict[str, Any] | EventEnvelope,
+        *,
+        record_event: bool = True,
+        routing_key: str | None = None,
+    ):
         """
         Publish event to topic exchange.
 
@@ -110,6 +116,9 @@ class EventBus:
 
         Args:
             event: Event dictionary with required "event" field
+            record_event: When false, publish only to RabbitMQ because the
+                envelope has already been recorded in event_store.
+            routing_key: Optional persisted routing key for event-store dispatch.
         """
         if not self.channel or not self.exchange:
             raise RuntimeError("EventBus not connected")
@@ -120,11 +129,11 @@ class EventBus:
         if not event_name:
             raise ValueError("Event missing 'event' field")
 
-        routing_key = QueueConfig.get_routing_key(event_name)
+        routing_key = routing_key or QueueConfig.get_routing_key(event_name)
         confidence = envelope.confidence
         priority = QueueConfig.confidence_to_priority(confidence)
 
-        if self.event_recorder is not None:
+        if record_event and self.event_recorder is not None:
             await self.event_recorder.record_event(envelope)
 
         await self.exchange.publish(

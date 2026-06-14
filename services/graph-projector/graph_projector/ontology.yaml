@@ -1,0 +1,1049 @@
+name: bug_bounty_knowledge_graph
+nodes:
+- description: Bug bounty program boundary.
+  label: Program
+  layer: surface
+  identity_properties:
+  - program_id
+  required_properties:
+  - program_id
+  optional_properties:
+  - name
+  source_references: []
+  projections:
+  - asset_exposure
+  - endpoint_neighborhood
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - program_registry
+  parser_outputs:
+  - programs
+  query_templates:
+  - asset_exposure
+  - evidence_path
+  property_vs_node_rationale: Program is a node because every graph fact is scoped
+    to a program and queries need program-bounded traversal.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: program_id
+    source_properties:
+    - program_id
+    key_policy: program_id
+- description: Program scope rule or scope item.
+  label: Scope
+  layer: surface
+  identity_properties:
+  - program_id
+  - scope_key
+  required_properties:
+  - program_id
+  - scope_key
+  optional_properties:
+  - scope_type
+  - pattern
+  - status
+  source_references: []
+  projections:
+  - asset_exposure
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - program_scope_import
+  parser_outputs:
+  - scopes
+  query_templates:
+  - asset_exposure
+  property_vs_node_rationale: Scope is a node because scope status controls whether
+    assets and findings are valid for the program.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: scope_key
+    source_properties:
+    - scope_key
+    key_policy: scope_type_pattern_status
+- description: Host name or host asset in the attack surface.
+  label: Host
+  layer: surface
+  identity_properties:
+  - program_id
+  - hostname
+  required_properties:
+  - program_id
+  - hostname
+  optional_properties:
+  - first_seen
+  - last_seen
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  - endpoint_neighborhood
+  - evidence_path
+  level: L1_INFRASTRUCTURE
+  maturity: experimental
+  sources:
+  - subfinder
+  - amass
+  - dnsx
+  - httpx
+  parser_outputs:
+  - hosts
+  query_templates:
+  - asset_exposure
+  - endpoint_neighborhood
+  - evidence_path
+  property_vs_node_rationale: Host is a node because it links DNS, services, endpoints,
+    technologies, and evidence paths.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: hostname
+    source_properties:
+    - hostname
+    key_policy: lower_fqdn
+- description: IP address linked to scoped infrastructure.
+  label: IP
+  layer: surface
+  identity_properties:
+  - program_id
+  - address
+  required_properties:
+  - program_id
+  - address
+  optional_properties:
+  - ip_version
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  - endpoint_neighborhood
+  level: L1_INFRASTRUCTURE
+  maturity: experimental
+  sources:
+  - dnsx
+  - naabu
+  - nmap
+  parser_outputs:
+  - ip_addresses
+  query_templates:
+  - asset_exposure
+  - asn_cidr_asset_expansion
+  property_vs_node_rationale: IP is a node because it links hosts, network ranges,
+    services, ASN data, and exposure queries.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: address
+    source_properties:
+    - address
+    key_policy: canonical_ip_address
+- description: Autonomous system related to program infrastructure.
+  label: ASN
+  layer: surface
+  identity_properties:
+  - program_id
+  - asn
+  required_properties:
+  - program_id
+  - asn
+  optional_properties:
+  - name
+  - country
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  level: L1_INFRASTRUCTURE
+  maturity: experimental
+  sources:
+  - rdap
+  - asn_import
+  parser_outputs:
+  - asns
+  query_templates:
+  - asn_cidr_asset_expansion
+  property_vs_node_rationale: ASN is a node because it groups CIDR ranges and supports
+    asset-expansion queries.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: asn
+    source_properties:
+    - asn
+    key_policy: canonical_asn
+- description: Network range related to program infrastructure.
+  label: CIDR
+  layer: surface
+  identity_properties:
+  - program_id
+  - cidr
+  required_properties:
+  - program_id
+  - cidr
+  optional_properties:
+  - source
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  level: L1_INFRASTRUCTURE
+  maturity: experimental
+  sources:
+  - rdap
+  - asn_import
+  parser_outputs:
+  - cidrs
+  query_templates:
+  - asn_cidr_asset_expansion
+  - asset_exposure
+  property_vs_node_rationale: CIDR is a node because IP membership and expansion queries
+    traverse network ranges.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: cidr
+    source_properties:
+    - cidr
+    key_policy: canonical_cidr
+- description: Network service exposed by a host or address.
+  label: Service
+  layer: surface
+  identity_properties:
+  - program_id
+  - service_key
+  required_properties:
+  - program_id
+  - service_key
+  optional_properties:
+  - port
+  - transport
+  - service_name
+  - scheme
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  - endpoint_neighborhood
+  - evidence_path
+  level: L1_INFRASTRUCTURE
+  maturity: experimental
+  sources:
+  - naabu
+  - nmap
+  - httpx
+  parser_outputs:
+  - services
+  query_templates:
+  - asset_exposure
+  - exposed_services_by_technology
+  - endpoint_neighborhood
+  property_vs_node_rationale: Service is a node because ports and protocols link infrastructure
+    to web/API endpoints and technologies.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: service_key
+    source_properties:
+    - service_key
+    key_policy: host_port_protocol
+- description: Web endpoint observed in scope.
+  label: Endpoint
+  layer: surface
+  identity_properties:
+  - program_id
+  - service_method_normalized_path
+  required_properties:
+  - program_id
+  - service_method_normalized_path
+  - service_key
+  - method
+  - normalized_path
+  optional_properties:
+  - status_code
+  - content_type
+  - url
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  - endpoint_neighborhood
+  - evidence_path
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - httpx
+  - surface_map
+  parser_outputs:
+  - endpoints
+  - surface_nodes
+  query_templates:
+  - endpoint_neighborhood
+  - hidden_endpoints_from_js
+  - similar_endpoints
+  property_vs_node_rationale: Endpoint is a node because endpoint neighborhoods, similarity,
+    parameters, and evidence paths need traversal.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: service_method_normalized_path
+    source_properties:
+    - service_key
+    - method
+    - normalized_path
+    key_policy: service_method_normalized_path
+- description: Tool definition that produced execution data.
+  label: Tool
+  layer: lineage
+  identity_properties:
+  - tool_id
+  required_properties:
+  - tool_id
+  optional_properties:
+  - name
+  - version
+  source_references: []
+  projections:
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - tool_catalog
+  parser_outputs:
+  - tool_catalog_entries
+  query_templates:
+  - evidence_path
+  property_vs_node_rationale: Tool is a node because tool runs and evidence need a
+    reusable tool identity.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: tool_id
+    source_properties:
+    - tool_id
+    key_policy: tool_id
+- description: Concrete tool execution attempt.
+  label: ToolRun
+  layer: lineage
+  identity_properties:
+  - program_id
+  - tool_run_id
+  required_properties:
+  - program_id
+  - tool_run_id
+  optional_properties:
+  - status
+  - started_at
+  - finished_at
+  source_references: []
+  projections:
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - event_log
+  - action_request
+  parser_outputs:
+  - tool_runs
+  query_templates:
+  - evidence_path
+  property_vs_node_rationale: ToolRun is a node because evidence lineage must trace
+    facts to execution instances.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: tool_run_id
+    source_properties:
+    - tool_run_id
+    key_policy: tool_run_id
+- description: Raw or derived artifact linked to a tool run.
+  label: Artifact
+  layer: lineage
+  identity_properties:
+  - program_id
+  - artifact_id
+  required_properties:
+  - program_id
+  - artifact_id
+  optional_properties:
+  - artifact_type
+  - sha256
+  - size_bytes
+  source_references:
+  - tool_run_id
+  projections:
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - raw_artifact_metadata
+  parser_outputs:
+  - raw_artifacts
+  query_templates:
+  - evidence_path
+  property_vs_node_rationale: Artifact is a node because observations and evidence
+    must trace to raw artifact metadata without storing raw output in Neo4j.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: artifact_id
+    source_properties:
+    - artifact_id
+    key_policy: artifact_id
+- description: Normalized observation derived from an artifact.
+  label: Observation
+  layer: lineage
+  identity_properties:
+  - program_id
+  - observation_id
+  required_properties:
+  - program_id
+  - observation_id
+  optional_properties:
+  - observation_type
+  - confidence
+  - parser_version
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - parser_output
+  parser_outputs:
+  - observations
+  query_templates:
+  - evidence_path
+  property_vs_node_rationale: Observation is a node because parser outputs may describe
+    multiple assets and support evidence chains.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: observation_id
+    source_properties:
+    - observation_id
+    key_policy: observation_id
+- description: Evidence item that can support later analysis.
+  label: Evidence
+  layer: lineage
+  identity_properties:
+  - program_id
+  - evidence_id
+  required_properties:
+  - program_id
+  - evidence_id
+  optional_properties:
+  - claim
+  - confidence
+  - status
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - evidence_builder
+  parser_outputs:
+  - evidence_items
+  query_templates:
+  - hypothesis_evidence_paths
+  property_vs_node_rationale: Evidence is a node because hypotheses and findings must
+    trace to verifiable supporting material.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: evidence_id
+    source_properties:
+    - evidence_id
+    key_policy: evidence_id
+relationships:
+- description: Program includes a declared scope item.
+  relationship_type: HAS_SCOPE
+  source_labels:
+  - Program
+  target_labels:
+  - Scope
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references: []
+  projections:
+  - asset_exposure
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - program_scope_import
+  parser_outputs:
+  - program_scope_edges
+  query_templates:
+  - asset_exposure
+  property_vs_node_rationale: Scope membership is a relationship because scope rules
+    are reused across many assets.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: Scope rule matches a host asset.
+  relationship_type: MATCHES_SCOPE
+  source_labels:
+  - Scope
+  target_labels:
+  - Host
+  required_properties:
+  - program_id
+  optional_properties:
+  - scope_status
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  level: L1_INFRASTRUCTURE
+  maturity: experimental
+  sources:
+  - program_scope_import
+  - subfinder
+  - amass
+  - dnsx
+  - httpx
+  parser_outputs:
+  - hosts
+  query_templates:
+  - asset_exposure
+  property_vs_node_rationale: Scope matching is a relationship because scope rules
+    and host assets have separate lifecycles.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: Host resolves to an IP address.
+  relationship_type: RESOLVES_TO
+  source_labels:
+  - Host
+  target_labels:
+  - IP
+  required_properties:
+  - program_id
+  optional_properties:
+  - first_seen
+  - last_seen
+  - confidence
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  - endpoint_neighborhood
+  level: L1_INFRASTRUCTURE
+  maturity: experimental
+  sources:
+  - dnsx
+  - amass
+  parser_outputs:
+  - host_ips
+  query_templates:
+  - asset_exposure
+  - asn_cidr_asset_expansion
+  property_vs_node_rationale: DNS resolution is a relationship because it links host
+    assets to IP assets and changes over time.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: IP address belongs to a network range.
+  relationship_type: IN_CIDR
+  source_labels:
+  - IP
+  target_labels:
+  - CIDR
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  level: L1_INFRASTRUCTURE
+  maturity: experimental
+  sources:
+  - rdap
+  - asn_import
+  parser_outputs:
+  - ip_cidr_edges
+  query_templates:
+  - asn_cidr_asset_expansion
+  - asset_exposure
+  property_vs_node_rationale: CIDR membership is a relationship because IP-to-range
+    traversal drives asset expansion.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: Network range is announced by an autonomous system.
+  relationship_type: ANNOUNCED_BY
+  source_labels:
+  - CIDR
+  target_labels:
+  - ASN
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  level: L1_INFRASTRUCTURE
+  maturity: experimental
+  sources:
+  - rdap
+  - asn_import
+  parser_outputs:
+  - cidrs
+  query_templates:
+  - asn_cidr_asset_expansion
+  - asset_exposure
+  property_vs_node_rationale: ASN announcement is a relationship because CIDR ranges
+    and ASNs have separate lifecycles and support asset-expansion paths.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: IP address exposes a network service.
+  relationship_type: EXPOSES_SERVICE
+  source_labels:
+  - IP
+  target_labels:
+  - Service
+  required_properties:
+  - program_id
+  optional_properties:
+  - port
+  - transport
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  - endpoint_neighborhood
+  - evidence_path
+  level: L1_INFRASTRUCTURE
+  maturity: experimental
+  sources:
+  - naabu
+  - nmap
+  - httpx
+  parser_outputs:
+  - services
+  query_templates:
+  - asset_exposure
+  - endpoint_neighborhood
+  - exposed_services_by_technology
+  property_vs_node_rationale: Service exposure is a relationship because IP addresses
+    and services have separate lifecycles and evidence.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: Service has a web endpoint.
+  relationship_type: HAS_ENDPOINT
+  source_labels:
+  - Service
+  target_labels:
+  - Endpoint
+  required_properties:
+  - program_id
+  optional_properties:
+  - method
+  - status_code
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  - endpoint_neighborhood
+  - evidence_path
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - httpx
+  - surface_map
+  parser_outputs:
+  - endpoints
+  - surface_nodes
+  query_templates:
+  - endpoint_neighborhood
+  - hidden_endpoints_from_js
+  property_vs_node_rationale: Endpoint membership is a relationship because services
+    and endpoints are analyzed at different layers.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: Program has a concrete tool run.
+  relationship_type: HAS_TOOL_RUN
+  source_labels:
+  - Program
+  target_labels:
+  - ToolRun
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references: []
+  projections:
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - event_log
+  parser_outputs:
+  - tool_runs
+  query_templates:
+  - evidence_path
+  property_vs_node_rationale: Tool run ownership is a relationship because program-bounded
+    lineage traverses through executions.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: Tool run used a tool definition.
+  relationship_type: USED_TOOL
+  source_labels:
+  - ToolRun
+  target_labels:
+  - Tool
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references: []
+  projections:
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - tool_catalog
+  - event_log
+  parser_outputs:
+  - tool_runs
+  query_templates:
+  - evidence_path
+  property_vs_node_rationale: Tool usage is a relationship because one tool definition
+    can have many runs.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: Tool run produced an artifact.
+  relationship_type: PRODUCED_ARTIFACT
+  source_labels:
+  - ToolRun
+  target_labels:
+  - Artifact
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references:
+  - tool_run_id
+  projections:
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - raw_artifact_metadata
+  parser_outputs:
+  - raw_artifacts
+  query_templates:
+  - evidence_path
+  property_vs_node_rationale: Artifact production is a relationship because tool runs
+    can produce multiple artifacts.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: Artifact yielded a normalized observation.
+  relationship_type: PRODUCED_OBSERVATION
+  source_labels:
+  - Artifact
+  target_labels:
+  - Observation
+  required_properties:
+  - program_id
+  optional_properties:
+  - parser_version
+  - confidence
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - parser_output
+  parser_outputs:
+  - observations
+  query_templates:
+  - evidence_path
+  property_vs_node_rationale: Observation production is a relationship because a parser
+    can extract multiple observations from one artifact.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: Observation describes a graph entity.
+  relationship_type: DESCRIBES
+  source_labels:
+  - Observation
+  target_labels:
+  - Host
+  - IP
+  - Service
+  - Endpoint
+  required_properties:
+  - program_id
+  optional_properties:
+  - confidence
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - parser_output
+  parser_outputs:
+  - observations
+  query_templates:
+  - evidence_path
+  property_vs_node_rationale: Description is a relationship because observations can
+    describe different entity types.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: Observation supports an evidence item.
+  relationship_type: SUPPORTS_EVIDENCE
+  source_labels:
+  - Observation
+  target_labels:
+  - Evidence
+  required_properties:
+  - program_id
+  optional_properties:
+  - confidence
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - evidence_builder
+  parser_outputs:
+  - evidence_items
+  query_templates:
+  - hypothesis_evidence_paths
+  property_vs_node_rationale: Evidence support is a relationship because observations
+    can support multiple evidence items.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: Evidence derives from an artifact.
+  relationship_type: DERIVED_FROM
+  source_labels:
+  - Evidence
+  target_labels:
+  - Artifact
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references:
+  - source_artifact_id
+  projections:
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - evidence_builder
+  parser_outputs:
+  - evidence_items
+  query_templates:
+  - evidence_path
+  property_vs_node_rationale: Derivation is a relationship because evidence must trace
+    back to artifact metadata.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+projections:
+- description: Attack-surface slice for exposure analysis and clustering.
+  name: asset_exposure
+  node_labels:
+  - Program
+  - Scope
+  - Host
+  - IP
+  - ASN
+  - CIDR
+  - Service
+  - Endpoint
+  relationship_types:
+  - HAS_SCOPE
+  - MATCHES_SCOPE
+  - RESOLVES_TO
+  - IN_CIDR
+  - ANNOUNCED_BY
+  - EXPOSES_SERVICE
+  - HAS_ENDPOINT
+  use_case: Analyze scoped asset exposure without lineage fan-out.
+  version: 1
+  level: L1_INFRASTRUCTURE
+  query_templates:
+  - asset_exposure
+  - asn_cidr_asset_expansion
+  expected_output: Program-bounded asset exposure graph without lineage fan-out.
+- description: Endpoint-focused slice for query templates and local traversal.
+  name: endpoint_neighborhood
+  node_labels:
+  - Host
+  - IP
+  - Service
+  - Endpoint
+  relationship_types:
+  - RESOLVES_TO
+  - EXPOSES_SERVICE
+  - HAS_ENDPOINT
+  use_case: Inspect the neighborhood around web endpoints.
+  version: 1
+  level: L2_WEB_API
+  query_templates:
+  - endpoint_neighborhood
+  - hidden_endpoints_from_js
+  expected_output: Bounded endpoint-adjacent graph for local traversal and agent reasoning.
+- description: Lineage-aware slice for explaining graph facts and evidence chains.
+  name: evidence_path
+  node_labels:
+  - Program
+  - Host
+  - Service
+  - Endpoint
+  - Tool
+  - ToolRun
+  - Artifact
+  - Observation
+  - Evidence
+  relationship_types:
+  - EXPOSES_SERVICE
+  - HAS_ENDPOINT
+  - HAS_TOOL_RUN
+  - USED_TOOL
+  - PRODUCED_ARTIFACT
+  - PRODUCED_OBSERVATION
+  - DESCRIBES
+  - SUPPORTS_EVIDENCE
+  - DERIVED_FROM
+  use_case: Trace evidence back to observations, artifacts, and tool runs.
+  version: 1
+  level: L0_CORE
+  query_templates:
+  - evidence_path
+  - hypothesis_evidence_paths
+  expected_output: Evidence lineage path from graph entity to observation, artifact,
+    tool run, and evidence item.

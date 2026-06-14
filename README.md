@@ -1,119 +1,121 @@
-# BB Framework - Bug Bounty Reconnaissance Framework
+# BugBountyMCP
 
-Clean Architecture with Domain-Driven Design
+BugBountyMCP is a controlled bug bounty automation platform. The project is
+moving from scan-specific routes toward a durable action execution core with
+policy, artifacts, projections, graph facts, and future agent-human workflows.
 
-## Architecture
+## Documentation
 
-```
-Domain Layer (Core)
-  ↑
-Infrastructure Layer (DB, Repositories)
-  ↑
-Application Layer (Services, Business Logic)
-  ↑
-Presentation Layer (REST, GraphQL)
-```
+Start with:
 
-## Structure
+- [Root agent index](AGENTS.md)
+- [Documentation index](docs/README.md)
+- [Target architecture](docs/architecture/target-platform.md)
+- [Patch plan to MVP](docs/architecture/patch-plan-to-mvp.md)
+- [Control plane](docs/architecture/control-plane.md)
+- [Refactor roadmap](docs/architecture/refactor-roadmap.md)
 
-```
-api/
-├── domain/              # Core business logic (no dependencies)
-│   ├── entities/        # Domain models
-│   ├── enums/           # Enumerations
-│   └── repositories/    # Abstract interfaces
-│
-├── infrastructure/      # Implementation details
-│   ├── database/        # SQLAlchemy models
-│   ├── repositories/    # Concrete repositories
-│   └── normalization/   # urldedupe, anew logic
-│
-├── application/         # Business use cases
-│   ├── services/        # Scan services
-│   ├── dto/             # Data transfer objects
-│   └── parsers/         # Tool output parsers
-│
-└── presentation/        # API layer
-    ├── graphql/         # GraphQL API
-    ├── rest/            # REST API
-    └── schemas/         # Pydantic schemas
+## Architecture Summary
+
+```text
+ToolActionRequest
+  -> policy/scope/approval
+  -> PostgreSQL state + transactional outbox
+  -> RabbitMQ
+  -> worker / runner
+  -> raw artifact metadata
+  -> parser / processor / ingestor
+  -> PostgreSQL canonical facts
+  -> OpenSearch projection
+  -> Neo4j GraphFacts
+  -> LangGraph wait/resume
+  -> hypothesis/evidence/report draft
 ```
 
-## Setup
+PostgreSQL owns canonical operational state. RabbitMQ is transport. OpenSearch
+and Neo4j are rebuildable read models. LangGraph owns future agent-human
+workflow and must use the Tool Execution API instead of bypassing policy or
+runners.
+
+## Repository Map
+
+- `src/api/application/` - application contracts, action services, policy,
+  scheduler, pipeline configuration, and runtime-facing use cases.
+- `src/api/infrastructure/` - database mappings, event infrastructure, runners,
+  parsers, ingestors, artifact support, runtime manifest, and tool catalog
+  adapters.
+- `src/api/presentation/` - FastAPI REST surface.
+- `services/graph-projector/` - GraphFact batch application, Neo4j projection,
+  ontology, and raw artifact GraphFact enqueue support.
+- `services/search-indexer/` - OpenSearch projection service.
+- `services/surface-engine/` - deterministic surface canonicalization and
+  snapshot support.
+- `BugBountyDashBoard/` - React dashboard.
+- `alembic/versions/` - PostgreSQL migrations.
+- `tests/` - contract, application, infrastructure, and service tests.
+
+## Local Setup
+
+Install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Running
-
-### Local Development
-
-Запуск приложения:
+Run the API locally:
 
 ```bash
 python main.py
 ```
 
-Или через uvicorn напрямую (из корня проекта):
-
-```bash
-uvicorn src.api.presentation.rest.app:create_app --factory --host 0.0.0.0 --port 8000
-```
-
-Или с добавлением src в PYTHONPATH:
+Or run FastAPI directly:
 
 ```bash
 PYTHONPATH=src uvicorn api.presentation.rest.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
-На Windows PowerShell:
+Windows PowerShell:
+
 ```powershell
 $env:PYTHONPATH="src"; uvicorn api.presentation.rest.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
-Приложение будет доступно по адресу `http://localhost:8000`
+## Docker Compose
 
-### Docker Compose
-
-Для запуска с Docker Compose (с персистентной БД и доступом к CLI инструментам хоста):
+Run the base stack:
 
 ```bash
-# Создать .env файл (если еще не создан)
-cp .env.example .env
-
-# Запустить сервисы
-docker-compose up -d
-
-# Просмотр логов
-docker-compose logs -f api
-
-# Остановить сервисы
-docker-compose down
+docker compose up -d
 ```
 
-Подробная документация по Docker: [DOCKER.md](DOCKER.md)
+Optional profiles include graph and search services:
 
-**Важно**: Убедитесь, что CLI инструменты (httpx, subfinder, gau и т.д.) установлены на вашем хосте, так как контейнер использует их через bind mounts.
+```bash
+docker compose --profile graph up -d
+docker compose --profile search up -d
+```
 
-## API Endpoints
+The graph profile includes Neo4j, `graph-projector`, and the raw artifact
+GraphFact enqueuer.
 
-- `POST /scan/subfinder` - Запуск Subfinder сканирования
-- `POST /scan/httpx` - Запуск HTTPX сканирования
+## Verification
 
-## Dependency Injection
+Run the Python test suite:
 
-Проект использует **dishka** для Dependency Injection:
+```bash
+python -m pytest -q
+```
 
-- **DatabaseProvider** - провайдер для подключения к БД
-- **RepositoryProvider** - провайдер для репозиториев
-- **ServiceProvider** - провайдер для сервисов
+Run graph/raw-artifact focused tests:
 
-`SubfinderScanService` зависит только от `HTTPXScanService`, который уже имеет все зависимости на репозитории.
+```bash
+python -m pytest tests/infrastructure/test_graphfact_batch_store.py tests/infrastructure/test_raw_artifact_enqueue_command.py tests/infrastructure/test_graphfact_batch_apply_service.py tests/infrastructure/test_raw_artifact_graphfact_producer.py tests/infrastructure/test_graph_projection_events.py tests/infrastructure/test_neo4j_projector_upsert.py -q
+```
 
-## Status
+Frontend dependencies and build are managed inside `BugBountyDashBoard/`.
 
-- [x] Domain Layer
-- [x] Infrastructure Layer
-- [x] Application Layer
-- [x] Presentation Layer (REST API с DI)
+## Safety Boundary
+
+This platform is intended for authorized bug bounty and security research
+automation. It must not run destructive, exploitative, or state-changing actions
+outside explicit scope, policy, and approval workflows.

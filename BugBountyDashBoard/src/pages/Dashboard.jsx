@@ -105,7 +105,7 @@ const Dashboard = () => {
             <div>
               <p className="text-sm font-medium text-gray-600">Quick Actions</p>
               <p className="text-sm text-gray-600 mt-2">
-                Start scanning
+                Start actions
               </p>
             </div>
             <Activity className="text-blue-500" size={32} />

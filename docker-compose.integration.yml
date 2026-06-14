@@ -1,0 +1,79 @@
+services:
+  postgres-integration:
+    image: postgres:16-alpine
+    container_name: bb-test-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bugbounty_integration_test}
+      POSTGRES_USER: ${POSTGRES_USER:-bugbounty_integration_test}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bugbounty_integration_test}
+    ports:
+      - "${POSTGRES_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bugbounty_integration_test} -d ${POSTGRES_DB:-bugbounty_integration_test}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres_integration_data:/var/lib/postgresql/data
+
+  rabbitmq-integration:
+    image: rabbitmq:3.13-management-alpine
+    container_name: bb-test-rabbitmq
+    ports:
+      - "${RABBITMQ_PORT:-55672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-55673}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  neo4j-integration:
+    image: neo4j:5.22-community
+    container_name: bb-test-neo4j
+    environment:
+      NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-bugbounty-integration-test}"
+      NEO4J_dbms_security_auth__minimum__password__length: "8"
+    ports:
+      - "${NEO4J_HTTP_PORT:-57474}:7474"
+      - "${NEO4J_BOLT_PORT:-57687}:7687"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - neo4j_integration_data:/data
+
+  opensearch-integration:
+    image: opensearchproject/opensearch:2.15.0
+    container_name: bb-test-opensearch
+    environment:
+      cluster.name: bugbounty-opensearch-integration
+      node.name: bb-test-opensearch
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "${OPENSEARCH_PORT:-59200}:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200 >/dev/null || exit 1"]
+      start_period: 60s
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - opensearch_integration_data:/usr/share/opensearch/data
+
+volumes:
+  postgres_integration_data:
+  neo4j_integration_data:
+  opensearch_integration_data:

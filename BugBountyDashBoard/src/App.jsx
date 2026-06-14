@@ -4,11 +4,10 @@ import { ProgramProvider } from './context/ProgramContext'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Programs from './pages/Programs'
-import Scans from './pages/Scans'
 import Hosts from './pages/Hosts'
 import Analysis from './pages/Analysis'
 import InfrastructureMap from './pages/InfrastructureMap'
-import ScansPage from './pages/Scans/ScanPage'
+import ActionsPage from './pages/Actions/ActionPage'
 
 function App() {
   return (
@@ -18,7 +17,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/programs" element={<Programs />} />
-            <Route path="/scans" element={<ScansPage />} />
+            <Route path="/actions" element={<ActionsPage />} />
             <Route path="/hosts" element={<Hosts />} />
             <Route path="/analysis" element={<Analysis />} />
             <Route path="/infrastructure" element={<InfrastructureMap />} />

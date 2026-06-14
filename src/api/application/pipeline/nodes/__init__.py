@@ -1,6 +1,6 @@
-"""Pipeline nodes"""
+"""Pipeline node package.
 
-from api.application.pipeline.nodes.hakip2host_node import Hakip2HostNode
-from api.application.pipeline.nodes.ffuf_node import FFUFNode
+Tool-specific workers are declared in pipeline.yaml and executed by ScanNode.
+"""
 
-__all__ = ["Hakip2HostNode", "FFUFNode"]
+__all__: list[str] = []

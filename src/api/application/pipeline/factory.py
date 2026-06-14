@@ -26,7 +26,9 @@ class NodeFactory:
         execution_mode: ExecutionMode = ExecutionMode.INLINE,
         max_targets_per_run: int | None = None,
         retry_policy: dict | None = None,
-        scope_policy: ScopePolicy = ScopePolicy.NONE
+        scope_policy: ScopePolicy = ScopePolicy.NONE,
+        runtime: Any | None = None,
+        runtime_concurrency: int | None = None,
     ) -> ScanNode:
         """
         Create generic scan node from configuration.
@@ -78,5 +80,7 @@ class NodeFactory:
             execution_mode=execution_mode,
             max_targets_per_run=max_targets_per_run,
             retry_policy=retry_policy,
-            scope_policy=scope_policy
+            scope_policy=scope_policy,
+            runtime=runtime,
+            runtime_concurrency=runtime_concurrency,
         )

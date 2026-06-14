@@ -1,81 +1,61 @@
 # Bug Bounty Dashboard
 
-Современный веб-дашборд для управления bug bounty программами и запуска сканирований.
+React dashboard for BugBountyMCP. The current UI direction is action-oriented:
+actions replace scan-specific pages as the primary way to launch controlled
+tool execution.
 
-## Особенности
+## Main Areas
 
-- 🎯 **Управление программами** - создание, редактирование и выбор программ без необходимости копировать UUID
-- 🔍 **14 типов сканирований** - все доступные сканирования с удобными формами:
-  - Subfinder, HTTPX, GAU, Waymore
-  - Katana, Playwright, LinkFinder, Mantra
-  - FFUF, DNSx, Subjack, ASNMap, MapCIDR, Naabu
-- 🖥️ **Просмотр хостов и эндпоинтов** - детальная информация о найденных хостах, эндпоинтах, параметрах и заголовках
-- 🎨 **Современный UI** - стильный интерфейс на React + Tailwind CSS
-- ⚡ **Быстрый доступ** - все операции без ручного копирования UUID
+- Program selection and program management.
+- Action launch forms backed by API capability metadata.
+- Dashboard views for discovered hosts and endpoints.
+- API client helpers in `src/services/api.js`.
 
-## Установка
+## Local Setup
 
 ```bash
 npm install
-```
-
-## Запуск
-
-```bash
 npm run dev
 ```
 
-Приложение будет доступно на `http://localhost:3000`
+The development server is normally available at `http://localhost:3000`.
 
-## Настройка API
+## API Proxy
 
-По умолчанию API проксируется на `http://localhost:8000`. Если ваш бэкенд работает на другом порту, измените настройки в `vite.config.js`:
+The Vite proxy targets the backend API. If the backend runs on a different
+port, update `vite.config.js`:
 
 ```js
 proxy: {
-  '/api': {
-    target: 'http://localhost:YOUR_PORT',
+  "/api": {
+    target: "http://localhost:YOUR_PORT",
     changeOrigin: true,
-  }
+  },
 }
 ```
 
-## Структура проекта
+## Structure
 
-```
+```text
 src/
-├── components/      # Переиспользуемые компоненты
-│   ├── Layout.jsx          # Основной layout с сайдбаром
-│   └── ProgramSelector.jsx # Селектор программ
-├── context/        # React контексты
-│   └── ProgramContext.jsx  # Контекст для выбранной программы
-├── pages/          # Страницы приложения
-│   ├── Dashboard.jsx       # Главная страница
-│   ├── Programs.jsx        # Управление программами
-│   ├── Scans.jsx          # Запуск сканирований
-│   └── Hosts.jsx          # Просмотр хостов
-├── services/       # API клиент
-│   └── api.js             # Все API методы
-├── App.jsx         # Главный компонент приложения
-└── main.jsx        # Точка входа
+  components/
+    actions/
+      configs/
+      forms/
+      hooks/
+      ui/
+  context/
+  pages/
+    Actions/
+    Dashboard.jsx
+  services/
+    api.js
+  App.jsx
+  main.jsx
 ```
 
-## Использование
+## Notes
 
-1. **Выберите программу** - используйте селектор в сайдбаре для выбора активной программы
-2. **Создайте программу** - перейдите на страницу Programs и создайте новую программу
-3. **Запустите сканирования** - на странице Scans выберите тип сканирования и заполните форму
-4. **Просмотрите результаты** - на странице Hosts увидите все найденные хосты и эндпоинты
-
-## Технологии
-
-- React 18
-- React Router DOM
-- Tailwind CSS
-- Axios
-- Lucide React (иконки)
-- Vite
-
-## Лицензия
-
-MIT
+- Keep action components aligned with backend action/capability contracts.
+- Do not reintroduce scan-only pages as the main workflow.
+- Prefer typed API helpers over ad hoc request logic in components.

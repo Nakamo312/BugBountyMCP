@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     RABBITMQ_VHOST: str = "/"
     RABBITMQ_PREFETCH_COUNT: int = 10
 
+    # Durable event dispatch from PostgreSQL event_store to RabbitMQ.
+    USE_EVENT_DISPATCHER: bool = True
+    EVENT_DISPATCH_BATCH_SIZE: int = 100
+    EVENT_DISPATCH_LEASE_TTL_SECONDS: int = 30
+    EVENT_DISPATCH_MAX_ATTEMPTS: int = 10
+    EVENT_DISPATCH_RETRY_DELAY_SECONDS: float = 5.0
+    EVENT_DISPATCH_SWEEP_INTERVAL_SECONDS: float = 5.0
+    EVENT_DISPATCH_NOTIFY_CHANNEL: str = "event_dispatches_changed"
+
     LOG_LEVEL: str = "INFO"
     TOOLS_PATH_PREFIX: str = "/usr/local"
     ORCHESTRATOR_MAX_CONCURRENT: int = 5
@@ -132,6 +141,10 @@ class Settings(BaseSettings):
     @property
     def postgres_mcp_dsn(self) -> str:
         return self.POSTGRES_MCP_DSN or self.postgres_dsn
+
+    @property
+    def postgres_asyncpg_dsn(self) -> str:
+        return self.postgres_dsn.replace("postgresql+asyncpg://", "postgresql://")
 
     @property
     def postgres_dsn_sync(self) -> str:

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from api.config import Settings
 from api.infrastructure.database.connection import DatabaseConnection
 from api.application.services.action import ActionService
+from api.application.services.action_catalog import ActionCatalogService
 from api.application.services.policy import PolicyService
 from api.application.services.program import ProgramService
 from api.application.services.mapcidr import MapCIDRService
@@ -72,6 +73,8 @@ from api.infrastructure.runners.hakip2host_cli import Hakip2HostCliRunner
 from api.infrastructure.runners.playwright_cli import PlaywrightCliRunner
 from api.infrastructure.events.event_bus import EventBus
 from api.infrastructure.orchestration.store import OrchestrationStore
+from api.infrastructure.tool_catalog.store import SqlActionCatalogStore
+from api.infrastructure.runtime_manifest import ManifestActivator
 from api.infrastructure.artifacts.raw_artifact_repository import RawArtifactRepository
 from dishka import AsyncContainer
 
@@ -151,6 +154,18 @@ class OrchestrationProvider(Provider):
     def get_raw_artifact_repository(self, session_factory: async_sessionmaker) -> RawArtifactRepository:
         return RawArtifactRepository(session_factory)
 
+    @provide(scope=Scope.APP)
+    def get_manifest_activator(self, session_factory: async_sessionmaker) -> ManifestActivator:
+        return ManifestActivator(session_factory)
+
+    @provide(scope=Scope.REQUEST)
+    def get_action_catalog_store(self, session_factory: async_sessionmaker) -> SqlActionCatalogStore:
+        return SqlActionCatalogStore(session_factory)
+
+    @provide(scope=Scope.REQUEST)
+    def get_action_catalog_service(self, catalog_store: SqlActionCatalogStore) -> ActionCatalogService:
+        return ActionCatalogService(catalog_store)
+
     @provide(scope=Scope.REQUEST)
     def get_policy_service(self) -> PolicyService:
         return PolicyService()
@@ -161,11 +176,13 @@ class OrchestrationProvider(Provider):
         event_bus: EventBus,
         orchestration_store: OrchestrationStore,
         policy_service: PolicyService,
+        catalog_service: ActionCatalogService,
     ) -> ActionService:
         return ActionService(
             event_bus=event_bus,
             store=orchestration_store,
             policy=policy_service,
+            catalog=catalog_service,
         )
 
 
@@ -559,11 +576,4 @@ class PipelineProvider(Provider):
         settings: Settings,
         container: AsyncContainer,
     ) -> NodeRegistry:
-        from api.application.pipeline.builder import register_yaml_nodes
-
-        registry = NodeRegistry(bus, settings, container)
-
-        if settings.USE_NODE_PIPELINE:
-            register_yaml_nodes(registry, settings, settings.PIPELINE_CONFIG_PATH)
-
-        return registry
+        return NodeRegistry(bus, settings, container)

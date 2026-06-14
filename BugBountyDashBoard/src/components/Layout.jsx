@@ -4,7 +4,7 @@ import { useProgram } from '../context/ProgramContext'
 import {
   LayoutDashboard,
   FolderKanban,
-  Scan,
+  PlayCircle,
   Server,
   ShieldAlert,
   Network,
@@ -19,7 +19,7 @@ const Layout = ({ children }) => {
   const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/programs', icon: FolderKanban, label: 'Programs' },
-    { path: '/scans', icon: Scan, label: 'Scans' },
+    { path: '/actions', icon: PlayCircle, label: 'Actions' },
     { path: '/hosts', icon: Server, label: 'Hosts' },
     { path: '/analysis', icon: ShieldAlert, label: 'Analysis' },
     { path: '/infrastructure', icon: Network, label: 'Infrastructure' },

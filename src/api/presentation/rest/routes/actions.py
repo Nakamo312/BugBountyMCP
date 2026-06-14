@@ -4,15 +4,73 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from api.application.contracts import ActionStatus
+from api.application.action_catalog import CatalogItemNotFound, CatalogNotReady
+from api.application.contracts import ActionRequest, ActionStatus
 from api.application.services.action import (
     ActionApprovalStateError,
     ActionNotFoundError,
     ActionService,
 )
+from api.application.services.action_catalog import ActionCatalogService
 from api.presentation.schemas import ActionApprovalRequest, ActionRejectionRequest
 
 router = APIRouter(route_class=DishkaRoute)
+
+
+@router.post(
+    "",
+    summary="Create action",
+    description="Submits a catalog-selected action for policy and execution.",
+    tags=["Actions"],
+    status_code=202,
+)
+async def create_action(
+    request: ActionRequest,
+    action_service: FromDishka[ActionService],
+) -> JSONResponse:
+    try:
+        submission = await action_service.request_action(request)
+    except CatalogNotReady as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except CatalogItemNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return _action_response(submission, status_code=202)
+
+
+@router.get(
+    "/catalog",
+    summary="List action catalog",
+    description="Lists active action catalog entries.",
+    tags=["Actions"],
+)
+async def list_action_catalog(
+    catalog_service: FromDishka[ActionCatalogService],
+) -> dict:
+    try:
+        items = await catalog_service.list_items()
+    except CatalogNotReady as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"items": [item.model_dump(mode="json") for item in items]}
+
+
+@router.get(
+    "/catalog/{item_id}",
+    summary="Get action catalog item",
+    description="Returns detail for one active action catalog entry.",
+    tags=["Actions"],
+)
+async def get_action_catalog_item(
+    item_id: UUID,
+    catalog_service: FromDishka[ActionCatalogService],
+) -> dict:
+    try:
+        item = await catalog_service.get_detail(item_id)
+    except CatalogNotReady as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except CatalogItemNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return item.model_dump(mode="json")
 
 
 @router.get(
@@ -81,14 +139,7 @@ async def approve_action(
     except ActionApprovalStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    return JSONResponse(
-        status_code=202,
-        content={
-            "status": submission.status.value,
-            "message": submission.message,
-            "results": submission.model_dump(mode="json"),
-        },
-    )
+    return _action_response(submission, status_code=202)
 
 
 @router.post(
@@ -114,8 +165,12 @@ async def reject_action(
     except ActionApprovalStateError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    return _action_response(submission, status_code=200)
+
+
+def _action_response(submission, *, status_code: int) -> JSONResponse:
     return JSONResponse(
-        status_code=200,
+        status_code=status_code,
         content={
             "status": submission.status.value,
             "message": submission.message,

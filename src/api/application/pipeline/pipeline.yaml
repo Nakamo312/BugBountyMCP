@@ -380,7 +380,7 @@ workers:
     scope: confidence
 
   ffuf:
-    type: ffuf
+    type: scan
     inputs:
       - ffuf_scan_requested
       - host_discovered
@@ -390,26 +390,34 @@ workers:
     processor: FFUFBatchProcessor
     ingestor: FFUFResultIngestor
     max_parallelism: 3
-    max_concurrent_scans: 5
     max_targets_per_run: 1
     scope: strict
+    runtime:
+      mode: per_target
+      target_shape: scalar
+      artifact: per_target
+      concurrency: 5
 
   amass:
-    type: amass
+    type: scan
     inputs:
       - amass_scan_requested
     outputs:
-      subdomain_discovered:
-      ips_expanded:
-      asn_discovered:
-      cidr_discovered:
+      subdomain_discovered: raw_domains
+      ips_expanded: ips
+      asn_discovered: asns
+      cidr_discovered: cidrs
     runner: AmassCliRunner
     parser: AmassGraphParser
     processor: AmassBatchProcessor
     ingestor: AmassResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
-    max_concurrent_scans: 5
     scope: none
+    runtime:
+      mode: per_target
+      target_shape: scalar
+      artifact: per_target
+      concurrency: 5
 
   asnmap:
     type: scan
@@ -521,15 +529,19 @@ workers:
     scope: none
 
   hakip2host:
-    type: hakip2host
+    type: scan
     inputs:
       - hakip2host_scan_requested
       - ips_expanded
     outputs:
-      raw_domains_discovered:
+      raw_domains_discovered: raw_domains
     runner: Hakip2HostCliRunner
     parser: Hakip2HostStdoutParser
     processor: Hakip2HostBatchProcessor
     ingestor: HostIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
     scope: confidence
+    runtime:
+      mode: batch
+      target_shape: list
+      artifact: per_run

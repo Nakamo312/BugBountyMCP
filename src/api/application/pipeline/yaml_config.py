@@ -9,7 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 DEFAULT_PIPELINE_CONFIG_PATH = Path(__file__).with_name("pipeline.yaml")
-NodeType = Literal["scan", "ffuf", "amass", "hakip2host"]
+NodeType = Literal["scan"]
+RuntimeModeName = Literal["batch", "per_target"]
+TargetShapeName = Literal["list", "scalar"]
+ArtifactModeName = Literal["per_run", "per_target"]
 ScopePolicyName = Literal["none", "confidence", "strict", "approval_required"]
 SafetyLevelName = Literal["passive", "safe_active", "active", "sensitive"]
 CapabilityMode = Literal["routed", "compatibility", "manual"]
@@ -38,15 +41,18 @@ class RetryPolicyConfig(BaseModel):
 
 
 class ToolRuntimeSpec(BaseModel):
-    """Optional declarative runtime metadata for generic/CLI workers.
+    """Optional declarative runtime metadata for generic CLI workers.
 
-    The runtime block is intentionally data-only. It can describe tool names,
-    static args, and option mappings, but the runtime builder still resolves
-    only whitelisted runner classes/components from the Python catalog.
+    The runtime block is data-only. It describes how ScanNode invokes a tool
+    without introducing a Python orchestration class for that specific tool.
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    mode: RuntimeModeName = "batch"
+    target_shape: TargetShapeName = "list"
+    artifact: ArtifactModeName = "per_run"
+    concurrency: int | str | None = None
     tool: str | None = None
     path_key: str | None = None
     timeout: int | str | None = None

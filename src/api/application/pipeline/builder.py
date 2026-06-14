@@ -7,12 +7,9 @@ from typing import Any
 from api.application.pipeline.catalog import INGESTORS, PARSERS, PROCESSORS, RUNNERS, resolve_component
 from api.application.contracts import ExecutionMode
 from api.application.pipeline.factory import NodeFactory
-from api.application.pipeline.nodes.amass_node import AmassNode
-from api.application.pipeline.nodes.ffuf_node import FFUFNode
-from api.application.pipeline.nodes.hakip2host_node import Hakip2HostNode
 from api.application.pipeline.registry import NodeRegistry
 from api.application.pipeline.scope_policy import ScopePolicy
-from api.application.pipeline.yaml_config import PipelineNodeSpec, load_pipeline_config
+from api.application.pipeline.yaml_config import PipelineConfig, PipelineNodeSpec, load_pipeline_config
 from api.config import Settings
 from api.infrastructure.events.event_types import EventType
 
@@ -23,6 +20,27 @@ def register_yaml_nodes(
     config_path: str | Path | None = None,
 ) -> None:
     config = load_pipeline_config(config_path)
+    register_config_nodes(registry, settings, config)
+
+
+def register_manifest_nodes(
+    registry: NodeRegistry,
+    settings: Settings,
+    manifest_json: PipelineConfig | dict[str, Any],
+) -> None:
+    manifest = (
+        manifest_json
+        if isinstance(manifest_json, PipelineConfig)
+        else PipelineConfig.model_validate(manifest_json)
+    )
+    register_config_nodes(registry, settings, manifest)
+
+
+def register_config_nodes(
+    registry: NodeRegistry,
+    settings: Settings,
+    config: PipelineConfig,
+) -> None:
     validate_component_refs(config.workers)
     for node_id, spec in config.workers.items():
         registry.register(build_node(node_id, spec, settings))
@@ -31,10 +49,8 @@ def register_yaml_nodes(
 def validate_component_refs(workers: dict[str, PipelineNodeSpec]) -> None:
     for node_id, spec in workers.items():
         resolve_component(RUNNERS, spec.runner, "runner", node_id)
-        if spec.type in {"scan", "ffuf", "amass", "hakip2host"} and spec.runner is not None and spec.parser is None:
-            raise ValueError(f"{spec.type} node '{node_id}' must define an explicit parser")
-        if spec.type in {"ffuf", "amass", "hakip2host"} and spec.processor is None:
-            raise ValueError(f"{spec.type} node '{node_id}' must define an explicit processor")
+        if spec.runner is not None and spec.parser is None:
+            raise ValueError(f"scan node '{node_id}' must define an explicit parser")
         if spec.parser is not None:
             resolve_component(PARSERS, spec.parser, "parser", node_id)
         if spec.processor is not None:
@@ -56,85 +72,25 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
         node_id,
         "max_targets_per_run",
     )
+    runtime_concurrency = _resolve_runtime_concurrency(spec, settings, node_id)
 
-    if spec.type == "scan":
-        return NodeFactory.create_scan_node(
-            node_id=node_id,
-            event_in=event_in,
-            event_out=_resolve_scan_outputs(spec.outputs, node_id),
-            runner_type=resolve_component(RUNNERS, spec.runner, "runner", node_id),
-            parser_type=resolve_component(PARSERS, spec.parser, "parser", node_id),
-            processor_type=resolve_component(PROCESSORS, spec.processor, "processor", node_id),
-            ingestor_type=resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id),
-            max_parallelism=max_parallelism,
-            execution_delay=_resolve_number(spec.execution_delay, settings, node_id, "execution_delay"),
-            execution_mode=execution_mode,
-            max_targets_per_run=max_targets_per_run,
-            retry_policy=retry_policy,
-            scope_policy=scope_policy,
-        )
-
-    if spec.type == "ffuf":
-        return FFUFNode(
-            node_id=node_id,
-            event_in=event_in,
-            event_out=event_out,
-            runner_key=resolve_component(RUNNERS, spec.runner, "runner", node_id),
-            parser_key=resolve_component(PARSERS, spec.parser, "parser", node_id),
-            processor_key=resolve_component(PROCESSORS, spec.processor, "processor", node_id),
-            ingestor_key=resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id),
-            max_parallelism=max_parallelism,
-            max_concurrent_scans=_resolve_int(
-                spec.max_concurrent_scans or 5,
-                settings,
-                node_id,
-                "max_concurrent_scans",
-            ),
-            scope_policy=scope_policy,
-            execution_mode=execution_mode,
-            max_targets_per_run=max_targets_per_run,
-            retry_policy=retry_policy,
-        )
-
-    if spec.type == "amass":
-        return AmassNode(
-            node_id=node_id,
-            event_in=event_in,
-            event_out=event_out,
-            runner_key=resolve_component(RUNNERS, spec.runner, "runner", node_id),
-            parser_key=resolve_component(PARSERS, spec.parser, "parser", node_id),
-            processor_key=resolve_component(PROCESSORS, spec.processor, "processor", node_id),
-            ingestor_key=resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id),
-            max_parallelism=max_parallelism,
-            max_concurrent_scans=_resolve_int(
-                spec.max_concurrent_scans or 5,
-                settings,
-                node_id,
-                "max_concurrent_scans",
-            ),
-            scope_policy=scope_policy,
-            execution_mode=execution_mode,
-            max_targets_per_run=max_targets_per_run,
-            retry_policy=retry_policy,
-        )
-
-    if spec.type == "hakip2host":
-        return Hakip2HostNode(
-            node_id=node_id,
-            event_in=event_in,
-            event_out=event_out,
-            runner_key=resolve_component(RUNNERS, spec.runner, "runner", node_id),
-            parser_key=resolve_component(PARSERS, spec.parser, "parser", node_id),
-            processor_key=resolve_component(PROCESSORS, spec.processor, "processor", node_id),
-            host_ingestor_key=resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id),
-            max_parallelism=max_parallelism,
-            scope_policy=scope_policy,
-            execution_mode=execution_mode,
-            max_targets_per_run=max_targets_per_run,
-            retry_policy=retry_policy,
-        )
-
-    raise ValueError(f"Unsupported pipeline node type '{spec.type}' for node '{node_id}'")
+    return NodeFactory.create_scan_node(
+        node_id=node_id,
+        event_in=event_in,
+        event_out=_resolve_scan_outputs(spec.outputs, node_id),
+        runner_type=resolve_component(RUNNERS, spec.runner, "runner", node_id),
+        parser_type=resolve_component(PARSERS, spec.parser, "parser", node_id),
+        processor_type=resolve_component(PROCESSORS, spec.processor, "processor", node_id),
+        ingestor_type=resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id),
+        max_parallelism=max_parallelism,
+        execution_delay=_resolve_number(spec.execution_delay, settings, node_id, "execution_delay"),
+        execution_mode=execution_mode,
+        max_targets_per_run=max_targets_per_run,
+        retry_policy=retry_policy,
+        scope_policy=scope_policy,
+        runtime=spec.runtime,
+        runtime_concurrency=runtime_concurrency,
+    )
 
 
 def _resolve_scan_outputs(outputs: dict[str, str | None], node_id: str) -> dict[EventType, str]:
@@ -200,6 +156,18 @@ def _resolve_optional_int(
     if resolved < 1:
         raise ValueError(f"Pipeline node '{node_id}' field '{field_name}' must be >= 1")
     return resolved
+
+
+def _resolve_runtime_concurrency(
+    spec: PipelineNodeSpec,
+    settings: Settings,
+    node_id: str,
+) -> int | None:
+    runtime_value = spec.runtime.concurrency if spec.runtime is not None else None
+    value = runtime_value if runtime_value is not None else spec.max_concurrent_scans
+    if value is None:
+        return None
+    return _resolve_int(value, settings, node_id, "runtime.concurrency")
 
 
 def _resolve_number(

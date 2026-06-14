@@ -12,8 +12,9 @@ from uuid import UUID
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from api.application.capabilities import CAPABILITY_BY_EVENT
+from api.application.contracts import ActionKind, ActionRequest
 from api.application.services.action import ActionService
+from api.application.services.action_catalog import ActionCatalogService
 
 logger = logging.getLogger(__name__)
 
@@ -55,13 +56,6 @@ class ScheduledActionSpec(BaseModel):
             raise ValueError("interval must use s, m, h, or d units, e.g. 30m")
         return int(match.group("value")) * _DURATION_UNITS[match.group("unit")]
 
-    @field_validator("event")
-    @classmethod
-    def event_must_be_known_capability(cls, value: str) -> str:
-        if value not in CAPABILITY_BY_EVENT:
-            raise ValueError(f"unknown schedulable event: {value}")
-        return value
-
     @field_validator("targets")
     @classmethod
     def targets_must_be_non_blank(cls, value: list[str]) -> list[str]:
@@ -102,11 +96,13 @@ class ActionScheduler:
     def __init__(
         self,
         action_service: ActionService,
+        catalog_service: ActionCatalogService,
         config: SchedulerConfig,
         *,
         tick_seconds: float = 5.0,
     ):
         self.action_service = action_service
+        self.catalog_service = catalog_service
         self.config = config
         self.tick_seconds = tick_seconds
         self._task: asyncio.Task | None = None
@@ -164,13 +160,20 @@ class ActionScheduler:
     async def _submit(self, name: str, spec: ScheduledActionSpec) -> None:
         logger.info("Submitting scheduled action '%s' event=%s", name, spec.event)
         try:
-            submission = await self.action_service.request_scan(
+            catalog_item = await self.catalog_service.find_detail_by_event(
                 event=spec.event,
+                profile=spec.profile_id,
+            )
+            action = ActionRequest(
+                kind=ActionKind.SCAN,
                 program_id=spec.program_id,
+                catalog_id=catalog_item.id,
                 targets=spec.targets,
                 options=spec.options,
                 requested_by=spec.requested_by,
-                profile_id=spec.profile_id,
+            )
+            submission = await self.action_service.request_action(
+                action,
                 confidence=spec.confidence,
             )
             logger.info(

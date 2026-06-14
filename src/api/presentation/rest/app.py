@@ -29,29 +29,53 @@ async def lifespan(app: FastAPI):
     try:
         start_mappers()
 
+        from api.application.capability_catalog import load_tool_catalog_snapshot
+        from api.application.pipeline.builder import register_manifest_nodes
         from api.application.pipeline.registry import NodeRegistry
+        from api.infrastructure.runtime_manifest import ManifestActivator
+
+        manifest = load_tool_catalog_snapshot(settings.PIPELINE_CONFIG_PATH)
+        activator: ManifestActivator = await container.get(ManifestActivator)
+        activation = await activator.activate(manifest)
+        logger.info(
+            "Runtime manifest active: snapshot=%s changed=%s entries=%s",
+            activation.snapshot_id,
+            activation.changed,
+            activation.entry_count,
+        )
+
         registry: NodeRegistry = await container.get(NodeRegistry)
+        if settings.USE_NODE_PIPELINE:
+            register_manifest_nodes(
+                registry,
+                settings,
+                await activator.active_manifest(),
+            )
         app.state.node_registry = registry
-        await registry.start()  
+        await registry.start()
 
         if settings.USE_SCHEDULER:
             from api.application.scheduler import ActionScheduler, load_scheduler_config
             from api.application.services.action import ActionService
+            from api.application.services.action_catalog import ActionCatalogService
             from api.application.services.policy import PolicyService
             from api.infrastructure.events.event_bus import EventBus
             from api.infrastructure.orchestration.store import OrchestrationStore
 
             event_bus: EventBus = await container.get(EventBus)
             orchestration_store: OrchestrationStore = await container.get(OrchestrationStore)
+            catalog_service: ActionCatalogService = await container.get(ActionCatalogService)
             action_service = ActionService(
                 event_bus=event_bus,
                 store=orchestration_store,
                 policy=PolicyService(),
+                catalog=catalog_service,
             )
             scheduler_config = load_scheduler_config(settings.SCHEDULER_CONFIG_PATH)
             scheduler = ActionScheduler(
-                action_service,
-                scheduler_config,
+                action_service=action_service,
+                catalog_service=catalog_service,
+                config=scheduler_config,
                 tick_seconds=settings.SCHEDULER_TICK_SECONDS,
             )
             scheduler.start()

@@ -1,4 +1,5 @@
 """Generic scan node for CLI tools"""
+import asyncio
 from typing import Dict, Any, Set, Optional, Callable, List, Type
 from uuid import UUID, uuid4
 import logging
@@ -8,6 +9,7 @@ from api.application.pipeline.context import PipelineContext
 from api.infrastructure.events.event_types import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
 from api.application.pipeline.ingestion import ingest_with_optional_context
+from api.application.pipeline.invocation import build_invocation, metadata, run_raw
 from api.application.contracts import ExecutionMode
 
 logger = logging.getLogger(__name__)
@@ -22,11 +24,10 @@ class ScanNode(Node):
     1. Receive event from EventBus
     2. Extract targets via target_extractor
     3. Get runner/processor/ingestor from DI (REQUEST scope)
-    4. Run: runner → batch processor (streaming)
-    5. For each batch:
-       - Ingest batch (if ingestor provided)
-       - Extract new entities from IngestResult
-       - Emit events for new entities
+    4. Run: runner → parser → batch processor
+    5. Capture raw artifact before parsing
+    6. Ingest normalized state
+    7. Emit deterministic events from IngestResult
     """
 
     def __init__(
@@ -44,7 +45,9 @@ class ScanNode(Node):
         execution_mode: ExecutionMode = ExecutionMode.INLINE,
         max_targets_per_run: int | None = None,
         retry_policy: dict | None = None,
-        scope_policy=ScopePolicy.NONE
+        scope_policy=ScopePolicy.NONE,
+        runtime: Any | None = None,
+        runtime_concurrency: int | None = None,
     ):
         """
         Initialize generic scan node.
@@ -77,6 +80,10 @@ class ScanNode(Node):
         self.ingestor_type = ingestor_type
         self.target_extractor = target_extractor or self._default_target_extractor
         self.scope_policy = scope_policy
+        self.runtime_mode = getattr(runtime, "mode", "batch") if runtime is not None else "batch"
+        self.target_shape = getattr(runtime, "target_shape", "list") if runtime is not None else "list"
+        self.artifact_mode = getattr(runtime, "artifact", "per_run") if runtime is not None else "per_run"
+        self._scan_semaphore = asyncio.Semaphore(runtime_concurrency or max_parallelism)
 
     async def execute(self, event: Dict[str, Any], ctx: PipelineContext):
         """
@@ -116,12 +123,14 @@ class ScanNode(Node):
                 raise RuntimeError(
                     f"Runner '{self.runner_type.__name__}' used by ScanNode '{self.node_id}' "
                     "must expose run_raw()"
-                )
+            )
 
             parser = self.parser_type()
-            stream = runner.run_raw(targets)
+            invocation = build_invocation(event, targets)
+            stream = run_raw(runner, targets, invocation)
             raw_artifact_id = uuid4()
             if isinstance(ctx, PipelineContext):
+                raw_metadata = {"runner": self.runner_type.__name__, **metadata(invocation)}
                 stream = ctx.capture_raw_stream(
                     stream,
                     program_id=program_id,
@@ -130,7 +139,7 @@ class ScanNode(Node):
                     job_id=job_id,
                     run_id=run_id,
                     artifact_id=raw_artifact_id,
-                    metadata={"runner": self.runner_type.__name__},
+                    metadata=raw_metadata,
                 )
             stream = parser.parse_stream(stream)
             ingest_context = ctx.ingest_context(raw_artifact_id) if isinstance(ctx, PipelineContext) else None

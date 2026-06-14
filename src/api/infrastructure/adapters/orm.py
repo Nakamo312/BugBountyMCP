@@ -230,26 +230,174 @@ scanner_executions = Table(
     ),
 )
 
+# ==================== TOOL CATALOG PROJECTION TABLES ====================
+
+tool_catalog_snapshots = Table(
+    'tool_catalog_snapshots',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('catalog_hash', String(64), nullable=False, index=True),
+    Column('source_hash', String(64), nullable=False, index=True),
+    Column('source_path', Text, nullable=True),
+    Column('schema_version', String(50), nullable=False),
+    Column('manifest_json', JSONType(), nullable=False, default=dict),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('activated_at', DateTime(timezone=True), nullable=True),
+    Column('deactivated_at', DateTime(timezone=True), nullable=True),
+    UniqueConstraint('catalog_hash', name='uq_tool_catalog_snapshots_hash'),
+    CheckConstraint("catalog_hash != ''", name='ck_tool_catalog_snapshots_hash_not_empty'),
+    CheckConstraint("source_hash != ''", name='ck_tool_catalog_snapshots_source_hash_not_empty'),
+    CheckConstraint("schema_version != ''", name='ck_tool_catalog_snapshots_schema_not_empty'),
+)
+
+tool_catalog_entries = Table(
+    'tool_catalog_entries',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('snapshot_id', UUID(), ForeignKey('tool_catalog_snapshots.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('capability_id', String(100), nullable=False, index=True),
+    Column('profile_id', String(100), nullable=False, index=True),
+    Column('capability_label', String(255), nullable=False),
+    Column('profile_label', String(255), nullable=False),
+    Column('request_event', String(150), nullable=False, index=True),
+    Column('queue', String(100), nullable=False),
+    Column('default_profile', String(100), nullable=False),
+    Column('mode', String(50), nullable=False),
+    Column('scope_policy', String(50), nullable=False),
+    Column('safety_class', String(50), nullable=False, index=True),
+    Column('allowed_options', JSONType(), nullable=False, default=list),
+    Column('requires_approval', Boolean, nullable=False, default=False),
+    Column('frontend', JSONType(), nullable=False, default=dict),
+    Column('manifest_fragment', JSONType(), nullable=False, default=dict),
+    Column('active', Boolean, nullable=False, default=True, index=True),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint('snapshot_id', 'capability_id', 'profile_id', name='uq_tool_catalog_entries_snapshot_profile'),
+    Index('idx_tool_catalog_entries_active_capability', 'active', 'capability_id', 'profile_id'),
+    CheckConstraint("capability_id != ''", name='ck_tool_catalog_entries_capability_not_empty'),
+    CheckConstraint("profile_id != ''", name='ck_tool_catalog_entries_profile_not_empty'),
+    CheckConstraint("request_event != ''", name='ck_tool_catalog_entries_event_not_empty'),
+    CheckConstraint("queue != ''", name='ck_tool_catalog_entries_queue_not_empty'),
+    CheckConstraint("safety_class IN ('passive', 'safe_active', 'active', 'sensitive')", name='ck_tool_catalog_entries_safety_valid'),
+)
+
 # ==================== ORCHESTRATION TABLES ====================
+
+campaigns = Table(
+    'campaigns',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('correlation_id', UUID(), nullable=False, index=True),
+    Column('workflow_id', UUID(), nullable=True, index=True),
+    Column('status', String(30), nullable=False, default='created', index=True),
+    Column('metadata', JSONType(), nullable=False, default=dict),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index('idx_campaigns_program_status', 'program_id', 'status'),
+    CheckConstraint(
+        "status IN ('created', 'running', 'expanding', 'waiting_for_projections', 'quiescent', 'closed', 'cancelled', 'failed')",
+        name='ck_campaigns_status_valid'
+    ),
+)
 
 action_requests = Table(
     'action_requests',
     metadata,
     Column('id', UUID(), primary_key=True, default=uuid.uuid4),
     Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('catalog_entry_id', UUID(), ForeignKey('tool_catalog_entries.id', ondelete='SET NULL'), nullable=True, index=True),
     Column('kind', String(50), nullable=False),
     Column('capability_id', String(100), nullable=False, index=True),
     Column('profile_id', String(100), nullable=False, index=True),
     Column('requested_by', String(100), nullable=False),
+    Column('workflow_id', UUID(), nullable=True, index=True),
+    Column('campaign_id', UUID(), ForeignKey('campaigns.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('correlation_id', UUID(), nullable=True, index=True),
+    Column('catalog_hash', String(64), nullable=True, index=True),
+    Column('metadata', JSONType(), nullable=False, default=dict),
     Column('status', String(30), nullable=False, index=True),
     Column('request', JSONType(), nullable=False, default=dict),
     Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
     Index('idx_action_requests_program_status', 'program_id', 'status'),
+    Index('idx_action_requests_campaign_status', 'campaign_id', 'status'),
     CheckConstraint(
         "status IN ('allowed', 'blocked', 'requires_approval', 'queued', 'rejected')",
         name='ck_action_requests_status_valid'
     ),
+)
+
+action_request_targets = Table(
+    'action_request_targets',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('action_id', UUID(), ForeignKey('action_requests.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('target', Text, nullable=False),
+    Column('position', Integer, nullable=False),
+    Column('status', String(30), nullable=False, default='requested', index=True),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint('action_id', 'position', name='uq_action_request_targets_action_position'),
+    Index('idx_action_request_targets_action_status', 'action_id', 'status'),
+    CheckConstraint("target != ''", name='ck_action_request_targets_not_empty'),
+    CheckConstraint("position >= 0", name='ck_action_request_targets_position_nonnegative'),
+    CheckConstraint("status IN ('requested', 'allowed', 'blocked')", name='ck_action_request_targets_status_valid'),
+)
+
+action_request_options = Table(
+    'action_request_options',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('action_id', UUID(), ForeignKey('action_requests.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('option_key', String(200), nullable=False),
+    Column('option_value', JSONType(), nullable=False),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint('action_id', 'option_key', name='uq_action_request_options_action_key'),
+    CheckConstraint("option_key != ''", name='ck_action_request_options_key_not_empty'),
+)
+
+scope_decisions = Table(
+    'scope_decisions',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('action_id', UUID(), ForeignKey('action_requests.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('status', String(30), nullable=False, index=True),
+    Column('scope_policy', String(50), nullable=True),
+    Column('reasons', JSONType(), nullable=False, default=list),
+    Column('allowed_targets', JSONType(), nullable=False, default=list),
+    Column('blocked_targets', JSONType(), nullable=False, default=list),
+    Column('metadata', JSONType(), nullable=False, default=dict),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index('idx_scope_decisions_action_status', 'action_id', 'status'),
+    CheckConstraint("status IN ('allowed', 'blocked', 'partial', 'not_evaluated')", name='ck_scope_decisions_status_valid'),
+)
+
+approval_requests = Table(
+    'approval_requests',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('action_id', UUID(), ForeignKey('action_requests.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('policy_decision_id', UUID(), ForeignKey('policy_decisions.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('status', String(30), nullable=False, default='pending', index=True),
+    Column('reason', Text, nullable=True),
+    Column('requested_by', String(100), nullable=False, default='policy'),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('decided_at', DateTime(timezone=True), nullable=True),
+    Index('idx_approval_requests_action_status', 'action_id', 'status'),
+    CheckConstraint("status IN ('pending', 'approved', 'rejected', 'cancelled')", name='ck_approval_requests_status_valid'),
+)
+
+approval_decisions = Table(
+    'approval_decisions',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('approval_request_id', UUID(), ForeignKey('approval_requests.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('action_id', UUID(), ForeignKey('action_requests.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('decision', String(30), nullable=False, index=True),
+    Column('decided_by', String(100), nullable=False),
+    Column('reason', Text, nullable=True),
+    Column('metadata', JSONType(), nullable=False, default=dict),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("decision IN ('approved', 'rejected')", name='ck_approval_decisions_valid'),
 )
 
 policy_decisions = Table(
@@ -261,6 +409,9 @@ policy_decisions = Table(
     Column('reasons', JSONType(), nullable=False, default=list),
     Column('allowed_targets', JSONType(), nullable=False, default=list),
     Column('blocked_targets', JSONType(), nullable=False, default=list),
+    Column('safety_level', String(30), nullable=True, index=True),
+    Column('metadata', JSONType(), nullable=False, default=dict),
+    Column('catalog_hash', String(64), nullable=True, index=True),
     Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint(
         "status IN ('allowed', 'blocked', 'requires_approval', 'rejected')",
@@ -278,6 +429,7 @@ jobs = Table(
     Column('profile_id', String(100), nullable=False, index=True),
     Column('status', String(30), nullable=False, index=True),
     Column('correlation_id', UUID(), nullable=False, index=True),
+    Column('campaign_id', UUID(), ForeignKey('campaigns.id', ondelete='SET NULL'), nullable=True, index=True),
     Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
     Index('idx_jobs_program_status', 'program_id', 'status'),
@@ -412,6 +564,99 @@ event_store = Table(
     Column('payload', JSONType(), nullable=False, default=dict),
     Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
     Index('idx_event_store_program_type_created', 'program_id', 'event_type', 'created_at'),
+)
+
+event_dispatches = Table(
+    'event_dispatches',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('event_id', UUID(), ForeignKey('event_store.event_id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('destination', String(100), nullable=False, index=True),
+    Column('routing_key', String(255), nullable=False),
+    Column('status', String(30), nullable=False, server_default='pending', index=True),
+    Column('attempts', Integer, nullable=False, server_default='0'),
+    Column('available_at', DateTime(timezone=True), nullable=False, server_default=func.now(), index=True),
+    Column('locked_by', String(100), nullable=True),
+    Column('locked_until', DateTime(timezone=True), nullable=True),
+    Column('dispatched_at', DateTime(timezone=True), nullable=True),
+    Column('last_error', Text, nullable=True),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint('event_id', 'destination', name='uq_event_dispatches_event_destination'),
+    Index('idx_event_dispatches_status_available', 'status', 'available_at'),
+    Index('idx_event_dispatches_destination_status', 'destination', 'status'),
+    CheckConstraint("destination != ''", name='ck_event_dispatches_destination_not_empty'),
+    CheckConstraint("routing_key != ''", name='ck_event_dispatches_routing_key_not_empty'),
+    CheckConstraint("attempts >= 0", name='ck_event_dispatches_attempts_nonnegative'),
+    CheckConstraint(
+        "status IN ('pending', 'locked', 'dispatched', 'failed', 'dead')",
+        name='ck_event_dispatches_status_valid',
+    ),
+)
+
+graph_fact_batches = Table(
+    'graph_fact_batches',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('produced_by', String(150), nullable=False),
+    Column('parser_version', String(100), nullable=False),
+    Column('dedupe_key', String(300), nullable=True, unique=True),
+    Column('facts_json', JSONType(), nullable=False),
+    Column('fact_count', Integer, nullable=False),
+    Column('status', String(30), nullable=False, server_default='pending', index=True),
+    Column('attempts', Integer, nullable=False, server_default='0'),
+    Column('available_at', DateTime(timezone=True), nullable=False, server_default=func.now(), index=True),
+    Column('locked_by', String(100), nullable=True),
+    Column('locked_until', DateTime(timezone=True), nullable=True),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('applied_at', DateTime(timezone=True), nullable=True),
+    Column('last_error', Text, nullable=True),
+    Index('idx_graph_fact_batches_status_available', 'status', 'available_at'),
+    Index('idx_graph_fact_batches_program_created', 'program_id', 'created_at'),
+    Index('uq_graph_fact_batches_dedupe_key', 'dedupe_key', unique=True),
+    CheckConstraint("produced_by != ''", name='ck_graph_fact_batches_produced_by_not_empty'),
+    CheckConstraint("parser_version != ''", name='ck_graph_fact_batches_parser_version_not_empty'),
+    CheckConstraint("dedupe_key IS NULL OR dedupe_key != ''", name='ck_graph_fact_batches_dedupe_key_not_empty'),
+    CheckConstraint("fact_count > 0", name='ck_graph_fact_batches_fact_count_positive'),
+    CheckConstraint("attempts >= 0", name='ck_graph_fact_batches_attempts_nonnegative'),
+    CheckConstraint(
+        "status IN ('pending', 'locked', 'applied', 'failed', 'dead')",
+        name='ck_graph_fact_batches_status_valid',
+    ),
+)
+
+
+graph_projection_events = Table(
+    'graph_projection_events',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('source_type', String(100), nullable=False),
+    Column('source_id', UUID(), nullable=False, index=True),
+    Column('event_type', String(150), nullable=False),
+    Column('dedupe_key', String(300), nullable=False, unique=True),
+    Column('status', String(30), nullable=False, server_default='pending', index=True),
+    Column('attempts', Integer, nullable=False, server_default='0'),
+    Column('available_at', DateTime(timezone=True), nullable=False, server_default=func.now(), index=True),
+    Column('locked_by', String(100), nullable=True),
+    Column('locked_until', DateTime(timezone=True), nullable=True),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('processed_at', DateTime(timezone=True), nullable=True),
+    Column('last_error', Text, nullable=True),
+    Index('idx_graph_projection_events_status_available', 'status', 'available_at'),
+    Index('idx_graph_projection_events_source', 'source_type', 'source_id'),
+    Index('uq_graph_projection_events_dedupe_key', 'dedupe_key', unique=True),
+    CheckConstraint("source_type != ''", name='ck_graph_projection_events_source_type_not_empty'),
+    CheckConstraint("event_type != ''", name='ck_graph_projection_events_event_type_not_empty'),
+    CheckConstraint("dedupe_key != ''", name='ck_graph_projection_events_dedupe_key_not_empty'),
+    CheckConstraint("attempts >= 0", name='ck_graph_projection_events_attempts_nonnegative'),
+    CheckConstraint(
+        "status IN ('pending', 'locked', 'processed', 'failed', 'dead')",
+        name='ck_graph_projection_events_status_valid',
+    ),
 )
 
 raw_artifacts = Table(

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, insert, or_, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -17,6 +18,7 @@ from api.application.contracts import (
     ActionRecord,
     ActionRequest,
     ActionStatus,
+    EventDispatchRecord,
     EventEnvelope,
     ExecutionMode,
     ExecutionStatus,
@@ -27,12 +29,20 @@ from api.application.contracts import (
     TerminalOutcome,
 )
 from api.infrastructure.adapters.orm import (
+    action_request_options,
+    action_request_targets,
     action_requests,
+    approval_decisions,
+    approval_requests,
+    campaigns,
+    event_dispatches,
     event_store,
     jobs,
     policy_decisions,
     runs,
+    scope_decisions,
 )
+from api.infrastructure.events.queue_config import QueueConfig
 
 
 class OrchestrationStore:
@@ -40,6 +50,393 @@ class OrchestrationStore:
 
     def __init__(self, session_factory: async_sessionmaker):
         self.session_factory = session_factory
+
+    @staticmethod
+    def _scope_status(decision: PolicyDecision) -> str:
+        if decision.status == PolicyDecisionStatus.BLOCKED:
+            return "blocked"
+        if decision.allowed_targets and decision.blocked_targets:
+            return "partial"
+        if decision.allowed_targets:
+            return "allowed"
+        return "not_evaluated"
+
+    @staticmethod
+    def _event_store_payload(envelope: EventEnvelope) -> dict[str, Any]:
+        payload = envelope.to_legacy_dict()
+        payload.pop("event_id", None)
+        payload.pop("created_at", None)
+        return payload
+
+    @staticmethod
+    async def _insert_event_store_row(session, envelope: EventEnvelope) -> None:
+        await session.execute(
+            insert(event_store).values(
+                id=uuid.uuid4(),
+                event_id=envelope.event_id,
+                event_type=envelope.event,
+                program_id=envelope.program_id,
+                job_id=envelope.job_id,
+                run_id=envelope.run_id,
+                correlation_id=envelope.correlation_id,
+                causation_id=envelope.causation_id,
+                source=envelope.source,
+                profile=envelope.profile,
+                confidence=envelope.confidence,
+                payload=OrchestrationStore._event_store_payload(envelope),
+                created_at=envelope.created_at,
+            )
+        )
+
+    @staticmethod
+    async def _enqueue_dispatch(
+        session,
+        envelope: EventEnvelope,
+        *,
+        destination: str = "rabbitmq",
+        now: datetime | None = None,
+    ) -> None:
+        now = now or datetime.now(timezone.utc)
+        await session.execute(
+            insert(event_dispatches).values(
+                id=uuid.uuid4(),
+                event_id=envelope.event_id,
+                destination=destination,
+                routing_key=QueueConfig.get_routing_key(envelope.event),
+                status="pending",
+                attempts=0,
+                available_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await session.execute(
+            text("SELECT pg_notify(:channel, :payload)").bindparams(
+                channel="event_dispatches_changed",
+                payload=str(envelope.event_id),
+            )
+        )
+
+    @staticmethod
+    def _event_envelope_from_event_store_row(row: Mapping[str, Any]) -> EventEnvelope:
+        payload = dict(row.get("payload") or {})
+        payload.update(
+            {
+                "event_id": row["event_id"],
+                "event": row["event_type"],
+                "program_id": row["program_id"],
+                "correlation_id": row["correlation_id"],
+                "causation_id": row.get("causation_id"),
+                "source": row["source"],
+                "profile": row.get("profile"),
+                "confidence": row["confidence"],
+                "created_at": row["event_created_at"],
+            }
+        )
+        if row.get("job_id") is not None:
+            payload["job_id"] = row["job_id"]
+        if row.get("run_id") is not None:
+            payload["run_id"] = row["run_id"]
+        return EventEnvelope(**payload)
+
+    async def claim_dispatches(
+        self,
+        *,
+        destination: str,
+        dispatcher_id: str,
+        batch_size: int,
+        lease_ttl_seconds: int,
+    ) -> list[EventDispatchRecord]:
+        now = datetime.now(timezone.utc)
+        locked_until = now + timedelta(seconds=max(1, lease_ttl_seconds))
+        limit = max(1, batch_size)
+
+        pending_or_failed = (
+            event_dispatches.c.status.in_(["pending", "failed"])
+            & (event_dispatches.c.available_at <= now)
+        )
+        expired_lock = (
+            (event_dispatches.c.status == "locked")
+            & (event_dispatches.c.locked_until.is_not(None))
+            & (event_dispatches.c.locked_until <= now)
+        )
+
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(
+                    event_dispatches.c.id.label("dispatch_id"),
+                    event_dispatches.c.event_id,
+                    event_dispatches.c.destination,
+                    event_dispatches.c.routing_key,
+                    event_dispatches.c.attempts,
+                    event_store.c.event_type,
+                    event_store.c.program_id,
+                    event_store.c.job_id,
+                    event_store.c.run_id,
+                    event_store.c.correlation_id,
+                    event_store.c.causation_id,
+                    event_store.c.source,
+                    event_store.c.profile,
+                    event_store.c.confidence,
+                    event_store.c.payload,
+                    event_store.c.created_at.label("event_created_at"),
+                )
+                .select_from(
+                    event_dispatches.join(
+                        event_store,
+                        event_dispatches.c.event_id == event_store.c.event_id,
+                    )
+                )
+                .where(
+                    event_dispatches.c.destination == destination,
+                    or_(pending_or_failed, expired_lock),
+                )
+                .order_by(event_dispatches.c.available_at.asc(), event_dispatches.c.created_at.asc())
+                .limit(limit)
+                .with_for_update(skip_locked=True, of=event_dispatches)
+            )
+            rows = result.mappings().all()
+            if not rows:
+                await session.commit()
+                return []
+
+            dispatch_ids = [row["dispatch_id"] for row in rows]
+            await session.execute(
+                update(event_dispatches)
+                .where(event_dispatches.c.id.in_(dispatch_ids))
+                .values(
+                    status="locked",
+                    locked_by=dispatcher_id,
+                    locked_until=locked_until,
+                    updated_at=now,
+                )
+            )
+            await session.commit()
+
+        return [
+            EventDispatchRecord(
+                dispatch_id=row["dispatch_id"],
+                event_id=row["event_id"],
+                destination=row["destination"],
+                routing_key=row["routing_key"],
+                attempts=int(row["attempts"] or 0),
+                envelope=self._event_envelope_from_event_store_row(row),
+            )
+            for row in rows
+        ]
+
+    async def mark_sent(
+        self,
+        *,
+        dispatch_id: uuid.UUID,
+        dispatcher_id: str,
+    ) -> bool:
+        now = datetime.now(timezone.utc)
+        async with self.session_factory() as session:
+            result = await session.execute(
+                update(event_dispatches)
+                .where(
+                    event_dispatches.c.id == dispatch_id,
+                    event_dispatches.c.locked_by == dispatcher_id,
+                )
+                .values(
+                    status="dispatched",
+                    dispatched_at=now,
+                    locked_by=None,
+                    locked_until=None,
+                    updated_at=now,
+                )
+            )
+            await session.commit()
+        return int(getattr(result, "rowcount", 0) or 0) == 1
+
+    async def mark_failed(
+        self,
+        *,
+        dispatch_id: uuid.UUID,
+        dispatcher_id: str,
+        error: str,
+        current_attempts: int,
+        max_attempts: int,
+        retry_delay_seconds: float,
+    ) -> bool:
+        now = datetime.now(timezone.utc)
+        next_attempts = max(0, int(current_attempts)) + 1
+        status = "dead" if next_attempts >= max(1, int(max_attempts)) else "failed"
+        available_at = now if status == "dead" else now + timedelta(seconds=max(0.1, retry_delay_seconds))
+        async with self.session_factory() as session:
+            result = await session.execute(
+                update(event_dispatches)
+                .where(
+                    event_dispatches.c.id == dispatch_id,
+                    event_dispatches.c.locked_by == dispatcher_id,
+                )
+                .values(
+                    status=status,
+                    attempts=next_attempts,
+                    available_at=available_at,
+                    locked_by=None,
+                    locked_until=None,
+                    last_error=error[:4000],
+                    updated_at=now,
+                )
+            )
+            await session.commit()
+        return int(getattr(result, "rowcount", 0) or 0) == 1
+
+    @staticmethod
+    def _target_status(target: str, decision: PolicyDecision) -> str:
+        if target in decision.allowed_targets:
+            return "allowed"
+        if target in decision.blocked_targets:
+            return "blocked"
+        return "requested"
+
+    @staticmethod
+    def _catalog_hash(decision: PolicyDecision) -> str | None:
+        value = decision.metadata.get("catalog_hash")
+        return str(value) if value else None
+
+    async def _upsert_campaign(self, session, action: ActionRequest, now: datetime) -> None:
+        stmt = pg_insert(campaigns).values(
+            id=action.campaign_id,
+            program_id=action.program_id,
+            correlation_id=action.correlation_id,
+            workflow_id=action.workflow_id,
+            status="created",
+            metadata=action.metadata,
+            created_at=now,
+            updated_at=now,
+        ).on_conflict_do_update(
+            index_elements=[campaigns.c.id],
+            set_={
+                "updated_at": now,
+                "correlation_id": action.correlation_id,
+                "workflow_id": action.workflow_id,
+            },
+        )
+        await session.execute(stmt)
+
+    async def _record_action_detail_rows(
+        self,
+        session,
+        *,
+        action: ActionRequest,
+        decision: PolicyDecision,
+        now: datetime,
+    ) -> uuid.UUID:
+        for position, target in enumerate(action.profile.targets):
+            await session.execute(
+                insert(action_request_targets).values(
+                    id=uuid.uuid4(),
+                    action_id=action.action_id,
+                    target=target,
+                    position=position,
+                    status=self._target_status(target, decision),
+                    created_at=now,
+                )
+            )
+        for key, value in sorted(action.profile.options.items()):
+            await session.execute(
+                insert(action_request_options).values(
+                    id=uuid.uuid4(),
+                    action_id=action.action_id,
+                    option_key=key,
+                    option_value=value,
+                    created_at=now,
+                )
+            )
+        scope_decision_id = uuid.uuid4()
+        await session.execute(
+            insert(scope_decisions).values(
+                id=scope_decision_id,
+                action_id=action.action_id,
+                status=self._scope_status(decision),
+                scope_policy=decision.metadata.get("scope_policy"),
+                reasons=decision.reasons,
+                allowed_targets=decision.allowed_targets,
+                blocked_targets=decision.blocked_targets,
+                metadata=decision.metadata,
+                created_at=now,
+            )
+        )
+        return scope_decision_id
+
+    async def _record_approval_request_if_needed(
+        self,
+        session,
+        *,
+        action: ActionRequest,
+        decision: PolicyDecision,
+        now: datetime,
+    ) -> None:
+        if decision.status != PolicyDecisionStatus.REQUIRES_APPROVAL:
+            return
+        await session.execute(
+            insert(approval_requests).values(
+                id=uuid.uuid4(),
+                action_id=action.action_id,
+                policy_decision_id=decision.decision_id,
+                status="pending",
+                reason="; ".join(decision.reasons) if decision.reasons else None,
+                requested_by="policy",
+                created_at=now,
+            )
+        )
+
+    async def _record_approval_decision(
+        self,
+        session,
+        *,
+        action: ActionRequest,
+        decision: PolicyDecision,
+        status: str,
+        decided_by: str,
+        reason: str | None,
+        now: datetime,
+    ) -> None:
+        pending = await session.execute(
+            select(approval_requests.c.id)
+            .where(
+                approval_requests.c.action_id == action.action_id,
+                approval_requests.c.status == "pending",
+            )
+            .order_by(approval_requests.c.created_at.desc())
+            .limit(1)
+        )
+        row = pending.mappings().one_or_none()
+        approval_request_id = row["id"] if row else uuid.uuid4()
+        if row is None:
+            await session.execute(
+                insert(approval_requests).values(
+                    id=approval_request_id,
+                    action_id=action.action_id,
+                    policy_decision_id=decision.decision_id,
+                    status=status,
+                    reason=reason,
+                    requested_by="policy",
+                    created_at=now,
+                    decided_at=now,
+                )
+            )
+        else:
+            await session.execute(
+                update(approval_requests)
+                .where(approval_requests.c.id == approval_request_id)
+                .values(status=status, decided_at=now, reason=reason)
+            )
+        await session.execute(
+            insert(approval_decisions).values(
+                id=uuid.uuid4(),
+                approval_request_id=approval_request_id,
+                action_id=action.action_id,
+                decision=status,
+                decided_by=decided_by,
+                reason=reason,
+                metadata=decision.metadata,
+                created_at=now,
+            )
+        )
 
     async def list_actions(
         self,
@@ -72,8 +469,8 @@ class OrchestrationStore:
                     profile_id=row["profile_id"],
                     requested_by=row["requested_by"],
                     status=ActionStatus(row["status"]),
-                    targets=request.profile.targets,
-                    options=request.profile.options,
+                    targets=request.targets,
+                    options=request.options,
                     created_at=row["created_at"],
                     updated_at=row["updated_at"],
                 )
@@ -101,7 +498,7 @@ class OrchestrationStore:
         self,
         action: ActionRequest,
         decision: PolicyDecision,
-    ) -> None:
+    ) -> uuid.UUID:
         now = datetime.now(timezone.utc)
         status = (
             "queued"
@@ -110,14 +507,21 @@ class OrchestrationStore:
         )
 
         async with self.session_factory() as session:
+            await self._upsert_campaign(session, action, now)
             await session.execute(
                 insert(action_requests).values(
                     id=action.action_id,
                     program_id=action.program_id,
+                    catalog_entry_id=action.catalog_id,
                     kind=action.kind.value,
                     capability_id=action.profile.capability_id,
                     profile_id=action.profile.profile_id,
                     requested_by=action.requested_by,
+                    workflow_id=action.workflow_id,
+                    campaign_id=action.campaign_id,
+                    correlation_id=action.correlation_id,
+                    catalog_hash=self._catalog_hash(decision),
+                    metadata=action.metadata,
                     status=status,
                     request=action.model_dump(mode="json"),
                     created_at=now,
@@ -132,10 +536,37 @@ class OrchestrationStore:
                     reasons=decision.reasons,
                     allowed_targets=decision.allowed_targets,
                     blocked_targets=decision.blocked_targets,
+                    safety_level=decision.safety_level.value if decision.safety_level is not None else None,
+                    metadata=decision.metadata,
+                    catalog_hash=self._catalog_hash(decision),
                     created_at=now,
                 )
             )
+            scope_id = await self._record_action_detail_rows(
+                session,
+                action=action,
+                decision=decision,
+                now=now,
+            )
+            await self._record_approval_request_if_needed(
+                session,
+                action=action,
+                decision=decision,
+                now=now,
+            )
             await session.commit()
+        return scope_id
+
+    async def get_scope_id(self, action_id: uuid.UUID) -> uuid.UUID | None:
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(scope_decisions.c.id)
+                .where(scope_decisions.c.action_id == action_id)
+                .order_by(scope_decisions.c.created_at.desc())
+                .limit(1)
+            )
+            row = result.mappings().one_or_none()
+        return row["id"] if row else None
 
     async def create_queued_job(
         self,
@@ -162,6 +593,7 @@ class OrchestrationStore:
                     profile_id=action.profile.profile_id,
                     status=ExecutionStatus.QUEUED.value,
                     correlation_id=envelope.correlation_id,
+                    campaign_id=action.campaign_id,
                     created_at=now,
                     updated_at=now,
                 )
@@ -179,6 +611,8 @@ class OrchestrationStore:
                     updated_at=now,
                 )
             )
+            await self._insert_event_store_row(session, envelope)
+            await self._enqueue_dispatch(session, envelope, now=now)
             await session.commit()
 
     async def approve_and_create_queued_job(
@@ -212,8 +646,20 @@ class OrchestrationStore:
                     reasons=decision.reasons,
                     allowed_targets=decision.allowed_targets,
                     blocked_targets=decision.blocked_targets,
+                    safety_level=decision.safety_level.value if decision.safety_level is not None else None,
+                    metadata=decision.metadata,
+                    catalog_hash=self._catalog_hash(decision),
                     created_at=now,
                 )
+            )
+            await self._record_approval_decision(
+                session,
+                action=action,
+                decision=decision,
+                status="approved",
+                decided_by=decision.metadata.get("approved_by", "api"),
+                reason="; ".join(decision.reasons) if decision.reasons else None,
+                now=now,
             )
             await session.execute(
                 insert(jobs).values(
@@ -224,6 +670,7 @@ class OrchestrationStore:
                     profile_id=action.profile.profile_id,
                     status=ExecutionStatus.QUEUED.value,
                     correlation_id=envelope.correlation_id,
+                    campaign_id=action.campaign_id,
                     created_at=now,
                     updated_at=now,
                 )
@@ -241,6 +688,8 @@ class OrchestrationStore:
                     updated_at=now,
                 )
             )
+            await self._insert_event_store_row(session, envelope)
+            await self._enqueue_dispatch(session, envelope, now=now)
             await session.commit()
             return True
 
@@ -867,37 +1316,29 @@ class OrchestrationStore:
                     reasons=decision.reasons,
                     allowed_targets=decision.allowed_targets,
                     blocked_targets=decision.blocked_targets,
+                    safety_level=decision.safety_level.value if decision.safety_level is not None else None,
+                    metadata=decision.metadata,
+                    catalog_hash=self._catalog_hash(decision),
                     created_at=now,
                 )
+            )
+            await self._record_approval_decision(
+                session,
+                action=action,
+                decision=decision,
+                status="rejected",
+                decided_by=decision.metadata.get("rejected_by", "api"),
+                reason="; ".join(decision.reasons) if decision.reasons else None,
+                now=now,
             )
             await session.commit()
             return True
 
     async def record_event(self, envelope: EventEnvelope) -> None:
-        payload = envelope.to_legacy_dict()
-        payload.pop("event_id", None)
-        payload.pop("created_at", None)
-
         async with self.session_factory() as session:
             try:
                 await self._ensure_run_for_event(session, envelope)
-                await session.execute(
-                    insert(event_store).values(
-                        id=uuid.uuid4(),
-                        event_id=envelope.event_id,
-                        event_type=envelope.event,
-                        program_id=envelope.program_id,
-                        job_id=envelope.job_id,
-                        run_id=envelope.run_id,
-                        correlation_id=envelope.correlation_id,
-                        causation_id=envelope.causation_id,
-                        source=envelope.source,
-                        profile=envelope.profile,
-                        confidence=envelope.confidence,
-                        payload=payload,
-                        created_at=envelope.created_at,
-                    )
-                )
+                await self._insert_event_store_row(session, envelope)
                 await session.commit()
             except IntegrityError:
                 await session.rollback()
