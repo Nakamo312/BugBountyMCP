@@ -20,6 +20,8 @@ class GraphProjectorSettings:
     graph_fact_batch_notify_channel: str = "graph_fact_batches_changed"
     raw_artifact_enqueue_limit: int = 100
     raw_artifact_enqueue_poll_seconds: float = 5.0
+    http_observation_enqueue_limit: int = 100
+    http_observation_enqueue_poll_seconds: float = 5.0
 
     @classmethod
     def from_env(cls) -> "GraphProjectorSettings":
@@ -37,6 +39,8 @@ class GraphProjectorSettings:
             graph_fact_batch_notify_channel=os.getenv("GRAPH_FACT_BATCH_NOTIFY_CHANNEL", "graph_fact_batches_changed"),
             raw_artifact_enqueue_limit=_env_int("RAW_ARTIFACT_ENQUEUE_LIMIT", default=100),
             raw_artifact_enqueue_poll_seconds=_env_float("RAW_ARTIFACT_ENQUEUE_POLL_SECONDS", default=5.0),
+            http_observation_enqueue_limit=_env_int("HTTP_OBSERVATION_ENQUEUE_LIMIT", default=100),
+            http_observation_enqueue_poll_seconds=_env_float("HTTP_OBSERVATION_ENQUEUE_POLL_SECONDS", default=5.0),
         )
 
 

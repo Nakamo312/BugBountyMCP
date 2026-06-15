@@ -95,6 +95,30 @@ services:
         condition: service_healthy
     restart: "no"
 
+  graph-projector-http-observation-enqueuer:
+    build:
+      context: ./services/graph-projector
+      dockerfile: Dockerfile
+    container_name: bb-graph-projector-http-observation-enqueuer
+    profiles:
+      - graph
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      HTTP_OBSERVATION_ENQUEUE_LIMIT: ${HTTP_OBSERVATION_ENQUEUE_LIMIT:-100}
+      HTTP_OBSERVATION_ENQUEUE_POLL_SECONDS: ${HTTP_OBSERVATION_ENQUEUE_POLL_SECONDS:-5}
+    command: ["enqueue-http-observations-loop"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   opensearch:
     image: opensearchproject/opensearch:2.15.0
     container_name: bb-opensearch

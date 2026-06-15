@@ -6,6 +6,11 @@ from .applicator import GraphFactBatchApplicator, GraphFactBatchNotificationWait
 from .batch_store import GraphFactBatchStore, connect_postgres
 from .neo4j_driver import create_neo4j_driver
 from .ontology import default_graph_ontology
+from .producers.http_observations import (
+    HttpObservationEnqueueLoopResult,
+    HttpObservationGraphFactEnqueuer,
+    HttpObservationGraphFactProducer,
+)
 from .producers.raw_artifacts import RawArtifactEnqueueLoopResult, RawArtifactGraphFactEnqueuer, RawArtifactGraphFactProducer
 from .settings import GraphProjectorSettings
 from .writer import GraphFactWriter, GraphOntologyRegistry
@@ -29,6 +34,15 @@ def main() -> int:
     enqueue_raw_artifacts_loop.add_argument("--max-iterations", type=int, default=None)
     enqueue_raw_artifacts_loop.add_argument("--idle-exit-after", type=int, default=None)
     enqueue_raw_artifacts_loop.add_argument("--poll-seconds", type=float, default=None)
+    enqueue_http_observations = subparsers.add_parser("enqueue-http-observations", help="Enqueue GraphFactBatch rows from canonical HTTP observations.")
+    enqueue_http_observations.add_argument("--limit", type=int, default=None)
+    enqueue_http_observations.add_argument("--program-id", default=None)
+    enqueue_http_observations_loop = subparsers.add_parser("enqueue-http-observations-loop", help="Continuously enqueue GraphFactBatch rows from canonical HTTP observations.")
+    enqueue_http_observations_loop.add_argument("--limit", type=int, default=None)
+    enqueue_http_observations_loop.add_argument("--program-id", default=None)
+    enqueue_http_observations_loop.add_argument("--max-iterations", type=int, default=None)
+    enqueue_http_observations_loop.add_argument("--idle-exit-after", type=int, default=None)
+    enqueue_http_observations_loop.add_argument("--poll-seconds", type=float, default=None)
     args = parser.parse_args()
 
     if args.command == "check-config":
@@ -92,7 +106,52 @@ def main() -> int:
         )
         return 0
 
+    if args.command == "enqueue-http-observations":
+        settings = GraphProjectorSettings.from_env()
+        enqueuer = _build_http_observation_enqueuer(settings)
+        limit = settings.http_observation_enqueue_limit if args.limit is None else args.limit
+        result = enqueuer.enqueue_pending(limit=limit, program_id=args.program_id)
+        print(
+            "graph-projector enqueue-http-observations: "
+            f"scanned={result.scanned} enqueued={result.enqueued} skipped={result.skipped}"
+        )
+        return 0
+
+    if args.command == "enqueue-http-observations-loop":
+        settings = GraphProjectorSettings.from_env()
+        enqueuer = _build_http_observation_enqueuer(settings)
+        limit = settings.http_observation_enqueue_limit if args.limit is None else args.limit
+        poll_seconds = settings.http_observation_enqueue_poll_seconds if args.poll_seconds is None else args.poll_seconds
+        result = HttpObservationEnqueueLoopResult.run(
+            enqueuer,
+            limit=limit,
+            program_id=args.program_id,
+            max_iterations=args.max_iterations,
+            idle_exit_after=args.idle_exit_after,
+            poll_seconds=poll_seconds,
+        )
+        print(
+            "graph-projector enqueue-http-observations-loop: "
+            f"scanned={result.scanned} enqueued={result.enqueued} skipped={result.skipped} "
+            f"empty={result.empty} iterations={result.iterations}"
+        )
+        return 0
+
     return 2
+
+
+def _build_http_observation_enqueuer(settings: GraphProjectorSettings) -> HttpObservationGraphFactEnqueuer:
+    connection = connect_postgres(settings.postgres_dsn)
+    store = GraphFactBatchStore(connection)
+    producer = HttpObservationGraphFactProducer()
+    return HttpObservationGraphFactEnqueuer(
+        connection=connection,
+        store=store,
+        producer=producer,
+        worker_id=settings.worker_id,
+        lock_seconds=settings.batch_lock_seconds,
+        max_attempts=settings.batch_max_attempts,
+    )
 
 
 def _build_raw_artifact_enqueuer(settings: GraphProjectorSettings) -> RawArtifactGraphFactEnqueuer:

@@ -26,6 +26,27 @@ def _symbols():
     )
 
 
+def _enqueue_symbols():
+    import sys
+
+    sys.path.insert(0, str(Path("services/graph-projector").resolve()))
+    from graph_projector.producers.http_observations import (
+        HttpObservationEnqueueLoopResult,
+        HttpObservationEnqueueResult,
+        HttpObservationGraphFactEnqueuer,
+        HttpObservationGraphFactProducer,
+        http_observations_dedupe_key,
+    )
+
+    return (
+        HttpObservationGraphFactEnqueuer,
+        HttpObservationGraphFactProducer,
+        HttpObservationEnqueueLoopResult,
+        HttpObservationEnqueueResult,
+        http_observations_dedupe_key,
+    )
+
+
 def _observation_row(**overrides):
     program_id = overrides.pop("program_id", uuid4())
     run_id = overrides.pop("run_id", uuid4())
@@ -54,6 +75,60 @@ def _observation_row(**overrides):
     }
     row.update(overrides)
     return row
+
+
+class RecordingCursor:
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def execute(self, query: str, parameters: dict[str, object] | None = None):
+        self.calls.append((query, parameters or {}))
+
+    def fetchall(self):
+        return self.rows
+
+
+class RecordingConnection:
+    def __init__(self, rows):
+        self.cursor_obj = RecordingCursor(rows)
+        self.commits = 0
+        self.rollbacks = 0
+
+    def cursor(self):
+        return self.cursor_obj
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
+
+
+class RecordingBatchStore:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, str | None]] = []
+
+    def enqueue(self, batch, *, dedupe_key: str | None = None):
+        self.calls.append((batch, dedupe_key))
+        return uuid4()
+
+
+class FailingBatchStore:
+    def enqueue(self, batch, *, dedupe_key: str | None = None):
+        raise RuntimeError("enqueue failed")
+
+
+class SequenceHttpObservationEnqueuer:
+    def __init__(self, results):
+        self.results = list(results)
+        self.calls: list[tuple[int, object]] = []
+
+    def enqueue_pending(self, *, limit: int = 100, program_id=None):
+        self.calls.append((limit, program_id))
+        if not self.results:
+            return _enqueue_symbols()[3](scanned=0, enqueued=0, skipped=0)
+        return self.results.pop(0)
 
 
 def test_http_observation_producer_builds_asset_graphfacts() -> None:
@@ -230,3 +305,187 @@ def test_http_observation_producer_canonicalizes_hostnames_and_ip_addresses() ->
         if hasattr(fact, "edge_kind")
     }
     assert ("Host", "api.example.com", "RESOLVES_TO", "IP", "2001:db8::1") in edge_facts
+
+
+def test_http_observation_enqueuer_claims_ready_events_and_enqueues_one_batch_per_event() -> None:
+    (
+        HttpObservationGraphFactEnqueuer,
+        HttpObservationGraphFactProducer,
+        _,
+        _,
+        dedupe_key_fn,
+    ) = _enqueue_symbols()
+    projection_event_id = uuid4()
+    raw_artifact_id = uuid4()
+    row = _observation_row(
+        projection_event_id=projection_event_id,
+        projection_event_attempts=1,
+        raw_artifact_id=raw_artifact_id,
+    )
+    second_row = _observation_row(
+        program_id=row["program_id"],
+        run_id=row["run_id"],
+        raw_artifact_id=raw_artifact_id,
+        projection_event_id=projection_event_id,
+        projection_event_attempts=1,
+        path="/v1/accounts/456",
+        normalized_path="/v1/accounts/{id}",
+    )
+    connection = RecordingConnection([row, second_row])
+    store = RecordingBatchStore()
+    producer = HttpObservationGraphFactProducer(parser_version="http-observations.v1")
+    enqueuer = HttpObservationGraphFactEnqueuer(
+        connection=connection,
+        store=store,
+        producer=producer,
+        worker_id="worker-http",
+        lock_seconds=60,
+        max_attempts=3,
+    )
+
+    result = enqueuer.enqueue_pending(limit=25)
+
+    assert result.scanned == 1
+    assert result.enqueued == 1
+    assert result.skipped == 0
+    query, parameters = connection.cursor_obj.calls[0]
+    assert "FROM graph_projection_events" in query
+    assert "http_observations_ready" in query
+    assert "FOR UPDATE SKIP LOCKED" in query
+    assert "LEFT JOIN http_observations" in query
+    assert "JOIN endpoints" in query
+    assert "JOIN hosts" in query
+    assert "JOIN services" in query
+    assert "JOIN ip_addresses" in query
+    assert "host_ips" in query
+    assert "ho.run_id IS NOT NULL" in query
+    assert "ho.raw_artifact_id IS NOT NULL" in query
+    assert parameters["limit"] == 25
+    assert parameters["worker_id"] == "worker-http"
+    assert parameters["max_attempts"] == 3
+    batch, dedupe_key = store.calls[0]
+    assert batch.program_id == row["program_id"]
+    assert len(batch.facts) == 9
+    assert dedupe_key == dedupe_key_fn(raw_artifact_id, "http-observations.v1")
+    assert any("SET status = 'processed'" in call[0] for call in connection.cursor_obj.calls)
+
+
+def test_http_observation_enqueuer_marks_empty_event_processed_without_batch() -> None:
+    HttpObservationGraphFactEnqueuer, *_ = _enqueue_symbols()
+    projection_event_id = uuid4()
+    connection = RecordingConnection(
+        [
+            {
+                "projection_event_id": projection_event_id,
+                "projection_event_attempts": 1,
+                "event_raw_artifact_id": uuid4(),
+                "program_id": uuid4(),
+            }
+        ]
+    )
+    store = RecordingBatchStore()
+    enqueuer = HttpObservationGraphFactEnqueuer(connection=connection, store=store)
+
+    result = enqueuer.enqueue_pending(limit=10)
+
+    assert result.scanned == 1
+    assert result.enqueued == 0
+    assert result.skipped == 1
+    assert store.calls == []
+    assert any("SET status = 'processed'" in call[0] for call in connection.cursor_obj.calls)
+
+
+@pytest.mark.parametrize(
+    ("attempts", "expected_status"),
+    [
+        (1, "failed"),
+        (3, "dead"),
+    ],
+)
+def test_http_observation_enqueuer_marks_event_failed_or_dead_on_enqueue_error(
+    attempts: int,
+    expected_status: str,
+) -> None:
+    HttpObservationGraphFactEnqueuer, *_ = _enqueue_symbols()
+    row = _observation_row(
+        projection_event_id=uuid4(),
+        projection_event_attempts=attempts,
+        raw_artifact_id=uuid4(),
+    )
+    connection = RecordingConnection([row])
+    enqueuer = HttpObservationGraphFactEnqueuer(
+        connection=connection,
+        store=FailingBatchStore(),
+        max_attempts=3,
+    )
+
+    with pytest.raises(RuntimeError, match="enqueue failed"):
+        enqueuer.enqueue_pending(limit=10)
+
+    failed_call = connection.cursor_obj.calls[-1]
+    assert "SET status = %(status)s" in failed_call[0]
+    assert failed_call[1]["status"] == expected_status
+    assert failed_call[1]["error"] == "enqueue failed"
+
+
+def test_http_observation_enqueue_loop_stops_after_idle_threshold_and_sleeps() -> None:
+    _, _, HttpObservationEnqueueLoopResult, HttpObservationEnqueueResult, _ = _enqueue_symbols()
+
+    active = HttpObservationEnqueueResult(scanned=2, enqueued=2, skipped=0)
+    empty = HttpObservationEnqueueResult(scanned=0, enqueued=0, skipped=0)
+    enqueuer = SequenceHttpObservationEnqueuer([active, empty, empty])
+    slept: list[float] = []
+
+    result = HttpObservationEnqueueLoopResult.run(
+        enqueuer,
+        limit=50,
+        program_id="00000000-0000-0000-0000-000000000001",
+        idle_exit_after=2,
+        poll_seconds=0.5,
+        sleep=slept.append,
+    )
+
+    assert result.scanned == 2
+    assert result.enqueued == 2
+    assert result.skipped == 0
+    assert result.empty == 2
+    assert result.iterations == 3
+    assert slept == [0.5]
+    assert enqueuer.calls == [
+        (50, "00000000-0000-0000-0000-000000000001"),
+        (50, "00000000-0000-0000-0000-000000000001"),
+        (50, "00000000-0000-0000-0000-000000000001"),
+    ]
+
+
+def test_http_observation_enqueue_loop_validates_inputs() -> None:
+    _, _, HttpObservationEnqueueLoopResult, _, _ = _enqueue_symbols()
+    enqueuer = SequenceHttpObservationEnqueuer([])
+
+    with pytest.raises(ValueError, match="limit"):
+        HttpObservationEnqueueLoopResult.run(enqueuer, limit=0)
+    with pytest.raises(ValueError, match="max_iterations"):
+        HttpObservationEnqueueLoopResult.run(enqueuer, limit=1, max_iterations=0)
+    with pytest.raises(ValueError, match="idle_exit_after"):
+        HttpObservationEnqueueLoopResult.run(enqueuer, limit=1, idle_exit_after=0)
+    with pytest.raises(ValueError, match="poll_seconds"):
+        HttpObservationEnqueueLoopResult.run(enqueuer, limit=1, poll_seconds=-0.1)
+
+
+def test_enqueue_http_observations_cli_settings_and_compose_service_are_exposed() -> None:
+    main_source = Path("services/graph-projector/graph_projector/__main__.py").read_text(encoding="utf-8")
+    settings_source = Path("services/graph-projector/graph_projector/settings.py").read_text(encoding="utf-8")
+    compose_source = Path("docker-compose.yml").read_text(encoding="utf-8")
+
+    assert 'subparsers.add_parser("enqueue-http-observations"' in main_source
+    assert 'subparsers.add_parser("enqueue-http-observations-loop"' in main_source
+    assert "HttpObservationGraphFactEnqueuer" in main_source
+    assert "HttpObservationEnqueueLoopResult" in main_source
+    assert "http_observation_enqueue_limit" in settings_source
+    assert "HTTP_OBSERVATION_ENQUEUE_LIMIT" in settings_source
+    assert "http_observation_enqueue_poll_seconds" in settings_source
+    assert "HTTP_OBSERVATION_ENQUEUE_POLL_SECONDS" in settings_source
+    assert "graph-projector-http-observation-enqueuer" in compose_source
+    assert "HTTP_OBSERVATION_ENQUEUE_LIMIT" in compose_source
+    assert "HTTP_OBSERVATION_ENQUEUE_POLL_SECONDS" in compose_source
+    assert 'command: ["enqueue-http-observations-loop"]' in compose_source
