@@ -41,3 +41,15 @@ def test_graph_projection_events_migration_adds_raw_artifact_trigger_and_notify(
     assert "pg_notify('graph_projection_events_changed'" in source
     assert "raw_artifact_created" in source
     assert "NEW.run_id IS NULL" in source
+
+
+def test_graph_projection_events_contract_includes_http_observations_ready() -> None:
+    source = Path("src/api/infrastructure/repositories/adapters/http_observation.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "graph_projection_events" in source
+    assert "http_observations_ready" in source
+    assert "source_type=\"raw_artifact\"" in source
+    assert "http-observations-ready:" in source
+    assert "on_conflict_do_nothing(index_elements=[\"dedupe_key\"])" in source

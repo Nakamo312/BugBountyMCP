@@ -4,8 +4,10 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 
 from api.domain.models import HTTPObservationHeaderModel, HTTPObservationModel
+from api.infrastructure.adapters.orm import graph_projection_events
 from api.infrastructure.repositories.adapters.base import SQLAlchemyAbstractRepository
 from api.infrastructure.repositories.interfaces.http_observation import (
     HTTPObservationHeaderRepository,
@@ -40,8 +42,32 @@ class SQLAlchemyHTTPObservationRepository(
                     ordinal=ordinal,
                 )
             )
+        await self._enqueue_graph_projection_event(created)
         await self.session.flush()
         return created
+
+    async def _enqueue_graph_projection_event(
+        self,
+        observation: HTTPObservationModel,
+    ) -> None:
+        if observation.raw_artifact_id is None:
+            return
+        if observation.run_id is None:
+            return
+
+        dedupe_key = f"http-observations-ready:{observation.raw_artifact_id}"
+        statement = (
+            insert(graph_projection_events)
+            .values(
+                program_id=observation.program_id,
+                source_type="raw_artifact",
+                source_id=observation.raw_artifact_id,
+                event_type="http_observations_ready",
+                dedupe_key=dedupe_key,
+            )
+            .on_conflict_do_nothing(index_elements=["dedupe_key"])
+        )
+        await self.session.execute(statement)
 
     async def find_by_endpoint(
         self,
