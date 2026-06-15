@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from urllib.parse import quote_plus
+from urllib.parse import urlparse
 
 import pytest
 from alembic import command
@@ -26,7 +27,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         return
     skip = pytest.mark.skip(reason="set RUN_E2E_TESTS=1 to run e2e tests")
     for item in items:
-        if "e2e" in item.keywords:
+        if item.get_closest_marker("e2e") is not None:
             item.add_marker(skip)
 
 
@@ -80,6 +81,30 @@ def _sync_url(settings: dict[str, str]) -> str:
         f"postgresql+psycopg2://{user}:{password}@"
         f"{settings['host']}:{settings['port']}/{settings['database']}"
     )
+
+
+def _assert_neo4j_clear_allowed(*, uri: str, database: str, allow_env: str | None = None) -> None:
+    allow_value = os.getenv("ALLOW_E2E_NEO4J_CLEAR") if allow_env is None else allow_env
+    if _is_integration_neo4j_uri(uri):
+        return
+    if _is_test_name(database):
+        return
+    if allow_value == "1" and _is_test_name(database):
+        return
+    raise RuntimeError(
+        "Refusing to clear Neo4j because target is not clearly test-only: "
+        f"uri={uri!r}, database={database!r}"
+    )
+
+
+def _is_integration_neo4j_uri(uri: str) -> bool:
+    parsed = urlparse(uri)
+    return parsed.hostname in {"localhost", "127.0.0.1"} and parsed.port == 57687
+
+
+def _is_test_name(value: str) -> bool:
+    normalized = value.lower()
+    return "test" in normalized or "integration" in normalized
 
 
 @pytest.fixture(scope="session")
@@ -136,9 +161,13 @@ def e2e_neo4j_driver(e2e_neo4j_database: str):
     _load_env()
     from neo4j import GraphDatabase
 
+    if os.getenv("RUN_E2E_TESTS") != "1":
+        raise RuntimeError("Refusing to initialize e2e Neo4j driver without RUN_E2E_TESTS=1")
     uri = os.getenv("NEO4J_URI", f"bolt://localhost:{os.getenv('NEO4J_BOLT_PORT', '57687')}")
-    if uri in {"bolt://localhost:7687", "bolt://127.0.0.1:7687"}:
-        raise RuntimeError(f"Refusing to run e2e tests against default Neo4j URI: {uri}")
+    _assert_neo4j_clear_allowed(
+        uri=uri,
+        database=e2e_neo4j_database,
+    )
     user = os.getenv("NEO4J_USER", "neo4j")
     password = os.getenv("NEO4J_PASSWORD", "bugbounty-integration-test")
     driver = GraphDatabase.driver(uri, auth=(user, password))

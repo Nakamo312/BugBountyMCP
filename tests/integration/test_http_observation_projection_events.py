@@ -27,6 +27,7 @@ def test_http_observation_ready_event_can_be_inserted_and_claimed(
     connect_postgres, GraphFactBatchStore, HttpObservationGraphFactEnqueuer = _graph_symbols()
     program_id = uuid4()
     raw_artifact_id = uuid4()
+    projection_event_id = uuid4()
     dedupe_key = f"http-observations-ready:{raw_artifact_id}"
 
     with integration_sync_engine.begin() as connection:
@@ -38,14 +39,16 @@ def test_http_observation_ready_event_can_be_inserted_and_claimed(
             text(
                 """
                 INSERT INTO graph_projection_events (
-                    program_id, source_type, source_id, event_type, dedupe_key
+                    id, program_id, source_type, source_id, event_type, dedupe_key
                 ) VALUES (
-                    :program_id, 'raw_artifact', :source_id, 'http_observations_ready', :dedupe_key
+                    :id, :program_id, 'raw_artifact', :source_id,
+                    'http_observations_ready', :dedupe_key
                 )
                 ON CONFLICT (dedupe_key) DO NOTHING
                 """
             ),
             {
+                "id": projection_event_id,
                 "program_id": program_id,
                 "source_id": raw_artifact_id,
                 "dedupe_key": dedupe_key,

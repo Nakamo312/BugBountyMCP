@@ -6,8 +6,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-
-pytestmark = pytest.mark.e2e
+from conftest import _assert_neo4j_clear_allowed
 
 
 def _graph_symbols():
@@ -31,6 +30,7 @@ def _graph_symbols():
     )
 
 
+@pytest.mark.e2e
 def test_fake_httpx_canonical_observation_projects_endpoint_graph(
     e2e_postgres_engine,
     e2e_postgres_url: str,
@@ -138,6 +138,41 @@ def test_fake_httpx_canonical_observation_projects_endpoint_graph(
     assert counts["has_endpoint"] == 1
 
 
+@pytest.mark.parametrize(
+    ("uri", "database", "allow_env"),
+    [
+        ("bolt://localhost:57687", "neo4j", None),
+        ("bolt://127.0.0.1:57687", "neo4j", None),
+        ("bolt://neo4j.example.internal:7687", "graph_integration", None),
+        ("bolt://neo4j.example.internal:7687", "graph_test", "1"),
+    ],
+)
+def test_neo4j_clear_guard_allows_only_test_targets(
+    uri: str,
+    database: str,
+    allow_env: str | None,
+) -> None:
+    _assert_neo4j_clear_allowed(uri=uri, database=database, allow_env=allow_env)
+
+
+@pytest.mark.parametrize(
+    ("uri", "database", "allow_env"),
+    [
+        ("bolt://localhost:7687", "neo4j", None),
+        ("bolt://127.0.0.1:7687", "neo4j", "1"),
+        ("bolt://neo4j.example.internal:7687", "neo4j", None),
+        ("bolt://neo4j.example.internal:7687", "neo4j", "1"),
+    ],
+)
+def test_neo4j_clear_guard_rejects_default_or_non_test_targets(
+    uri: str,
+    database: str,
+    allow_env: str | None,
+) -> None:
+    with pytest.raises(RuntimeError, match="Refusing to clear Neo4j"):
+        _assert_neo4j_clear_allowed(uri=uri, database=database, allow_env=allow_env)
+
+
 def _clear_projection_tables(connection) -> None:
     for table in [
         "graph_fact_batches",
@@ -175,6 +210,7 @@ def _insert_canonical_http_observation(
     correlation_id,
     event_dedupe_key: str,
 ) -> None:
+    projection_event_id = uuid4()
     connection.execute(
         text("INSERT INTO programs (id, name) VALUES (:id, :name)"),
         {"id": program_id, "name": f"e2e-httpx-graph-{program_id}"},
@@ -315,15 +351,16 @@ def _insert_canonical_http_observation(
         text(
             """
             INSERT INTO graph_projection_events (
-                program_id, source_type, source_id, event_type, dedupe_key
+                id, program_id, source_type, source_id, event_type, dedupe_key
             ) VALUES (
-                :program_id, 'raw_artifact', :source_id,
+                :id, :program_id, 'raw_artifact', :source_id,
                 'http_observations_ready', :dedupe_key
             )
             ON CONFLICT (dedupe_key) DO NOTHING
             """
         ),
         {
+            "id": projection_event_id,
             "program_id": program_id,
             "source_id": raw_artifact_id,
             "dedupe_key": event_dedupe_key,

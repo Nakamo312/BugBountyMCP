@@ -79,6 +79,12 @@ The current graph e2e seeds deterministic canonical `httpx` rows, then runs the
 real HTTP observation GraphFact enqueuer and real Neo4j applicator/writer. These
 tests must not invoke real scanner binaries or perform external probes.
 
+Before clearing Neo4j, the e2e fixture requires `RUN_E2E_TESTS=1` and a
+test-only target: either the integration Bolt port `localhost:57687` /
+`127.0.0.1:57687`, or a Neo4j database name containing `test` or `integration`.
+Common default targets such as `bolt://localhost:7687` with database `neo4j` are
+rejected.
+
 ## Current Coverage
 
 The first integration set verifies that Alembic can upgrade an isolated Postgres
