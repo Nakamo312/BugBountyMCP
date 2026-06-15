@@ -103,6 +103,10 @@ class HttpObservationGraphFactProducer:
         batch_program_id: UUID | None = None
 
         for row in rows:
+            source_tool = _optional_text(row.get("source_tool"))
+            if source_tool is None or source_tool.lower() != "httpx":
+                continue
+
             run_id = _optional_uuid(row.get("run_id"))
             raw_artifact_id = _optional_uuid(row.get("raw_artifact_id"))
             if run_id is None or raw_artifact_id is None:
@@ -325,6 +329,7 @@ LEFT JOIN http_observations ho
     ON ho.raw_artifact_id = locked_events.source_id
    AND ho.run_id IS NOT NULL
    AND ho.raw_artifact_id IS NOT NULL
+   AND ho.source_tool = 'httpx'
 LEFT JOIN endpoints e ON e.id = ho.endpoint_id
 LEFT JOIN hosts h ON h.id = e.host_id
 LEFT JOIN services s ON s.id = ho.service_id
@@ -361,9 +366,11 @@ SET status = 'processed',
     locked_by = NULL,
     locked_until = NULL,
     last_error = NULL
-WHERE id = %(event_id)s;
+WHERE id = %(event_id)s
+  AND status = 'locked'
+  AND locked_by = %(worker_id)s;
 """.strip(),
-            {"event_id": event_id, "now": now},
+            {"event_id": event_id, "now": now, "worker_id": self._worker_id},
         )
         if hasattr(self._connection, "commit"):
             self._connection.commit()
@@ -379,9 +386,17 @@ SET status = %(status)s,
     locked_by = NULL,
     locked_until = NULL,
     last_error = %(error)s
-WHERE id = %(event_id)s;
+WHERE id = %(event_id)s
+  AND status = 'locked'
+  AND locked_by = %(worker_id)s;
 """.strip(),
-            {"event_id": event_id, "status": "dead" if dead else "failed", "now": now, "error": error[:4000]},
+            {
+                "event_id": event_id,
+                "status": "dead" if dead else "failed",
+                "now": now,
+                "error": error[:4000],
+                "worker_id": self._worker_id,
+            },
         )
         if hasattr(self._connection, "commit"):
             self._connection.commit()

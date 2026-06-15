@@ -240,6 +240,21 @@ def test_http_observation_producer_skips_rows_without_run_or_artifact_lineage() 
     assert HttpObservationGraphFactProducer().produce([_observation_row(raw_artifact_id=None)]) is None
 
 
+def test_http_observation_producer_skips_non_httpx_rows() -> None:
+    HttpObservationGraphFactProducer, _, _, _ = _symbols()
+    program_id = uuid4()
+    httpx_row = _observation_row(program_id=program_id)
+    katana_row = _observation_row(program_id=program_id, source_tool="katana")
+
+    assert HttpObservationGraphFactProducer().produce([katana_row]) is None
+
+    batch = HttpObservationGraphFactProducer().produce([httpx_row, katana_row])
+
+    assert batch is not None
+    assert len(batch.facts) == 7
+    assert all(fact.producer == "httpx" for fact in batch.facts)
+
+
 def test_http_observation_producer_rejects_mixed_program_rows() -> None:
     HttpObservationGraphFactProducer, _, _, _ = _symbols()
 
@@ -360,6 +375,7 @@ def test_http_observation_enqueuer_claims_ready_events_and_enqueues_one_batch_pe
     assert "host_ips" in query
     assert "ho.run_id IS NOT NULL" in query
     assert "ho.raw_artifact_id IS NOT NULL" in query
+    assert "ho.source_tool = 'httpx'" in query
     assert parameters["limit"] == 25
     assert parameters["worker_id"] == "worker-http"
     assert parameters["max_attempts"] == 3
@@ -367,7 +383,11 @@ def test_http_observation_enqueuer_claims_ready_events_and_enqueues_one_batch_pe
     assert batch.program_id == row["program_id"]
     assert len(batch.facts) == 9
     assert dedupe_key == dedupe_key_fn(raw_artifact_id, "http-observations.v1")
-    assert any("SET status = 'processed'" in call[0] for call in connection.cursor_obj.calls)
+    processed_call = next(call for call in connection.cursor_obj.calls if "SET status = 'processed'" in call[0])
+    assert "WHERE id = %(event_id)s" in processed_call[0]
+    assert "AND status = 'locked'" in processed_call[0]
+    assert "AND locked_by = %(worker_id)s" in processed_call[0]
+    assert processed_call[1]["worker_id"] == "worker-http"
 
 
 def test_http_observation_enqueuer_marks_empty_event_processed_without_batch() -> None:
@@ -392,7 +412,10 @@ def test_http_observation_enqueuer_marks_empty_event_processed_without_batch() -
     assert result.enqueued == 0
     assert result.skipped == 1
     assert store.calls == []
-    assert any("SET status = 'processed'" in call[0] for call in connection.cursor_obj.calls)
+    processed_call = next(call for call in connection.cursor_obj.calls if "SET status = 'processed'" in call[0])
+    assert "WHERE id = %(event_id)s" in processed_call[0]
+    assert "AND status = 'locked'" in processed_call[0]
+    assert "AND locked_by = %(worker_id)s" in processed_call[0]
 
 
 @pytest.mark.parametrize(
@@ -424,6 +447,10 @@ def test_http_observation_enqueuer_marks_event_failed_or_dead_on_enqueue_error(
 
     failed_call = connection.cursor_obj.calls[-1]
     assert "SET status = %(status)s" in failed_call[0]
+    assert "WHERE id = %(event_id)s" in failed_call[0]
+    assert "AND status = 'locked'" in failed_call[0]
+    assert "AND locked_by = %(worker_id)s" in failed_call[0]
+    assert failed_call[1]["worker_id"] == "graph-projector-http-observation-enqueuer"
     assert failed_call[1]["status"] == expected_status
     assert failed_call[1]["error"] == "enqueue failed"
 
