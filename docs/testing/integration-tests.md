@@ -51,6 +51,34 @@ Stop and delete test data:
 docker compose -f docker-compose.integration.yml --env-file .env.integration down -v
 ```
 
+## E2E Graph Tests
+
+Graph e2e tests are skipped unless `RUN_E2E_TESTS=1` is set. They use the same
+isolated Docker stack as integration tests and verify the projection path from
+canonical HTTP observations to Neo4j graph relationships.
+
+Start the required isolated services:
+
+```bash
+docker compose -f docker-compose.integration.yml --env-file .env.integration up -d postgres-integration neo4j-integration
+```
+
+Run graph e2e tests:
+
+```bash
+RUN_E2E_TESTS=1 python -m pytest -q -m e2e
+```
+
+Windows PowerShell:
+
+```powershell
+$env:RUN_E2E_TESTS="1"; python -m pytest -q -m e2e
+```
+
+The current graph e2e seeds deterministic canonical `httpx` rows, then runs the
+real HTTP observation GraphFact enqueuer and real Neo4j applicator/writer. These
+tests must not invoke real scanner binaries or perform external probes.
+
 ## Current Coverage
 
 The first integration set verifies that Alembic can upgrade an isolated Postgres
