@@ -114,8 +114,48 @@ def test_http_observation_producer_deduplicates_repeated_rows() -> None:
     batch = HttpObservationGraphFactProducer().produce([row, dict(row, observation_id=uuid4())])
 
     assert batch is not None
+    assert len(batch.facts) == 7
     identity_keys = [fact.identity_key for fact in batch.facts]
     assert len(identity_keys) == len(set(identity_keys))
+
+
+def test_http_observation_producer_preserves_distinct_lineage_for_same_graph_identity() -> None:
+    HttpObservationGraphFactProducer, _, _, _ = _symbols()
+    program_id = uuid4()
+    first_raw_artifact_id = uuid4()
+    second_raw_artifact_id = uuid4()
+    first_run_id = uuid4()
+    second_run_id = uuid4()
+    first = _observation_row(
+        program_id=program_id,
+        raw_artifact_id=first_raw_artifact_id,
+        run_id=first_run_id,
+    )
+    second = dict(
+        first,
+        observation_id=uuid4(),
+        raw_artifact_id=second_raw_artifact_id,
+        run_id=second_run_id,
+    )
+
+    batch = HttpObservationGraphFactProducer().produce([first, second])
+
+    assert batch is not None
+    assert len(batch.facts) == 14
+    endpoint_facts = [
+        fact
+        for fact in batch.facts
+        if getattr(fact, "kind", None) == "Endpoint"
+        and fact.key == "api.example.com:443/https:GET:/v1/users/{id}"
+    ]
+    assert len(endpoint_facts) == 2
+    assert {
+        (fact.source_artifact_id, fact.tool_run_id)
+        for fact in endpoint_facts
+    } == {
+        (first_raw_artifact_id, first_run_id),
+        (second_raw_artifact_id, second_run_id),
+    }
 
 
 def test_http_observation_producer_skips_rows_without_run_or_artifact_lineage() -> None:
@@ -152,7 +192,7 @@ def test_http_observation_producer_does_not_project_raw_response_payloads() -> N
 def test_http_observation_key_helpers_match_ontology_identity_inputs() -> None:
     _, _, service_key_fn, endpoint_key_fn = _symbols()
 
-    svc_key = service_key_fn(hostname="API.Example.COM", port=443, scheme="HTTPS")
+    svc_key = service_key_fn(hostname=" API.Example.COM.. ", port=443, scheme=" HTTPS ")
 
     assert svc_key == "api.example.com:443/https"
     assert endpoint_key_fn(
@@ -169,3 +209,24 @@ def test_http_observation_dedupe_key_is_stable_for_raw_artifact_and_parser_versi
     assert dedupe_key(raw_artifact_id, "http-observations.v1") == (
         f"http-observations:{raw_artifact_id}:http-observations.v1"
     )
+
+
+def test_http_observation_producer_canonicalizes_hostnames_and_ip_addresses() -> None:
+    HttpObservationGraphFactProducer, _, _, _ = _symbols()
+    row = _observation_row(
+        hostname=" API.Example.COM.. ",
+        ip_address=" 2001:0db8:0000:0000:0000:0000:0000:0001 ",
+    )
+
+    batch = HttpObservationGraphFactProducer().produce([row])
+
+    assert batch is not None
+    node_facts = {(fact.kind, fact.key) for fact in batch.facts if hasattr(fact, "kind")}
+    assert ("Host", "api.example.com") in node_facts
+    assert ("IP", "2001:db8::1") in node_facts
+    edge_facts = {
+        (fact.src_kind, fact.src_key, fact.edge_kind, fact.dst_kind, fact.dst_key)
+        for fact in batch.facts
+        if hasattr(fact, "edge_kind")
+    }
+    assert ("Host", "api.example.com", "RESOLVES_TO", "IP", "2001:db8::1") in edge_facts

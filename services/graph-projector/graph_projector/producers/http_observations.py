@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ipaddress import ip_address
 from typing import Any, Mapping
 from uuid import UUID
 
@@ -16,7 +17,7 @@ class HttpObservationGraphFactProducer:
 
     def produce(self, rows: list[Mapping[str, Any]]) -> GraphFactBatch | None:
         facts = []
-        seen_identity_keys: set[str] = set()
+        seen_fact_keys: set[tuple[str, UUID, UUID]] = set()
         batch_program_id: UUID | None = None
 
         for row in rows:
@@ -31,8 +32,8 @@ class HttpObservationGraphFactProducer:
             elif batch_program_id != program_id:
                 raise ValueError("http observation batch cannot mix program_id values")
 
-            hostname = _required_text(row, "hostname").lower()
-            ip_address = _required_text(row, "ip_address")
+            hostname = _canonical_hostname(_required_text(row, "hostname"))
+            canonical_ip_address = _canonical_ip_address(_required_text(row, "ip_address"))
             scheme = _required_text(row, "scheme").lower()
             port = _required_int(row, "port")
             method = _required_text(row, "method").upper()
@@ -60,8 +61,8 @@ class HttpObservationGraphFactProducer:
                 GraphNodeFact(
                     **lineage,
                     kind="IP",
-                    key=ip_address,
-                    properties={"address": ip_address},
+                    key=canonical_ip_address,
+                    properties={"address": canonical_ip_address},
                 ),
                 GraphNodeFact(
                     **lineage,
@@ -93,12 +94,12 @@ class HttpObservationGraphFactProducer:
                     src_key=hostname,
                     edge_kind="RESOLVES_TO",
                     dst_kind="IP",
-                    dst_key=ip_address,
+                    dst_key=canonical_ip_address,
                 ),
                 GraphEdgeFact(
                     **lineage,
                     src_kind="IP",
-                    src_key=ip_address,
+                    src_key=canonical_ip_address,
                     edge_kind="EXPOSES_SERVICE",
                     dst_kind="Service",
                     dst_key=svc_key,
@@ -113,9 +114,10 @@ class HttpObservationGraphFactProducer:
                 ),
             ]
             for fact in candidates:
-                if fact.identity_key in seen_identity_keys:
+                dedupe_key = (fact.identity_key, fact.source_artifact_id, fact.tool_run_id)
+                if dedupe_key in seen_fact_keys:
                     continue
-                seen_identity_keys.add(fact.identity_key)
+                seen_fact_keys.add(dedupe_key)
                 facts.append(fact)
 
         if batch_program_id is None or not facts:
@@ -129,7 +131,7 @@ class HttpObservationGraphFactProducer:
 
 
 def service_key(*, hostname: str, port: int, scheme: str) -> str:
-    return f"{hostname.strip().lower()}:{int(port)}/{scheme.strip().lower()}"
+    return f"{_canonical_hostname(hostname)}:{int(port)}/{scheme.strip().lower()}"
 
 
 def service_method_normalized_path_key(*, service_key: str, method: str, normalized_path: str) -> str:
@@ -167,6 +169,21 @@ def _optional_text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _canonical_hostname(value: str) -> str:
+    hostname = value.strip().lower().rstrip(".")
+    if not hostname:
+        raise ValueError("http observation row requires non-empty hostname")
+    return hostname
+
+
+def _canonical_ip_address(value: str) -> str:
+    text = value.strip()
+    try:
+        return str(ip_address(text))
+    except ValueError:
+        return text
 
 
 def _required_int(row: Mapping[str, Any], key: str) -> int:
