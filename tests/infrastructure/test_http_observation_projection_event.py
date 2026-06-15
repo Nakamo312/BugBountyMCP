@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.dialects import postgresql
 
-from api.domain.models import HTTPObservationModel
+from api.domain.models import HTTPObservationHeaderModel, HTTPObservationModel
 from api.infrastructure.repositories.adapters.http_observation import (
     SQLAlchemyHTTPObservationRepository,
 )
@@ -57,6 +57,17 @@ async def test_http_observation_repository_enqueues_ready_projection_event() -> 
         ],
     )
 
+    assert session.added[0] is observation
+    assert len(session.added) == 3
+    header_models = session.added[1:]
+    assert all(isinstance(header, HTTPObservationHeaderModel) for header in header_models)
+    assert [
+        (header.observation_id, header.name, header.value, header.ordinal)
+        for header in header_models
+    ] == [
+        (observation.id, "server", "nginx", 0),
+        (observation.id, "content-type", "text/html", 1),
+    ]
     assert len(session.executed) == 1
     compiled = session.executed[0].compile(dialect=postgresql.dialect())
     sql = str(compiled)
