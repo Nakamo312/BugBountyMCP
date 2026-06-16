@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from .contracts import GraphFactBatch
 
@@ -56,10 +56,12 @@ class GraphFactBatchStore:
 
     def enqueue(self, batch: GraphFactBatch, *, dedupe_key: str | None = None) -> UUID:
         values = serialize_graph_fact_batch(batch)
+        values["id"] = str(uuid4())
         values["dedupe_key"] = _dedupe_key(dedupe_key)
         row = self._fetchone(
             """
 INSERT INTO graph_fact_batches (
+    id,
     program_id,
     produced_by,
     parser_version,
@@ -68,6 +70,7 @@ INSERT INTO graph_fact_batches (
     fact_count
 )
 VALUES (
+    %(id)s,
     %(program_id)s,
     %(produced_by)s,
     %(parser_version)s,

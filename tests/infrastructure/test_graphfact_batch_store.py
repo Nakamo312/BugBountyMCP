@@ -170,6 +170,9 @@ def test_batch_store_enqueue_can_use_dedupe_key_for_idempotent_inserts() -> None
     store.enqueue(batch, dedupe_key="raw-artifact-metadata:artifact-1:raw-artifact-metadata.v1")
 
     query, parameters = connection.cursor_obj.calls[0]
+    assert "INSERT INTO graph_fact_batches" in query
+    assert "id," in query
+    assert parameters["id"]
     assert "dedupe_key" in query
     assert "ON CONFLICT (dedupe_key)" in query
     assert parameters["dedupe_key"] == "raw-artifact-metadata:artifact-1:raw-artifact-metadata.v1"
