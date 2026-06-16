@@ -3,12 +3,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from urllib.parse import quote_plus
-from urllib.parse import urlparse
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text
+
+from neo4j_safety import assert_neo4j_clear_allowed
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -83,30 +84,6 @@ def _sync_url(settings: dict[str, str]) -> str:
     )
 
 
-def _assert_neo4j_clear_allowed(*, uri: str, database: str, allow_env: str | None = None) -> None:
-    allow_value = os.getenv("ALLOW_E2E_NEO4J_CLEAR") if allow_env is None else allow_env
-    if _is_integration_neo4j_uri(uri):
-        return
-    if _is_test_name(database):
-        return
-    if allow_value == "1" and _is_test_name(database):
-        return
-    raise RuntimeError(
-        "Refusing to clear Neo4j because target is not clearly test-only: "
-        f"uri={uri!r}, database={database!r}"
-    )
-
-
-def _is_integration_neo4j_uri(uri: str) -> bool:
-    parsed = urlparse(uri)
-    return parsed.hostname in {"localhost", "127.0.0.1"} and parsed.port == 57687
-
-
-def _is_test_name(value: str) -> bool:
-    normalized = value.lower()
-    return "test" in normalized or "integration" in normalized
-
-
 @pytest.fixture(scope="session")
 def e2e_postgres_settings() -> dict[str, str]:
     settings = _postgres_settings()
@@ -164,7 +141,7 @@ def e2e_neo4j_driver(e2e_neo4j_database: str):
     if os.getenv("RUN_E2E_TESTS") != "1":
         raise RuntimeError("Refusing to initialize e2e Neo4j driver without RUN_E2E_TESTS=1")
     uri = os.getenv("NEO4J_URI", f"bolt://localhost:{os.getenv('NEO4J_BOLT_PORT', '57687')}")
-    _assert_neo4j_clear_allowed(
+    assert_neo4j_clear_allowed(
         uri=uri,
         database=e2e_neo4j_database,
     )

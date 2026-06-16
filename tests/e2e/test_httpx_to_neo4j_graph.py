@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from conftest import _assert_neo4j_clear_allowed
+from neo4j_safety import assert_neo4j_clear_allowed
 
 
 def _graph_symbols():
@@ -152,7 +152,7 @@ def test_neo4j_clear_guard_allows_only_test_targets(
     database: str,
     allow_env: str | None,
 ) -> None:
-    _assert_neo4j_clear_allowed(uri=uri, database=database, allow_env=allow_env)
+    assert_neo4j_clear_allowed(uri=uri, database=database, allow_env=allow_env)
 
 
 @pytest.mark.parametrize(
@@ -170,7 +170,7 @@ def test_neo4j_clear_guard_rejects_default_or_non_test_targets(
     allow_env: str | None,
 ) -> None:
     with pytest.raises(RuntimeError, match="Refusing to clear Neo4j"):
-        _assert_neo4j_clear_allowed(uri=uri, database=database, allow_env=allow_env)
+        assert_neo4j_clear_allowed(uri=uri, database=database, allow_env=allow_env)
 
 
 def _clear_projection_tables(connection) -> None:
