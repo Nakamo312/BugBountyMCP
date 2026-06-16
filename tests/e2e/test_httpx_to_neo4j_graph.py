@@ -127,7 +127,7 @@ def test_fake_httpx_canonical_observation_projects_endpoint_graph(
                    count { (ip)-[:EXPOSES_SERVICE]->(s) } AS exposes_service,
                    count { (s)-[:HAS_ENDPOINT]->(e) } AS has_endpoint
             """
-        ).mappings().one()
+        ).single(strict=True)
 
     assert counts["hosts"] == 1
     assert counts["ips"] == 1
