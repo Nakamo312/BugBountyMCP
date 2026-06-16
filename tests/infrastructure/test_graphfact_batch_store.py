@@ -174,3 +174,38 @@ def test_batch_store_enqueue_can_use_dedupe_key_for_idempotent_inserts() -> None
     assert "ON CONFLICT (dedupe_key)" in query
     assert parameters["dedupe_key"] == "raw-artifact-metadata:artifact-1:raw-artifact-metadata.v1"
     assert connection.commits == 1
+
+
+def test_batch_store_adapts_graph_fact_json_for_psycopg2_cursor() -> None:
+    import sys
+
+    sys.path.insert(0, str(Path("services/graph-projector").resolve()))
+    from graph_projector.batch_store import _adapt_json_parameters_for_cursor
+
+    class Psycopg2LikeCursor:
+        pass
+
+    Psycopg2LikeCursor.__module__ = "psycopg2.extras"
+
+    payload = {"facts_json": {"facts": []}, "program_id": "program-1"}
+    adapted = _adapt_json_parameters_for_cursor(Psycopg2LikeCursor(), payload)
+
+    assert adapted is not payload
+    assert getattr(adapted["facts_json"], "adapted") == {"facts": []}
+    assert adapted["program_id"] == "program-1"
+
+
+def test_batch_store_leaves_graph_fact_json_unwrapped_for_non_psycopg2_cursor() -> None:
+    import sys
+
+    sys.path.insert(0, str(Path("services/graph-projector").resolve()))
+    from graph_projector.batch_store import _adapt_json_parameters_for_cursor
+
+    class RecordingCursor:
+        pass
+
+    payload = {"facts_json": {"facts": []}, "program_id": "program-1"}
+    adapted = _adapt_json_parameters_for_cursor(RecordingCursor(), payload)
+
+    assert adapted is payload
+    assert adapted["facts_json"] == {"facts": []}

@@ -174,6 +174,7 @@ WHERE id = %(batch_id)s;
 
     def _fetchone(self, query: str, parameters: dict[str, object]) -> dict[str, Any] | None:
         cursor = self._cursor()
+        parameters = _adapt_json_parameters_for_cursor(cursor, parameters)
         try:
             cursor.execute(query, parameters)
             return cursor.fetchone()
@@ -207,3 +208,22 @@ def _dedupe_key(value: str | None) -> str | None:
     if not stripped:
         raise ValueError("dedupe_key must not be empty")
     return stripped
+
+
+def _adapt_json_parameters_for_cursor(cursor: Cursor, parameters: dict[str, object]) -> dict[str, object]:
+    if "facts_json" not in parameters:
+        return parameters
+    if not _is_psycopg2_cursor(cursor):
+        return parameters
+    try:
+        from psycopg2.extras import Json
+    except ModuleNotFoundError:
+        return parameters
+    adapted = dict(parameters)
+    adapted["facts_json"] = Json(parameters["facts_json"])
+    return adapted
+
+
+def _is_psycopg2_cursor(cursor: Cursor) -> bool:
+    module = cursor.__class__.__module__
+    return module == "psycopg2" or module.startswith("psycopg2.")
