@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from api.application.action_catalog import CatalogItemNotFound, CatalogNotReady
 from api.application.contracts import ActionRequest, ActionStatus
+from api.application.execution_limits import ActionInputValidationError
 from api.application.services.action import (
     ActionApprovalStateError,
     ActionNotFoundError,
@@ -30,6 +31,8 @@ async def create_action(
 ) -> JSONResponse:
     try:
         submission = await action_service.request_action(request)
+    except ActionInputValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except CatalogNotReady as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except CatalogItemNotFound as exc:
@@ -114,6 +117,63 @@ async def list_pending_approval_actions(
         offset=offset,
     )
     return {"items": [action.model_dump(mode="json") for action in actions]}
+
+
+@router.get(
+    "/{action_id}",
+    summary="Get action",
+    description="Returns one stored control-plane action.",
+    tags=["Actions"],
+)
+async def get_action(
+    action_id: UUID,
+    action_service: FromDishka[ActionService],
+) -> dict:
+    try:
+        action = await action_service.get_action(action_id)
+    except ActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return action.model_dump(mode="json")
+
+
+@router.get(
+    "/{action_id}/events",
+    summary="List action events",
+    description="Lists stored control-plane events for one action.",
+    tags=["Actions"],
+)
+async def list_action_events(
+    action_id: UUID,
+    action_service: FromDishka[ActionService],
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    try:
+        events = await action_service.list_action_events(
+            action_id,
+            limit=limit,
+            offset=offset,
+        )
+    except ActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"items": [event.model_dump(mode="json") for event in events]}
+
+
+@router.get(
+    "/{action_id}/result",
+    summary="Get action result",
+    description="Returns run summaries and artifact references for one action.",
+    tags=["Actions"],
+)
+async def get_action_result(
+    action_id: UUID,
+    action_service: FromDishka[ActionService],
+) -> dict:
+    try:
+        result = await action_service.get_action_result(action_id)
+    except ActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return result.model_dump(mode="json")
 
 
 @router.post(

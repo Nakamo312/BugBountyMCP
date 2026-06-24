@@ -54,22 +54,43 @@ async def lifespan(app: FastAPI):
         app.state.node_registry = registry
         await registry.start()
 
+        if settings.USE_EVENT_DISPATCHER:
+            from api.infrastructure.events.dispatcher import EventDispatcher
+
+            event_dispatcher: EventDispatcher = await container.get(EventDispatcher)
+            await event_dispatcher.start()
+            app.state.event_dispatcher = event_dispatcher
+
+        if settings.USE_AGENT_WAIT_PROCESSOR:
+            from api.application.agent_wait_conditions import AgentWaitConditionProcessor
+
+            wait_condition_processor: AgentWaitConditionProcessor = await container.get(
+                AgentWaitConditionProcessor
+            )
+            await wait_condition_processor.start()
+            app.state.wait_condition_processor = wait_condition_processor
+
         if settings.USE_SCHEDULER:
             from api.application.scheduler import ActionScheduler, load_scheduler_config
             from api.application.services.action import ActionService
             from api.application.services.action_catalog import ActionCatalogService
             from api.application.services.policy import PolicyService
+            from api.application.execution_limits import system_execution_budget
             from api.infrastructure.events.event_bus import EventBus
             from api.infrastructure.orchestration.store import OrchestrationStore
+            from api.infrastructure.repositories.adapters.scope_rule import SQLAlchemyScopeRuleRepository
 
             event_bus: EventBus = await container.get(EventBus)
             orchestration_store: OrchestrationStore = await container.get(OrchestrationStore)
             catalog_service: ActionCatalogService = await container.get(ActionCatalogService)
+            scope_rule_repository: SQLAlchemyScopeRuleRepository = await container.get(SQLAlchemyScopeRuleRepository)
             action_service = ActionService(
                 event_bus=event_bus,
                 store=orchestration_store,
                 policy=PolicyService(),
                 catalog=catalog_service,
+                scope_rules=scope_rule_repository,
+                system_budget=system_execution_budget(settings),
             )
             scheduler_config = load_scheduler_config(settings.SCHEDULER_CONFIG_PATH)
             scheduler = ActionScheduler(
@@ -87,6 +108,14 @@ async def lifespan(app: FastAPI):
         raise e
 
     yield
+
+    event_dispatcher = getattr(app.state, "event_dispatcher", None)
+    if event_dispatcher is not None:
+        await event_dispatcher.stop()
+
+    wait_condition_processor = getattr(app.state, "wait_condition_processor", None)
+    if wait_condition_processor is not None:
+        await wait_condition_processor.stop()
 
     scheduler = getattr(app.state, "action_scheduler", None)
     if scheduler is not None:

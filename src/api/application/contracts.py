@@ -9,6 +9,11 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
+from api.application.execution_limits import (
+    ExecutionBudget,
+    ExecutionBudgetRequest,
+)
+
 
 class ActionKind(str, Enum):
     SCAN = "scan"
@@ -150,6 +155,7 @@ class ActionRequest(BaseModel):
     catalog_id: UUID
     targets: list[str] = Field(min_length=1)
     options: dict[str, Any] = Field(default_factory=dict)
+    budget: ExecutionBudgetRequest | None = None
     requested_by: str = "api"
     workflow_id: UUID | None = None
     campaign_id: UUID = Field(default_factory=uuid4)
@@ -158,6 +164,7 @@ class ActionRequest(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     _profile: ScanProfile | None = PrivateAttr(default=None)
+    _effective_budget: ExecutionBudget | None = PrivateAttr(default=None)
 
     @field_validator("targets", mode="before")
     @classmethod
@@ -176,13 +183,30 @@ class ActionRequest(BaseModel):
             raise RuntimeError("ActionRequest catalog entry has not been resolved")
         return self._profile
 
-    def bind_profile(self, *, capability_id: str, profile_id: str) -> "ActionRequest":
+    @property
+    def effective_budget(self) -> ExecutionBudget:
+        if self._effective_budget is None:
+            raise RuntimeError("ActionRequest execution budget has not been resolved")
+        return self._effective_budget
+
+    def bind_profile(
+        self,
+        *,
+        capability_id: str,
+        profile_id: str,
+        options: dict[str, Any] | None = None,
+        execution_budget: ExecutionBudget | None = None,
+    ) -> "ActionRequest":
+        if options is not None:
+            self.options = dict(options)
         self._profile = ScanProfile(
             capability_id=capability_id,
             profile_id=profile_id,
             targets=self.targets,
             options=self.options,
         )
+        if execution_budget is not None:
+            self._effective_budget = execution_budget
         return self
 
 
@@ -231,6 +255,60 @@ class ActionRecord(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
+
+
+class ActionEventRecord(BaseModel):
+    """Stored event emitted for one control-plane action."""
+
+    event_id: UUID
+    action_id: UUID | None = None
+    event_type: str
+    program_id: UUID
+    job_id: UUID | None = None
+    run_id: UUID | None = None
+    correlation_id: UUID
+    causation_id: UUID | None = None
+    source: str
+    profile: str | None = None
+    confidence: float
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class ActionRunResult(BaseModel):
+    """Bounded execution summary for one run belonging to an action."""
+
+    run_id: UUID
+    job_id: UUID
+    status: ExecutionStatus
+    terminal_outcome: TerminalOutcome | None = None
+    attempt: int = Field(ge=1)
+    error: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class ActionArtifactReference(BaseModel):
+    """Artifact metadata exposed without loading or returning artifact content."""
+
+    artifact_id: UUID
+    job_id: UUID | None = None
+    run_id: UUID | None = None
+    artifact_type: str
+    storage_uri: str
+    sha256: str
+    size_bytes: int = Field(ge=0)
+    created_at: datetime
+
+
+class ActionResultRecord(BaseModel):
+    """Current execution result aggregate for one control-plane action."""
+
+    action_id: UUID
+    action_status: ActionStatus
+    ready: bool
+    runs: list[ActionRunResult] = Field(default_factory=list)
+    artifacts: list[ActionArtifactReference] = Field(default_factory=list)
 
 
 class ToolInvocation(BaseModel):

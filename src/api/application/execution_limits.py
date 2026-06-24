@@ -102,6 +102,24 @@ class ExecutionBudgetRequest(ExecutionBudget):
     """Optional caller request that may only tighten effective ceilings."""
 
 
+DEFAULT_SYSTEM_EXECUTION_BUDGET = ExecutionBudget(
+    max_duration_seconds=1800,
+    max_targets=1000,
+    rate_per_second=1000,
+    concurrency=5,
+)
+
+
+def system_execution_budget(settings: Any) -> ExecutionBudget:
+    """Build system ceilings from application settings."""
+    return ExecutionBudget(
+        max_duration_seconds=settings.MAX_ACTION_DURATION_SECONDS,
+        max_targets=settings.MAX_ACTION_TARGETS,
+        rate_per_second=settings.MAX_ACTION_RATE_PER_SECOND,
+        concurrency=settings.ORCHESTRATOR_MAX_CONCURRENT,
+    )
+
+
 def normalize_options(
     schema: Mapping[str, ToolOptionSpec],
     options: Mapping[str, Any],

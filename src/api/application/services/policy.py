@@ -83,7 +83,12 @@ class CapabilityPolicy:
                 f"request={profile.profile_id} catalog={detail.profile}"
             )
 
-        unknown_options = set(profile.options) - set(detail.allowed_options)
+        allowed_options = (
+            set(detail.option_schema)
+            if detail.option_schema
+            else set(detail.allowed_options)
+        )
+        unknown_options = set(profile.options) - allowed_options
         forbidden_options = set(profile.options) & self.forbidden_option_keys
         if unknown_options:
             reasons.append(
@@ -110,6 +115,12 @@ class ScopePolicyService:
     ) -> ScopePolicyResult:
         targets = list(request.profile.targets)
         if detail.scope_policy == "strict":
+            if not scope_rules:
+                return ScopePolicyResult(
+                    allowed_targets=[],
+                    blocked_targets=targets,
+                    reasons=["strict scope requires at least one scope rule"],
+                )
             allowed, blocked = ScopeChecker.filter_in_scope(targets, list(scope_rules or []))
             reasons = []
             if blocked:
