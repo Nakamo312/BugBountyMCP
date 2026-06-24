@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     RABBITMQ_VHOST: str = "/"
     RABBITMQ_PREFETCH_COUNT: int = 10
 
+    OPENSEARCH_URL: str = "http://localhost:9200"
+    OPENSEARCH_USERNAME: str | None = None
+    OPENSEARCH_PASSWORD: str | None = None
+    OPENSEARCH_VERIFY_CERTS: bool = True
+    OPENSEARCH_TIMEOUT_SECONDS: float = 10.0
+
+    NEO4J_URI: str = "bolt://localhost:7687"
+    NEO4J_USER: str = "neo4j"
+    NEO4J_PASSWORD: str = "neo4j"
+
     # Durable event dispatch from PostgreSQL event_store to RabbitMQ.
     USE_EVENT_DISPATCHER: bool = True
     EVENT_DISPATCH_BATCH_SIZE: int = 100
@@ -38,10 +48,15 @@ class Settings(BaseSettings):
     EVENT_DISPATCH_RETRY_DELAY_SECONDS: float = 5.0
     EVENT_DISPATCH_SWEEP_INTERVAL_SECONDS: float = 5.0
     EVENT_DISPATCH_NOTIFY_CHANNEL: str = "event_dispatches_changed"
+    USE_AGENT_WAIT_PROCESSOR: bool = True
+    AGENT_WAIT_SWEEP_INTERVAL_SECONDS: float = 5.0
 
     LOG_LEVEL: str = "INFO"
     TOOLS_PATH_PREFIX: str = "/usr/local"
     ORCHESTRATOR_MAX_CONCURRENT: int = 5
+    MAX_ACTION_DURATION_SECONDS: float = 1800
+    MAX_ACTION_TARGETS: int = 1000
+    MAX_ACTION_RATE_PER_SECOND: float = 1000
     ORCHESTRATOR_SCAN_DELAY: float = 30.0
 
     # Pipeline feature flag
@@ -129,7 +144,7 @@ class Settings(BaseSettings):
     SUBJACK_FINGERPRINTS: str = "/usr/share/subjack/fingerprints.json"
 
     # PDCP (ProjectDiscovery Cloud Platform) API key
-    PDCP_API_KEY: str = "05a12907-ea8e-4dfe-ac38-995bf1e7c8be"
+    PDCP_API_KEY: str = ""
 
     @property
     def postgres_dsn(self) -> str:

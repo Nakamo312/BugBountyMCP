@@ -87,7 +87,17 @@ capabilities:
       safe-web-probe:
         label: Safe HTTP probing
         safety_level: safe_active
-        allowed_options: [timeout]
+        options:
+          timeout:
+            type: integer
+            default: 60
+            minimum: 1
+            maximum: 120
+        budgets:
+          max_duration_seconds: 120
+          max_targets: 100
+          rate_per_second: 50
+          concurrency: 5
 
   katana:
     label: Katana
@@ -99,7 +109,28 @@ capabilities:
       safe-crawl:
         label: Safe crawl
         safety_level: safe_active
-        allowed_options: [depth, js_crawl, headless, timeout]
+        options:
+          depth:
+            type: integer
+            default: 2
+            minimum: 1
+            maximum: 5
+          js_crawl:
+            type: boolean
+            default: true
+          headless:
+            type: boolean
+            default: false
+          timeout:
+            type: integer
+            default: 120
+            minimum: 1
+            maximum: 600
+        budgets:
+          max_duration_seconds: 600
+          max_targets: 20
+          rate_per_second: 10
+          concurrency: 2
 
   playwright:
     label: Playwright
@@ -148,7 +179,17 @@ capabilities:
       content-discovery-light:
         label: Light content discovery
         safety_level: active
-        allowed_options: [timeout]
+        options:
+          timeout:
+            type: integer
+            default: 300
+            minimum: 1
+            maximum: 600
+        budgets:
+          max_duration_seconds: 600
+          max_targets: 1
+          rate_per_second: 10
+          concurrency: 5
         requires_approval: true
 
   amass:
@@ -238,11 +279,75 @@ capabilities:
       passive-ports:
         label: Passive port discovery
         safety_level: passive
-        allowed_options: [ports, top_ports, rate, scan_mode, scan_type, exclude_cdn, timeout]
+        options:
+          ports:
+            type: string
+          top_ports:
+            type: string
+            default: "1000"
+            enum: ["100", "1000", "full"]
+          rate:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 100
+          scan_mode:
+            type: string
+            default: passive
+            enum: [passive]
+          scan_type:
+            type: string
+            default: c
+            enum: [c, s]
+          exclude_cdn:
+            type: boolean
+            default: true
+          timeout:
+            type: integer
+            default: 300
+            minimum: 1
+            maximum: 300
+        budgets:
+          max_duration_seconds: 300
+          max_targets: 100
+          rate_per_second: 10
+          concurrency: 5
       connect-top-100:
         label: Top 100 TCP connect scan
         safety_level: active
-        allowed_options: [ports, top_ports, rate, scan_mode, scan_type, exclude_cdn, timeout]
+        options:
+          ports:
+            type: string
+          top_ports:
+            type: string
+            default: "100"
+            enum: ["100", "1000"]
+          rate:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 1000
+          scan_mode:
+            type: string
+            default: active
+            enum: [active]
+          scan_type:
+            type: string
+            default: c
+            enum: [c]
+          exclude_cdn:
+            type: boolean
+            default: true
+          timeout:
+            type: integer
+            default: 600
+            minimum: 1
+            maximum: 600
+        budgets:
+          max_duration_seconds: 600
+          max_targets: 100
+          rate_per_second: 100
+          concurrency: 5
         requires_approval: true
 
   mantra:
