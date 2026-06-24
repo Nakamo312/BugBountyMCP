@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 OptionType = Literal["integer", "number", "boolean", "string"]
@@ -33,6 +33,15 @@ class ToolOptionSpec(BaseModel):
     minimum: float | None = None
     maximum: float | None = None
     enum: tuple[Any, ...] = ()
+
+    @field_validator("enum", mode="before")
+    @classmethod
+    def normalize_enum(cls, value: Any) -> tuple[Any, ...]:
+        if value is None:
+            return ()
+        if isinstance(value, (list, tuple)):
+            return tuple(value)
+        raise ValueError("enum must be a list or tuple")
 
     @model_validator(mode="after")
     def validate_contract(self) -> "ToolOptionSpec":

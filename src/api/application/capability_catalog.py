@@ -20,6 +20,7 @@ from api.application.pipeline.yaml_config import (
     PipelineConfig,
     load_pipeline_config,
 )
+from api.application.execution_limits import ExecutionBudget, ToolOptionSpec
 
 CATALOG_SCHEMA_VERSION = "tool-catalog/v1"
 
@@ -40,6 +41,8 @@ class ToolCatalogEntry(BaseModel):
     scope_policy: str
     safety_class: str
     allowed_options: tuple[str, ...] = Field(default_factory=tuple)
+    option_schema: dict[str, ToolOptionSpec] = Field(default_factory=dict)
+    execution_budget: ExecutionBudget = Field(default_factory=ExecutionBudget)
     requires_approval: bool = False
     frontend: dict[str, Any] = Field(default_factory=dict)
     manifest_fragment: dict[str, Any] = Field(default_factory=dict)
@@ -104,6 +107,16 @@ def _entry_from_profile(
     capability_payload: dict[str, Any],
 ) -> ToolCatalogEntry:
     profile_payload = capability_payload["profiles"][profile_id]
+    option_payload = profile_payload.get("options") or {}
+    option_schema = {
+        name: ToolOptionSpec.model_validate(spec)
+        for name, spec in option_payload.items()
+    }
+    allowed_options = (
+        tuple(sorted(option_schema))
+        if option_schema
+        else tuple(sorted(profile_payload.get("allowed_options", [])))
+    )
     return ToolCatalogEntry(
         capability_id=capability_id,
         profile_id=profile_id,
@@ -115,7 +128,11 @@ def _entry_from_profile(
         mode=capability_payload.get("mode", "routed"),
         scope_policy=capability_payload.get("scope", "none"),
         safety_class=profile_payload["safety_level"],
-        allowed_options=tuple(sorted(profile_payload.get("allowed_options", []))),
+        allowed_options=allowed_options,
+        option_schema=option_schema,
+        execution_budget=ExecutionBudget.model_validate(
+            profile_payload.get("budgets") or {}
+        ),
         requires_approval=bool(profile_payload.get("requires_approval", False)),
         frontend=capability_payload.get("frontend", {}),
         manifest_fragment={

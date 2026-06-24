@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.application.execution_limits import ExecutionBudget, ToolOptionSpec
+
 
 class CatalogNotReady(RuntimeError):
     """Raised when PostgreSQL has no active catalog snapshot."""
@@ -39,6 +41,8 @@ class CatalogDetail(CatalogItem):
     default_profile: str
     scope_policy: str
     allowed_options: list[str] = Field(default_factory=list)
+    option_schema: dict[str, ToolOptionSpec] = Field(default_factory=dict)
+    execution_budget: ExecutionBudget = Field(default_factory=ExecutionBudget)
     frontend: dict[str, Any] = Field(default_factory=dict)
     submit: dict[str, Any] = Field(default_factory=dict)
 

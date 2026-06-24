@@ -7,6 +7,12 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from api.application.execution_limits import (
+    FORBIDDEN_OPTION_KEYS,
+    ExecutionBudget,
+    ToolOptionSpec,
+)
+
 
 DEFAULT_PIPELINE_CONFIG_PATH = Path(__file__).with_name("pipeline.yaml")
 NodeType = Literal["scan"]
@@ -72,6 +78,8 @@ class ProfileSpecConfig(BaseModel):
     label: str
     safety_level: SafetyLevelName
     allowed_options: list[str] = Field(default_factory=list)
+    options: dict[str, ToolOptionSpec] = Field(default_factory=dict)
+    budgets: ExecutionBudget = Field(default_factory=ExecutionBudget)
     requires_approval: bool = False
 
     @field_validator("allowed_options")
@@ -80,6 +88,23 @@ class ProfileSpecConfig(BaseModel):
         if len(value) != len(set(value)):
             raise ValueError("allowed_options must be unique")
         return value
+
+    @property
+    def allowed_option_names(self) -> tuple[str, ...]:
+        names = self.options if self.options else dict.fromkeys(self.allowed_options)
+        return tuple(sorted(names))
+
+    @model_validator(mode="after")
+    def option_sources_must_agree(self) -> "ProfileSpecConfig":
+        if self.options and self.allowed_options:
+            if set(self.options) != set(self.allowed_options):
+                raise ValueError(
+                    "allowed_options and options must declare the same keys"
+                )
+        forbidden = set(self.allowed_option_names) & FORBIDDEN_OPTION_KEYS
+        if forbidden:
+            raise ValueError(f"forbidden option names: {sorted(forbidden)}")
+        return self
 
 
 class CapabilitySpecConfig(BaseModel):

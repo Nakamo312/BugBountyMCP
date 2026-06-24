@@ -12,6 +12,7 @@ from api.application.action_catalog import (
     CatalogItemNotFound,
     CatalogNotReady,
 )
+from api.application.execution_limits import ExecutionBudget, ToolOptionSpec
 from api.infrastructure.adapters.orm import tool_catalog_entries, tool_catalog_snapshots
 
 
@@ -48,6 +49,12 @@ class SqlActionCatalogStore:
 
     @staticmethod
     def _detail(row) -> CatalogDetail:
+        manifest_fragment = dict(row.get("manifest_fragment") or {})
+        profile_fragment = dict(manifest_fragment.get("profile") or {})
+        option_schema = {
+            name: ToolOptionSpec.model_validate(spec)
+            for name, spec in dict(profile_fragment.get("options") or {}).items()
+        }
         return CatalogDetail(
             **SqlActionCatalogStore._item(row).model_dump(),
             snapshot_id=row["snapshot_id"],
@@ -56,6 +63,10 @@ class SqlActionCatalogStore:
             default_profile=row["default_profile"],
             scope_policy=row["scope_policy"],
             allowed_options=list(row["allowed_options"] or []),
+            option_schema=option_schema,
+            execution_budget=ExecutionBudget.model_validate(
+                profile_fragment.get("budgets") or {}
+            ),
             frontend=dict(row["frontend"] or {}),
             submit=SqlActionCatalogStore._submit(row),
         )
@@ -79,6 +90,7 @@ class SqlActionCatalogStore:
                 tool_catalog_entries.c.allowed_options,
                 tool_catalog_entries.c.requires_approval,
                 tool_catalog_entries.c.frontend,
+                tool_catalog_entries.c.manifest_fragment,
             )
             .select_from(
                 tool_catalog_entries.join(
