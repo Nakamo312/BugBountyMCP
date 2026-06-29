@@ -14,6 +14,17 @@ from api.application.services.program import ProgramService
 router = APIRouter(prefix="/programs", tags=["Programs"], route_class=DishkaRoute)
 
 
+def _program_not_found(program_id: UUID) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Program {program_id} not found",
+    )
+
+
+def _bad_request(exc: ValueError) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
 @router.post(
     "/",
     response_model=ProgramFullResponseDTO,
@@ -29,10 +40,7 @@ async def create_program(
     try:
         return await program_service.create_program(request)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise _bad_request(e)
 
 
 @router.get(
@@ -49,10 +57,7 @@ async def get_program(
     try:
         return await program_service.get_program_with_relations(program_id)
     except NotFoundErr:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Program {program_id} not found"
-        )
+        raise _program_not_found(program_id)
 
 
 @router.get(
@@ -68,10 +73,7 @@ async def get_program_basic(
     """Get basic program info"""
     program = await program_service.get_program(program_id)
     if not program:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Program {program_id} not found"
-        )
+        raise _program_not_found(program_id)
     return program
 
 
@@ -111,15 +113,9 @@ async def update_program(
     try:
         return await program_service.update_program(program_id, update_dto)
     except NotFoundErr:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Program {program_id} not found"
-        )
+        raise _program_not_found(program_id)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise _bad_request(e)
 
 
 @router.patch(
@@ -137,10 +133,7 @@ async def update_program_name(
     try:
         return await program_service.update_program_name(program_id, new_name)
     except NotFoundErr:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Program {program_id} not found"
-        )
+        raise _program_not_found(program_id)
 
 
 @router.delete(
@@ -157,7 +150,4 @@ async def delete_program(
     try:
         await program_service.delete_program(program_id)
     except NotFoundErr:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Program {program_id} not found"
-        )
+        raise _program_not_found(program_id)
