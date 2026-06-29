@@ -79,6 +79,15 @@ class SplitApprovalPort:
         return True
 
 
+def test_action_service_rejects_legacy_store_composite_port() -> None:
+    with pytest.raises(TypeError, match="explicit command, query, result, and approval ports"):
+        ActionService(
+            store=object(),
+            policy=PolicyService(),
+            catalog=ActionCatalogService(StubCatalogStore()),
+        )
+
+
 @pytest.mark.asyncio
 async def test_action_service_accepts_separate_narrow_ports() -> None:
     catalog_store = StubCatalogStore(capability="httpx", profile="safe-web-probe")
@@ -109,7 +118,7 @@ async def test_action_service_accepts_separate_narrow_ports() -> None:
     assert len(commands.created) == 1
     queued_action, _, envelope, _ = commands.created[0]
     assert queued_action is request
-    assert envelope.payload["timeout"] == 10
+    assert envelope.payload["options"]["timeout"] == 10
 
     now = datetime.now(timezone.utc)
     queries.actions[request.action_id] = ActionRecord(

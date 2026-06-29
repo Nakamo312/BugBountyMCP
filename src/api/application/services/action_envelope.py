@@ -47,7 +47,6 @@ class ActionEnvelopeBuilder:
     ) -> dict[str, object]:
         options = dict(action.profile.options)
         payload = {
-            **options,
             "options": options,
             "action_id": str(action.action_id),
             "capability_id": action.profile.capability_id,

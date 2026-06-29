@@ -15,6 +15,7 @@ from api.application.contracts import (
 )
 from api.application.execution_limits import ExecutionBudget
 from api.application.pipeline.invocation import build_invocation
+from api.application.services.action_envelope import ActionEnvelopeBuilder
 
 
 def test_existing_action_request_is_the_tool_action_request_contract() -> None:
@@ -146,6 +147,32 @@ def test_build_invocation_reads_parent_artifact_from_event_payload() -> None:
 
     assert invocation is not None
     assert invocation.parent_artifact_id == parent_artifact_id
+
+
+def test_action_event_payload_keeps_options_in_one_nested_shape() -> None:
+    action = ActionRequest(
+        kind=ActionKind.SCAN,
+        program_id=uuid4(),
+        catalog_id=uuid4(),
+        targets=["https://example.com"],
+        options={"timeout": 10, "follow_redirects": False},
+    ).bind_profile(
+        capability_id="httpx",
+        profile_id="safe-web-probe",
+        options={"timeout": 10, "follow_redirects": False},
+        execution_budget=ExecutionBudget(max_targets=5),
+    )
+    decision = PolicyDecision(
+        action_id=action.action_id,
+        status=PolicyDecisionStatus.ALLOWED,
+        allowed_targets=action.targets,
+    )
+
+    payload = ActionEnvelopeBuilder.payload(action, decision, scope_id=uuid4())
+
+    assert payload["options"] == {"timeout": 10, "follow_redirects": False}
+    assert "timeout" not in payload
+    assert "follow_redirects" not in payload
 
 
 def test_tool_invocation_rejects_missing_policy_or_scope_reference() -> None:

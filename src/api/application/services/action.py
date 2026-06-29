@@ -20,7 +20,6 @@ from api.application.ports.action import (
     ActionOutcomeFeedbackWriter,
     ActionQueryPort,
     ActionResultPort,
-    ActionStorePort,
     ScopeRuleProvider,
 )
 from api.application.services.action_catalog import ActionCatalogService
@@ -44,7 +43,7 @@ class ActionService:
 
     def __init__(
         self,
-        store: ActionStorePort | None = None,
+        store: object | None = None,
         policy: PolicyService | None = None,
         catalog: ActionCatalogService | None = None,
         scope_rules: ScopeRuleProvider | None = None,
@@ -55,10 +54,14 @@ class ActionService:
         results: ActionResultPort | None = None,
         approvals: ActionApprovalPort | None = None,
     ) -> None:
-        self.commands = commands or store
-        self.queries = queries or store
-        self.results = results or store
-        self.approvals = approvals or store
+        if store is not None:
+            raise TypeError(
+                "ActionService requires explicit command, query, result, and approval ports"
+            )
+        self.commands = commands
+        self.queries = queries
+        self.results = results
+        self.approvals = approvals
         if self.commands is None or self.queries is None or self.results is None or self.approvals is None:
             raise TypeError("ActionService requires command, query, result, and approval ports")
         if policy is None or catalog is None:

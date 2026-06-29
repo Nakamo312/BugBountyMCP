@@ -10,6 +10,7 @@ import {
   ExternalLink,
   FileText,
   GitBranch,
+  Inbox,
   Loader,
   MessageSquare,
   PlayCircle,

@@ -19,6 +19,18 @@ class _Store:
         return self.action
 
 
+class _ResultPort:
+    async def list_action_runs(self, action_id):
+        return []
+
+    async def list_action_artifacts(self, action_id):
+        return []
+
+
+class _UnusedPort:
+    pass
+
+
 @pytest.mark.asyncio
 async def test_action_service_get_action_submission_builds_recovery_submission(monkeypatch) -> None:
     monkeypatch.setitem(
@@ -49,7 +61,10 @@ async def test_action_service_get_action_submission_builds_recovery_submission(m
         updated_at=datetime.now(UTC),
     )
     service = action_module.ActionService(
-        store=_Store(action),
+        commands=_UnusedPort(),
+        queries=_Store(action),
+        results=_ResultPort(),
+        approvals=_UnusedPort(),
         policy=object(),
         catalog=object(),
     )
@@ -83,7 +98,10 @@ async def test_action_service_get_action_submission_is_optional_for_write_only_s
     )
     action_module = importlib.import_module("api.application.services.action")
     service = action_module.ActionService(
-        store=_WriteOnlyStore(),
+        commands=_UnusedPort(),
+        queries=_WriteOnlyStore(),
+        results=_ResultPort(),
+        approvals=_UnusedPort(),
         policy=object(),
         catalog=object(),
     )

@@ -154,7 +154,10 @@ def _service(
         )
     )
     return ActionService(
-        store=store,
+        commands=store,
+        queries=store,
+        results=store,
+        approvals=store,
         policy=PolicyService(),
         catalog=catalog,
         scope_rules=scope_rules,

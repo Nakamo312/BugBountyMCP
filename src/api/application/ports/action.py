@@ -1,9 +1,4 @@
-"""Ports used by ActionService.
-
-The application service depends on narrow protocols instead of the concrete
-orchestration store. ``ActionStorePort`` remains only as a migration composite;
-new code should request the command/query/result/approval port it needs.
-"""
+"""Narrow ports used by ActionService."""
 from __future__ import annotations
 
 from typing import Protocol
@@ -110,13 +105,3 @@ class ActionApprovalPort(Protocol):
         decision: PolicyDecision,
     ) -> bool:
         ...
-
-
-class ActionStorePort(
-    ActionCommandPort,
-    ActionQueryPort,
-    ActionResultPort,
-    ActionApprovalPort,
-    Protocol,
-):
-    """Deprecated composite port kept for compatibility during migration."""

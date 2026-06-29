@@ -187,6 +187,26 @@ class RecordingPolicy(PolicyService):
         return super().evaluate(request, detail, scope_rules=scope_rules)
 
 
+def _action_service(
+    store,
+    *,
+    policy=None,
+    catalog_store=None,
+    scope_rules=None,
+    outcome_feedback=None,
+) -> ActionService:
+    return ActionService(
+        commands=store,
+        queries=store,
+        results=store,
+        approvals=store,
+        policy=policy or PolicyService(),
+        catalog=ActionCatalogService(catalog_store or StubCatalogStore()),
+        scope_rules=scope_rules,
+        outcome_feedback=outcome_feedback,
+    )
+
+
 
 def _actions_route_module():
     import importlib.util
@@ -204,11 +224,7 @@ def _actions_route_module():
 async def test_request_action_queues_capability_from_action_contract() -> None:
     store = StubStore()
     catalog_store = StubCatalogStore(capability="httpx", profile="safe-web-probe")
-    service = ActionService(
-        store=store,
-        policy=PolicyService(),
-        catalog=ActionCatalogService(catalog_store),
-    )
+    service = _action_service(store, catalog_store=catalog_store)
     action = ActionRequest(
         kind=ActionKind.SCAN,
         program_id=uuid4(),
@@ -227,7 +243,7 @@ async def test_request_action_queues_capability_from_action_contract() -> None:
     assert queued_action is action
     assert envelope.event == "httpx_scan_requested"
     assert envelope.payload["options"] == {"timeout": 10}
-    assert envelope.payload["timeout"] == 10
+    assert envelope.payload["options"]["timeout"] == 10
     assert envelope.payload["action_id"] == str(action.action_id)
     assert envelope.payload["campaign_id"] == str(action.campaign_id)
     assert envelope.campaign_id == action.campaign_id
@@ -240,11 +256,7 @@ async def test_request_action_queues_capability_from_action_contract() -> None:
 async def test_request_action_replaces_legacy_tool_routes() -> None:
     store = StubStore()
     catalog_store = StubCatalogStore(capability="httpx", profile="safe-web-probe")
-    service = ActionService(
-        store=store,
-        policy=PolicyService(),
-        catalog=ActionCatalogService(catalog_store),
-    )
+    service = _action_service(store, catalog_store=catalog_store)
     action = ActionRequest(
         kind=ActionKind.SCAN,
         program_id=uuid4(),
@@ -283,10 +295,10 @@ async def test_request_action_loads_program_scope_rules_before_policy_evaluation
         safety_level="active",
         requires_approval=True,
     )
-    service = ActionService(
-        store=store,
+    service = _action_service(
+        store,
         policy=policy,
-        catalog=ActionCatalogService(catalog_store),
+        catalog_store=catalog_store,
         scope_rules=scope_rules,
     )
     action = ActionRequest(
@@ -323,11 +335,7 @@ async def test_get_action_returns_stored_action_record_by_id() -> None:
     )
     store = StubStore()
     store.actions_by_id[action_id] = record
-    service = ActionService(
-        store=store,
-        policy=PolicyService(),
-        catalog=ActionCatalogService(StubCatalogStore()),
-    )
+    service = _action_service(store)
 
     assert await service.get_action(action_id) == record
 
@@ -367,11 +375,7 @@ async def test_list_action_events_returns_stored_events_for_action() -> None:
         updated_at=event.created_at,
     )
     store.events_by_action_id[action_id] = [event]
-    service = ActionService(
-        store=store,
-        policy=PolicyService(),
-        catalog=ActionCatalogService(StubCatalogStore()),
-    )
+    service = _action_service(store)
 
     assert await service.list_action_events(action_id, limit=10, offset=0) == [event]
 
@@ -419,11 +423,7 @@ async def test_get_action_result_returns_terminal_runs_and_artifact_references()
     store.actions_by_id[action_id] = action
     store.runs_by_action_id[action_id] = [run]
     store.artifacts_by_action_id[action_id] = [artifact]
-    service = ActionService(
-        store=store,
-        policy=PolicyService(),
-        catalog=ActionCatalogService(StubCatalogStore()),
-    )
+    service = _action_service(store)
 
     result = await service.get_action_result(action_id)
 
@@ -456,12 +456,7 @@ async def test_record_outcome_feedback_goes_through_action_service_boundary() ->
     writer = RecordingOutcomeFeedbackWriter(
         _feedback_record(action_id=action_id, program_id=program_id, now=now)
     )
-    service = ActionService(
-        store=store,
-        policy=PolicyService(),
-        catalog=ActionCatalogService(StubCatalogStore()),
-        outcome_feedback=writer,
-    )
+    service = _action_service(store, outcome_feedback=writer)
     request = ActionOutcomeFeedback(
         manual_interest=True,
         actor="human",

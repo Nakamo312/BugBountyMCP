@@ -98,7 +98,10 @@ def _service():
     store = RecordingStore()
     policy = RecordingPolicy()
     service = ActionService(
-        store=store,
+        commands=store,
+        queries=store,
+        results=store,
+        approvals=store,
         policy=policy,
         catalog=ActionCatalogService(catalog_store),
         system_budget=ExecutionBudget(

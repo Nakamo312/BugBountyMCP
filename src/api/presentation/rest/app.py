@@ -20,6 +20,50 @@ from api.application.exceptions import ScanExecutionError, ToolNotFoundError
 
 logger = logging.getLogger(__name__)
 
+
+async def _start_scheduler(app: FastAPI, container, settings: Settings) -> None:
+    from api.application.execution_limits import system_execution_budget
+    from api.application.ports.action import (
+        ActionApprovalPort,
+        ActionCommandPort,
+        ActionQueryPort,
+        ActionResultPort,
+    )
+    from api.application.scheduler import ActionScheduler, load_scheduler_config
+    from api.application.services.action import ActionService
+    from api.application.services.action_catalog import ActionCatalogService
+    from api.application.services.policy import PolicyService
+    from api.infrastructure.repositories.adapters.scope_rule import SQLAlchemyScopeRuleRepository
+
+    action_commands: ActionCommandPort = await container.get(ActionCommandPort)
+    action_queries: ActionQueryPort = await container.get(ActionQueryPort)
+    action_results: ActionResultPort = await container.get(ActionResultPort)
+    action_approvals: ActionApprovalPort = await container.get(ActionApprovalPort)
+    catalog_service: ActionCatalogService = await container.get(ActionCatalogService)
+    scope_rule_repository: SQLAlchemyScopeRuleRepository = await container.get(
+        SQLAlchemyScopeRuleRepository
+    )
+    action_service = ActionService(
+        commands=action_commands,
+        queries=action_queries,
+        results=action_results,
+        approvals=action_approvals,
+        policy=PolicyService(),
+        catalog=catalog_service,
+        scope_rules=scope_rule_repository,
+        system_budget=system_execution_budget(settings),
+    )
+    scheduler_config = load_scheduler_config(settings.SCHEDULER_CONFIG_PATH)
+    scheduler = ActionScheduler(
+        action_service=action_service,
+        catalog_service=catalog_service,
+        config=scheduler_config,
+        tick_seconds=settings.SCHEDULER_TICK_SECONDS,
+    )
+    scheduler.start()
+    app.state.action_scheduler = scheduler
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager: initialize DB, mappers, EventBus and Orchestrator"""
@@ -80,33 +124,7 @@ async def lifespan(app: FastAPI):
             app.state.agent_inbox_processor = inbox_processor
 
         if settings.USE_SCHEDULER:
-            from api.application.scheduler import ActionScheduler, load_scheduler_config
-            from api.application.services.action import ActionService
-            from api.application.services.action_catalog import ActionCatalogService
-            from api.application.services.policy import PolicyService
-            from api.application.execution_limits import system_execution_budget
-            from api.infrastructure.orchestration.store import OrchestrationStore
-            from api.infrastructure.repositories.adapters.scope_rule import SQLAlchemyScopeRuleRepository
-
-            orchestration_store: OrchestrationStore = await container.get(OrchestrationStore)
-            catalog_service: ActionCatalogService = await container.get(ActionCatalogService)
-            scope_rule_repository: SQLAlchemyScopeRuleRepository = await container.get(SQLAlchemyScopeRuleRepository)
-            action_service = ActionService(
-                store=orchestration_store,
-                policy=PolicyService(),
-                catalog=catalog_service,
-                scope_rules=scope_rule_repository,
-                system_budget=system_execution_budget(settings),
-            )
-            scheduler_config = load_scheduler_config(settings.SCHEDULER_CONFIG_PATH)
-            scheduler = ActionScheduler(
-                action_service=action_service,
-                catalog_service=catalog_service,
-                config=scheduler_config,
-                tick_seconds=settings.SCHEDULER_TICK_SECONDS,
-            )
-            scheduler.start()
-            app.state.action_scheduler = scheduler
+            await _start_scheduler(app, container, settings)
 
         logger.info("Application startup complete")
     except Exception as e:
