@@ -1,6 +1,5 @@
 """REST routes for hosts, endpoints, parameters and headers"""
 
-import logging
 from uuid import UUID
 
 from dishka.integrations.fastapi import DishkaRoute, FromDishka
@@ -22,8 +21,6 @@ from api.application.dto.host import (
 )
 from api.application.services.host import HostService
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(tags=["Hosts"], route_class=DishkaRoute)
 
 
@@ -41,19 +38,12 @@ async def get_hosts_by_program(
     host_service: FromDishka[HostService] = None
 ) -> HostsListResponseDTO:
     """Get hosts by program_id with pagination"""
-    try:
-        return await host_service.get_hosts_by_program(
-            program_id=program_id,
-            limit=limit,
-            offset=offset,
-            in_scope=in_scope
-        )
-    except Exception as e:
-        logger.exception(f"Error fetching hosts for program {program_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching hosts: {str(e)}"
-        )
+    return await host_service.get_hosts_by_program(
+        program_id=program_id,
+        limit=limit,
+        offset=offset,
+        in_scope=in_scope
+    )
 
 
 @router.get(
@@ -70,19 +60,12 @@ async def get_hosts_with_stats(
     host_service: FromDishka[HostService] = None
 ) -> HostsWithStatsListDTO:
     """Get hosts with statistics from host_full_stats view"""
-    try:
-        return await host_service.get_hosts_with_stats(
-            program_id=program_id,
-            limit=limit,
-            offset=offset,
-            in_scope=in_scope
-        )
-    except Exception as e:
-        logger.exception(f"Error fetching hosts with stats for program {program_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching hosts with stats: {str(e)}"
-        )
+    return await host_service.get_hosts_with_stats(
+        program_id=program_id,
+        limit=limit,
+        offset=offset,
+        in_scope=in_scope
+    )
 
 
 @router.get(
@@ -119,20 +102,13 @@ async def get_endpoints_with_body(
     host_service: FromDishka[HostService] = None
 ) -> list[EndpointWithBodyDTO]:
     """Get endpoints with request body"""
-    try:
-        endpoints, _ = await host_service.get_endpoints_with_body(
-            program_id=program_id,
-            limit=limit,
-            offset=offset,
-            host_id=host_id
-        )
-        return endpoints
-    except Exception as e:
-        logger.exception(f"Error fetching endpoints with body: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching endpoints with body: {str(e)}"
-        )
+    endpoints, _ = await host_service.get_endpoints_with_body(
+        program_id=program_id,
+        limit=limit,
+        offset=offset,
+        host_id=host_id
+    )
+    return endpoints
 
 
 @router.get(
@@ -188,17 +164,11 @@ async def get_endpoints_by_host(
     host_service: FromDishka[HostService] = None
 ) -> list[EndpointResponseDTO]:
     """Get endpoints by host_id"""
-    try:
-        return await host_service.get_endpoints_by_host(
-            host_id=host_id,
-            limit=limit,
-            offset=offset
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching endpoints: {str(e)}"
-        )
+    return await host_service.get_endpoints_by_host(
+        host_id=host_id,
+        limit=limit,
+        offset=offset
+    )
 
 
 @router.get(
@@ -254,17 +224,11 @@ async def get_parameters_by_endpoint(
     host_service: FromDishka[HostService] = None
 ) -> list[InputParameterResponseDTO]:
     """Get input parameters by endpoint_id"""
-    try:
-        return await host_service.get_parameters_by_endpoint(
-            endpoint_id=endpoint_id,
-            limit=limit,
-            offset=offset
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching parameters: {str(e)}"
-        )
+    return await host_service.get_parameters_by_endpoint(
+        endpoint_id=endpoint_id,
+        limit=limit,
+        offset=offset
+    )
 
 
 @router.get(
@@ -280,14 +244,8 @@ async def get_headers_by_endpoint(
     host_service: FromDishka[HostService] = None
 ) -> list[HeaderResponseDTO]:
     """Get headers by endpoint_id"""
-    try:
-        return await host_service.get_headers_by_endpoint(
-            endpoint_id=endpoint_id,
-            limit=limit,
-            offset=offset
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching headers: {str(e)}"
-        )
+    return await host_service.get_headers_by_endpoint(
+        endpoint_id=endpoint_id,
+        limit=limit,
+        offset=offset
+    )
