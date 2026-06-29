@@ -49,29 +49,7 @@ class ProgramService:
             
             await uow.commit()
             
-            return ProgramFullResponseDTO(
-                program=ProgramResponseDTO(
-                    id=created_program.id,
-                    name=created_program.name
-                ),
-                scope_rules=[
-                    ScopeRuleResponseDTO(
-                        id=rule.id,
-                        program_id=rule.program_id,
-                        rule_type=rule.rule_type,
-                        pattern=rule.pattern,
-                        action=rule.action
-                    ) for rule in scope_rules
-                ],
-                root_inputs=[
-                    RootInputResponseDTO(
-                        id=input.id,
-                        program_id=input.program_id,
-                        value=input.value,
-                        input_type=input.input_type
-                    ) for input in root_inputs
-                ]
-            )
+            return _program_full_response(created_program, scope_rules, root_inputs)
     
     async def get_program_with_relations(self, program_id: UUID) -> ProgramFullResponseDTO:
         async with self.uow as uow:
@@ -82,29 +60,7 @@ class ProgramService:
             scope_rules = await uow.scope_rules.find_by_program(program_id)
             root_inputs = await uow.root_inputs.find_by_program(program_id)
             
-            return ProgramFullResponseDTO(
-                program=ProgramResponseDTO(
-                    id=program.id,
-                    name=program.name
-                ),
-                scope_rules=[
-                    ScopeRuleResponseDTO(
-                        id=rule.id,
-                        program_id=rule.program_id,
-                        rule_type=rule.rule_type,
-                        pattern=rule.pattern,
-                        action=rule.action
-                    ) for rule in scope_rules
-                ],
-                root_inputs=[
-                    RootInputResponseDTO(
-                        id=input.id,
-                        program_id=input.program_id,
-                        value=input.value,
-                        input_type=input.input_type
-                    ) for input in root_inputs
-                ]
-            )
+            return _program_full_response(program, scope_rules, root_inputs)
     
     async def get_program(self, program_id: UUID) -> Optional[ProgramResponseDTO]:
         async with self.uow as uow:
@@ -112,20 +68,14 @@ class ProgramService:
             if not program:
                 return None
             
-            return ProgramResponseDTO(
-                id=program.id,
-                name=program.name
-            )
+            return _program_response(program)
     
     async def list_programs(self, limit: int = 100, offset: int = 0) -> List[ProgramResponseDTO]:
         async with self.uow as uow:
             programs = await uow.programs.find_many(limit=limit, offset=offset)
             
             return [
-                ProgramResponseDTO(
-                    id=program.id,
-                    name=program.name
-                ) for program in programs
+                _program_response(program) for program in programs
             ]
     
     async def update_program(self, program_id: UUID, dto: ProgramUpdateDTO) -> ProgramFullResponseDTO:
@@ -178,29 +128,7 @@ class ProgramService:
             scope_rules = await uow.scope_rules.find_by_program(program_id)
             root_inputs = await uow.root_inputs.find_by_program(program_id)
 
-            return ProgramFullResponseDTO(
-                program=ProgramResponseDTO(
-                    id=program.id,
-                    name=program.name
-                ),
-                scope_rules=[
-                    ScopeRuleResponseDTO(
-                        id=rule.id,
-                        program_id=rule.program_id,
-                        rule_type=rule.rule_type,
-                        pattern=rule.pattern,
-                        action=rule.action
-                    ) for rule in scope_rules
-                ],
-                root_inputs=[
-                    RootInputResponseDTO(
-                        id=input.id,
-                        program_id=input.program_id,
-                        value=input.value,
-                        input_type=input.input_type
-                    ) for input in root_inputs
-                ]
-            )
+            return _program_full_response(program, scope_rules, root_inputs)
 
     async def update_program_name(self, program_id: UUID, new_name: str) -> ProgramResponseDTO:
         async with self.uow as uow:
@@ -213,10 +141,7 @@ class ProgramService:
 
             await uow.commit()
 
-            return ProgramResponseDTO(
-                id=result.id,
-                name=result.name
-            )
+            return _program_response(result)
     
     async def delete_program(self, program_id: UUID) -> None:
         async with self.uow as uow:
@@ -247,13 +172,7 @@ class ProgramService:
 
             await uow.commit()
 
-            return ScopeRuleResponseDTO(
-                id=created_rule.id,
-                program_id=created_rule.program_id,
-                rule_type=created_rule.rule_type,
-                pattern=created_rule.pattern,
-                action=created_rule.action
-            )
+            return _scope_rule_response(created_rule)
     
     async def add_root_input(self, program_id: UUID, input_dto) -> RootInputResponseDTO:
         async with self.uow as uow:
@@ -271,9 +190,39 @@ class ProgramService:
             
             await uow.commit()
             
-            return RootInputResponseDTO(
-                id=created_input.id,
-                program_id=created_input.program_id,
-                value=created_input.value,
-                input_type=created_input.input_type
-            )
+            return _root_input_response(created_input)
+
+
+def _program_full_response(
+    program: ProgramModel,
+    scope_rules: list[ScopeRuleModel],
+    root_inputs: list[RootInputModel],
+) -> ProgramFullResponseDTO:
+    return ProgramFullResponseDTO(
+        program=_program_response(program),
+        scope_rules=[_scope_rule_response(rule) for rule in scope_rules],
+        root_inputs=[_root_input_response(root_input) for root_input in root_inputs],
+    )
+
+
+def _program_response(program: ProgramModel) -> ProgramResponseDTO:
+    return ProgramResponseDTO(id=program.id, name=program.name)
+
+
+def _scope_rule_response(rule: ScopeRuleModel) -> ScopeRuleResponseDTO:
+    return ScopeRuleResponseDTO(
+        id=rule.id,
+        program_id=rule.program_id,
+        rule_type=rule.rule_type,
+        pattern=rule.pattern,
+        action=rule.action,
+    )
+
+
+def _root_input_response(root_input: RootInputModel) -> RootInputResponseDTO:
+    return RootInputResponseDTO(
+        id=root_input.id,
+        program_id=root_input.program_id,
+        value=root_input.value,
+        input_type=root_input.input_type,
+    )
