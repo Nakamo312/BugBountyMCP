@@ -235,10 +235,6 @@
       "max_lines": 165,
       "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
     },
-    "src/api/application/services/infrastructure.py::InfrastructureService.get_infrastructure_graph": {
-      "max_lines": 119,
-      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
-    },
     "src/api/application/utils/scope_checker.py::ScopeChecker.score_target": {
       "max_lines": 86,
       "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
