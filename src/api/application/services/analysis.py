@@ -1,7 +1,6 @@
 """Service for querying security analysis views"""
 
 from dataclasses import dataclass
-import logging
 from typing import List, Dict, Any
 from uuid import UUID
 
@@ -28,8 +27,6 @@ from api.application.services.view_queries import (
     view_count_query,
     view_data_query,
 )
-
-logger = logging.getLogger(__name__)
 
 _PROGRAM_VIEW_FILTERS = frozenset({"program_id"})
 _INJECTION_CANDIDATES_VIEW = ReadOnlyView("injection_candidates_view", _PROGRAM_VIEW_FILTERS)
