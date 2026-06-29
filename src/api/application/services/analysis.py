@@ -1,8 +1,11 @@
 """Service for querying security analysis views"""
 
+from dataclasses import dataclass
 import logging
 from typing import List, Dict, Any
 from uuid import UUID
+
+from pydantic import BaseModel
 
 from api.application.dto.analysis import (
     InjectionCandidateDTO,
@@ -43,6 +46,31 @@ _SUBDOMAIN_TAKEOVER_CANDIDATES_VIEW = ReadOnlyView("subdomain_takeover_candidate
 _API_PATTERN_ANALYSIS_VIEW = ReadOnlyView("api_pattern_analysis", _PROGRAM_VIEW_FILTERS)
 
 
+@dataclass(frozen=True)
+class AnalysisQuery:
+    view: ReadOnlyView
+    item_model: type[BaseModel]
+
+
+_ANALYSIS_QUERIES = {
+    "injection_candidates": AnalysisQuery(_INJECTION_CANDIDATES_VIEW, InjectionCandidateDTO),
+    "ssrf_candidates": AnalysisQuery(_SSRF_CANDIDATES_VIEW, SSRFCandidateDTO),
+    "idor_candidates": AnalysisQuery(_IDOR_CANDIDATES_VIEW, IDORCandidateDTO),
+    "file_upload_candidates": AnalysisQuery(_FILE_UPLOAD_CANDIDATES_VIEW, FileUploadCandidateDTO),
+    "reflected_parameters": AnalysisQuery(_REFLECTED_PARAMETERS_VIEW, ReflectedParameterDTO),
+    "arjun_candidates": AnalysisQuery(_ARJUN_CANDIDATE_ENDPOINTS_VIEW, ArjunCandidateDTO),
+    "admin_debug_endpoints": AnalysisQuery(_ADMIN_DEBUG_ENDPOINTS_VIEW, AdminDebugEndpointDTO),
+    "cors_analysis": AnalysisQuery(_CORS_ANALYSIS_VIEW, CORSAnalysisDTO),
+    "sensitive_headers": AnalysisQuery(_SENSITIVE_HEADERS_VIEW, SensitiveHeaderDTO),
+    "host_technologies": AnalysisQuery(_HOST_TECHNOLOGIES_VIEW, HostTechnologyDTO),
+    "subdomain_takeover": AnalysisQuery(
+        _SUBDOMAIN_TAKEOVER_CANDIDATES_VIEW,
+        SubdomainTakeoverCandidateDTO,
+    ),
+    "api_patterns": AnalysisQuery(_API_PATTERN_ANALYSIS_VIEW, APIPatternDTO),
+}
+
+
 class AnalysisService:
     """Service for querying security analysis database views"""
 
@@ -72,206 +100,22 @@ class AnalysisService:
 
             return [dict(row) for row in rows], total
 
-    async def get_injection_candidates(
+    async def get_analysis(
         self,
+        kind: str,
         program_id: UUID,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
     ) -> AnalysisListDTO:
-        """Get injection candidates (SQLi, XSS, etc.)"""
-        rows, total = await self._query_view(
-            _INJECTION_CANDIDATES_VIEW, program_id, limit, offset
-        )
-        return AnalysisListDTO(
-            items=[InjectionCandidateDTO(**row) for row in rows],
-            total=total,
-            limit=limit,
-            offset=offset
-        )
+        """Get a registered analysis view."""
+        query = _ANALYSIS_QUERIES.get(kind)
+        if query is None:
+            raise ValueError(f"Unknown analysis kind: {kind}")
 
-    async def get_ssrf_candidates(
-        self,
-        program_id: UUID,
-        limit: int = 100,
-        offset: int = 0
-    ) -> AnalysisListDTO:
-        """Get SSRF candidates"""
-        rows, total = await self._query_view(
-            _SSRF_CANDIDATES_VIEW, program_id, limit, offset
-        )
+        rows, total = await self._query_view(query.view, program_id, limit, offset)
         return AnalysisListDTO(
-            items=[SSRFCandidateDTO(**row) for row in rows],
+            items=[query.item_model(**row) for row in rows],
             total=total,
             limit=limit,
-            offset=offset
-        )
-
-    async def get_idor_candidates(
-        self,
-        program_id: UUID,
-        limit: int = 100,
-        offset: int = 0
-    ) -> AnalysisListDTO:
-        """Get IDOR candidates"""
-        rows, total = await self._query_view(
-            _IDOR_CANDIDATES_VIEW, program_id, limit, offset
-        )
-        return AnalysisListDTO(
-            items=[IDORCandidateDTO(**row) for row in rows],
-            total=total,
-            limit=limit,
-            offset=offset
-        )
-
-    async def get_file_upload_candidates(
-        self,
-        program_id: UUID,
-        limit: int = 100,
-        offset: int = 0
-    ) -> AnalysisListDTO:
-        """Get file upload candidates"""
-        rows, total = await self._query_view(
-            _FILE_UPLOAD_CANDIDATES_VIEW, program_id, limit, offset
-        )
-        return AnalysisListDTO(
-            items=[FileUploadCandidateDTO(**row) for row in rows],
-            total=total,
-            limit=limit,
-            offset=offset
-        )
-
-    async def get_reflected_parameters(
-        self,
-        program_id: UUID,
-        limit: int = 100,
-        offset: int = 0
-    ) -> AnalysisListDTO:
-        """Get reflected parameters (XSS candidates)"""
-        rows, total = await self._query_view(
-            _REFLECTED_PARAMETERS_VIEW, program_id, limit, offset
-        )
-        return AnalysisListDTO(
-            items=[ReflectedParameterDTO(**row) for row in rows],
-            total=total,
-            limit=limit,
-            offset=offset
-        )
-
-    async def get_arjun_candidates(
-        self,
-        program_id: UUID,
-        limit: int = 100,
-        offset: int = 0
-    ) -> AnalysisListDTO:
-        """Get Arjun parameter discovery candidates"""
-        rows, total = await self._query_view(
-            _ARJUN_CANDIDATE_ENDPOINTS_VIEW, program_id, limit, offset
-        )
-        return AnalysisListDTO(
-            items=[ArjunCandidateDTO(**row) for row in rows],
-            total=total,
-            limit=limit,
-            offset=offset
-        )
-
-    async def get_admin_debug_endpoints(
-        self,
-        program_id: UUID,
-        limit: int = 100,
-        offset: int = 0
-    ) -> AnalysisListDTO:
-        """Get admin/debug endpoints"""
-        rows, total = await self._query_view(
-            _ADMIN_DEBUG_ENDPOINTS_VIEW, program_id, limit, offset
-        )
-        return AnalysisListDTO(
-            items=[AdminDebugEndpointDTO(**row) for row in rows],
-            total=total,
-            limit=limit,
-            offset=offset
-        )
-
-    async def get_cors_analysis(
-        self,
-        program_id: UUID,
-        limit: int = 100,
-        offset: int = 0
-    ) -> AnalysisListDTO:
-        """Get CORS configuration analysis"""
-        rows, total = await self._query_view(
-            _CORS_ANALYSIS_VIEW, program_id, limit, offset
-        )
-        return AnalysisListDTO(
-            items=[CORSAnalysisDTO(**row) for row in rows],
-            total=total,
-            limit=limit,
-            offset=offset
-        )
-
-    async def get_sensitive_headers(
-        self,
-        program_id: UUID,
-        limit: int = 100,
-        offset: int = 0
-    ) -> AnalysisListDTO:
-        """Get sensitive headers"""
-        rows, total = await self._query_view(
-            _SENSITIVE_HEADERS_VIEW, program_id, limit, offset
-        )
-        return AnalysisListDTO(
-            items=[SensitiveHeaderDTO(**row) for row in rows],
-            total=total,
-            limit=limit,
-            offset=offset
-        )
-
-    async def get_host_technologies(
-        self,
-        program_id: UUID,
-        limit: int = 100,
-        offset: int = 0
-    ) -> AnalysisListDTO:
-        """Get host technologies"""
-        rows, total = await self._query_view(
-            _HOST_TECHNOLOGIES_VIEW, program_id, limit, offset
-        )
-        return AnalysisListDTO(
-            items=[HostTechnologyDTO(**row) for row in rows],
-            total=total,
-            limit=limit,
-            offset=offset
-        )
-
-    async def get_subdomain_takeover_candidates(
-        self,
-        program_id: UUID,
-        limit: int = 100,
-        offset: int = 0
-    ) -> AnalysisListDTO:
-        """Get subdomain takeover candidates"""
-        rows, total = await self._query_view(
-            _SUBDOMAIN_TAKEOVER_CANDIDATES_VIEW, program_id, limit, offset
-        )
-        return AnalysisListDTO(
-            items=[SubdomainTakeoverCandidateDTO(**row) for row in rows],
-            total=total,
-            limit=limit,
-            offset=offset
-        )
-
-    async def get_api_patterns(
-        self,
-        program_id: UUID,
-        limit: int = 100,
-        offset: int = 0
-    ) -> AnalysisListDTO:
-        """Get API pattern analysis"""
-        rows, total = await self._query_view(
-            _API_PATTERN_ANALYSIS_VIEW, program_id, limit, offset
-        )
-        return AnalysisListDTO(
-            items=[APIPatternDTO(**row) for row in rows],
-            total=total,
-            limit=limit,
-            offset=offset
+            offset=offset,
         )

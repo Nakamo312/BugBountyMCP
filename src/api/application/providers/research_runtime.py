@@ -38,7 +38,7 @@ from api.infrastructure.langgraph_context import (
     SafeGraphTemplateRenderer,
 )
 from api.infrastructure.langgraph_resume import ResearchWaitResumer
-from api.infrastructure.orchestration.store import OrchestrationStore
+from api.infrastructure.orchestration.campaign_state_store import CampaignStateStore
 from api.infrastructure.projections import ProjectionStateStore
 
 
@@ -55,16 +55,16 @@ class ResearchRuntimeProvider(Provider):
     @provide(scope=Scope.APP)
     def get_campaign_lifecycle_reader(
         self,
-        orchestration_store: OrchestrationStore,
+        campaign_state_store: CampaignStateStore,
     ) -> CampaignLifecycleReader:
-        return orchestration_store
+        return campaign_state_store
 
     @provide(scope=Scope.APP)
     def get_campaign_lifecycle_reconciler(
         self,
-        orchestration_store: OrchestrationStore,
+        campaign_state_store: CampaignStateStore,
     ) -> CampaignLifecycleReconciler:
-        return orchestration_store
+        return campaign_state_store
 
     @provide(scope=Scope.APP)
     def get_agent_wait_condition_engine(

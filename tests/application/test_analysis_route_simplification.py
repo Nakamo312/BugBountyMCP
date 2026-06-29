@@ -9,6 +9,9 @@ def test_analysis_routes_are_registered_from_endpoint_table() -> None:
 
     assert "_ANALYSIS_ENDPOINTS" in source
     assert "router.add_api_route" in source
+    assert "query_key" in source
+    assert "get_analysis(" in source
+    assert "getattr(" not in source
     assert source.count("@router.get(") == 0
 
 

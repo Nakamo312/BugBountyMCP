@@ -58,19 +58,21 @@ class _FakeResult:
 
 
 class _FakeSession:
-    def __init__(self):
+    def __init__(self, row=None):
         self.executed = []
+        self.row = row
 
     async def execute(self, statement, params):
         self.executed.append((statement, params))
         if len(self.executed) == 1:
             return _FakeResult(scalar_value=1)
-        return _FakeResult(rows=[{"program_id": params["program_id"], "candidate": "xss"}])
+        row = self.row or {"program_id": params["program_id"], "candidate": "xss"}
+        return _FakeResult(rows=[row])
 
 
 class _FakeUow:
-    def __init__(self):
-        self._session = _FakeSession()
+    def __init__(self, row=None):
+        self._session = _FakeSession(row=row)
 
     async def __aenter__(self):
         return self
@@ -100,3 +102,38 @@ async def test_analysis_service_queries_views_through_core_builder() -> None:
         "limit": 50,
         "offset": 10,
     }
+
+
+@pytest.mark.asyncio
+async def test_analysis_service_reads_registered_analysis_kind() -> None:
+    program_id = uuid4()
+    uow = _FakeUow(
+        row={
+            "program_id": program_id,
+            "host": "example.com",
+            "full_url": "https://example.com/search?q=x",
+            "path": "/search",
+        }
+    )
+    service = AnalysisService(uow)
+
+    result = await service.get_analysis(
+        "injection_candidates",
+        program_id=program_id,
+        limit=50,
+        offset=10,
+    )
+
+    assert result.total == 1
+    assert result.limit == 50
+    assert result.offset == 10
+    assert result.items[0].program_id == program_id
+    assert "FROM injection_candidates_view" in str(uow._session.executed[1][0])
+
+
+@pytest.mark.asyncio
+async def test_analysis_service_rejects_unknown_analysis_kind() -> None:
+    service = AnalysisService(_FakeUow())
+
+    with pytest.raises(ValueError, match="Unknown analysis kind"):
+        await service.get_analysis("unknown", program_id=uuid4())

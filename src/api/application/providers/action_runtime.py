@@ -20,8 +20,16 @@ from api.application.services.policy import PolicyService
 from api.config import Settings
 from api.application.action_outcomes import ActionOutcomeRecorder
 from api.infrastructure.action_outcomes import ActionOutcomeStore
-from api.infrastructure.events.event_bus import EventBus
-from api.infrastructure.orchestration.store import OrchestrationStore
+from api.infrastructure.orchestration.action_command_store import ActionCommandStore
+from api.infrastructure.orchestration.action_read_store import ActionReadStore
+from api.infrastructure.orchestration.approval_store import ApprovalStore
+from api.infrastructure.orchestration.campaign_state_store import CampaignStateStore
+from api.infrastructure.orchestration.dispatch_store import DispatchStore
+from api.infrastructure.orchestration.event_store import EventStore
+from api.infrastructure.orchestration.pipeline_store import PipelineOrchestrationStore
+from api.infrastructure.orchestration.run_claim_store import RunClaimStore
+from api.infrastructure.orchestration.run_state_store import RunStateStore
+from api.infrastructure.orchestration.scheduled_work_store import ScheduledWorkStore
 from api.infrastructure.repositories.adapters.scope_rule import SQLAlchemyScopeRuleRepository
 from api.infrastructure.runtime_manifest import ManifestActivator
 from api.infrastructure.tool_catalog.store import SqlActionCatalogStore
@@ -31,68 +39,128 @@ class ActionRuntimeProvider(Provider):
     scope = Scope.APP
 
     @provide(scope=Scope.APP)
-    def get_orchestration_store(
+    def get_campaign_state_store(
         self,
         session_factory: async_sessionmaker,
         settings: Settings,
-    ) -> OrchestrationStore:
-        return OrchestrationStore(session_factory, settings)
+    ) -> CampaignStateStore:
+        return CampaignStateStore(session_factory, settings)
+
+    @provide(scope=Scope.APP)
+    def get_dispatch_store(
+        self,
+        session_factory: async_sessionmaker,
+        settings: Settings,
+    ) -> DispatchStore:
+        return DispatchStore(session_factory, settings)
+
+    @provide(scope=Scope.APP)
+    def get_scheduled_work_store(self, session_factory: async_sessionmaker) -> ScheduledWorkStore:
+        return ScheduledWorkStore(session_factory)
+
+    @provide(scope=Scope.APP)
+    def get_event_store(self, session_factory: async_sessionmaker) -> EventStore:
+        return EventStore(session_factory)
+
+    @provide(scope=Scope.APP)
+    def get_run_claim_store(self, session_factory: async_sessionmaker) -> RunClaimStore:
+        return RunClaimStore(session_factory)
+
+    @provide(scope=Scope.APP)
+    def get_run_state_store(self, session_factory: async_sessionmaker) -> RunStateStore:
+        return RunStateStore(session_factory)
+
+    @provide(scope=Scope.APP)
+    def get_action_read_store(self, session_factory: async_sessionmaker) -> ActionReadStore:
+        return ActionReadStore(session_factory)
+
+    @provide(scope=Scope.APP)
+    def get_action_command_store(
+        self,
+        session_factory: async_sessionmaker,
+        campaign_state_store: CampaignStateStore,
+        dispatch_store: DispatchStore,
+    ) -> ActionCommandStore:
+        return ActionCommandStore(
+            session_factory,
+            campaigns=campaign_state_store,
+            dispatches=dispatch_store,
+        )
+
+    @provide(scope=Scope.APP)
+    def get_approval_store(
+        self,
+        session_factory: async_sessionmaker,
+        campaign_state_store: CampaignStateStore,
+        dispatch_store: DispatchStore,
+    ) -> ApprovalStore:
+        return ApprovalStore(
+            session_factory,
+            campaigns=campaign_state_store,
+            dispatches=dispatch_store,
+        )
 
     @provide(scope=Scope.APP)
     def get_action_command_port(
         self,
-        orchestration_store: OrchestrationStore,
+        action_command_store: ActionCommandStore,
     ) -> ActionCommandPort:
-        return orchestration_store
+        return action_command_store
 
     @provide(scope=Scope.APP)
     def get_action_query_port(
         self,
-        orchestration_store: OrchestrationStore,
+        action_read_store: ActionReadStore,
     ) -> ActionQueryPort:
-        return orchestration_store
+        return action_read_store
 
     @provide(scope=Scope.APP)
     def get_action_result_port(
         self,
-        orchestration_store: OrchestrationStore,
+        action_read_store: ActionReadStore,
     ) -> ActionResultPort:
-        return orchestration_store
+        return action_read_store
 
     @provide(scope=Scope.APP)
     def get_action_approval_port(
         self,
-        orchestration_store: OrchestrationStore,
+        approval_store: ApprovalStore,
     ) -> ActionApprovalPort:
-        return orchestration_store
+        return approval_store
 
     @provide(scope=Scope.APP)
     def get_pipeline_orchestration_store_port(
         self,
-        orchestration_store: OrchestrationStore,
+        run_claim_store: RunClaimStore,
+        scheduled_work_store: ScheduledWorkStore,
+        run_state_store: RunStateStore,
     ) -> PipelineOrchestrationStorePort:
-        return orchestration_store
+        return PipelineOrchestrationStore(
+            run_claims=run_claim_store,
+            scheduled_work=scheduled_work_store,
+            run_states=run_state_store,
+        )
 
     @provide(scope=Scope.APP)
     def get_pipeline_run_state_port(
         self,
-        orchestration_store: OrchestrationStore,
+        run_state_store: RunStateStore,
     ) -> PipelineRunStatePort:
-        return orchestration_store
+        return run_state_store
 
     @provide(scope=Scope.APP)
     def get_event_recorder_port(
         self,
-        orchestration_store: OrchestrationStore,
+        event_store: EventStore,
     ) -> EventRecorderPort:
-        return orchestration_store
+        return event_store
 
     @provide(scope=Scope.APP)
     def get_event_dispatch_store_port(
         self,
-        orchestration_store: OrchestrationStore,
+        dispatch_store: DispatchStore,
     ) -> EventDispatchStorePort:
-        return orchestration_store
+        return dispatch_store
 
     @provide(scope=Scope.APP)
     def get_action_outcome_store(
