@@ -1,6 +1,5 @@
 """Service for infrastructure graph visualization."""
 
-import logging
 from uuid import UUID
 
 from api.application.dto.infrastructure import InfrastructureGraphDTO
@@ -9,8 +8,6 @@ from api.application.infrastructure_graph_projection import (
     ip_in_cidr,
 )
 from api.infrastructure.unit_of_work.interfaces.infrastructure import InfrastructureUnitOfWork
-
-logger = logging.getLogger(__name__)
 
 
 class InfrastructureService:
