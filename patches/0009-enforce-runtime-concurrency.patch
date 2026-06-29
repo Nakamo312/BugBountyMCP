@@ -1,0 +1,145 @@
+diff --git a/src/api/application/pipeline/scan_node.py b/src/api/application/pipeline/scan_node.py
+index 2f7a5f1..0f583d3 100644
+--- a/src/api/application/pipeline/scan_node.py
++++ b/src/api/application/pipeline/scan_node.py
+@@ -162,7 +162,7 @@ class ScanNode(Node):
+             )
+             self._enforce_execution_context(event, invocation, runner_context)
+             effective_context = invocation or runner_context
+-            stream = run_raw(runner, targets, effective_context)
++            stream = self._run_raw_with_runtime_limit(runner, targets, effective_context)
+             raw_artifact_id = uuid4()
+             if isinstance(ctx, PipelineContext):
+                 ctx.set_downstream_parent_artifact(raw_artifact_id)
+@@ -289,6 +289,30 @@ class ScanNode(Node):
+             raise
+ 
+ 
++    def _run_raw_with_runtime_limit(
++        self,
++        runner: Any,
++        targets: List[str],
++        context: ToolInvocation | RunnerInvocationContext | None,
++    ):
++        """Run the CLI runner while honoring manifest runtime.concurrency.
++
++        Base Node parallelism controls how many events this node can process.
++        Runtime concurrency controls how many runner processes/streams may be
++        active at once for this specific ScanNode. Keep the semaphore around
++        raw stream consumption so subprocess/network work is bounded without
++        throttling post-run ingestion longer than necessary.
++        """
++
++        async def limited_stream():
++            async with self._scan_semaphore:
++                stream = run_raw(runner, targets, context)
++                async for item in stream:
++                    yield item
++
++        return limited_stream()
++
++
+     def _enforce_execution_context(
+         self,
+         event: Dict[str, Any],
+diff --git a/tests/application/test_worker_invocation.py b/tests/application/test_worker_invocation.py
+index be5797c..74385f5 100644
+--- a/tests/application/test_worker_invocation.py
++++ b/tests/application/test_worker_invocation.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+ 
++import asyncio
+ import sys
+ import types
+ from uuid import UUID, uuid4
+@@ -528,3 +529,89 @@ async def test_partial_action_event_is_rejected_before_runner_starts() -> None:
+         )
+ 
+     assert runner.calls == []
++
++
++@pytest.mark.asyncio
++async def test_scan_node_runtime_concurrency_limits_runner_streams() -> None:
++    class Runner:
++        def __init__(self) -> None:
++            self.calls = 0
++            self.active = 0
++            self.max_active = 0
++
++        def run_raw(self, targets):
++            async def stream():
++                self.calls += 1
++                self.active += 1
++                self.max_active = max(self.max_active, self.active)
++                try:
++                    await asyncio.sleep(0.05)
++                    yield ProcessEvent(type="stdout", payload=targets[0])
++                finally:
++                    self.active -= 1
++
++            return stream()
++
++    class Parser:
++        async def parse_stream(self, stream):
++            async for item in stream:
++                yield item
++
++    class Processor:
++        async def batch_stream(self, stream):
++            async for item in stream:
++                if item.payload:
++                    yield [item.payload]
++
++    class Context(PipelineContext):
++        def __init__(self, runner) -> None:
++            self.runner = runner
++
++        async def get_service(self, service_type):
++            if service_type is Runner:
++                return self.runner
++            if service_type is Processor:
++                return Processor()
++            raise AssertionError(service_type)
++
++        def capture_raw_stream(self, stream, **kwargs):
++            return stream
++
++        def ingest_context(self, raw_artifact_id=None):
++            return None
++
++    runner = Runner()
++    node = ScanNode(
++        node_id="httpx",
++        event_in={EventType.HTTPX_SCAN_REQUESTED},
++        event_out={},
++        runner_type=Runner,
++        processor_type=Processor,
++        parser_type=Parser,
++        execution_mode=ExecutionMode.INLINE,
++        max_parallelism=4,
++        runtime_concurrency=1,
++    )
++
++    event_one = _event(
++        event="httpx_scan_requested",
++        capability_id="httpx",
++        profile_id="probe-lite",
++        targets=["https://one.example.com"],
++        options={},
++    )
++    event_two = _event(
++        event="httpx_scan_requested",
++        capability_id="httpx",
++        profile_id="probe-lite",
++        targets=["https://two.example.com"],
++        options={},
++    )
++
++    await asyncio.gather(
++        node.execute(event_one, Context(runner)),
++        node.execute(event_two, Context(runner)),
++    )
++
++    assert runner.calls == 2
++    assert runner.max_active == 1

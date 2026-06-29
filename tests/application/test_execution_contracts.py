@@ -13,6 +13,8 @@ from api.application.contracts import (
     SafetyLevel,
     ToolInvocation,
 )
+from api.application.execution_limits import ExecutionBudget
+from api.application.pipeline.invocation import build_invocation
 
 
 def test_existing_action_request_is_the_tool_action_request_contract() -> None:
@@ -92,6 +94,7 @@ def test_tool_invocation_carries_runner_context_and_options() -> None:
         ]
     }
 
+    parent_artifact_id = uuid4()
     invocation = ToolInvocation(
         **ids,
         capability_id="katana",
@@ -99,16 +102,50 @@ def test_tool_invocation_carries_runner_context_and_options() -> None:
         targets=" https://example.com ",
         options={"depth": 3, "js_crawl": True},
         safety_level=SafetyLevel.SAFE_ACTIVE,
+        execution_budget=ExecutionBudget(
+            max_duration_seconds=60,
+            max_targets=20,
+            rate_per_second=10,
+            concurrency=2,
+        ),
         requested_by="api",
         source_event_id=uuid4(),
+        parent_artifact_id=parent_artifact_id,
     )
 
     assert invocation.targets == ["https://example.com"]
     assert invocation.options == {"depth": 3, "js_crawl": True}
+    assert invocation.execution_budget.concurrency == 2
     assert invocation.safety_level is SafetyLevel.SAFE_ACTIVE
     assert invocation.action_id == ids["action_id"]
     assert invocation.policy_decision_id == ids["policy_decision_id"]
     assert invocation.scope_decision_id == ids["scope_decision_id"]
+    assert invocation.parent_artifact_id == parent_artifact_id
+
+
+def test_build_invocation_reads_parent_artifact_from_event_payload() -> None:
+    parent_artifact_id = uuid4()
+    event = {
+        "action_id": str(uuid4()),
+        "job_id": str(uuid4()),
+        "run_id": str(uuid4()),
+        "program_id": str(uuid4()),
+        "capability_id": "httpx",
+        "profile_id": "passive",
+        "targets": ["https://example.com"],
+        "execution_budget": {"max_targets": 5},
+        "safety_level": "passive",
+        "scope_decision_id": str(uuid4()),
+        "policy_decision_id": str(uuid4()),
+        "campaign_id": str(uuid4()),
+        "correlation_id": str(uuid4()),
+        "payload": {"parent_artifact_id": str(parent_artifact_id)},
+    }
+
+    invocation = build_invocation(event, event["targets"])
+
+    assert invocation is not None
+    assert invocation.parent_artifact_id == parent_artifact_id
 
 
 def test_tool_invocation_rejects_missing_policy_or_scope_reference() -> None:
@@ -123,6 +160,7 @@ def test_tool_invocation_rejects_missing_policy_or_scope_reference() -> None:
             targets=["https://example.com"],
             options={},
             safety_level=SafetyLevel.PASSIVE,
+            execution_budget=ExecutionBudget(max_targets=5),
             campaign_id=uuid4(),
             correlation_id=uuid4(),
         )

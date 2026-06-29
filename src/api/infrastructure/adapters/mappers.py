@@ -1,376 +1,238 @@
-"""Mapper configuration for SQLAlchemy Core tables to domain models"""
+"""Legacy classical SQLAlchemy mapper configuration.
+
+Most new persistence code in this project uses explicit Core stores. Keep this
+module as a compatibility boundary for the older domain model mapping only; do
+not add new orchestration/read-model entities here.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
 from sqlalchemy.orm import registry, relationship
 
-from api.domain.models import (ASNModel, CIDRModel, DNSRecordModel,
-                               EndpointModel, FindingModel, HeaderModel,
-                               HostIPModel, HostModel, HTTPObservationHeaderModel,
-                               HTTPObservationModel, InputParameterModel,
-                               IPAddressModel, LeakModel,
-                               OrganizationModel, PayloadModel, ProgramModel,
-                               RawBodyModel, RootInputModel, ScannerExecutionModel,
-                               ScannerTemplateModel, ScopeRuleModel,
-                               ServiceModel, VulnTypeModel)
-from api.infrastructure.adapters.orm import (asns, cidrs, dns_records,
-                                             endpoints, findings, headers,
-                                             host_ips, hosts, http_observation_headers,
-                                             http_observations, input_parameters,
-                                             ip_addresses, leaks, metadata,
-                                             organizations, payloads, programs,
-                                             raw_body, root_inputs, scanner_executions,
-                                             scanner_templates, scope_rules,
-                                             services, vuln_types)
+from api.domain.models import (
+    ASNModel,
+    CIDRModel,
+    DNSRecordModel,
+    EndpointModel,
+    FindingModel,
+    HeaderModel,
+    HostIPModel,
+    HostModel,
+    HTTPObservationHeaderModel,
+    HTTPObservationModel,
+    InputParameterModel,
+    IPAddressModel,
+    JavaScriptReferenceModel,
+    LeakModel,
+    OrganizationModel,
+    PayloadModel,
+    ProgramModel,
+    RawBodyModel,
+    RootInputModel,
+    ScannerExecutionModel,
+    ScannerTemplateModel,
+    ScopeRuleModel,
+    ServiceModel,
+    VulnTypeModel,
+)
+from api.infrastructure.adapters.orm import (
+    asns,
+    cidrs,
+    dns_records,
+    endpoints,
+    findings,
+    headers,
+    host_ips,
+    hosts,
+    http_observation_headers,
+    http_observations,
+    input_parameters,
+    ip_addresses,
+    javascript_references,
+    leaks,
+    metadata,
+    organizations,
+    payloads,
+    programs,
+    raw_body,
+    root_inputs,
+    scanner_executions,
+    scanner_templates,
+    scope_rules,
+    services,
+    vuln_types,
+)
 
 mapper_registry = registry(metadata=metadata)
 
-def start_mappers():
-    mapper_registry.map_imperatively(
-        class_=ProgramModel,
-        local_table=programs,
-        properties={
-            'scope_rules': relationship(
-                ScopeRuleModel,
-                backref='program',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'root_inputs': relationship(
-                RootInputModel,
-                backref='program',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'hosts': relationship(
-                HostModel,
-                backref='program',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'ip_addresses': relationship(
-                IPAddressModel,
-                backref='program',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'findings': relationship(
-                FindingModel,
-                backref='program',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'leaks': relationship(
-                LeakModel,
-                backref='program',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
+_CASCADE_DELETE = "all, delete-orphan"
+_SELECT = "select"
+
+
+@dataclass(frozen=True)
+class MapperSpec:
+    model: type
+    table: Any
+    properties: dict[str, Any] | None = None
+
+
+def _owns(model: type, *, backref: str) -> Any:
+    return relationship(model, backref=backref, cascade=_CASCADE_DELETE, lazy=_SELECT)
+
+
+def _program_mapper_specs() -> tuple[MapperSpec, ...]:
+    return (
+        MapperSpec(
+            ProgramModel,
+            programs,
+            {
+                "scope_rules": _owns(ScopeRuleModel, backref="program"),
+                "root_inputs": _owns(RootInputModel, backref="program"),
+                "hosts": _owns(HostModel, backref="program"),
+                "ip_addresses": _owns(IPAddressModel, backref="program"),
+                "findings": _owns(FindingModel, backref="program"),
+                "leaks": _owns(LeakModel, backref="program"),
+            },
+        ),
+        MapperSpec(ScopeRuleModel, scope_rules),
+        MapperSpec(RootInputModel, root_inputs),
     )
 
-    mapper_registry.map_imperatively(
-        class_=ScopeRuleModel,
-        local_table=scope_rules
+
+def _network_mapper_specs() -> tuple[MapperSpec, ...]:
+    return (
+        MapperSpec(
+            HostModel,
+            hosts,
+            {
+                "ips": relationship(
+                    IPAddressModel,
+                    secondary=host_ips,
+                    backref="hosts",
+                    lazy=_SELECT,
+                    overlaps="hosts,ips",
+                ),
+                "endpoints": _owns(EndpointModel, backref="host"),
+                "input_parameters": relationship(
+                    InputParameterModel,
+                    secondary=endpoints,
+                    primaryjoin=(hosts.c.id == endpoints.c.host_id),
+                    secondaryjoin=(endpoints.c.id == input_parameters.c.endpoint_id),
+                    viewonly=True,
+                    lazy=_SELECT,
+                ),
+                "dns_records": _owns(DNSRecordModel, backref="host"),
+            },
+        ),
+        MapperSpec(IPAddressModel, ip_addresses, {"services": _owns(ServiceModel, backref="ip")}),
+        MapperSpec(
+            HostIPModel,
+            host_ips,
+            {
+                "host": relationship(
+                    HostModel,
+                    foreign_keys=[host_ips.c.host_id],
+                    lazy=_SELECT,
+                    overlaps="host_ip_links,hosts,ips",
+                ),
+                "ip": relationship(
+                    IPAddressModel,
+                    foreign_keys=[host_ips.c.ip_id],
+                    lazy=_SELECT,
+                    overlaps="host_ip_links,hosts,ips",
+                ),
+            },
+        ),
+        MapperSpec(DNSRecordModel, dns_records),
     )
 
-    mapper_registry.map_imperatively(
-        class_=RootInputModel,
-        local_table=root_inputs
+
+def _http_mapper_specs() -> tuple[MapperSpec, ...]:
+    return (
+        MapperSpec(
+            ServiceModel,
+            services,
+            {
+                "endpoints": _owns(EndpointModel, backref="service"),
+                "input_parameters": _owns(InputParameterModel, backref="service"),
+            },
+        ),
+        MapperSpec(
+            EndpointModel,
+            endpoints,
+            {
+                "input_parameters": _owns(InputParameterModel, backref="endpoint"),
+                "headers": _owns(HeaderModel, backref="endpoint"),
+                "raw_bodies": _owns(RawBodyModel, backref="endpoint"),
+                "findings": _owns(FindingModel, backref="endpoint"),
+                "leaks": _owns(LeakModel, backref="endpoint"),
+                "scanner_executions": _owns(ScannerExecutionModel, backref="endpoint"),
+            },
+        ),
+        MapperSpec(InputParameterModel, input_parameters, {"findings": _owns(FindingModel, backref="parameter")}),
+        MapperSpec(HeaderModel, headers),
+        MapperSpec(RawBodyModel, raw_body),
+        MapperSpec(
+            HTTPObservationModel,
+            http_observations,
+            {"headers": _owns(HTTPObservationHeaderModel, backref="observation")},
+        ),
+        MapperSpec(HTTPObservationHeaderModel, http_observation_headers),
+        MapperSpec(JavaScriptReferenceModel, javascript_references),
     )
 
-    mapper_registry.map_imperatively(
-        class_=HostModel,
-        local_table=hosts,
-        properties={
-            'ips': relationship(
-                IPAddressModel,
-                secondary=host_ips,
-                backref='hosts',
-                lazy='select',
-                overlaps="hosts,ips"
-            ),
-            'endpoints': relationship(
-                EndpointModel,
-                backref='host',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'input_parameters': relationship(
-                InputParameterModel,
-                secondary=endpoints,
-                primaryjoin=(hosts.c.id == endpoints.c.host_id),
-                secondaryjoin=(endpoints.c.id == input_parameters.c.endpoint_id),
-                viewonly=True,
-                lazy='select'
-            ),
-            'dns_records': relationship(
-                DNSRecordModel,
-                backref='host',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
+
+def _finding_mapper_specs() -> tuple[MapperSpec, ...]:
+    return (
+        MapperSpec(
+            VulnTypeModel,
+            vuln_types,
+            {
+                "payloads": _owns(PayloadModel, backref="vuln_type"),
+                "findings": _owns(FindingModel, backref="vuln_type"),
+            },
+        ),
+        MapperSpec(ScannerTemplateModel, scanner_templates, {"executions": _owns(ScannerExecutionModel, backref="template")}),
+        MapperSpec(ScannerExecutionModel, scanner_executions, {"findings": _owns(FindingModel, backref="execution")}),
+        MapperSpec(PayloadModel, payloads, {"findings": _owns(FindingModel, backref="payload")}),
+        MapperSpec(FindingModel, findings),
+        MapperSpec(LeakModel, leaks),
     )
 
-    mapper_registry.map_imperatively(
-        class_=IPAddressModel,
-        local_table=ip_addresses,
-        properties={
-            'services': relationship(
-                ServiceModel,
-                backref='ip',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
+
+def _organization_mapper_specs() -> tuple[MapperSpec, ...]:
+    return (
+        MapperSpec(OrganizationModel, organizations, {"asns": _owns(ASNModel, backref="organization")}),
+        MapperSpec(ASNModel, asns, {"cidrs": _owns(CIDRModel, backref="asn")}),
+        MapperSpec(CIDRModel, cidrs),
     )
 
-    mapper_registry.map_imperatively(
-        class_=HostIPModel,
-        local_table=host_ips,
-        properties={
-            'host': relationship(
-                HostModel,
-                foreign_keys=[host_ips.c.host_id],
-                lazy='select',
-                overlaps="host_ip_links,hosts,ips"
-            ),
-            'ip': relationship(
-                IPAddressModel,
-                foreign_keys=[host_ips.c.ip_id],
-                lazy='select',
-                overlaps="host_ip_links,hosts,ips"
-            ),
-        }
+
+def _mapper_specs() -> tuple[MapperSpec, ...]:
+    return (
+        *_program_mapper_specs(),
+        *_network_mapper_specs(),
+        *_http_mapper_specs(),
+        *_finding_mapper_specs(),
+        *_organization_mapper_specs(),
     )
 
-    mapper_registry.map_imperatively(
-        class_=ServiceModel,
-        local_table=services,
-        properties={
-            'endpoints': relationship(
-                EndpointModel,
-                backref='service',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'input_parameters': relationship(
-                InputParameterModel,
-                backref='service',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
-    )
 
-    mapper_registry.map_imperatively(
-        class_=EndpointModel,
-        local_table=endpoints,
-        properties={
-            'input_parameters': relationship(
-                InputParameterModel,
-                backref='endpoint',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'headers': relationship(
-                HeaderModel,
-                backref='endpoint',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'raw_bodies': relationship(
-                RawBodyModel,
-                backref='endpoint',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'findings': relationship(
-                FindingModel,
-                backref='endpoint',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'leaks': relationship(
-                LeakModel,
-                backref='endpoint',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'scanner_executions': relationship(
-                ScannerExecutionModel,
-                backref='endpoint',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
-    )
+def start_mappers() -> None:
+    """Register legacy domain mappings with SQLAlchemy."""
+    for spec in _mapper_specs():
+        mapper_registry.map_imperatively(
+            class_=spec.model,
+            local_table=spec.table,
+            properties=spec.properties,
+        )
 
-    mapper_registry.map_imperatively(
-        class_=InputParameterModel,
-        local_table=input_parameters,
-        properties={
-            'findings': relationship(
-                FindingModel,
-                backref='parameter',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
-    )
-
-    mapper_registry.map_imperatively(
-        class_=HeaderModel,
-        local_table=headers
-    )
-
-    mapper_registry.map_imperatively(
-        class_=RawBodyModel,
-        local_table=raw_body
-    )
-
-    mapper_registry.map_imperatively(
-        class_=HTTPObservationModel,
-        local_table=http_observations,
-        properties={
-            'headers': relationship(
-                HTTPObservationHeaderModel,
-                backref='observation',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
-    )
-
-    mapper_registry.map_imperatively(
-        class_=HTTPObservationHeaderModel,
-        local_table=http_observation_headers
-    )
-
-    mapper_registry.map_imperatively(
-        class_=VulnTypeModel,
-        local_table=vuln_types,
-        properties={
-            'payloads': relationship(
-                PayloadModel,
-                backref='vuln_type',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-            'findings': relationship(
-                FindingModel,
-                backref='vuln_type',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
-    )
-
-    mapper_registry.map_imperatively(
-        class_=ScannerTemplateModel,
-        local_table=scanner_templates,
-        properties={
-            'executions': relationship(
-                ScannerExecutionModel,
-                backref='template',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
-    )
-
-    mapper_registry.map_imperatively(
-        class_=ScannerExecutionModel,
-        local_table=scanner_executions,
-        properties={
-            'findings': relationship(
-                FindingModel,
-                backref='execution',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
-    )
-
-    mapper_registry.map_imperatively(
-        class_=PayloadModel,
-        local_table=payloads,
-        properties={
-            'findings': relationship(
-                FindingModel,
-                backref='payload',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
-    )
-
-    mapper_registry.map_imperatively(
-        class_=FindingModel,
-        local_table=findings
-    )
-
-    mapper_registry.map_imperatively(
-        class_=LeakModel,
-        local_table=leaks
-    )
-
-    mapper_registry.map_imperatively(
-        class_=DNSRecordModel,
-        local_table=dns_records
-    )
-
-    mapper_registry.map_imperatively(
-        class_=OrganizationModel,
-        local_table=organizations,
-        properties={
-            'asns': relationship(
-                ASNModel,
-                backref='organization',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
-    )
-
-    mapper_registry.map_imperatively(
-        class_=ASNModel,
-        local_table=asns,
-        properties={
-            'cidrs': relationship(
-                CIDRModel,
-                backref='asn',
-                cascade='all, delete-orphan',
-                lazy='select'
-            ),
-        }
-    )
-
-    mapper_registry.map_imperatively(
-        class_=CIDRModel,
-        local_table=cidrs
-    )
 
 def get_mapped_classes():
-    return {
-        ProgramModel,
-        ScopeRuleModel,
-        RootInputModel,
-        HostModel,
-        IPAddressModel,
-        HostIPModel,
-        ServiceModel,
-        EndpointModel,
-        InputParameterModel,
-        HeaderModel,
-        HTTPObservationModel,
-        HTTPObservationHeaderModel,
-        VulnTypeModel,
-        ScannerTemplateModel,
-        ScannerExecutionModel,
-        PayloadModel,
-        FindingModel,
-        LeakModel,
-        DNSRecordModel,
-    }
+    return {spec.model for spec in _mapper_specs()}
+
 
 def get_metadata():
     return metadata

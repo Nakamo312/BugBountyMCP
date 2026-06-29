@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+from tests.infrastructure.graph_projector_cli_test_helpers import graph_projector_cli_source
 
 
 def _symbols():
@@ -143,7 +144,7 @@ class SequenceRawArtifactEnqueuer:
 
 
 def test_raw_artifact_fetch_claims_durable_projection_events_instead_of_scanning_artifacts() -> None:
-    source = Path("services/graph-projector/graph_projector/producers/raw_artifacts.py").read_text(encoding="utf-8")
+    source = Path("services/graph-projector/graph_projector/producers/raw_artifact_claims.py").read_text(encoding="utf-8")
 
     assert "FROM graph_projection_events" in source
     assert "raw_artifact_created" in source
@@ -185,11 +186,11 @@ def test_raw_artifact_enqueue_loop_stops_after_idle_threshold_and_sleeps() -> No
     ]
 
 
-def test_enqueue_raw_artifacts_loop_cli_and_compose_service_are_exposed() -> None:
-    main_source = Path("services/graph-projector/graph_projector/__main__.py").read_text(encoding="utf-8")
+def test_raw_artifact_enqueue_loop_is_not_exposed_as_dedicated_compose_service() -> None:
+    main_source = graph_projector_cli_source()
     compose_source = Path("docker-compose.yml").read_text(encoding="utf-8")
 
     assert 'subparsers.add_parser("enqueue-raw-artifacts-loop"' in main_source
     assert "RawArtifactEnqueueLoopResult" in main_source
-    assert "graph-projector-raw-artifact-enqueuer" in compose_source
-    assert 'command: ["enqueue-raw-artifacts-loop"]' in compose_source
+    assert "graph-projector-raw-artifact-enqueuer" not in compose_source
+    assert 'command: ["enqueue-raw-artifacts-loop"]' not in compose_source

@@ -6,6 +6,13 @@ import re
 from collections.abc import AsyncIterator
 from urllib.parse import urlparse
 
+from api.application.pipeline.records import (
+    FuzzFinding,
+    HostFinding,
+    JavaScriptReferenceFinding,
+    ServiceFinding,
+    UrlFinding,
+)
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 
@@ -37,6 +44,10 @@ def _dict_value(line: str) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _default_service_scheme(port: int) -> str:
+    return "https" if port == 443 else "http"
+
+
 class StdoutLineResultParser:
     """Emit non-empty stdout lines as result payloads."""
 
@@ -62,8 +73,111 @@ class URLStdoutLineResultParser:
                     yield ProcessEvent(type="result", payload=value)
 
 
+class WaymoreStdoutParser:
+    """Parse Waymore URL stdout into UrlFinding records."""
+
+    async def parse_stream(self, stream: AsyncIterator[ProcessEvent]) -> AsyncIterator[ProcessEvent]:
+        async for event in stream:
+            if event.type != "stdout" or not event.payload:
+                continue
+            value = _string_value(event.payload, ("url", "href", "endpoint", "input"))
+            if value and value.startswith(("http://", "https://")):
+                yield ProcessEvent(
+                    type="canonical_record",
+                    payload=UrlFinding(
+                        url=value,
+                        source_tool="waymore",
+                        raw=event.payload,
+                    ),
+                )
+
+
+class KatanaStdoutParser:
+    """Parse Katana JSONL stdout into URL evidence records."""
+
+    async def parse_stream(self, stream: AsyncIterator[ProcessEvent]) -> AsyncIterator[ProcessEvent]:
+        async for event in stream:
+            if event.type != "stdout" or not event.payload:
+                continue
+            parsed = _dict_value(event.payload)
+            if parsed is None:
+                continue
+            url = self._endpoint_url(parsed)
+            if not self._is_absolute_http_url(url):
+                continue
+            metadata = self._metadata(parsed, url)
+            yield ProcessEvent(
+                type="canonical_record",
+                payload=UrlFinding(
+                    url=url,
+                    source_tool="katana",
+                    source_target=self._host(url),
+                    metadata=metadata,
+                    raw=parsed,
+                ),
+            )
+
+    @staticmethod
+    def _endpoint_url(data: dict) -> str | None:
+        request = data.get("request")
+        if isinstance(request, dict):
+            endpoint = request.get("endpoint") or request.get("url")
+            if endpoint:
+                return str(endpoint).strip() or None
+        endpoint = data.get("endpoint") or data.get("url")
+        return str(endpoint).strip() or None if endpoint else None
+
+    @staticmethod
+    def _is_absolute_http_url(url: str | None) -> bool:
+        if not url:
+            return False
+        parsed = urlparse(url)
+        return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+    @staticmethod
+    def _host(url: str) -> str | None:
+        parsed = urlparse(url)
+        return parsed.hostname or parsed.netloc or None
+
+    @classmethod
+    def _metadata(cls, data: dict, url: str) -> dict[str, object]:
+        request = data.get("request") if isinstance(data.get("request"), dict) else {}
+        response = data.get("response") if isinstance(data.get("response"), dict) else {}
+        headers = response.get("headers") if isinstance(response.get("headers"), dict) else {}
+        metadata: dict[str, object] = {
+            "method": str(request.get("method") or data.get("method") or "GET").upper(),
+        }
+        status_code = response.get("status_code") or data.get("status_code")
+        if status_code is not None:
+            metadata["status_code"] = status_code
+        title = response.get("title") or data.get("title")
+        if title:
+            metadata["title"] = str(title)
+        content_type = cls._header_value(headers, "content-type")
+        if content_type:
+            metadata["content_type"] = content_type
+        if cls._is_javascript_url(url, content_type):
+            metadata["asset_type"] = "javascript"
+        return metadata
+
+    @staticmethod
+    def _header_value(headers: dict, name: str) -> str | None:
+        lowered = name.lower()
+        for header_name, value in headers.items():
+            if str(header_name).lower() == lowered:
+                return str(value)
+        return None
+
+    @staticmethod
+    def _is_javascript_url(url: str, content_type: str | None) -> bool:
+        lowered = url.lower().split("?", 1)[0]
+        if lowered.endswith((".js", ".mjs", ".cjs")):
+            return True
+        return bool(content_type and "javascript" in content_type.lower())
+
+
 class SubfinderStdoutParser:
-    """Parse Subfinder JSON/text stdout into subdomain events."""
+    """Parse Subfinder JSON/text stdout into HostFinding records."""
 
     async def parse_stream(self, stream: AsyncIterator[ProcessEvent]) -> AsyncIterator[ProcessEvent]:
         async for event in stream:
@@ -74,7 +188,14 @@ class SubfinderStdoutParser:
                 continue
             subdomain = self._extract_host(line)
             if subdomain:
-                yield ProcessEvent(type="subdomain", payload=subdomain)
+                yield ProcessEvent(
+                    type="canonical_record",
+                    payload=HostFinding(
+                        host=subdomain,
+                        source_tool="subfinder",
+                        raw=line,
+                    ),
+                )
 
     @staticmethod
     def _extract_host(line: str) -> str | None:
@@ -123,12 +244,14 @@ class Hakip2HostStdoutParser:
                 hostname = parsed.get("hostname") or parsed.get("host")
                 if ip and hostname:
                     yield ProcessEvent(
-                        type="result",
-                        payload={
-                            "method": str(parsed.get("method", "unknown")),
-                            "ip": str(ip),
-                            "hostname": str(hostname),
-                        },
+                        type="canonical_record",
+                        payload=HostFinding(
+                            host=str(hostname),
+                            source_tool="hakip2host",
+                            ip=str(ip),
+                            metadata={"method": str(parsed.get("method", "unknown"))},
+                            raw=parsed,
+                        ),
                     )
                 continue
 
@@ -136,25 +259,133 @@ class Hakip2HostStdoutParser:
             if len(parts) != 3 or not parts[0].startswith("["):
                 continue
             yield ProcessEvent(
-                type="result",
-                payload={
-                    "method": parts[0].strip("[]"),
-                    "ip": parts[1],
-                    "hostname": parts[2],
-                },
+                type="canonical_record",
+                payload=HostFinding(
+                    host=parts[2],
+                    source_tool="hakip2host",
+                    ip=parts[1],
+                    metadata={"method": parts[0].strip("[]")},
+                    raw=event.payload,
+                ),
             )
 
 
-class FFUFStdoutParser:
-    """Parse FFUF JSON stdout result lines."""
+class NaabuStdoutParser:
+    """Parse Naabu JSON stdout into ServiceFinding records."""
 
     async def parse_stream(self, stream: AsyncIterator[ProcessEvent]) -> AsyncIterator[ProcessEvent]:
         async for event in stream:
             if event.type != "stdout" or not event.payload:
                 continue
             parsed = _dict_value(event.payload)
-            if isinstance(parsed, dict) and "url" in parsed:
-                yield ProcessEvent(type="result", payload=parsed)
+            if parsed is None:
+                continue
+
+            ip = parsed.get("ip") or parsed.get("host")
+            port = parsed.get("port")
+            if not ip or port is None:
+                continue
+
+            try:
+                port_number = int(port)
+            except (TypeError, ValueError):
+                continue
+
+            yield ProcessEvent(
+                type="canonical_record",
+                payload=ServiceFinding(
+                    ip=str(ip),
+                    port=port_number,
+                    protocol=str(parsed.get("protocol") or "tcp"),
+                    source_tool="naabu",
+                    host=str(parsed.get("host")) if parsed.get("host") else None,
+                    scheme=_default_service_scheme(port_number),
+                    raw=parsed,
+                ),
+            )
+
+
+class FFUFStdoutParser:
+    """Parse FFUF JSON stdout into URL and fuzzing evidence records."""
+
+    async def parse_stream(self, stream: AsyncIterator[ProcessEvent]) -> AsyncIterator[ProcessEvent]:
+        async for event in stream:
+            if event.type != "stdout" or not event.payload:
+                continue
+            parsed = _dict_value(event.payload)
+            if parsed is None:
+                continue
+            url = self._url(parsed)
+            if not self._is_absolute_http_url(url):
+                continue
+            metadata = self._metadata(parsed)
+            yield ProcessEvent(
+                type="canonical_record",
+                payload=UrlFinding(
+                    url=url,
+                    source_tool="ffuf",
+                    source_target=self._host(url),
+                    metadata={"evidence_type": "fuzz_candidate"},
+                    raw=parsed,
+                ),
+            )
+            yield ProcessEvent(
+                type="canonical_record",
+                payload=FuzzFinding(
+                    url=url,
+                    source_tool="ffuf",
+                    source_target=self._host(url),
+                    status_code=self._int_value(parsed.get("status")),
+                    length=self._int_value(parsed.get("length")),
+                    words=self._int_value(parsed.get("words")),
+                    lines=self._int_value(parsed.get("lines")),
+                    redirect_location=self._string_value(parsed.get("redirectlocation")),
+                    metadata=metadata,
+                    raw=parsed,
+                ),
+            )
+
+    @staticmethod
+    def _url(data: dict) -> str | None:
+        value = data.get("url")
+        return str(value).strip() or None if value else None
+
+    @staticmethod
+    def _is_absolute_http_url(url: str | None) -> bool:
+        if not url:
+            return False
+        parsed = urlparse(url)
+        return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+    @staticmethod
+    def _host(url: str) -> str | None:
+        parsed = urlparse(url)
+        return parsed.hostname or parsed.netloc or None
+
+    @staticmethod
+    def _int_value(value: object) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _string_value(value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @classmethod
+    def _metadata(cls, data: dict) -> dict[str, object]:
+        metadata: dict[str, object] = {}
+        for key in ("input", "position", "content-type", "resultfile"):
+            value = data.get(key)
+            if value is not None:
+                metadata[key.replace("-", "_")] = value
+        return metadata
 
 
 class SubjackStdoutParser:
@@ -227,7 +458,7 @@ class SubjackStdoutParser:
 
 
 class LinkFinderStdoutParser:
-    """Parse LinkFinder stdout using target marker events for host context."""
+    """Parse LinkFinder stdout into URL evidence and JS reference findings."""
 
     _static_extensions = (
         ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".woff", ".ttf",
@@ -241,8 +472,8 @@ class LinkFinderStdoutParser:
 
         async for event in stream:
             if event.type == "target" and isinstance(event.payload, dict):
-                if current_target and urls_found:
-                    yield self._result(current_target, current_host, urls_found)
+                async for record in self._records(current_target, current_host, urls_found):
+                    yield record
                 current_target = event.payload.get("target")
                 current_host = event.payload.get("host")
                 urls_found = []
@@ -257,15 +488,36 @@ class LinkFinderStdoutParser:
             if normalized and self._is_valid_url(normalized):
                 urls_found.append(normalized)
 
-        if current_target and urls_found:
-            yield self._result(current_target, current_host, urls_found)
+        async for record in self._records(current_target, current_host, urls_found):
+            yield record
 
-    @staticmethod
-    def _result(source_js: str, host: str | None, urls: list[str]) -> ProcessEvent:
-        return ProcessEvent(
-            type="result",
-            payload={"source_js": source_js, "urls": urls, "host": host},
-        )
+    async def _records(
+        self,
+        source_js: str | None,
+        host: str | None,
+        urls: list[str],
+    ) -> AsyncIterator[ProcessEvent]:
+        if not source_js or not urls:
+            return
+        for url in urls:
+            yield ProcessEvent(
+                type="canonical_record",
+                payload=JavaScriptReferenceFinding(
+                    source_url=source_js,
+                    referenced_url=url,
+                    source_tool="linkfinder",
+                    source_target=host,
+                ),
+            )
+            yield ProcessEvent(
+                type="canonical_record",
+                payload=UrlFinding(
+                    url=url,
+                    source_tool="linkfinder",
+                    source_target=host,
+                    discovered_from=source_js,
+                ),
+            )
 
     @staticmethod
     def _normalize_url(url: str, host: str) -> str | None:

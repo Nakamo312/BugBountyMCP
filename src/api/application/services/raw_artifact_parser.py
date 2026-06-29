@@ -20,4 +20,14 @@ class RawArtifactParserService:
         storage_uri = row.get("storage_uri")
         if not storage_uri:
             raise ValueError("raw artifact row missing storage_uri")
-        return self.parser.parse_path(Path(storage_uri))
+        metadata = {
+            "artifact_id": str(row["id"]) if row.get("id") else None,
+            "artifact_type": row.get("artifact_type"),
+            "program_id": str(row["program_id"]) if row.get("program_id") else None,
+            "job_id": str(row["job_id"]) if row.get("job_id") else None,
+            "run_id": str(row["run_id"]) if row.get("run_id") else None,
+            "node_id": row.get("node_id"),
+            "event_name": row.get("event_name"),
+            **(row.get("artifact_metadata") or {}),
+        }
+        return self.parser.parse_path(Path(storage_uri), metadata=metadata)

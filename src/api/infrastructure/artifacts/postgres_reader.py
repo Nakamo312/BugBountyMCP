@@ -20,6 +20,7 @@ from api.application.artifact_contracts import (
     IPArtifact,
     LeakArtifact,
     ParameterArtifact,
+    RawArtifactPreview,
     ServiceArtifact,
 )
 from api.application.research.sanitizer import sanitize_header, sanitize_text
@@ -35,6 +36,7 @@ from api.infrastructure.adapters.orm import (
     ip_addresses,
     leaks,
     raw_body,
+    raw_artifacts,
     services,
     vuln_types,
 )
@@ -314,6 +316,32 @@ class PostgresArtifactReader:
             query = query.where(raw_body.c.body_hash == body_hash)
         rows = await self._fetch_all(query.order_by(raw_body.c.id), limit, offset)
         return [BodyArtifact.model_validate(self._sanitize_body_row(row)) for row in rows]
+
+    async def list_artifact_previews(
+        self,
+        *,
+        program_id: uuid.UUID,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> list[RawArtifactPreview]:
+        query = (
+            select(
+                raw_artifacts.c.id.label("artifact_id"),
+                raw_artifacts.c.program_id,
+                raw_artifacts.c.artifact_type,
+                raw_artifacts.c.sanitized_preview,
+                raw_artifacts.c.sanitizer_version,
+                raw_artifacts.c.redaction_policy_version,
+                raw_artifacts.c.sanitized_safe_for_llm,
+                raw_artifacts.c.created_at,
+            )
+            .where(raw_artifacts.c.program_id == program_id)
+            .where(raw_artifacts.c.sanitized_safe_for_llm.is_(True))
+            .where(raw_artifacts.c.sanitized_preview.is_not(None))
+            .order_by(raw_artifacts.c.created_at.desc())
+        )
+        rows = await self._fetch_all(query, limit, offset)
+        return [RawArtifactPreview.model_validate(row) for row in rows]
 
     async def list_dns_records(
         self,

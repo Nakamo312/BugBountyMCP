@@ -4,8 +4,8 @@ import logging
 from typing import Any, List
 from uuid import UUID
 
+from api.application.contracts import IngestContext
 from api.config import Settings
-from api.domain.models import ASNModel, CIDRModel, OrganizationModel
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 from api.infrastructure.ingestors.ingest_result import IngestResult
 from api.infrastructure.unit_of_work.interfaces.asnmap import ASNMapUnitOfWork
@@ -43,28 +43,28 @@ class ASNMapResultIngestor(BaseResultIngestor):
         self._discovered_asns: set[str] = set()
         self._discovered_cidrs: set[str] = set()
 
-    async def ingest(self, program_id: UUID, results: List[dict[str, Any]]) -> IngestResult:
-        """Ingest ASNMap results and return discovered ASNs/CIDRs"""
-        self._discovered_asns = set()
-        self._discovered_cidrs = set()
-
-        await super().ingest(program_id, results)
-
-        return IngestResult(
-            asns=list(self._discovered_asns),
-            cidrs=list(self._discovered_cidrs)
-        )
-
-    async def _process_batch(self, uow: ASNMapUnitOfWork, program_id: UUID, batch: List[dict[str, Any]]):
-        """Process batch of ASNMap results"""
-        for data in batch:
-            await self._process_record(uow, program_id, data)
-
-    async def _process_record(
+    async def before_ingest(
         self,
         uow: ASNMapUnitOfWork,
         program_id: UUID,
-        data: dict[str, Any]
+        results: List[dict[str, Any]],
+        context: IngestContext | None = None,
+    ) -> None:
+        self._discovered_asns = set()
+        self._discovered_cidrs = set()
+
+    def build_result(self) -> IngestResult:
+        return IngestResult(
+            asns=list(self._discovered_asns),
+            cidrs=list(self._discovered_cidrs),
+        )
+
+    async def process_record(
+        self,
+        uow: ASNMapUnitOfWork,
+        program_id: UUID,
+        data: dict[str, Any],
+        context: IngestContext | None = None,
     ):
         """
         Process single ASNMap result.

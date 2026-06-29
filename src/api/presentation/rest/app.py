@@ -70,22 +70,28 @@ async def lifespan(app: FastAPI):
             await wait_condition_processor.start()
             app.state.wait_condition_processor = wait_condition_processor
 
+        if settings.USE_AGENT_INBOX_PROCESSOR:
+            from api.application.research_inbox_processor import ResearchInboxProcessor
+
+            inbox_processor: ResearchInboxProcessor = await container.get(
+                ResearchInboxProcessor
+            )
+            await inbox_processor.start()
+            app.state.agent_inbox_processor = inbox_processor
+
         if settings.USE_SCHEDULER:
             from api.application.scheduler import ActionScheduler, load_scheduler_config
             from api.application.services.action import ActionService
             from api.application.services.action_catalog import ActionCatalogService
             from api.application.services.policy import PolicyService
             from api.application.execution_limits import system_execution_budget
-            from api.infrastructure.events.event_bus import EventBus
             from api.infrastructure.orchestration.store import OrchestrationStore
             from api.infrastructure.repositories.adapters.scope_rule import SQLAlchemyScopeRuleRepository
 
-            event_bus: EventBus = await container.get(EventBus)
             orchestration_store: OrchestrationStore = await container.get(OrchestrationStore)
             catalog_service: ActionCatalogService = await container.get(ActionCatalogService)
             scope_rule_repository: SQLAlchemyScopeRuleRepository = await container.get(SQLAlchemyScopeRuleRepository)
             action_service = ActionService(
-                event_bus=event_bus,
                 store=orchestration_store,
                 policy=PolicyService(),
                 catalog=catalog_service,
@@ -116,6 +122,10 @@ async def lifespan(app: FastAPI):
     wait_condition_processor = getattr(app.state, "wait_condition_processor", None)
     if wait_condition_processor is not None:
         await wait_condition_processor.stop()
+
+    inbox_processor = getattr(app.state, "agent_inbox_processor", None)
+    if inbox_processor is not None:
+        await inbox_processor.stop()
 
     scheduler = getattr(app.state, "action_scheduler", None)
     if scheduler is not None:

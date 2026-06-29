@@ -1,0 +1,353 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index 7d5040e..3b53d19 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -46,7 +46,7 @@ integration, or live OpenSearch integration.
+ | M3 remove research-engine | Done | Standalone `services/research-engine` and its compose service are removed; sanitizer helpers remain in application code. |
+ | M4 Neo4j graph projection | Partial | GraphFact contracts, ontology, Neo4j projector, graph_fact_batches, apply loop, raw-artifact/http-observation/canonical-inventory enqueuing through rebuild, safe query templates, dedupe, notifications, and writer hardening exist. Remaining gaps are richer producer coverage and runtime smoke. |
+ | M5 OpenSearch expansion | Partial | Search-indexer exists with safe document builders, schema versioning and projection lag/readiness; missing-index expansion and producers remain. |
+-| M6 async agent protocol | Partial | Durable workflow/inbox/wait/result-set schema, EventStore routing, all five planned wait predicates including `campaign_quiescent`, automatic wait processing, claim/lease, cancellation boundary, and internal-token guarded REST protocol exist. Live auth integration and end-to-end smoke remain. |
++| M6 async agent protocol | Partial | Durable workflow/inbox/wait/result-set schema, EventStore routing, all five planned wait predicates including `campaign_quiescent`, automatic wait processing, claim/lease, cancellation boundary, internal-token guarded REST protocol, and auth/claim/handoff/cancel smoke coverage exist. Remaining work is live runtime smoke against real Postgres/LangGraph services. |
+ | M7 LangGraph workflows | Partial | The compiled pointer-only `StateGraph` durably interrupts for readiness and is automatically resumed after its wait condition resolves. Live end-to-end integration remains. |
+ 
+ ## Phase 0 - Architecture Baseline
+@@ -645,8 +645,8 @@ Gaps:
+ 
+ Next action:
+ 
+-- Add live end-to-end smoke for the agent protocol with auth headers, inbox
+-  claim/lease, LangGraph handoff, and cancellation.
++- Run the agent protocol smoke against real Postgres/LangGraph runtime services, not
++  only in-process fakes.
+ 
+ ## M7 - LangGraph Workflows To MVP
+ 
+diff --git a/src/api/presentation/rest/routes/agent_protocol.py b/src/api/presentation/rest/routes/agent_protocol.py
+index 416850b..1b289e5 100644
+--- a/src/api/presentation/rest/routes/agent_protocol.py
++++ b/src/api/presentation/rest/routes/agent_protocol.py
+@@ -75,6 +75,7 @@ class AgentInboxClaimRequest(BaseModel):
+ 
+     program_id: UUID
+     consumer_id: str = Field(min_length=1, max_length=100)
++    inbox_key: str | None = Field(default=None, min_length=1, max_length=200)
+     campaign_id: UUID | None = None
+     correlation_id: UUID | None = None
+     limit: int = Field(default=100, ge=1, le=500)
+diff --git a/tests/application/test_agent_protocol_api_contract.py b/tests/application/test_agent_protocol_api_contract.py
+index 5bd4e7c..66b2bbc 100644
+--- a/tests/application/test_agent_protocol_api_contract.py
++++ b/tests/application/test_agent_protocol_api_contract.py
+@@ -33,6 +33,7 @@ def test_agent_protocol_routes_expose_m6_coordination_endpoints() -> None:
+     security_source = Path("src/api/presentation/rest/security.py").read_text(encoding="utf-8")
+     assert "X-Agent-Actor" in security_source
+     assert "X-Agent-Internal-Token" in security_source
++    assert "inbox_key" in source
+     assert "AGENT_PROTOCOL_INTERNAL_TOKEN" in Path("src/api/config.py").read_text(encoding="utf-8")
+     assert 'prefix="/api/v1/agent"' in router_source
+ 
+diff --git a/tests/application/test_agent_protocol_live_smoke.py b/tests/application/test_agent_protocol_live_smoke.py
+new file mode 100644
+index 0000000..6e60764
+--- /dev/null
++++ b/tests/application/test_agent_protocol_live_smoke.py
+@@ -0,0 +1,299 @@
++from __future__ import annotations
++
++from datetime import datetime, timedelta, timezone
++from types import SimpleNamespace
++from uuid import UUID, uuid4
++
++from api.application.langgraph_inbox_handoff import MvpResearchInboxHandoff
++from api.presentation.rest.security import require_agent_protocol_internal_access
++
++
++class _Request:
++    def __init__(self, settings: object) -> None:
++        self.app = SimpleNamespace(state=SimpleNamespace(settings=settings))
++
++
++class _WorkflowState:
++    def __init__(self, *, run_id: UUID, status: str, reason: str | None = None) -> None:
++        self.run_id = run_id
++        self.status = status
++        self.reason = reason
++
++    def to_dict(self) -> dict[str, str | None]:
++        return {
++            "run_id": str(self.run_id),
++            "status": self.status,
++            "reason": self.reason,
++        }
++
++
++class _RecordingWorkflowRuntime:
++    def __init__(self, store: _InMemoryAgentProtocolStore) -> None:
++        self.store = store
++        self.cancelled: list[tuple[UUID, str | None]] = []
++
++    async def cancel(self, *, run_id: UUID, reason: str | None = None) -> _WorkflowState:
++        self.cancelled.append((run_id, reason))
++        self.store.workflow_runs[run_id] = "cancelled"
++        return _WorkflowState(run_id=run_id, status="cancelled", reason=reason)
++
++
++class _Snapshot:
++    def __init__(self, values: dict | None = None) -> None:
++        self.values = values or {}
++
++
++class _RecordingGraph:
++    def __init__(self) -> None:
++        self.invoked: list[tuple[object, str]] = []
++        self.resumed: list[str] = []
++        self.state_lookups: list[str] = []
++
++    async def ainvoke(self, request, *, thread_id: str, required_projections=()):
++        self.invoked.append((request, thread_id))
++        return {"status": "started", "thread_id": thread_id}
++
++    async def aresume(self, *, thread_id: str):
++        self.resumed.append(thread_id)
++        return {"status": "resumed", "thread_id": thread_id}
++
++    async def aget_state(self, *, thread_id: str):
++        self.state_lookups.append(thread_id)
++        return _Snapshot()
++
++
++class _InMemoryAgentProtocolStore:
++    def __init__(self) -> None:
++        self.subscriptions: dict[UUID, dict] = {}
++        self.inbox: dict[UUID, dict] = {}
++        self.result_sets: dict[UUID, dict] = {}
++        self.workflow_runs: dict[UUID, str] = {}
++        self.acked: list[UUID] = []
++
++    async def create_subscription(self, **values):
++        subscription_id = uuid4()
++        self.subscriptions[subscription_id] = {
++            "id": subscription_id,
++            "status": "active",
++            **values,
++        }
++        workflow_run_id = values.get("workflow_run_id")
++        if workflow_run_id is not None:
++            self.workflow_runs.setdefault(workflow_run_id, "waiting")
++        return subscription_id
++
++    async def upsert_result_set(self, **values):
++        result_set_id = uuid4()
++        self.result_sets[result_set_id] = {"id": result_set_id, **values}
++        return result_set_id
++
++    def enqueue_inbox(
++        self,
++        *,
++        subscription_id: UUID,
++        message_type: str = "new_facts_available",
++        payload: dict | None = None,
++    ) -> UUID:
++        subscription = self.subscriptions[subscription_id]
++        message_id = uuid4()
++        self.inbox[message_id] = {
++            "id": message_id,
++            "subscription_id": subscription_id,
++            "workflow_id": subscription.get("workflow_id"),
++            "workflow_run_id": subscription.get("workflow_run_id"),
++            "program_id": subscription["program_id"],
++            "campaign_id": subscription.get("campaign_id"),
++            "correlation_id": subscription.get("correlation_id"),
++            "event_id": None,
++            "message_type": message_type,
++            "payload": payload or {},
++            "status": "pending",
++            "available_at": datetime.now(timezone.utc),
++            "locked_by": None,
++            "locked_until": None,
++            "attempts": 0,
++            "last_error": None,
++        }
++        return message_id
++
++    async def claim_inbox(
++        self,
++        *,
++        program_id=None,
++        consumer_id: str,
++        lease_seconds: int = 300,
++        campaign_id=None,
++        correlation_id=None,
++        inbox_key=None,
++        limit: int = 100,
++    ) -> list[dict]:
++        now = datetime.now(timezone.utc)
++        claimed: list[dict] = []
++        for message in self.inbox.values():
++            subscription = self.subscriptions[message["subscription_id"]]
++            if program_id is not None and message["program_id"] != program_id:
++                continue
++            if campaign_id is not None and message["campaign_id"] != campaign_id:
++                continue
++            if correlation_id is not None and message["correlation_id"] != correlation_id:
++                continue
++            if inbox_key is not None and subscription["inbox_key"] != inbox_key:
++                continue
++            if message["status"] == "cancelled":
++                continue
++            if message["available_at"] > now:
++                continue
++            if message["status"] == "claimed" and (
++                message["locked_until"] is None or message["locked_until"] > now
++            ):
++                continue
++            if message["status"] not in {"pending", "failed", "claimed"}:
++                continue
++
++            message["status"] = "claimed"
++            message["locked_by"] = consumer_id
++            message["locked_until"] = now + timedelta(seconds=lease_seconds)
++            message["attempts"] += 1
++            message["last_error"] = None
++            claimed.append(dict(message))
++            if len(claimed) >= limit:
++                break
++        return claimed
++
++    async def ack_inbox_message(self, *, message_id):
++        message = self.inbox[message_id]
++        message["status"] = "processed"
++        message["locked_by"] = None
++        message["locked_until"] = None
++        self.acked.append(message_id)
++
++    async def get_workflow_run_status(self, *, run_id):
++        return self.workflow_runs.get(run_id)
++
++    async def cancel_workflow_run_dependents(self, *, run_id, reason: str | None = None):
++        subscriptions_cancelled = 0
++        inbox_messages_cancelled = 0
++        wait_conditions_cancelled = 0
++        for subscription in self.subscriptions.values():
++            if subscription.get("workflow_run_id") == run_id and subscription["status"] in {
++                "active",
++                "paused",
++            }:
++                subscription["status"] = "cancelled"
++                subscriptions_cancelled += 1
++        for message in self.inbox.values():
++            if message.get("workflow_run_id") == run_id and message["status"] in {
++                "pending",
++                "claimed",
++                "failed",
++            }:
++                message["status"] = "cancelled"
++                message["last_error"] = f"workflow cancelled: {reason or 'cancelled'}"
++                inbox_messages_cancelled += 1
++        return {
++            "subscriptions_cancelled": subscriptions_cancelled,
++            "inbox_messages_cancelled": inbox_messages_cancelled,
++            "wait_conditions_cancelled": wait_conditions_cancelled,
++        }
++
++
++def _settings() -> object:
++    return SimpleNamespace(
++        AGENT_PROTOCOL_INTERNAL_TOKEN="internal-token",
++        AGENT_PROTOCOL_ALLOWED_ACTORS="agent-worker,operator,admin",
++        AGENT_PROTOCOL_ALLOW_UNAUTHENTICATED_INTERNAL=False,
++    )
++
++
++async def test_agent_protocol_auth_claim_handoff_and_cancel_smoke() -> None:
++    principal = require_agent_protocol_internal_access(
++        _Request(_settings()),
++        x_agent_actor="agent-worker",
++        x_agent_internal_token="internal-token",
++    )
++    assert principal.actor == "agent-worker"
++
++    store = _InMemoryAgentProtocolStore()
++    program_id = uuid4()
++    campaign_id = uuid4()
++    correlation_id = uuid4()
++    workflow_run_id = uuid4()
++
++    subscription_id = await store.create_subscription(
++        program_id=program_id,
++        event_type="new_facts_available",
++        inbox_key="mvp-hypothesis-builder",
++        dedupe_key=f"{program_id}:new_facts_available:mvp",
++        campaign_id=campaign_id,
++        correlation_id=correlation_id,
++        workflow_run_id=workflow_run_id,
++    )
++
++    result_set_id = await store.upsert_result_set(
++        program_id=program_id,
++        result_type="surface-context",
++        result_key="surface:api",
++        payload={"summary": "bounded pointer-only context"},
++        workflow_run_id=workflow_run_id,
++        campaign_id=campaign_id,
++        correlation_id=correlation_id,
++    )
++    assert result_set_id in store.result_sets
++
++    message_id = store.enqueue_inbox(
++        subscription_id=subscription_id,
++        payload={"hypothesis_build_request": {"result_key": "surface:api"}},
++    )
++    store.enqueue_inbox(
++        subscription_id=subscription_id,
++        payload={"hypothesis_build_request": {"result_key": "surface:api:later"}},
++    )
++
++    claimed = await store.claim_inbox(
++        program_id=program_id,
++        consumer_id="agent-worker-1",
++        inbox_key="mvp-hypothesis-builder",
++        campaign_id=campaign_id,
++        correlation_id=correlation_id,
++        limit=1,
++        lease_seconds=60,
++    )
++    assert [item["id"] for item in claimed] == [message_id]
++    assert store.inbox[message_id]["locked_by"] == "agent-worker-1"
++
++    graph = _RecordingGraph()
++    handoff = MvpResearchInboxHandoff(
++        graph=graph,
++        inbox_store=store,
++        workflow_state_reader=store,
++    )
++    handoff_result = await handoff.handoff(claimed[0])
++
++    assert handoff_result.mode == "resume"
++    assert graph.resumed == [str(workflow_run_id)]
++    assert store.inbox[message_id]["status"] == "processed"
++
++    runtime = _RecordingWorkflowRuntime(store)
++    workflow_state = await runtime.cancel(
++        run_id=workflow_run_id,
++        reason="operator smoke cancellation",
++    )
++    cancelled = await store.cancel_workflow_run_dependents(
++        run_id=workflow_run_id,
++        reason="operator smoke cancellation",
++    )
++
++    assert workflow_state.to_dict()["status"] == "cancelled"
++    assert cancelled == {
++        "subscriptions_cancelled": 1,
++        "inbox_messages_cancelled": 1,
++        "wait_conditions_cancelled": 0,
++    }
++    assert store.workflow_runs[workflow_run_id] == "cancelled"
++
++    after_cancel_claim = await store.claim_inbox(
++        program_id=program_id,
++        consumer_id="agent-worker-2",
++        inbox_key="mvp-hypothesis-builder",
++    )
++    assert after_cancel_claim == []

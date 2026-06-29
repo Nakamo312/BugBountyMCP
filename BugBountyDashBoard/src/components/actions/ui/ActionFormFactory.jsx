@@ -2,11 +2,11 @@ import { useState } from 'react'
 import BaseActionForm from '../forms/BaseActionForm'
 import { ACTIONS } from '@/components/actions/configs/actions.config'
 
-export default function ActionFormFactory({ type, onRun, actionColor }) {
-  const action = ACTIONS.find(s => s.form === type)
+export default function ActionFormFactory({ action, type, onRun, actionColor, loading: parentLoading = false }) {
+  const resolvedAction = action || ACTIONS.find(s => s.form === type)
   const [loading, setLoading] = useState(false)
 
-  if (!action) {
+  if (!resolvedAction) {
     return (
       <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
         Unknown action form: <b>{type}</b>
@@ -26,12 +26,12 @@ export default function ActionFormFactory({ type, onRun, actionColor }) {
 
   return (
     <BaseActionForm
-      fields={action.fields}
-      initialValues={action.initialValues}
+      fields={resolvedAction.fields}
+      initialValues={resolvedAction.initialValues}
       onRun={handleAction}
-      loading={loading}
-      submitLabel={action.label || 'Run Action'}
-      actionColor={actionColor || 'blue'}
+      loading={loading || parentLoading}
+      submitLabel={resolvedAction.label || 'Run Action'}
+      actionColor={actionColor || resolvedAction.color || 'blue'}
     />
   )
 }

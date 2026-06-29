@@ -66,3 +66,19 @@ jobs.
   keys or work keys.
 - Every artifact-derived projection must keep lineage back to the source
   artifact, run, parser, or producer.
+
+
+## Action experience boundary
+
+Action outcome memory records what completed actions produced. PostgreSQL keeps
+the durable outcome and feedback audit. Neo4j projects the experience graph and
+may run GDS similarity over named/transient projections. That graph intelligence
+is an internal decision input, not a public API surface.
+
+REST, MCP, UI, scheduler, and LangGraph may submit explicit action intents only
+through `ActionService`. Human-facing APIs may record operator decisions such as
+approval, rejection, or outcome feedback. They must not expose raw GDS probes,
+planner scores, arbitrary graph similarity calls, or direct capability/profile
+ranking endpoints. When experience is used to suggest the next step, the result
+should become a bounded internal proposal or scheduler input, then pass through
+the same policy, scope, approval, and budget path as every other action.

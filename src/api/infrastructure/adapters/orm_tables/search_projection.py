@@ -1,0 +1,148 @@
+"""Search projection queue and HTTP observation read-model tables."""
+import uuid
+
+from .base import (
+    ArrayType,
+    Boolean,
+    CheckConstraint,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    JSONType,
+    Integer,
+    LargeBinary,
+    String,
+    Table,
+    Text,
+    UUID,
+    UniqueConstraint,
+    func,
+    metadata,
+    text,
+)
+
+
+
+search_projection_events = Table(
+    'search_projection_events',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('target', String(120), nullable=False, index=True),
+    Column('source_type', String(120), nullable=False),
+    Column('source_id', UUID(), nullable=True),
+    Column('filters_json', JSONType(), nullable=False, default=dict, server_default=text("'{}'")),
+    Column('dedupe_key', String(500), nullable=False),
+    Column('status', String(32), nullable=False, server_default='pending', index=True),
+    Column('attempts', Integer, nullable=False, server_default='0'),
+    Column('available_at', DateTime(timezone=True), nullable=False, server_default=func.now(), index=True),
+    Column('locked_by', String(200), nullable=True),
+    Column('locked_until', DateTime(timezone=True), nullable=True),
+    Column('last_error', Text, nullable=True),
+    Column('result_json', JSONType(), nullable=False, default=dict, server_default=text("'{}'")),
+    Column('processed_at', DateTime(timezone=True), nullable=True),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('updated_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index('idx_search_projection_events_status_available', 'status', 'available_at'),
+    Index('uq_search_projection_events_dedupe_key', 'dedupe_key', unique=True),
+    CheckConstraint("target != ''", name='ck_search_projection_events_target_not_empty'),
+    CheckConstraint("source_type != ''", name='ck_search_projection_events_source_type_not_empty'),
+    CheckConstraint("dedupe_key != ''", name='ck_search_projection_events_dedupe_not_empty'),
+    CheckConstraint("attempts >= 0", name='ck_search_projection_events_attempts_nonnegative'),
+    CheckConstraint(
+        "status IN ('pending', 'locked', 'processed', 'failed', 'dead')",
+        name='ck_search_projection_events_status_valid',
+    ),
+)
+
+
+http_observations = Table(
+    'http_observations',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('endpoint_id', UUID(), ForeignKey('endpoints.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('service_id', UUID(), ForeignKey('services.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('job_id', UUID(), ForeignKey('jobs.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('run_id', UUID(), ForeignKey('runs.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('correlation_id', UUID(), nullable=True, index=True),
+    Column('raw_artifact_id', UUID(), ForeignKey('raw_artifacts.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('method', String(10), nullable=False),
+    Column('url', Text, nullable=False),
+    Column('status_code', Integer, nullable=True),
+    Column('content_type', Text, nullable=True),
+    Column('title', Text, nullable=True),
+    Column('body_sha256', String(64), nullable=True),
+    Column('body_size_bytes', Integer, nullable=True),
+    Column('body_artifact_id', UUID(), ForeignKey('raw_artifacts.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('body_preview', Text, nullable=True),
+    Column('source_tool', String(100), nullable=False),
+    Column('metadata', JSONType(), nullable=False, default=dict),
+    Column('observed_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index('idx_http_observations_program_observed', 'program_id', 'observed_at'),
+    Index('idx_http_observations_endpoint_observed', 'endpoint_id', 'observed_at'),
+    Index('idx_http_observations_run_observed', 'run_id', 'observed_at'),
+    CheckConstraint("method != ''", name='ck_http_observations_method_not_empty'),
+    CheckConstraint("url != ''", name='ck_http_observations_url_not_empty'),
+    CheckConstraint("source_tool != ''", name='ck_http_observations_source_tool_not_empty'),
+    CheckConstraint(
+        "status_code IS NULL OR (status_code >= 100 AND status_code <= 599)",
+        name='ck_http_observations_status_code_range'
+    ),
+    CheckConstraint(
+        "body_size_bytes IS NULL OR body_size_bytes >= 0",
+        name='ck_http_observations_body_size_non_negative'
+    ),
+)
+
+
+http_observation_headers = Table(
+    'http_observation_headers',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('observation_id', UUID(), ForeignKey('http_observations.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('name', String(255), nullable=False),
+    Column('value', Text, nullable=False),
+    Column('ordinal', Integer, nullable=False, default=0),
+    Index('idx_http_observation_headers_lookup', 'observation_id', 'name'),
+    CheckConstraint("name != ''", name='ck_http_observation_headers_name_not_empty'),
+    CheckConstraint("ordinal >= 0", name='ck_http_observation_headers_ordinal_non_negative'),
+)
+
+
+javascript_references = Table(
+    'javascript_references',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('program_id', UUID(), ForeignKey('programs.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('endpoint_id', UUID(), ForeignKey('endpoints.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('service_id', UUID(), ForeignKey('services.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('job_id', UUID(), ForeignKey('jobs.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('run_id', UUID(), ForeignKey('runs.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('correlation_id', UUID(), nullable=True, index=True),
+    Column('raw_artifact_id', UUID(), ForeignKey('raw_artifacts.id', ondelete='SET NULL'), nullable=True, index=True),
+    Column('source_url', Text, nullable=False),
+    Column('referenced_url', Text, nullable=False),
+    Column('reference_type', String(100), nullable=False, server_default='endpoint'),
+    Column('source_tool', String(100), nullable=False),
+    Column('metadata', JSONType(), nullable=False, default=dict),
+    Column('observed_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Index('idx_javascript_references_program_observed', 'program_id', 'observed_at'),
+    Index('idx_javascript_references_endpoint_observed', 'endpoint_id', 'observed_at'),
+    Index('idx_javascript_references_run_observed', 'run_id', 'observed_at'),
+    Index(
+        'uq_javascript_references_source_target_artifact',
+        'program_id',
+        'raw_artifact_id',
+        'source_url',
+        'referenced_url',
+        unique=True,
+    ),
+    CheckConstraint("source_url != ''", name='ck_javascript_references_source_url_not_empty'),
+    CheckConstraint("referenced_url != ''", name='ck_javascript_references_referenced_url_not_empty'),
+    CheckConstraint("reference_type != ''", name='ck_javascript_references_reference_type_not_empty'),
+    CheckConstraint("source_tool != ''", name='ck_javascript_references_source_tool_not_empty'),
+)

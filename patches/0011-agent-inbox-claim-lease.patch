@@ -1,0 +1,231 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index 82d0017..a09435b 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -611,9 +611,9 @@ Evidence:
+ - The processor runs with application lifecycle, automatically resumes
+   `mvp-research` graphs after an atomic `pending -> resolved` transition, and
+   retries resolved waits while their durable workflow run remains `waiting`.
+-- `AgentProtocolStore` exposes durable operations for subscriptions, inbox ack,
+-  wait-condition creation/listing, and result-set upsert/list by
+-  action/campaign/workflow scope.
++- `AgentProtocolStore` exposes durable operations for subscriptions, inbox
++  claim/lease, inbox ack, wait-condition creation/listing, and result-set
++  upsert/list by action/campaign/workflow scope.
+ - REST routes under `/api/v1/agent` expose the M6 agent protocol without raw
+   execution shortcuts.
+ 
+@@ -626,12 +626,12 @@ Gaps:
+   persistence; cancellation call paths remain.
+ - 0043 has result-set storage/upsert/list by stable result key and
+   action/campaign/workflow scope.
+-- 0044 has minimal subscriptions, inbox ack, wait-condition, and result-set
+-  REST APIs; richer claim/lease semantics and auth boundaries remain.
++- 0044 has subscriptions, inbox claim/lease, inbox ack, wait-condition, and
++  result-set REST APIs; richer auth boundaries remain.
+ 
+ Next action:
+ 
+-- Add cancellation call paths and inbox claim/lease semantics.
++- Add cancellation call paths and auth boundaries for the agent protocol.
+ 
+ ## M7 - LangGraph Workflows To MVP
+ 
+diff --git a/src/api/infrastructure/agent_coordination.py b/src/api/infrastructure/agent_coordination.py
+index bd198b5..7ecd92e 100644
+--- a/src/api/infrastructure/agent_coordination.py
++++ b/src/api/infrastructure/agent_coordination.py
+@@ -2,7 +2,7 @@
+ from __future__ import annotations
+ 
+ from dataclasses import dataclass
+-from datetime import datetime, timezone
++from datetime import datetime, timedelta, timezone
+ from typing import Any
+ from uuid import UUID, uuid4
+ 
+@@ -361,6 +361,85 @@ class AgentProtocolStore:
+             rows = result.mappings().all()
+         return [dict(row) for row in rows]
+ 
++    async def claim_inbox(
++        self,
++        *,
++        program_id: Any,
++        consumer_id: str,
++        lease_seconds: int = 300,
++        campaign_id: Any | None = None,
++        correlation_id: Any | None = None,
++        limit: int = 100,
++        now: datetime | None = None,
++    ) -> list[dict[str, Any]]:
++        """Atomically claim available agent inbox messages for one consumer.
++
++        Pending and retryable failed messages are claimable once ``available_at``
++        has passed. Previously claimed messages are claimable only after their
++        lease expires. The SELECT uses ``FOR UPDATE SKIP LOCKED`` so competing
++        agents do not normally receive the same message.
++        """
++
++        if not consumer_id.strip():
++            raise ValueError("consumer_id must not be empty")
++        if lease_seconds <= 0:
++            raise ValueError("lease_seconds must be positive")
++
++        now = now or datetime.now(timezone.utc)
++        lease_deadline = now + timedelta(seconds=lease_seconds)
++        bounded_limit = max(1, min(limit, 500))
++
++        claimable_query = select(agent_inbox.c.id).where(
++            agent_inbox.c.program_id == program_id,
++            agent_inbox.c.available_at <= now,
++            or_(
++                agent_inbox.c.status.in_(["pending", "failed"]),
++                (
++                    (agent_inbox.c.status == "claimed")
++                    & (agent_inbox.c.locked_until.is_not(None))
++                    & (agent_inbox.c.locked_until <= now)
++                ),
++            ),
++        )
++        if campaign_id is not None:
++            claimable_query = claimable_query.where(
++                agent_inbox.c.campaign_id == campaign_id
++            )
++        if correlation_id is not None:
++            claimable_query = claimable_query.where(
++                agent_inbox.c.correlation_id == correlation_id
++            )
++
++        claimable = (
++            claimable_query.order_by(
++                agent_inbox.c.available_at.asc(),
++                agent_inbox.c.created_at.asc(),
++            )
++            .limit(bounded_limit)
++            .with_for_update(skip_locked=True)
++            .cte("claimable_agent_inbox")
++        )
++
++        statement = (
++            update(agent_inbox)
++            .where(agent_inbox.c.id.in_(select(claimable.c.id)))
++            .values(
++                status="claimed",
++                locked_by=consumer_id,
++                locked_until=lease_deadline,
++                attempts=agent_inbox.c.attempts + 1,
++                updated_at=now,
++                last_error=None,
++            )
++            .returning(agent_inbox)
++        )
++
++        async with self.session_factory() as session:
++            result = await session.execute(statement)
++            rows = result.mappings().all()
++            await session.commit()
++        return [dict(row) for row in rows]
++
+     async def ack_inbox_message(self, *, message_id: Any) -> None:
+         now = datetime.now(timezone.utc)
+         statement = (
+diff --git a/src/api/presentation/rest/routes/agent_protocol.py b/src/api/presentation/rest/routes/agent_protocol.py
+index 4f1d157..b5176d6 100644
+--- a/src/api/presentation/rest/routes/agent_protocol.py
++++ b/src/api/presentation/rest/routes/agent_protocol.py
+@@ -59,6 +59,17 @@ class AgentResultSetUpsertRequest(BaseModel):
+     correlation_id: UUID | None = None
+ 
+ 
++class AgentInboxClaimRequest(BaseModel):
++    model_config = ConfigDict(extra="forbid")
++
++    program_id: UUID
++    consumer_id: str = Field(min_length=1, max_length=100)
++    campaign_id: UUID | None = None
++    correlation_id: UUID | None = None
++    limit: int = Field(default=100, ge=1, le=500)
++    lease_seconds: int = Field(default=300, ge=1, le=3600)
++
++
+ @router.post("/subscriptions", status_code=201)
+ async def create_subscription(
+     request: AgentSubscriptionCreateRequest,
+@@ -87,6 +98,15 @@ async def list_inbox(
+     return {"items": items}
+ 
+ 
++@router.post("/inbox/claim")
++async def claim_inbox_messages(
++    request: AgentInboxClaimRequest,
++    store: FromDishka[AgentProtocolStore],
++) -> dict[str, Any]:
++    items = await store.claim_inbox(**request.model_dump())
++    return {"items": items}
++
++
+ @router.post("/inbox/{message_id}/ack")
+ async def ack_inbox_message(
+     message_id: UUID,
+diff --git a/tests/application/test_agent_protocol_api_contract.py b/tests/application/test_agent_protocol_api_contract.py
+index 733525e..832e393 100644
+--- a/tests/application/test_agent_protocol_api_contract.py
++++ b/tests/application/test_agent_protocol_api_contract.py
+@@ -15,6 +15,7 @@ def test_agent_protocol_routes_expose_m6_coordination_endpoints() -> None:
+     for endpoint in (
+         '@router.post("/subscriptions"',
+         '@router.get("/inbox"',
++        '@router.post("/inbox/claim"',
+         '@router.post("/inbox/{message_id}/ack"',
+         '@router.post("/wait-conditions"',
+         '@router.get("/wait-conditions"',
+diff --git a/tests/infrastructure/test_agent_protocol_store.py b/tests/infrastructure/test_agent_protocol_store.py
+index 985f589..b83bad1 100644
+--- a/tests/infrastructure/test_agent_protocol_store.py
++++ b/tests/infrastructure/test_agent_protocol_store.py
+@@ -76,6 +76,44 @@ async def test_agent_protocol_store_creates_subscription_idempotently() -> None:
+     assert "RETURNING agent_subscriptions.id" in compiled
+ 
+ 
++async def test_agent_protocol_store_claims_inbox_with_lease_and_skip_locked() -> None:
++    message_id = uuid4()
++    program_id = uuid4()
++    session = FakeSession(
++        rows=[{"id": message_id, "program_id": program_id, "status": "claimed"}]
++    )
++    store = AgentProtocolStore(FakeSessionFactory(session))
++
++    claimed = await store.claim_inbox(
++        program_id=program_id,
++        consumer_id="agent-worker-1",
++        lease_seconds=120,
++        limit=10,
++    )
++
++    assert claimed == [{"id": message_id, "program_id": program_id, "status": "claimed"}]
++    assert session.committed is True
++    compiled_statement = session.statements[0].compile(dialect=postgresql.dialect())
++    compiled = str(compiled_statement)
++    assert "WITH claimable_agent_inbox AS" in compiled
++    assert "FOR UPDATE SKIP LOCKED" in compiled
++    assert "UPDATE agent_inbox" in compiled
++    assert "RETURNING agent_inbox.id" in compiled
++    assert compiled_statement.params["status"] == "claimed"
++    assert compiled_statement.params["locked_by"] == "agent-worker-1"
++
++
++async def test_agent_protocol_store_rejects_empty_inbox_consumer_id() -> None:
++    store = AgentProtocolStore(FakeSessionFactory(FakeSession()))
++
++    try:
++        await store.claim_inbox(program_id=uuid4(), consumer_id="   ")
++    except ValueError as exc:
++        assert "consumer_id" in str(exc)
++    else:
++        raise AssertionError("empty consumer_id should be rejected")
++
++
+ async def test_agent_protocol_store_acks_inbox_only_from_claimable_statuses() -> None:
+     session = FakeSession()
+     store = AgentProtocolStore(FakeSessionFactory(session))

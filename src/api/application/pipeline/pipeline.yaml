@@ -2,6 +2,10 @@ defaults:
   max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
   execution_delay: 0
   execution_mode: scheduled
+  cooldown_seconds: 300
+  max_fanout_per_event: 20
+  max_expansion_depth: 6
+  token_cost: 1
   scope: none
 
 events:
@@ -373,8 +377,7 @@ workers:
     outputs:
       host_discovered: new_hosts
       js_files_discovered: js_files
-    runner: HTTPXCliRunner
-    parser: HTTPXProcessEventParser
+    runner: cli_tool:httpx
     processor: HTTPXBatchProcessor
     ingestor: HTTPXResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -392,10 +395,9 @@ workers:
       - host_discovered
     outputs:
       js_files_discovered: js_files
-    runner: KatanaCliRunner
-    parser: JSONStdoutProcessEventParser
-    processor: KatanaBatchProcessor
-    ingestor: KatanaResultIngestor
+    runner: cli_tool:katana
+    processor: UrlEvidenceBatchProcessor
+    ingestor: CanonicalIngestorRouter
     max_parallelism: 2
     max_targets_per_run: 20
     execution_delay: ORCHESTRATOR_SCAN_DELAY
@@ -424,10 +426,9 @@ workers:
       - js_files_discovered
     outputs:
       gau_discovered: urls
-    runner: LinkFinderCliRunner
-    parser: LinkFinderStdoutParser
-    processor: LinkFinderBatchProcessor
-    ingestor: LinkFinderResultIngestor
+    runner: cli_tool:linkfinder
+    processor: UrlEvidenceBatchProcessor
+    ingestor: CanonicalIngestorRouter
     max_parallelism: 3
     scope: confidence
 
@@ -437,8 +438,7 @@ workers:
       - mantra_scan_requested
       - js_files_discovered
     outputs: {}
-    runner: MantraCliRunner
-    parser: MantraStdoutParser
+    runner: cli_tool:mantra
     processor: MantraBatchProcessor
     ingestor: MantraResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -450,10 +450,9 @@ workers:
       - subfinder_scan_requested
     outputs:
       raw_domains_discovered: raw_domains
-    runner: SubfinderCliRunner
-    parser: SubfinderStdoutParser
-    processor: SubfinderBatchProcessor
-    ingestor: HostIngestor
+    runner: cli_tool:subfinder
+    processor: CanonicalBatchProcessor
+    ingestor: CanonicalIngestorRouter
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
     scope: none
 
@@ -463,10 +462,9 @@ workers:
       - gau_scan_requested
     outputs:
       gau_discovered: urls
-    runner: WaymoreCliRunner
-    parser: URLStdoutLineResultParser
-    processor: WaymoreBatchProcessor
-    ingestor:
+    runner: cli_tool:waymore
+    processor: UrlEvidenceBatchProcessor
+    ingestor: CanonicalIngestorRouter
     max_parallelism: 2
     max_targets_per_run: 1
     scope: strict
@@ -489,11 +487,11 @@ workers:
     inputs:
       - ffuf_scan_requested
       - host_discovered
-    outputs: {}
-    runner: FFUFCliRunner
-    parser: FFUFStdoutParser
-    processor: FFUFBatchProcessor
-    ingestor: FFUFResultIngestor
+    outputs:
+      ffuf_url_discovered: urls
+    runner: cli_tool:ffuf
+    processor: UrlEvidenceBatchProcessor
+    ingestor: CanonicalIngestorRouter
     max_parallelism: 3
     max_targets_per_run: 1
     scope: strict
@@ -512,8 +510,7 @@ workers:
       ips_expanded: ips
       asn_discovered: asns
       cidr_discovered: cidrs
-    runner: AmassCliRunner
-    parser: AmassGraphParser
+    runner: cli_tool:amass
     processor: AmassBatchProcessor
     ingestor: AmassResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -531,8 +528,7 @@ workers:
     outputs:
       asn_discovered: asns
       cidr_discovered: cidrs
-    runner: ASNMapCliRunner
-    parser: JSONStdoutProcessEventParser
+    runner: cli_tool:asnmap
     processor: ASNMapBatchProcessor
     ingestor: ASNMapResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -543,10 +539,9 @@ workers:
     inputs:
       - naabu_scan_requested
     outputs: {}
-    runner: NaabuCliRunner
-    parser: JSONStdoutProcessEventParser
-    processor: NaabuBatchProcessor
-    ingestor: NaabuResultIngestor
+    runner: cli_tool:naabu
+    processor: ServiceFindingBatchProcessor
+    ingestor: CanonicalIngestorRouter
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
     scope: strict
 
@@ -557,8 +552,7 @@ workers:
       - mapcidr_scan_requested
     outputs:
       ips_expanded: ips
-    runner: MapCIDRExpandRunner
-    parser: StdoutLineResultParser
+    runner: cli_tool:mapcidr:expand
     processor: MapCIDRBatchProcessor
     ingestor:
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -571,8 +565,7 @@ workers:
       - tlsx_scan_requested
     outputs:
       raw_domains_discovered: raw_domains
-    runner: TLSxDefaultRunner
-    parser: JSONStdoutProcessEventParser
+    runner: cli_tool:tlsx:default
     processor: TLSxBatchProcessor
     ingestor: TLSxResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -585,8 +578,7 @@ workers:
     outputs:
       ips_expanded: ips
       subdomain_discovered: hostnames
-    runner: DNSxDeepRunner
-    parser: JSONStdoutProcessEventParser
+    runner: cli_tool:dnsx:deep
     processor: DNSxBatchProcessor
     ingestor: DNSxDiscoveryResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -599,8 +591,7 @@ workers:
     outputs:
       ips_expanded: ips
       subdomain_discovered: hostnames
-    runner: DNSxDeepRunner
-    parser: JSONStdoutProcessEventParser
+    runner: cli_tool:dnsx:deep
     processor: DNSxBatchProcessor
     ingestor: DNSxResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -611,8 +602,7 @@ workers:
     inputs:
       - dnsx_ptr_scan_requested
     outputs: {}
-    runner: DNSxPtrRunner
-    parser: JSONStdoutProcessEventParser
+    runner: cli_tool:dnsx:ptr
     processor: DNSxBatchProcessor
     ingestor: DNSxResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -626,8 +616,7 @@ workers:
     outputs:
       ips_expanded: ips
       raw_domains_discovered: raw_domains
-    runner: SmapCliRunner
-    parser: JSONStdoutItemsProcessEventParser
+    runner: cli_tool:smap
     processor: SmapBatchProcessor
     ingestor: SmapResultIngestor
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
@@ -640,10 +629,9 @@ workers:
       - ips_expanded
     outputs:
       raw_domains_discovered: raw_domains
-    runner: Hakip2HostCliRunner
-    parser: Hakip2HostStdoutParser
-    processor: Hakip2HostBatchProcessor
-    ingestor: HostIngestor
+    runner: cli_tool:hakip2host
+    processor: CanonicalBatchProcessor
+    ingestor: CanonicalIngestorRouter
     max_parallelism: ORCHESTRATOR_MAX_CONCURRENT
     scope: confidence
     runtime:

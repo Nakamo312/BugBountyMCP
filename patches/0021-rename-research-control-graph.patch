@@ -1,0 +1,642 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index af35310..cbcfef1 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -629,7 +629,7 @@ Evidence:
+   checkpoint already exists or the start/resume call succeeds.
+ - `MvpResearchInboxProcessor` wires this boundary as an optional background
+   worker. It claims only its configured subscription `inbox_key`, opens a
+-  request-scoped `MvpResearchStateGraph`, records handoff failures in
++  request-scoped `ResearchControlGraph`, records handoff failures in
+   `agent_inbox.last_error` without releasing the active lease, and leaves
+   retry/checkpoint lifecycle to LangGraph instead of adding a second inbox retry
+   runtime.
+@@ -696,7 +696,7 @@ Evidence:
+ - `MvpResearchWorkflow` reuses the existing builder, critic, and report builder
+   in one typed application flow. It returns stored hypothesis IDs, critic
+   decisions, and drafts without creating findings.
+-- `MvpResearchStateGraph` compiles that flow with LangGraph 1.2.6, persists
++- `ResearchControlGraph` compiles that flow with LangGraph 1.2.6, persists
+   thread checkpoints through the official PostgreSQL saver, and supports
+   asynchronous state recovery/resume. Graph state contains only request
+   pointers, hypothesis IDs, critic statuses, draft statuses, and finding IDs.
+@@ -728,7 +728,7 @@ Gaps:
+ - 0051 is implemented as a deterministic critic/verifier workflow.
+ - 0052 is implemented as a redacted, evidence-linked report draft workflow.
+ - The semantic stages are connected through `MvpResearchWorkflow` and compiled
+-  through `MvpResearchStateGraph`.
++  through `ResearchControlGraph`.
+ - The graph now pauses before research until required named projections and a
+   matching result set are available, then rechecks readiness on resume.
+ - A live PostgreSQL checkpoint round-trip remains unverified because Docker is
+diff --git a/src/api/application/di.py b/src/api/application/di.py
+index 4b43bfd..86c35ef 100644
+--- a/src/api/application/di.py
++++ b/src/api/application/di.py
+@@ -31,7 +31,7 @@ from api.application.langgraph_context_tools import LangGraphContextTools
+ from api.application.langgraph_tool_action import LangGraphToolActionTool
+ from api.application.langgraph_workflows import LangGraphWorkflowRuntime
+ from api.application.mvp_research_workflow import MvpResearchWorkflow
+-from api.application.mvp_research_state_graph import MvpResearchStateGraph
++from api.application.research_control_graph import ResearchControlGraph
+ from api.application.mvp_research_readiness import MvpResearchReadinessGate
+ from api.application.report_drafts import ReportDraftBuilderWorkflow
+ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+@@ -420,13 +420,13 @@ class OrchestrationProvider(Provider):
+         )
+ 
+     @provide(scope=Scope.REQUEST)
+-    def get_mvp_research_state_graph(
++    def get_research_control_graph(
+         self,
+         research_workflow: MvpResearchWorkflow,
+         readiness_gate: MvpResearchReadinessGate,
+         checkpointer: AsyncPostgresSaver,
+-    ) -> MvpResearchStateGraph:
+-        return MvpResearchStateGraph(
++    ) -> ResearchControlGraph:
++        return ResearchControlGraph(
+             research_workflow=research_workflow,
+             readiness_gate=readiness_gate,
+             checkpointer=checkpointer,
+diff --git a/src/api/application/langgraph_inbox_handoff.py b/src/api/application/langgraph_inbox_handoff.py
+index bae4712..4dffa10 100644
+--- a/src/api/application/langgraph_inbox_handoff.py
++++ b/src/api/application/langgraph_inbox_handoff.py
+@@ -207,9 +207,9 @@ class MvpResearchInboxProcessor:
+     def _graph_dependency(self) -> Any:
+         if self.graph_dependency is not None:
+             return self.graph_dependency
+-        from api.application.mvp_research_state_graph import MvpResearchStateGraph
++        from api.application.research_control_graph import ResearchControlGraph
+ 
+-        return MvpResearchStateGraph
++        return ResearchControlGraph
+ 
+     async def _handoff_message(self, message: dict[str, Any]) -> InboxLangGraphHandoffResult:
+         async with self.container() as request_container:
+diff --git a/src/api/application/mvp_research_state_graph.py b/src/api/application/mvp_research_state_graph.py
+index e58a420..dafe37b 100644
+--- a/src/api/application/mvp_research_state_graph.py
++++ b/src/api/application/mvp_research_state_graph.py
+@@ -1,212 +1,19 @@
+-"""Compiled LangGraph adapter for the pointer-only MVP research workflow."""
++"""Backward-compatible imports for the renamed research control graph."""
+ from __future__ import annotations
+ 
+-from typing import Any, Protocol, TypedDict
+-from uuid import UUID
+-
+-from langgraph.types import Command, interrupt
+-from langgraph.graph import END, START, StateGraph
+-
+-from api.application.hypotheses import HypothesisBuildRequest
+-from api.application.mvp_research_readiness import (
+-    MvpResearchReadinessGate,
+-    ResearchReadinessDecision,
++from api.application.research_control_graph import (
++    ResearchControlGraph,
++    ResearchControlState,
++    ResearchWorkflow,
+ )
+-from api.application.mvp_research_workflow import MvpResearchResult
+-from api.application.projections import ProjectionKey
+-
+-
+-class ResearchWorkflow(Protocol):
+-    async def run(self, request: HypothesisBuildRequest) -> MvpResearchResult: ...
+-
+-
+-class MvpResearchGraphState(TypedDict, total=False):
+-    program_id: str
+-    result_key: str | None
+-    action_id: str | None
+-    campaign_id: str | None
+-    workflow_id: str | None
+-    workflow_run_id: str | None
+-    limit: int
+-    required_projections: list[dict[str, str]]
+-    readiness_status: str
+-    wait_condition_id: str | None
+-    wait_reason: str | None
+-    result_set_keys: list[str]
+-    hypothesis_ids: list[str]
+-    critic_statuses: list[str]
+-    draft_statuses: list[str]
+-    finding_ids: list[str]
+-
+-
+-class MvpResearchStateGraph:
+-    def __init__(
+-        self,
+-        *,
+-        research_workflow: ResearchWorkflow,
+-        checkpointer: Any,
+-        readiness_gate: MvpResearchReadinessGate | None = None,
+-    ) -> None:
+-        self.research_workflow = research_workflow
+-        self.readiness_gate = readiness_gate
+-        builder = StateGraph(MvpResearchGraphState)
+-        builder.add_node("research", self._run_research)
+-        if readiness_gate is None:
+-            builder.add_edge(START, "research")
+-        else:
+-            builder.add_node("check_readiness", self._check_readiness)
+-            builder.add_node("wait_for_readiness", self._wait_for_readiness)
+-            builder.add_edge(START, "check_readiness")
+-            builder.add_conditional_edges(
+-                "check_readiness",
+-                self._route_readiness,
+-                {
+-                    "ready": "research",
+-                    "waiting": "wait_for_readiness",
+-                },
+-            )
+-            builder.add_edge("wait_for_readiness", "check_readiness")
+-        builder.add_edge("research", END)
+-        self.compiled = builder.compile(checkpointer=checkpointer)
+-
+-    async def ainvoke(
+-        self,
+-        request: HypothesisBuildRequest,
+-        *,
+-        thread_id: str,
+-        required_projections: tuple[ProjectionKey, ...] = (),
+-    ) -> MvpResearchGraphState:
+-        return await self.compiled.ainvoke(
+-            self._input_state(request, required_projections),
+-            config=self._config(thread_id),
+-        )
+-
+-    async def aget_state(self, *, thread_id: str):
+-        return await self.compiled.aget_state(self._config(thread_id))
+-
+-    async def aresume(self, *, thread_id: str) -> MvpResearchGraphState:
+-        result = await self.compiled.ainvoke(
+-            Command(resume=True),
+-            config=self._config(thread_id),
+-        )
+-        if result is not None:
+-            return result
+-        return (await self.aget_state(thread_id=thread_id)).values
+-
+-    async def _check_readiness(
+-        self,
+-        state: MvpResearchGraphState,
+-    ) -> MvpResearchGraphState:
+-        if self.readiness_gate is None:
+-            return {"readiness_status": "ready"}
+-        decision = await self.readiness_gate.evaluate(
+-            self._request(state),
+-            required_projections=self._projection_keys(state),
+-        )
+-        return self._readiness_state(decision)
+-
+-    @staticmethod
+-    def _route_readiness(state: MvpResearchGraphState) -> str:
+-        return "ready" if state.get("readiness_status") == "ready" else "waiting"
+-
+-    @staticmethod
+-    def _wait_for_readiness(
+-        state: MvpResearchGraphState,
+-    ) -> MvpResearchGraphState:
+-        interrupt(
+-            {
+-                "wait_condition_id": state.get("wait_condition_id"),
+-                "reason": state.get("wait_reason"),
+-            }
+-        )
+-        return {"readiness_status": "checking"}
+-
+-    async def _run_research(
+-        self,
+-        state: MvpResearchGraphState,
+-    ) -> MvpResearchGraphState:
+-        result = await self.research_workflow.run(self._request(state))
+-        return {
+-            "hypothesis_ids": [
+-                str(item.hypothesis.hypothesis_id) for item in result.items
+-            ],
+-            "critic_statuses": [item.critic.status for item in result.items],
+-            "draft_statuses": [item.report_draft.status for item in result.items],
+-            "finding_ids": [str(value) for value in result.finding_ids],
+-        }
+-
+-    @staticmethod
+-    def _input_state(
+-        request: HypothesisBuildRequest,
+-        required_projections: tuple[ProjectionKey, ...],
+-    ) -> MvpResearchGraphState:
+-        return {
+-            "program_id": str(request.program_id),
+-            "result_key": request.result_key,
+-            "action_id": _optional_uuid(request.action_id),
+-            "campaign_id": _optional_uuid(request.campaign_id),
+-            "workflow_id": _optional_uuid(request.workflow_id),
+-            "workflow_run_id": _optional_uuid(request.workflow_run_id),
+-            "limit": request.limit,
+-            "required_projections": [
+-                {
+-                    "projection_type": key.projection_type,
+-                    "projection_name": key.projection_name,
+-                }
+-                for key in required_projections
+-            ],
+-            "readiness_status": "checking",
+-        }
+-
+-    @staticmethod
+-    def _request(state: MvpResearchGraphState) -> HypothesisBuildRequest:
+-        return HypothesisBuildRequest(
+-            program_id=UUID(state["program_id"]),
+-            result_key=state.get("result_key"),
+-            action_id=_parse_optional_uuid(state.get("action_id")),
+-            campaign_id=_parse_optional_uuid(state.get("campaign_id")),
+-            workflow_id=_parse_optional_uuid(state.get("workflow_id")),
+-            workflow_run_id=_parse_optional_uuid(state.get("workflow_run_id")),
+-            limit=int(state.get("limit", 25)),
+-        )
+-
+-    @staticmethod
+-    def _config(thread_id: str) -> dict[str, dict[str, str]]:
+-        if not thread_id.strip():
+-            raise ValueError("thread_id is required for checkpointed graph execution")
+-        return {"configurable": {"thread_id": thread_id}}
+-
+-    @staticmethod
+-    def _projection_keys(
+-        state: MvpResearchGraphState,
+-    ) -> tuple[ProjectionKey, ...]:
+-        return tuple(
+-            ProjectionKey(
+-                projection_type=item["projection_type"],
+-                projection_name=item["projection_name"],
+-            )
+-            for item in state.get("required_projections", ())
+-        )
+-
+-    @staticmethod
+-    def _readiness_state(
+-        decision: ResearchReadinessDecision,
+-    ) -> MvpResearchGraphState:
+-        return {
+-            "readiness_status": "ready" if decision.ready else "waiting",
+-            "wait_condition_id": (
+-                str(decision.wait_condition_id)
+-                if decision.wait_condition_id is not None
+-                else None
+-            ),
+-            "wait_reason": decision.reason,
+-            "result_set_keys": list(decision.result_set_keys),
+-        }
+-
+-
+-def _optional_uuid(value: UUID | None) -> str | None:
+-    return str(value) if value is not None else None
+ 
++MvpResearchStateGraph = ResearchControlGraph
++MvpResearchGraphState = ResearchControlState
+ 
+-def _parse_optional_uuid(value: str | None) -> UUID | None:
+-    return UUID(value) if value else None
++__all__ = [
++    "MvpResearchGraphState",
++    "MvpResearchStateGraph",
++    "ResearchControlGraph",
++    "ResearchControlState",
++    "ResearchWorkflow",
++]
+diff --git a/src/api/application/research_control_graph.py b/src/api/application/research_control_graph.py
+new file mode 100644
+index 0000000..13fdb25
+--- /dev/null
++++ b/src/api/application/research_control_graph.py
+@@ -0,0 +1,212 @@
++"""Checkpointed research control graph for pointer-only hypothesis work."""
++from __future__ import annotations
++
++from typing import Any, Protocol, TypedDict
++from uuid import UUID
++
++from langgraph.types import Command, interrupt
++from langgraph.graph import END, START, StateGraph
++
++from api.application.hypotheses import HypothesisBuildRequest
++from api.application.mvp_research_readiness import (
++    MvpResearchReadinessGate,
++    ResearchReadinessDecision,
++)
++from api.application.mvp_research_workflow import MvpResearchResult
++from api.application.projections import ProjectionKey
++
++
++class ResearchWorkflow(Protocol):
++    async def run(self, request: HypothesisBuildRequest) -> MvpResearchResult: ...
++
++
++class ResearchControlState(TypedDict, total=False):
++    program_id: str
++    result_key: str | None
++    action_id: str | None
++    campaign_id: str | None
++    workflow_id: str | None
++    workflow_run_id: str | None
++    limit: int
++    required_projections: list[dict[str, str]]
++    readiness_status: str
++    wait_condition_id: str | None
++    wait_reason: str | None
++    result_set_keys: list[str]
++    hypothesis_ids: list[str]
++    critic_statuses: list[str]
++    draft_statuses: list[str]
++    finding_ids: list[str]
++
++
++class ResearchControlGraph:
++    def __init__(
++        self,
++        *,
++        research_workflow: ResearchWorkflow,
++        checkpointer: Any,
++        readiness_gate: MvpResearchReadinessGate | None = None,
++    ) -> None:
++        self.research_workflow = research_workflow
++        self.readiness_gate = readiness_gate
++        builder = StateGraph(ResearchControlState)
++        builder.add_node("research", self._run_research)
++        if readiness_gate is None:
++            builder.add_edge(START, "research")
++        else:
++            builder.add_node("check_readiness", self._check_readiness)
++            builder.add_node("wait_for_readiness", self._wait_for_readiness)
++            builder.add_edge(START, "check_readiness")
++            builder.add_conditional_edges(
++                "check_readiness",
++                self._route_readiness,
++                {
++                    "ready": "research",
++                    "waiting": "wait_for_readiness",
++                },
++            )
++            builder.add_edge("wait_for_readiness", "check_readiness")
++        builder.add_edge("research", END)
++        self.compiled = builder.compile(checkpointer=checkpointer)
++
++    async def ainvoke(
++        self,
++        request: HypothesisBuildRequest,
++        *,
++        thread_id: str,
++        required_projections: tuple[ProjectionKey, ...] = (),
++    ) -> ResearchControlState:
++        return await self.compiled.ainvoke(
++            self._input_state(request, required_projections),
++            config=self._config(thread_id),
++        )
++
++    async def aget_state(self, *, thread_id: str):
++        return await self.compiled.aget_state(self._config(thread_id))
++
++    async def aresume(self, *, thread_id: str) -> ResearchControlState:
++        result = await self.compiled.ainvoke(
++            Command(resume=True),
++            config=self._config(thread_id),
++        )
++        if result is not None:
++            return result
++        return (await self.aget_state(thread_id=thread_id)).values
++
++    async def _check_readiness(
++        self,
++        state: ResearchControlState,
++    ) -> ResearchControlState:
++        if self.readiness_gate is None:
++            return {"readiness_status": "ready"}
++        decision = await self.readiness_gate.evaluate(
++            self._request(state),
++            required_projections=self._projection_keys(state),
++        )
++        return self._readiness_state(decision)
++
++    @staticmethod
++    def _route_readiness(state: ResearchControlState) -> str:
++        return "ready" if state.get("readiness_status") == "ready" else "waiting"
++
++    @staticmethod
++    def _wait_for_readiness(
++        state: ResearchControlState,
++    ) -> ResearchControlState:
++        interrupt(
++            {
++                "wait_condition_id": state.get("wait_condition_id"),
++                "reason": state.get("wait_reason"),
++            }
++        )
++        return {"readiness_status": "checking"}
++
++    async def _run_research(
++        self,
++        state: ResearchControlState,
++    ) -> ResearchControlState:
++        result = await self.research_workflow.run(self._request(state))
++        return {
++            "hypothesis_ids": [
++                str(item.hypothesis.hypothesis_id) for item in result.items
++            ],
++            "critic_statuses": [item.critic.status for item in result.items],
++            "draft_statuses": [item.report_draft.status for item in result.items],
++            "finding_ids": [str(value) for value in result.finding_ids],
++        }
++
++    @staticmethod
++    def _input_state(
++        request: HypothesisBuildRequest,
++        required_projections: tuple[ProjectionKey, ...],
++    ) -> ResearchControlState:
++        return {
++            "program_id": str(request.program_id),
++            "result_key": request.result_key,
++            "action_id": _optional_uuid(request.action_id),
++            "campaign_id": _optional_uuid(request.campaign_id),
++            "workflow_id": _optional_uuid(request.workflow_id),
++            "workflow_run_id": _optional_uuid(request.workflow_run_id),
++            "limit": request.limit,
++            "required_projections": [
++                {
++                    "projection_type": key.projection_type,
++                    "projection_name": key.projection_name,
++                }
++                for key in required_projections
++            ],
++            "readiness_status": "checking",
++        }
++
++    @staticmethod
++    def _request(state: ResearchControlState) -> HypothesisBuildRequest:
++        return HypothesisBuildRequest(
++            program_id=UUID(state["program_id"]),
++            result_key=state.get("result_key"),
++            action_id=_parse_optional_uuid(state.get("action_id")),
++            campaign_id=_parse_optional_uuid(state.get("campaign_id")),
++            workflow_id=_parse_optional_uuid(state.get("workflow_id")),
++            workflow_run_id=_parse_optional_uuid(state.get("workflow_run_id")),
++            limit=int(state.get("limit", 25)),
++        )
++
++    @staticmethod
++    def _config(thread_id: str) -> dict[str, dict[str, str]]:
++        if not thread_id.strip():
++            raise ValueError("thread_id is required for checkpointed graph execution")
++        return {"configurable": {"thread_id": thread_id}}
++
++    @staticmethod
++    def _projection_keys(
++        state: ResearchControlState,
++    ) -> tuple[ProjectionKey, ...]:
++        return tuple(
++            ProjectionKey(
++                projection_type=item["projection_type"],
++                projection_name=item["projection_name"],
++            )
++            for item in state.get("required_projections", ())
++        )
++
++    @staticmethod
++    def _readiness_state(
++        decision: ResearchReadinessDecision,
++    ) -> ResearchControlState:
++        return {
++            "readiness_status": "ready" if decision.ready else "waiting",
++            "wait_condition_id": (
++                str(decision.wait_condition_id)
++                if decision.wait_condition_id is not None
++                else None
++            ),
++            "wait_reason": decision.reason,
++            "result_set_keys": list(decision.result_set_keys),
++        }
++
++
++def _optional_uuid(value: UUID | None) -> str | None:
++    return str(value) if value is not None else None
++
++
++def _parse_optional_uuid(value: str | None) -> UUID | None:
++    return UUID(value) if value else None
+diff --git a/src/api/infrastructure/langgraph_resume.py b/src/api/infrastructure/langgraph_resume.py
+index 0e41202..7c03d63 100644
+--- a/src/api/infrastructure/langgraph_resume.py
++++ b/src/api/infrastructure/langgraph_resume.py
+@@ -4,7 +4,7 @@ from __future__ import annotations
+ from typing import Any
+ 
+ from api.application.agent_wait_conditions import AgentWaitConditionRecord
+-from api.application.mvp_research_state_graph import MvpResearchStateGraph
++from api.application.research_control_graph import ResearchControlGraph
+ 
+ 
+ class MvpResearchAutoResumer:
+@@ -15,5 +15,5 @@ class MvpResearchAutoResumer:
+         if record.workflow_run_id is None:
+             return
+         async with self.container() as request_container:
+-            graph = await request_container.get(MvpResearchStateGraph)
++            graph = await request_container.get(ResearchControlGraph)
+             await graph.aresume(thread_id=str(record.workflow_run_id))
+diff --git a/tests/application/test_mvp_research_state_graph.py b/tests/application/test_research_control_graph.py
+similarity index 95%
+rename from tests/application/test_mvp_research_state_graph.py
+rename to tests/application/test_research_control_graph.py
+index 4a11fe5..8232ffe 100644
+--- a/tests/application/test_mvp_research_state_graph.py
++++ b/tests/application/test_research_control_graph.py
+@@ -6,7 +6,7 @@ from langgraph.checkpoint.memory import InMemorySaver
+ 
+ from api.application.hypotheses import HypothesisBuildRequest, StoredHypothesis
+ from api.application.hypothesis_critic import CriticDecision
+-from api.application.mvp_research_state_graph import MvpResearchStateGraph
++from api.application.research_control_graph import ResearchControlGraph
+ from api.application.mvp_research_readiness import ResearchReadinessDecision
+ from api.application.mvp_research_workflow import MvpResearchItem, MvpResearchResult
+ from api.application.projections import ProjectionKey
+@@ -67,7 +67,7 @@ async def test_compiled_research_graph_persists_pointer_only_state() -> None:
+             ),
+         )
+     )
+-    graph = MvpResearchStateGraph(
++    graph = ResearchControlGraph(
+         research_workflow=research,
+         checkpointer=InMemorySaver(),
+     )
+@@ -97,7 +97,7 @@ async def test_compiled_research_graph_persists_pointer_only_state() -> None:
+ 
+ def test_research_graph_is_compiled_and_wired_without_execution_authority() -> None:
+     graph_source = open(
+-        "src/api/application/mvp_research_state_graph.py",
++        "src/api/application/research_control_graph.py",
+         encoding="utf-8",
+     ).read()
+     di_source = open("src/api/application/di.py", encoding="utf-8").read()
+@@ -105,7 +105,7 @@ def test_research_graph_is_compiled_and_wired_without_execution_authority() -> N
+ 
+     assert "StateGraph" in graph_source
+     assert ".compile(" in graph_source
+-    assert "get_mvp_research_state_graph" in di_source
++    assert "get_research_control_graph" in di_source
+     assert "langgraph==" in requirements
+     for forbidden in (
+         "RabbitMQ",
+@@ -138,7 +138,7 @@ async def test_research_graph_interrupts_until_projection_and_result_sets_are_re
+             ),
+         ]
+     )
+-    graph = MvpResearchStateGraph(
++    graph = ResearchControlGraph(
+         research_workflow=research,
+         readiness_gate=gate,
+         checkpointer=InMemorySaver(),
+diff --git a/tests/infrastructure/test_mvp_research_auto_resumer.py b/tests/infrastructure/test_mvp_research_auto_resumer.py
+index 74db3f8..0c70217 100644
+--- a/tests/infrastructure/test_mvp_research_auto_resumer.py
++++ b/tests/infrastructure/test_mvp_research_auto_resumer.py
+@@ -14,7 +14,7 @@ from api.application.agent_wait_conditions import (
+ )
+ from api.application.hypotheses import HypothesisBuildRequest
+ from api.application.mvp_research_readiness import ResearchReadinessDecision
+-from api.application.mvp_research_state_graph import MvpResearchStateGraph
++from api.application.research_control_graph import ResearchControlGraph
+ from api.application.mvp_research_workflow import MvpResearchResult
+ from api.infrastructure.langgraph_resume import MvpResearchAutoResumer
+ 
+@@ -125,7 +125,7 @@ async def test_resolved_wait_automatically_continues_compiled_research_graph() -
+     workflow_run_id = uuid4()
+     condition_id = uuid4()
+     research = RecordingResearch()
+-    graph = MvpResearchStateGraph(
++    graph = ResearchControlGraph(
+         research_workflow=research,
+         readiness_gate=SequencedGate(
+             [
+diff --git a/tests/integration/test_langgraph_checkpoint_roundtrip.py b/tests/integration/test_langgraph_checkpoint_roundtrip.py
+index f6442da..ac3ffac 100644
+--- a/tests/integration/test_langgraph_checkpoint_roundtrip.py
++++ b/tests/integration/test_langgraph_checkpoint_roundtrip.py
+@@ -7,7 +7,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+ 
+ from api.application.hypotheses import HypothesisBuildRequest
+-from api.application.mvp_research_state_graph import MvpResearchStateGraph
++from api.application.research_control_graph import ResearchControlGraph
+ from api.application.mvp_research_workflow import MvpResearchResult
+ 
+ 
+@@ -34,7 +34,7 @@ async def test_langgraph_checkpoint_round_trip_uses_migrated_postgres_schema(
+         connection_url,
+         serde=JsonPlusSerializer(allowed_msgpack_modules=()),
+     ) as checkpointer:
+-        graph = MvpResearchStateGraph(
++        graph = ResearchControlGraph(
+             research_workflow=EmptyResearchWorkflow(),
+             checkpointer=checkpointer,
+         )

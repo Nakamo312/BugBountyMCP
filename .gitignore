@@ -220,3 +220,4 @@ postgres_data/
 katana_config/
 *.swp
 data/raw_outputs/
+.tmp_pytest/

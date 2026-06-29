@@ -40,40 +40,23 @@ def test_graph_node_fact_requires_deterministic_identity_and_evidence_lineage() 
     assert fact.tool_run_id == tool_run_id
 
 
-def test_graph_fact_rejects_missing_evidence_lineage_parts() -> None:
+def test_graph_fact_allows_canonical_inventory_without_artifact_lineage() -> None:
     GraphNodeFact, _, _ = _graph_contracts()
 
-    with pytest.raises(ValidationError):
-        GraphNodeFact(
-            program_id=uuid4(),
-            kind="Host",
-            key="api.example.com",
-            producer="httpx",
-            confidence=0.85,
-        )
+    fact = GraphNodeFact(
+        program_id=uuid4(),
+        kind="Host",
+        key="api.example.com",
+        producer="canonical-inventory",
+        confidence=1.0,
+        properties={"source_table": "hosts"},
+    )
 
-    with pytest.raises(ValidationError):
-        GraphNodeFact(
-            program_id=uuid4(),
-            kind="Host",
-            key="api.example.com",
-            producer="httpx",
-            source_artifact_id=uuid4(),
-            confidence=0.85,
-        )
-
-    with pytest.raises(ValidationError):
-        GraphNodeFact(
-            program_id=uuid4(),
-            kind="Host",
-            key="api.example.com",
-            producer="httpx",
-            tool_run_id=uuid4(),
-            confidence=0.85,
-        )
+    assert fact.source_artifact_id is None
+    assert fact.tool_run_id is None
 
 
-def test_graph_fact_rejects_canonical_origin_as_lineage_substitute() -> None:
+def test_graph_fact_rejects_unknown_top_level_origin_fields() -> None:
     GraphNodeFact, _, _ = _graph_contracts()
 
     with pytest.raises(ValidationError):

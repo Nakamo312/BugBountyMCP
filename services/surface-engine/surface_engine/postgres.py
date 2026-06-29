@@ -4,6 +4,8 @@ from collections.abc import Iterable
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
+from .deltas import SurfaceDeltaDraft
+from .edges import SurfaceEdgeDraft
 from .nodes import SurfaceNodeDraft, SurfaceSnapshotDraft
 
 HTTP_OBSERVATIONS_FOR_SURFACE_SQL = """
@@ -73,6 +75,117 @@ DO UPDATE SET
     stats_json = EXCLUDED.stats_json,
     input_watermark = EXCLUDED.input_watermark
 RETURNING id::text
+"""
+
+
+UPSERT_SURFACE_EDGE_SQL = """
+INSERT INTO surface_edges (
+    id,
+    program_id,
+    snapshot_id,
+    src_node_id,
+    dst_node_id,
+    edge_type,
+    weight,
+    edge_fingerprint,
+    algorithm_version,
+    evidence_json
+)
+SELECT
+    %(id)s,
+    %(program_id)s,
+    %(snapshot_id)s,
+    src.id,
+    dst.id,
+    %(edge_type)s,
+    %(weight)s,
+    %(edge_fingerprint)s,
+    %(algorithm_version)s,
+    %(evidence_json)s
+FROM surface_nodes src
+JOIN surface_nodes dst
+  ON dst.program_id = src.program_id
+ AND dst.snapshot_id = src.snapshot_id
+WHERE src.program_id = %(program_id)s
+  AND src.snapshot_id = %(snapshot_id)s
+  AND src.node_fingerprint = %(src_node_fingerprint)s
+  AND dst.node_fingerprint = %(dst_node_fingerprint)s
+ON CONFLICT (program_id, snapshot_id, edge_fingerprint)
+DO UPDATE SET
+    weight = EXCLUDED.weight,
+    algorithm_version = EXCLUDED.algorithm_version,
+    evidence_json = EXCLUDED.evidence_json
+"""
+
+UPSERT_SURFACE_DELTA_SQL = """
+INSERT INTO surface_deltas (
+    id,
+    program_id,
+    from_snapshot_id,
+    to_snapshot_id,
+    delta_type,
+    subject_type,
+    subject_fingerprint,
+    novelty_score,
+    details_json
+) VALUES (
+    %(id)s,
+    %(program_id)s,
+    %(from_snapshot_id)s,
+    %(to_snapshot_id)s,
+    %(delta_type)s,
+    %(subject_type)s,
+    %(subject_fingerprint)s,
+    %(novelty_score)s,
+    %(details_json)s
+)
+ON CONFLICT (program_id, to_snapshot_id, delta_type, subject_fingerprint)
+DO UPDATE SET
+    novelty_score = EXCLUDED.novelty_score,
+    details_json = EXCLUDED.details_json
+"""
+
+FETCH_PREVIOUS_SURFACE_SNAPSHOT_SQL = """
+SELECT id::text AS id
+FROM surface_snapshots
+WHERE program_id = %s
+  AND id::text != %s
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+"""
+
+FETCH_SURFACE_NODES_SQL = """
+SELECT
+    id::text AS id,
+    node_type,
+    node_fingerprint,
+    feature_fingerprint,
+    host,
+    path,
+    route_template,
+    method,
+    status_code,
+    content_type,
+    features_json
+FROM surface_nodes
+WHERE program_id = %s
+  AND snapshot_id = %s
+ORDER BY node_type ASC, node_fingerprint ASC
+"""
+
+FETCH_SURFACE_EDGES_SQL = """
+SELECT
+    id::text AS id,
+    edge_type,
+    edge_fingerprint,
+    src_node_id::text AS src_node_id,
+    dst_node_id::text AS dst_node_id,
+    evidence_json,
+    weight
+FROM surface_edges
+WHERE program_id = %s
+  AND snapshot_id = %s
+ORDER BY edge_type ASC, edge_fingerprint ASC
 """
 
 UPSERT_SURFACE_NODE_SQL = """
@@ -188,6 +301,63 @@ class PostgresSurfaceStore:
         return len(node_list)
 
 
+    def upsert_edges(self, *, snapshot_id: str, edges: Iterable[SurfaceEdgeDraft]) -> int:
+        psycopg2, _, Json = _load_psycopg2()
+        edge_list = list(edges)
+        if not edge_list:
+            return 0
+        with psycopg2.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                for edge in edge_list:
+                    cursor.execute(
+                        UPSERT_SURFACE_EDGE_SQL,
+                        _edge_params(snapshot_id=snapshot_id, edge=edge, json_wrapper=Json),
+                    )
+                connection.commit()
+        return len(edge_list)
+
+    def upsert_deltas(self, deltas: Iterable[SurfaceDeltaDraft]) -> int:
+        psycopg2, _, Json = _load_psycopg2()
+        delta_list = list(deltas)
+        if not delta_list:
+            return 0
+        with psycopg2.connect(self.dsn) as connection:
+            with connection.cursor() as cursor:
+                for delta in delta_list:
+                    cursor.execute(UPSERT_SURFACE_DELTA_SQL, _delta_params(delta=delta, json_wrapper=Json))
+                connection.commit()
+        return len(delta_list)
+
+    def fetch_previous_snapshot_id(self, *, program_id: str, current_snapshot_id: str) -> str | None:
+        psycopg2, RealDictCursor, _ = _load_psycopg2()
+        with psycopg2.connect(self.dsn) as connection:
+            connection.set_session(readonly=True, autocommit=True)
+            with connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(FETCH_PREVIOUS_SURFACE_SNAPSHOT_SQL, (program_id, current_snapshot_id))
+                row = cursor.fetchone()
+                return str(row["id"]) if row else None
+
+    def fetch_snapshot_nodes(self, *, program_id: str, snapshot_id: str | None) -> list[dict[str, Any]]:
+        if snapshot_id is None:
+            return []
+        psycopg2, RealDictCursor, _ = _load_psycopg2()
+        with psycopg2.connect(self.dsn) as connection:
+            connection.set_session(readonly=True, autocommit=True)
+            with connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(FETCH_SURFACE_NODES_SQL, (program_id, snapshot_id))
+                return [dict(row) for row in cursor.fetchall()]
+
+    def fetch_snapshot_edges(self, *, program_id: str, snapshot_id: str | None) -> list[dict[str, Any]]:
+        if snapshot_id is None:
+            return []
+        psycopg2, RealDictCursor, _ = _load_psycopg2()
+        with psycopg2.connect(self.dsn) as connection:
+            connection.set_session(readonly=True, autocommit=True)
+            with connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute(FETCH_SURFACE_EDGES_SQL, (program_id, snapshot_id))
+                return [dict(row) for row in cursor.fetchall()]
+
+
 def _load_psycopg2():
     try:
         import psycopg2
@@ -203,6 +373,19 @@ def _snapshot_uuid(snapshot: SurfaceSnapshotDraft) -> str:
 
 def _node_uuid(*, snapshot_id: str, node: SurfaceNodeDraft) -> str:
     return str(uuid5(NAMESPACE_URL, f"surface-node:{snapshot_id}:{node.node_fingerprint}"))
+
+
+def _edge_uuid(*, snapshot_id: str, edge: SurfaceEdgeDraft) -> str:
+    return str(uuid5(NAMESPACE_URL, f"surface-edge:{snapshot_id}:{edge.edge_fingerprint}"))
+
+
+def _delta_uuid(delta: SurfaceDeltaDraft) -> str:
+    return str(
+        uuid5(
+            NAMESPACE_URL,
+            f"surface-delta:{delta.program_id}:{delta.to_snapshot_id}:{delta.delta_type}:{delta.subject_fingerprint}",
+        )
+    )
 
 
 def _node_params(*, snapshot_id: str, node: SurfaceNodeDraft, json_wrapper: Any) -> dict[str, Any]:
@@ -226,4 +409,34 @@ def _node_params(*, snapshot_id: str, node: SurfaceNodeDraft, json_wrapper: Any)
         "safe_for_search": node.safe_for_search,
         "first_seen": node.first_seen,
         "last_seen": node.last_seen,
+    }
+
+
+
+def _edge_params(*, snapshot_id: str, edge: SurfaceEdgeDraft, json_wrapper: Any) -> dict[str, Any]:
+    return {
+        "id": _edge_uuid(snapshot_id=snapshot_id, edge=edge),
+        "program_id": edge.program_id,
+        "snapshot_id": snapshot_id,
+        "src_node_fingerprint": edge.src_node_fingerprint,
+        "dst_node_fingerprint": edge.dst_node_fingerprint,
+        "edge_type": edge.edge_type,
+        "weight": edge.weight,
+        "edge_fingerprint": edge.edge_fingerprint,
+        "algorithm_version": edge.algorithm_version,
+        "evidence_json": json_wrapper(edge.evidence_json),
+    }
+
+
+def _delta_params(*, delta: SurfaceDeltaDraft, json_wrapper: Any) -> dict[str, Any]:
+    return {
+        "id": _delta_uuid(delta),
+        "program_id": delta.program_id,
+        "from_snapshot_id": delta.from_snapshot_id,
+        "to_snapshot_id": delta.to_snapshot_id,
+        "delta_type": delta.delta_type,
+        "subject_type": delta.subject_type,
+        "subject_fingerprint": delta.subject_fingerprint,
+        "novelty_score": delta.novelty_score,
+        "details_json": json_wrapper(delta.details_json),
     }

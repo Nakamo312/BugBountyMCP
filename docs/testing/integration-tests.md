@@ -54,8 +54,13 @@ docker compose -f docker-compose.integration.yml --env-file .env.integration dow
 ## E2E Graph Tests
 
 Graph e2e tests are skipped unless `RUN_E2E_TESTS=1` is set. They use the same
-isolated Docker stack as integration tests and verify the projection path from
-canonical HTTP observations to Neo4j graph relationships.
+isolated Docker stack as integration tests and verify projection paths from
+canonical PostgreSQL state to Neo4j graph relationships.
+
+These tests do not cover Neo4j Graph Data Science. The integration stack uses
+plain Neo4j because the current MVP work is only the rebuildable GraphFact read
+model. GDS projections remain post-MVP/M8 work and need separate projection
+contracts before any `gds.*` procedure is introduced.
 
 Start the required isolated services:
 
@@ -75,9 +80,39 @@ Windows PowerShell:
 $env:RUN_E2E_TESTS="1"; python -m pytest -q -m e2e
 ```
 
-The current graph e2e seeds deterministic canonical `httpx` rows, then runs the
-real HTTP observation GraphFact enqueuer and real Neo4j applicator/writer. These
-tests must not invoke real scanner binaries or perform external probes.
+The current graph e2e coverage seeds deterministic canonical rows, then runs
+real graph projector components:
+
+- canonical `httpx` rows through the HTTP observation GraphFact enqueuer;
+- canonical `httpx` rows through the shared `GraphProjectionEventWorker`;
+- canonical Host/IP/Service inventory through graph `rebuild`;
+- real Neo4j applicator/writer.
+
+These tests must not invoke real scanner binaries or perform external probes.
+
+The graph projector also exposes a rebuild command that requeues GraphFact
+batches from canonical PostgreSQL data:
+
+```bash
+docker compose --profile graph run --rm graph-projector rebuild
+```
+
+After `rebuild`, run `apply-loop` or keep the graph profile services running so
+the queued batches are applied to Neo4j.
+
+For normal projection-event processing, use the single worker entry point
+instead of separate per-source services:
+
+```bash
+docker compose --profile graph run --rm graph-projector process-projection-events
+```
+
+The loop form can wait on the PostgreSQL `graph_projection_events_changed`
+notification channel:
+
+```bash
+docker compose --profile graph run --rm graph-projector process-projection-events-loop
+```
 
 Before clearing Neo4j, the e2e fixture requires `RUN_E2E_TESTS=1` and a
 test-only target: either the integration Bolt port `localhost:57687` /
@@ -100,5 +135,11 @@ Next integration layers should cover:
 
 - M1 action creation atomicity and blocked-action behavior;
 - event dispatcher publish failure/retry/no-double-publish behavior;
-- graph-projector Postgres-to-Neo4j smoke;
 - OpenSearch indexer projection and sensitive-field sanitization.
+
+Prepared PostgreSQL acceptance also covers the completed M2 artifact schema:
+
+- content encoding, physical size, and retention class;
+- bounded raw and sanitized preview safety fields;
+- parser, scope, target, tool-run, and parent-artifact lineage;
+- rejection of `sanitized_safe_for_llm=true` without sanitizer lineage.

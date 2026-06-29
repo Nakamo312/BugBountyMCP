@@ -4,8 +4,6 @@ import logging
 from typing import List, Dict, Any
 from uuid import UUID
 
-from sqlalchemy import text
-
 from api.application.dto.analysis import (
     InjectionCandidateDTO,
     SSRFCandidateDTO,
@@ -22,8 +20,27 @@ from api.application.dto.analysis import (
     AnalysisListDTO,
 )
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
+from api.application.services.view_queries import (
+    ReadOnlyView,
+    view_count_query,
+    view_data_query,
+)
 
 logger = logging.getLogger(__name__)
+
+_PROGRAM_VIEW_FILTERS = frozenset({"program_id"})
+_INJECTION_CANDIDATES_VIEW = ReadOnlyView("injection_candidates_view", _PROGRAM_VIEW_FILTERS)
+_SSRF_CANDIDATES_VIEW = ReadOnlyView("ssrf_candidates_view", _PROGRAM_VIEW_FILTERS)
+_IDOR_CANDIDATES_VIEW = ReadOnlyView("idor_candidates_view", _PROGRAM_VIEW_FILTERS)
+_FILE_UPLOAD_CANDIDATES_VIEW = ReadOnlyView("file_upload_candidates", _PROGRAM_VIEW_FILTERS)
+_REFLECTED_PARAMETERS_VIEW = ReadOnlyView("reflected_parameters_view", _PROGRAM_VIEW_FILTERS)
+_ARJUN_CANDIDATE_ENDPOINTS_VIEW = ReadOnlyView("arjun_candidate_endpoints", _PROGRAM_VIEW_FILTERS)
+_ADMIN_DEBUG_ENDPOINTS_VIEW = ReadOnlyView("admin_debug_endpoints", _PROGRAM_VIEW_FILTERS)
+_CORS_ANALYSIS_VIEW = ReadOnlyView("cors_analysis", _PROGRAM_VIEW_FILTERS)
+_SENSITIVE_HEADERS_VIEW = ReadOnlyView("sensitive_headers_view", _PROGRAM_VIEW_FILTERS)
+_HOST_TECHNOLOGIES_VIEW = ReadOnlyView("host_technologies", _PROGRAM_VIEW_FILTERS)
+_SUBDOMAIN_TAKEOVER_CANDIDATES_VIEW = ReadOnlyView("subdomain_takeover_candidates", _PROGRAM_VIEW_FILTERS)
+_API_PATTERN_ANALYSIS_VIEW = ReadOnlyView("api_pattern_analysis", _PROGRAM_VIEW_FILTERS)
 
 
 class AnalysisService:
@@ -34,32 +51,23 @@ class AnalysisService:
 
     async def _query_view(
         self,
-        view_name: str,
+        view: ReadOnlyView,
         program_id: UUID,
         limit: int = 100,
         offset: int = 0,
         extra_filters: Dict[str, Any] | None = None
     ) -> tuple[List[Dict[str, Any]], int]:
-        """Execute query against a view with pagination"""
+        """Execute a bounded query against an allow-listed read-only view."""
         async with self.uow as uow:
-            where_clauses = ["program_id = :program_id"]
-            params = {"program_id": program_id, "limit": limit, "offset": offset}
-
+            filters: Dict[str, Any] = {"program_id": program_id}
             if extra_filters:
-                for key, value in extra_filters.items():
-                    where_clauses.append(f"{key} = :{key}")
-                    params[key] = value
+                filters.update(extra_filters)
+            params = {**filters, "limit": limit, "offset": offset}
 
-            where_sql = " AND ".join(where_clauses)
-
-            count_query = text(f"SELECT COUNT(*) FROM {view_name} WHERE {where_sql}")
-            count_result = await uow._session.execute(count_query, params)
+            count_result = await uow._session.execute(view_count_query(view, filters), params)
             total = count_result.scalar() or 0
 
-            data_query = text(
-                f"SELECT * FROM {view_name} WHERE {where_sql} LIMIT :limit OFFSET :offset"
-            )
-            result = await uow._session.execute(data_query, params)
+            result = await uow._session.execute(view_data_query(view, filters), params)
             rows = result.mappings().all()
 
             return [dict(row) for row in rows], total
@@ -72,7 +80,7 @@ class AnalysisService:
     ) -> AnalysisListDTO:
         """Get injection candidates (SQLi, XSS, etc.)"""
         rows, total = await self._query_view(
-            "injection_candidates_view", program_id, limit, offset
+            _INJECTION_CANDIDATES_VIEW, program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[InjectionCandidateDTO(**row) for row in rows],
@@ -89,7 +97,7 @@ class AnalysisService:
     ) -> AnalysisListDTO:
         """Get SSRF candidates"""
         rows, total = await self._query_view(
-            "ssrf_candidates_view", program_id, limit, offset
+            _SSRF_CANDIDATES_VIEW, program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[SSRFCandidateDTO(**row) for row in rows],
@@ -106,7 +114,7 @@ class AnalysisService:
     ) -> AnalysisListDTO:
         """Get IDOR candidates"""
         rows, total = await self._query_view(
-            "idor_candidates_view", program_id, limit, offset
+            _IDOR_CANDIDATES_VIEW, program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[IDORCandidateDTO(**row) for row in rows],
@@ -123,7 +131,7 @@ class AnalysisService:
     ) -> AnalysisListDTO:
         """Get file upload candidates"""
         rows, total = await self._query_view(
-            "file_upload_candidates", program_id, limit, offset
+            _FILE_UPLOAD_CANDIDATES_VIEW, program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[FileUploadCandidateDTO(**row) for row in rows],
@@ -140,7 +148,7 @@ class AnalysisService:
     ) -> AnalysisListDTO:
         """Get reflected parameters (XSS candidates)"""
         rows, total = await self._query_view(
-            "reflected_parameters_view", program_id, limit, offset
+            _REFLECTED_PARAMETERS_VIEW, program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[ReflectedParameterDTO(**row) for row in rows],
@@ -157,7 +165,7 @@ class AnalysisService:
     ) -> AnalysisListDTO:
         """Get Arjun parameter discovery candidates"""
         rows, total = await self._query_view(
-            "arjun_candidate_endpoints", program_id, limit, offset
+            _ARJUN_CANDIDATE_ENDPOINTS_VIEW, program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[ArjunCandidateDTO(**row) for row in rows],
@@ -174,7 +182,7 @@ class AnalysisService:
     ) -> AnalysisListDTO:
         """Get admin/debug endpoints"""
         rows, total = await self._query_view(
-            "admin_debug_endpoints", program_id, limit, offset
+            _ADMIN_DEBUG_ENDPOINTS_VIEW, program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[AdminDebugEndpointDTO(**row) for row in rows],
@@ -191,7 +199,7 @@ class AnalysisService:
     ) -> AnalysisListDTO:
         """Get CORS configuration analysis"""
         rows, total = await self._query_view(
-            "cors_analysis", program_id, limit, offset
+            _CORS_ANALYSIS_VIEW, program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[CORSAnalysisDTO(**row) for row in rows],
@@ -208,7 +216,7 @@ class AnalysisService:
     ) -> AnalysisListDTO:
         """Get sensitive headers"""
         rows, total = await self._query_view(
-            "sensitive_headers_view", program_id, limit, offset
+            _SENSITIVE_HEADERS_VIEW, program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[SensitiveHeaderDTO(**row) for row in rows],
@@ -225,7 +233,7 @@ class AnalysisService:
     ) -> AnalysisListDTO:
         """Get host technologies"""
         rows, total = await self._query_view(
-            "host_technologies", program_id, limit, offset
+            _HOST_TECHNOLOGIES_VIEW, program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[HostTechnologyDTO(**row) for row in rows],
@@ -242,7 +250,7 @@ class AnalysisService:
     ) -> AnalysisListDTO:
         """Get subdomain takeover candidates"""
         rows, total = await self._query_view(
-            "subdomain_takeover_candidates", program_id, limit, offset
+            _SUBDOMAIN_TAKEOVER_CANDIDATES_VIEW, program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[SubdomainTakeoverCandidateDTO(**row) for row in rows],
@@ -259,7 +267,7 @@ class AnalysisService:
     ) -> AnalysisListDTO:
         """Get API pattern analysis"""
         rows, total = await self._query_view(
-            "api_pattern_analysis", program_id, limit, offset
+            _API_PATTERN_ANALYSIS_VIEW, program_id, limit, offset
         )
         return AnalysisListDTO(
             items=[APIPatternDTO(**row) for row in rows],

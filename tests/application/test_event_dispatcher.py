@@ -40,6 +40,18 @@ class RecordingEventBus:
             raise RuntimeError("rabbit down")
 
 
+class RecordingAgentRouter:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.routed: list[EventEnvelope] = []
+
+    async def route_event(self, envelope: EventEnvelope) -> int:
+        self.routed.append(envelope)
+        if self.fail:
+            raise RuntimeError("agent inbox down")
+        return 1
+
+
 def _record(attempts: int = 0) -> EventDispatchRecord:
     envelope = EventEnvelope(
         event="httpx_scan_requested",
@@ -88,6 +100,54 @@ async def test_dispatcher_sends_stored_event_without_recording_again() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dispatcher_routes_stored_event_to_agent_router_before_rabbit_publish() -> None:
+    record = _record()
+    store = InMemoryDispatchStore([record])
+    bus = RecordingEventBus()
+    agent_router = RecordingAgentRouter()
+    dispatcher = EventDispatcher(
+        store=store,
+        event_bus=bus,
+        agent_router=agent_router,
+        dispatcher_id="dispatcher-agent",
+    )
+
+    sent = await dispatcher.send_once()
+
+    assert sent == 1
+    assert bus.published == [(record.envelope, False, record.routing_key)]
+    assert agent_router.routed == [record.envelope]
+    assert store.sent == [(record.dispatch_id, "dispatcher-agent")]
+    assert store.failed == []
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_retries_when_agent_router_fails() -> None:
+    record = _record(attempts=1)
+    store = InMemoryDispatchStore([record])
+    bus = RecordingEventBus()
+    agent_router = RecordingAgentRouter(fail=True)
+    dispatcher = EventDispatcher(
+        store=store,
+        event_bus=bus,
+        agent_router=agent_router,
+        dispatcher_id="dispatcher-agent-fail",
+        max_attempts=4,
+    )
+
+    sent = await dispatcher.send_once()
+
+    assert sent == 1
+    assert bus.published == []
+    assert store.sent == []
+    assert len(store.failed) == 1
+    assert store.failed[0]["dispatch_id"] == record.dispatch_id
+    assert store.failed[0]["current_attempts"] == 1
+    assert store.failed[0]["max_attempts"] == 4
+    assert "agent inbox down" in store.failed[0]["error"]
+
+
+@pytest.mark.asyncio
 async def test_dispatcher_records_failure_for_retry() -> None:
     record = _record(attempts=2)
     store = InMemoryDispatchStore([record])
@@ -130,14 +190,31 @@ async def test_dispatcher_idles_without_rows() -> None:
 
 def test_dispatcher_uses_existing_event_store() -> None:
     source = open("src/api/infrastructure/orchestration/store.py", encoding="utf-8").read()
+    dispatch_source = open("src/api/infrastructure/orchestration/dispatch_store.py", encoding="utf-8").read()
     dispatcher_source = open("src/api/infrastructure/events/dispatcher.py", encoding="utf-8").read()
     bus_source = open("src/api/infrastructure/events/event_bus.py", encoding="utf-8").read()
 
     assert "claim_dispatches" in source
     assert "mark_sent" in source
     assert "mark_failed" in source
-    assert "event_dispatches.join(" in source
-    assert "pg_notify" in source
+    assert "self.dispatches.claim_dispatches" in source
+    assert "self.dispatches.mark_sent" in source
+    assert "self.dispatches.mark_failed" in source
+    assert "event_dispatches.join(" in dispatch_source
+    assert "pg_notify" in dispatch_source
     assert "record_event: bool = True" in bus_source
     assert "record_event=False" in dispatcher_source
     assert "routing_key=record.routing_key" in dispatcher_source
+
+
+def test_event_dispatcher_is_wired_with_agent_router_at_app_startup() -> None:
+    app_source = open("src/api/presentation/rest/app.py", encoding="utf-8").read()
+    di_source = open("src/api/application/di.py", encoding="utf-8").read()
+
+    assert "AgentInboxStore" in di_source
+    assert "AgentEventRouter" in di_source
+    assert "EventDispatcher" in di_source
+    assert "agent_router=agent_router" in di_source
+    assert "settings.USE_EVENT_DISPATCHER" in app_source
+    assert "event_dispatcher.start()" in app_source
+    assert "event_dispatcher.stop()" in app_source

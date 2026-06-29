@@ -57,7 +57,9 @@ def test_manual_approval_and_rejection_decisions_record_actor_metadata() -> None
 
     approved = service.approve(
         request,
-        _detail("ffuf", "content-discovery-light"),
+        _detail("ffuf", "content-discovery-light").model_copy(
+            update={"scope_policy": "confidence"}
+        ),
         approved_by="alice",
         reason="ok",
     )

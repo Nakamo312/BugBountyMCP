@@ -87,6 +87,17 @@ class BodyArtifact(ArtifactModel):
     body_content: str | None = None
 
 
+class RawArtifactPreview(ArtifactModel):
+    artifact_id: UUID
+    program_id: UUID
+    artifact_type: str
+    sanitized_preview: str
+    sanitizer_version: str
+    redaction_policy_version: str
+    sanitized_safe_for_llm: bool
+    created_at: datetime
+
+
 class DNSRecordArtifact(ArtifactModel):
     id: UUID
     host_id: UUID

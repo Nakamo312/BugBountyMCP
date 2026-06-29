@@ -1,97 +1,55 @@
-"""Naabu Result Ingestor"""
+"""Compatibility facade for legacy Naabu ingestion payloads."""
+from __future__ import annotations
 
-import logging
-from uuid import UUID
-from typing import Any, List, Dict
+from typing import Any
 
-from api.infrastructure.unit_of_work.interfaces.naabu import AbstractNaabuUnitOfWork
-from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
-from api.infrastructure.ingestors.ingest_result import IngestResult
+from api.application.contracts import IngestContext
+from api.application.pipeline.records import ServiceFinding
 from api.config import Settings
+from api.infrastructure.ingestors.service_finding_ingestor import ServiceFindingIngestor
+from api.infrastructure.unit_of_work.interfaces.naabu import AbstractNaabuUnitOfWork
 
-logger = logging.getLogger(__name__)
 
-
-class NaabuResultIngestor(BaseResultIngestor):
-    """
-    Ingests Naabu port scan results into database.
-
-    Processing flow:
-    1. Ensure IP address exists
-    2. Create/update service record with port, protocol
-    3. Batch processing with savepoint recovery
-
-    Naabu result format:
-    {
-        "host": "8.8.8.8",
-        "ip": "8.8.8.8",
-        "port": 53,
-        "protocol": "tcp"
-    }
-    """
+class NaabuResultIngestor(ServiceFindingIngestor):
+    """Adapt legacy Naabu dict payloads to ServiceFinding records."""
 
     def __init__(self, uow: AbstractNaabuUnitOfWork, settings: Settings):
         super().__init__(uow, batch_size=settings.NAABU_INGESTOR_BATCH_SIZE)
-        self._processed = 0
-        self._skipped = 0
 
-    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
-        """
-        Ingest Naabu port scan results into database.
-
-        Args:
-            program_id: Program UUID for scope association
-            results: List of Naabu JSON results
-
-        Returns:
-            IngestResult (empty for naabu)
-        """
-        self._processed = 0
-        self._skipped = 0
-
-        await super().ingest(program_id, results)
-
-        logger.info(
-            f"Naabu ingestion completed: program={program_id} "
-            f"processed={self._processed} skipped={self._skipped}"
+    async def ingest(
+        self,
+        program_id,
+        results: list[dict[str, Any]] | list[ServiceFinding],
+        context: IngestContext | None = None,
+    ):
+        return await super().ingest(
+            program_id,
+            [self._adapt(result) for result in results],
+            context=context,
         )
 
-        return IngestResult()
+    @staticmethod
+    def _adapt(result: dict[str, Any] | ServiceFinding) -> ServiceFinding:
+        if isinstance(result, ServiceFinding):
+            return result
 
-    async def _process_batch(self, uow: AbstractNaabuUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
-        """Process a single batch of Naabu results"""
-        for result in batch:
-            try:
-                ip_address = result.get("ip")
-                port = result.get("port")
-                protocol = result.get("protocol", "tcp")
+        ip = result.get("ip") or result.get("host")
+        port = result.get("port")
+        if not ip or port is None:
+            return ServiceFinding(
+                ip="",
+                port=0,
+                source_tool="naabu",
+                raw=result,
+            )
 
-                if not ip_address or port is None:
-                    logger.warning(f"Invalid Naabu result, missing ip or port: {result}")
-                    self._skipped += 1
-                    continue
-
-                ip_obj = await uow.ip_addresses.ensure(
-                    program_id=program_id,
-                    address=ip_address,
-                    in_scope=True
-                )
-
-                scheme = "https" if int(port) == 443 else "http"
-
-                await uow.services.ensure(
-                    ip_id=ip_obj.id,
-                    scheme=scheme,
-                    port=int(port),
-                    technologies={}
-                )
-
-                self._processed += 1
-
-            except Exception as e:
-                logger.error(
-                    f"Failed to process Naabu result {result}: {e}",
-                    exc_info=True
-                )
-                self._skipped += 1
-                continue
+        port_number = int(port)
+        return ServiceFinding(
+            ip=str(ip),
+            port=port_number,
+            protocol=str(result.get("protocol") or "tcp"),
+            source_tool="naabu",
+            host=str(result.get("host")) if result.get("host") else None,
+            scheme="https" if port_number == 443 else "http",
+            raw=result,
+        )

@@ -3,9 +3,9 @@ from typing import List, Dict, Any
 from uuid import UUID
 from urllib.parse import urlparse
 
+from api.application.contracts import IngestContext
 from api.infrastructure.unit_of_work.interfaces.mantra import MantraUnitOfWork
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
-from api.infrastructure.ingestors.ingest_result import IngestResult
 
 logger = logging.getLogger(__name__)
 
@@ -21,53 +21,36 @@ class MantraResultIngestor(BaseResultIngestor):
         self._ingested = 0
         self._skipped = 0
 
-    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
-        """
-        Ingest Mantra results batch.
-
-        Args:
-            program_id: Target program ID
-            results: List of dicts with 'url' and 'secret' keys
-
-        Returns:
-            IngestResult (empty - secrets stored in DB)
-        """
+    async def before_ingest(
+        self,
+        uow: MantraUnitOfWork,
+        program_id: UUID,
+        results: List[Dict[str, Any]],
+        context: IngestContext | None = None,
+    ) -> None:
         self._ingested = 0
         self._skipped = 0
 
-        try:
-            async with self.uow as uow:
-                await self._process_batch(uow, program_id, results)
-                await uow.commit()
-        except Exception:
-            await self.uow.rollback()
-            raise
+    def log_extra(self) -> str:
+        return f"ingested={self._ingested} skipped={self._skipped}"
 
-        logger.info(
-            f"Mantra ingestion completed: program={program_id} "
-            f"ingested={self._ingested} skipped={self._skipped}"
-        )
-
-        return IngestResult()
-
-    async def _process_batch(self, uow: MantraUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
+    async def process_record(self, uow: MantraUnitOfWork, program_id: UUID, result: Dict[str, Any], context: IngestContext | None = None) -> None:
         """Process a batch of Mantra results"""
-        for result in batch:
-            url = result.get("url")
-            secret = result.get("secret")
+        url = result.get("url")
+        secret = result.get("secret")
 
-            if not url or not secret:
-                self._skipped += 1
-                continue
+        if not url or not secret:
+            self._skipped += 1
+            return
 
-            endpoint_id = await self._find_endpoint_by_url(uow, program_id, url)
+        endpoint_id = await self._find_endpoint_by_url(uow, program_id, url)
 
-            await uow.leaks.ensure(
-                program_id=program_id,
-                content=secret,
-                endpoint_id=endpoint_id,
-            )
-            self._ingested += 1
+        await uow.leaks.ensure(
+            program_id=program_id,
+            content=secret,
+            endpoint_id=endpoint_id,
+        )
+        self._ingested += 1
 
     async def _find_endpoint_by_url(self, *args) -> UUID | None:
         """

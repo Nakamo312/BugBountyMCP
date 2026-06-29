@@ -1,5 +1,5 @@
 """Factory for creating nodes from configuration"""
-from typing import Set, Dict, Optional, Callable, List, Any, Type
+from typing import Set, Dict, Optional, Callable, List, Any
 
 from api.application.pipeline.scan_node import ScanNode
 from api.application.pipeline.extractors import default_target_extractor
@@ -16,19 +16,24 @@ class NodeFactory:
         node_id: str,
         event_in: Set[EventType],
         event_out: Dict[EventType, str],
-        runner_type: Type,
-        processor_type: Type,
-        parser_type: Optional[Type] = None,
-        ingestor_type: Optional[Type] = None,
+        runner_type: Any,
+        processor_type: Any,
+        parser_type: Optional[Callable[[], Any]] = None,
+        ingestor_type: Any = None,
         target_extractor: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
         max_parallelism: int = 1,
         execution_delay: int = 0,
         execution_mode: ExecutionMode = ExecutionMode.INLINE,
         max_targets_per_run: int | None = None,
+        cooldown_seconds: int | float = 0,
+        max_fanout_per_event: int | None = None,
+        max_expansion_depth: int | None = None,
+        token_cost: int | float = 1,
         retry_policy: dict | None = None,
         scope_policy: ScopePolicy = ScopePolicy.NONE,
         runtime: Any | None = None,
         runtime_concurrency: int | None = None,
+        requires_execution_context: bool = False,
     ) -> ScanNode:
         """
         Create generic scan node from configuration.
@@ -49,18 +54,15 @@ class NodeFactory:
             Configured ScanNode instance
 
         Example:
-            >>> from api.infrastructure.runners.httpx_cli import HTTPXCliRunner
+            >>> from api.infrastructure.runners.cli_tool import CliToolRunnerRef
             >>> from api.application.services.batch_processor import HTTPXBatchProcessor
             >>> from api.infrastructure.ingestors.httpx_ingestor import HTTPXResultIngestor
             >>>
             >>> httpx_node = NodeFactory.create_scan_node(
             ...     node_id="httpx",
             ...     event_in={EventType.SUBDOMAIN_DISCOVERED},
-            ...     event_out={
-            ...         EventType.HOST_DISCOVERED: "new_hosts",
-            ...         EventType.JS_FILES_DISCOVERED: "js_files"
-            ...     },
-            ...     runner_type=HTTPXCliRunner,
+            ...     event_out={EventType.HOST_DISCOVERED: "new_hosts"},
+            ...     runner_type=CliToolRunnerRef("httpx"),
             ...     processor_type=HTTPXBatchProcessor,
             ...     ingestor_type=HTTPXResultIngestor,
             ...     max_parallelism=2
@@ -79,8 +81,13 @@ class NodeFactory:
             execution_delay=execution_delay,
             execution_mode=execution_mode,
             max_targets_per_run=max_targets_per_run,
+            cooldown_seconds=cooldown_seconds,
+            max_fanout_per_event=max_fanout_per_event,
+            max_expansion_depth=max_expansion_depth,
+            token_cost=token_cost,
             retry_policy=retry_policy,
             scope_policy=scope_policy,
             runtime=runtime,
             runtime_concurrency=runtime_concurrency,
+            requires_execution_context=requires_execution_context,
         )

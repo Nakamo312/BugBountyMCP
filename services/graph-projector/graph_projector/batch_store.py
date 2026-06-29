@@ -6,11 +6,73 @@ from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from .contracts import GraphFactBatch
+from .row_codec import adapt_json_parameters_for_cursor, cursor_for
 
 
 _BATCH_EXCLUDE = {
     "facts": {"__all__": {"identity_key"}},
 }
+
+
+_GRAPH_FACT_BATCH_INSERT_RESET = """
+INSERT INTO graph_fact_batches (
+    id,
+    program_id,
+    produced_by,
+    parser_version,
+    dedupe_key,
+    facts_json,
+    fact_count
+)
+VALUES (
+    %(id)s,
+    %(program_id)s,
+    %(produced_by)s,
+    %(parser_version)s,
+    %(dedupe_key)s,
+    %(facts_json)s,
+    %(fact_count)s
+)
+ON CONFLICT (dedupe_key) DO UPDATE
+SET program_id = EXCLUDED.program_id,
+    produced_by = EXCLUDED.produced_by,
+    parser_version = EXCLUDED.parser_version,
+    facts_json = EXCLUDED.facts_json,
+    fact_count = EXCLUDED.fact_count,
+    status = 'pending',
+    attempts = 0,
+    applied_at = NULL,
+    locked_by = NULL,
+    locked_until = NULL,
+    last_error = NULL,
+    available_at = now(),
+    updated_at = now()
+RETURNING id;
+""".strip()
+
+_GRAPH_FACT_BATCH_INSERT_KEEP_EXISTING = """
+INSERT INTO graph_fact_batches (
+    id,
+    program_id,
+    produced_by,
+    parser_version,
+    dedupe_key,
+    facts_json,
+    fact_count
+)
+VALUES (
+    %(id)s,
+    %(program_id)s,
+    %(produced_by)s,
+    %(parser_version)s,
+    %(dedupe_key)s,
+    %(facts_json)s,
+    %(fact_count)s
+)
+ON CONFLICT (dedupe_key) DO UPDATE
+SET updated_at = graph_fact_batches.updated_at
+RETURNING id;
+""".strip()
 
 
 class Cursor(Protocol):
@@ -54,34 +116,12 @@ class GraphFactBatchStore:
     def __init__(self, connection: Connection) -> None:
         self._connection = connection
 
-    def enqueue(self, batch: GraphFactBatch, *, dedupe_key: str | None = None) -> UUID:
+    def enqueue(self, batch: GraphFactBatch, *, dedupe_key: str | None = None, reset_existing: bool = False) -> UUID:
         values = serialize_graph_fact_batch(batch)
         values["id"] = str(uuid4())
         values["dedupe_key"] = _dedupe_key(dedupe_key)
         row = self._fetchone(
-            """
-INSERT INTO graph_fact_batches (
-    id,
-    program_id,
-    produced_by,
-    parser_version,
-    dedupe_key,
-    facts_json,
-    fact_count
-)
-VALUES (
-    %(id)s,
-    %(program_id)s,
-    %(produced_by)s,
-    %(parser_version)s,
-    %(dedupe_key)s,
-    %(facts_json)s,
-    %(fact_count)s
-)
-ON CONFLICT (dedupe_key) DO UPDATE
-SET updated_at = graph_fact_batches.updated_at
-RETURNING id;
-""".strip(),
+            _graph_fact_batch_insert_statement(reset_existing=reset_existing),
             values,
         )
         if row is None:
@@ -133,7 +173,7 @@ RETURNING id, facts_json, attempts;
             attempts=int(row["attempts"]),
         )
 
-    def mark_applied(self, batch_id: UUID) -> None:
+    def mark_applied(self, batch_id: UUID, *, worker_id: str) -> None:
         now = datetime.now(UTC)
         self._execute(
             """
@@ -144,13 +184,15 @@ SET status = 'applied',
     locked_by = NULL,
     locked_until = NULL,
     last_error = NULL
-WHERE id = %(batch_id)s;
+WHERE id = %(batch_id)s
+  AND status = 'locked'
+  AND locked_by = %(worker_id)s;
 """.strip(),
-            {"batch_id": batch_id, "now": now},
+            {"batch_id": batch_id, "now": now, "worker_id": worker_id},
         )
         self._connection.commit()
 
-    def mark_failed(self, batch_id: UUID, *, error: str, dead: bool) -> None:
+    def mark_failed(self, batch_id: UUID, *, error: str, dead: bool, worker_id: str) -> None:
         now = datetime.now(UTC)
         status = "dead" if dead else "failed"
         self._execute(
@@ -161,9 +203,11 @@ SET status = %(status)s,
     locked_by = NULL,
     locked_until = NULL,
     last_error = %(error)s
-WHERE id = %(batch_id)s;
+WHERE id = %(batch_id)s
+  AND status = 'locked'
+  AND locked_by = %(worker_id)s;
 """.strip(),
-            {"batch_id": batch_id, "status": status, "now": now, "error": error[:4000]},
+            {"batch_id": batch_id, "status": status, "now": now, "error": error[:4000], "worker_id": worker_id},
         )
         self._connection.commit()
 
@@ -186,10 +230,7 @@ WHERE id = %(batch_id)s;
             raise
 
     def _cursor(self) -> Cursor:
-        cursor = self._connection.cursor()
-        if hasattr(cursor, "__enter__"):
-            return cursor.__enter__()
-        return cursor
+        return cursor_for(self._connection)
 
 
 def connect_postgres(dsn: str) -> Connection:
@@ -204,6 +245,10 @@ def connect_postgres(dsn: str) -> Connection:
     return psycopg2.connect(dsn, cursor_factory=RealDictCursor)
 
 
+def _graph_fact_batch_insert_statement(*, reset_existing: bool) -> str:
+    return _GRAPH_FACT_BATCH_INSERT_RESET if reset_existing else _GRAPH_FACT_BATCH_INSERT_KEEP_EXISTING
+
+
 def _dedupe_key(value: str | None) -> str | None:
     if value is None:
         return None
@@ -213,20 +258,8 @@ def _dedupe_key(value: str | None) -> str | None:
     return stripped
 
 
+_GRAPH_FACT_BATCH_JSON_KEYS = frozenset({"facts_json"})
+
+
 def _adapt_json_parameters_for_cursor(cursor: Cursor, parameters: dict[str, object]) -> dict[str, object]:
-    if "facts_json" not in parameters:
-        return parameters
-    if not _is_psycopg2_cursor(cursor):
-        return parameters
-    try:
-        from psycopg2.extras import Json
-    except ModuleNotFoundError:
-        return parameters
-    adapted = dict(parameters)
-    adapted["facts_json"] = Json(parameters["facts_json"])
-    return adapted
-
-
-def _is_psycopg2_cursor(cursor: Cursor) -> bool:
-    module = cursor.__class__.__module__
-    return module == "psycopg2" or module.startswith("psycopg2.")
+    return adapt_json_parameters_for_cursor(cursor, parameters, json_keys=_GRAPH_FACT_BATCH_JSON_KEYS)

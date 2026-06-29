@@ -1,0 +1,280 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index 869a0e5..90f1f49 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -632,7 +632,11 @@ Evidence:
+   request-scoped `ResearchControlGraph`, records handoff failures in
+   `agent_inbox.last_error` without releasing the active lease, and leaves
+   retry/checkpoint lifecycle to LangGraph instead of adding a second inbox retry
+-  runtime.
++  runtime. Each sweep can now return a safe outcome summary (`claimed`,
++  `started`, `resumed`, `already_started`, `skipped_terminal_workflow`,
++  `failed`, `acknowledged`) so operators can see whether the worker is starting
++  new research passes, resuming existing ones, deduplicating old messages, or
++  only encountering handoff failures.
+ - REST routes under `/api/v1/agent` expose the M6 agent protocol without raw
+   execution shortcuts. The router is guarded by an explicit internal boundary:
+   callers must send an allowed `X-Agent-Actor` and, unless the dev bypass is
+diff --git a/src/api/application/langgraph_inbox_handoff.py b/src/api/application/langgraph_inbox_handoff.py
+index 2fb1faf..d683f89 100644
+--- a/src/api/application/langgraph_inbox_handoff.py
++++ b/src/api/application/langgraph_inbox_handoff.py
+@@ -10,6 +10,7 @@ from api.application.research_inbox_bridge import (
+     ResearchInboxBridge,
+     ResearchInboxBridgeResult,
+     ResearchInboxProcessor,
++    ResearchInboxProcessorSweep,
+     hypothesis_request_from_inbox_message,
+     research_thread_id_for_inbox_message,
+ )
+@@ -18,6 +19,7 @@ from api.application.research_inbox_bridge import (
+ MvpResearchGraph = ResearchExecutionGraph
+ InboxLangGraphHandoffResult = ResearchInboxBridgeResult
+ MvpResearchInboxProcessor = ResearchInboxProcessor
++MvpResearchInboxProcessorSweep = ResearchInboxProcessorSweep
+ MvpResearchInboxHandoff = ResearchInboxBridge
+ langgraph_thread_id_for_inbox_message = research_thread_id_for_inbox_message
+ 
+@@ -30,11 +32,13 @@ __all__ = [
+     "ResearchInboxBridge",
+     "ResearchInboxBridgeResult",
+     "ResearchInboxProcessor",
++    "ResearchInboxProcessorSweep",
+     "hypothesis_request_from_inbox_message",
+     "research_thread_id_for_inbox_message",
+     "MvpResearchGraph",
+     "InboxLangGraphHandoffResult",
+     "MvpResearchInboxProcessor",
++    "MvpResearchInboxProcessorSweep",
+     "MvpResearchInboxHandoff",
+     "langgraph_thread_id_for_inbox_message",
+ ]
+diff --git a/src/api/application/research_inbox_bridge.py b/src/api/application/research_inbox_bridge.py
+index bc211a5..3a8c39b 100644
+--- a/src/api/application/research_inbox_bridge.py
++++ b/src/api/application/research_inbox_bridge.py
+@@ -79,6 +79,56 @@ class ResearchInboxBridgeResult:
+         return self.outcome
+ 
+ 
++@dataclass(frozen=True, slots=True)
++class ResearchInboxProcessorSweep:
++    claimed: int = 0
++    handed_off: int = 0
++    acknowledged: int = 0
++    started: int = 0
++    resumed: int = 0
++    already_started: int = 0
++    skipped_terminal_workflow: int = 0
++    failed: int = 0
++
++    @property
++    def processed(self) -> int:
++        """Compatibility count for older callers that only need success count."""
++
++        return self.handed_off
++
++    def with_result(self, result: ResearchInboxBridgeResult) -> "ResearchInboxProcessorSweep":
++        outcome_updates = {
++            "started": self.started,
++            "resumed": self.resumed,
++            "already_started": self.already_started,
++            "skipped_terminal_workflow": self.skipped_terminal_workflow,
++        }
++        if result.outcome in outcome_updates:
++            outcome_updates[result.outcome] += 1
++        return ResearchInboxProcessorSweep(
++            claimed=self.claimed,
++            handed_off=self.handed_off + 1,
++            acknowledged=self.acknowledged + int(result.acknowledged),
++            started=outcome_updates["started"],
++            resumed=outcome_updates["resumed"],
++            already_started=outcome_updates["already_started"],
++            skipped_terminal_workflow=outcome_updates["skipped_terminal_workflow"],
++            failed=self.failed,
++        )
++
++    def with_failure(self) -> "ResearchInboxProcessorSweep":
++        return ResearchInboxProcessorSweep(
++            claimed=self.claimed,
++            handed_off=self.handed_off,
++            acknowledged=self.acknowledged,
++            started=self.started,
++            resumed=self.resumed,
++            already_started=self.already_started,
++            skipped_terminal_workflow=self.skipped_terminal_workflow,
++            failed=self.failed + 1,
++        )
++
++
+ class AgentInboxClaimStore(
+     AgentInboxAckStore,
+     AgentInboxFailureStore,
+@@ -179,6 +229,11 @@ class ResearchInboxProcessor:
+                 pass
+ 
+     async def process_once(self) -> int:
++        """Process one sweep and return the compatibility success count."""
++
++        return (await self.process_once_summary()).processed
++
++    async def process_once_summary(self) -> ResearchInboxProcessorSweep:
+         messages = await self.inbox_store.claim_inbox(
+             program_id=self.program_id,
+             campaign_id=self.campaign_id,
+@@ -188,11 +243,11 @@ class ResearchInboxProcessor:
+             lease_seconds=self.lease_seconds,
+             limit=self.claim_limit,
+         )
+-        handed_off = 0
++        summary = ResearchInboxProcessorSweep(claimed=len(messages))
+         for message in messages:
+             try:
+-                await self._handoff_message(message)
+-                handed_off += 1
++                result = await self._handoff_message(message)
++                summary = summary.with_result(result)
+             except asyncio.CancelledError:
+                 raise
+             except Exception as exc:
+@@ -201,7 +256,8 @@ class ResearchInboxProcessor:
+                     message.get("id"),
+                 )
+                 await self._record_handoff_error(message, exc)
+-        return handed_off
++                summary = summary.with_failure()
++        return summary
+ 
+     async def _record_handoff_error(
+         self,
+diff --git a/tests/application/test_research_inbox_processor.py b/tests/application/test_research_inbox_processor.py
+index 10ab847..e673134 100644
+--- a/tests/application/test_research_inbox_processor.py
++++ b/tests/application/test_research_inbox_processor.py
+@@ -3,7 +3,7 @@ from __future__ import annotations
+ from dataclasses import dataclass
+ from uuid import uuid4
+ 
+-from api.application.research_inbox_bridge import ResearchInboxProcessor
++from api.application.research_inbox_bridge import ResearchInboxProcessor, ResearchInboxProcessorSweep
+ 
+ 
+ class GraphDependency: ...
+@@ -15,9 +15,11 @@ class Snapshot:
+ 
+ 
+ class RecordingGraph:
+-    def __init__(self, *, fail: bool = False) -> None:
++    def __init__(self, *, fail: bool = False, existing_threads=None) -> None:
+         self.fail = fail
++        self.existing_threads = set(existing_threads or [])
+         self.invoked = []
++        self.resumed = []
+         self.state_lookups = []
+ 
+     async def ainvoke(self, request, *, thread_id, required_projections=()):
+@@ -27,11 +29,12 @@ class RecordingGraph:
+         return {"status": "started"}
+ 
+     async def aresume(self, *, thread_id):
++        self.resumed.append(thread_id)
+         return {"status": "resumed"}
+ 
+     async def aget_state(self, *, thread_id):
+         self.state_lookups.append(thread_id)
+-        return Snapshot(values={})
++        return Snapshot(values={"thread_id": thread_id} if thread_id in self.existing_threads else {})
+ 
+ 
+ class RecordingRequestContainer:
+@@ -63,8 +66,9 @@ class RecordingContainerFactory:
+ 
+ 
+ class RecordingInboxStore:
+-    def __init__(self, messages) -> None:
++    def __init__(self, messages, *, workflow_statuses=None) -> None:
+         self.messages = list(messages)
++        self.workflow_statuses = dict(workflow_statuses or {})
+         self.claims = []
+         self.acked = []
+         self.errors = []
+@@ -79,6 +83,9 @@ class RecordingInboxStore:
+     async def record_inbox_handoff_error(self, *, message_id, error):
+         self.errors.append((message_id, error))
+ 
++    async def get_workflow_run_status(self, *, run_id):
++        return self.workflow_statuses.get(run_id)
++
+ 
+ def _message(**overrides):
+     message = {
+@@ -180,3 +187,69 @@ async def test_inbox_processor_keeps_processing_after_recording_failure_error_fa
+ 
+     assert processed == 0
+     assert store.acked == []
++
++
++def test_processor_sweep_default_values() -> None:
++    summary = ResearchInboxProcessorSweep()
++
++    assert summary.claimed == 0
++    assert summary.processed == 0
++
++
++async def test_inbox_processor_summary_counts_handoff_outcomes() -> None:
++    start_message = _message()
++    existing_message = _message()
++    resumed_run_id = uuid4()
++    resumed_message = _message(workflow_run_id=resumed_run_id)
++    cancelled_run_id = uuid4()
++    cancelled_message = _message(workflow_run_id=cancelled_run_id)
++    existing_thread_id = f"agent-inbox:{existing_message['id']}"
++    graph = RecordingGraph(existing_threads={existing_thread_id})
++    store = RecordingInboxStore(
++        [start_message, existing_message, resumed_message, cancelled_message],
++        workflow_statuses={
++            resumed_run_id: "waiting",
++            cancelled_run_id: "cancelled",
++        },
++    )
++    processor = ResearchInboxProcessor(
++        container=RecordingContainerFactory(graph),
++        inbox_store=store,
++        consumer_id="worker-1",
++        inbox_key="mvp-hypothesis-builder",
++        graph_dependency=GraphDependency,
++    )
++
++    summary = await processor.process_once_summary()
++
++    assert summary.claimed == 4
++    assert summary.handed_off == 4
++    assert summary.acknowledged == 4
++    assert summary.started == 1
++    assert summary.already_started == 1
++    assert summary.resumed == 1
++    assert summary.skipped_terminal_workflow == 1
++    assert summary.failed == 0
++    assert graph.invoked[0][1] == f"agent-inbox:{start_message['id']}"
++    assert graph.resumed == [str(resumed_run_id)]
++
++
++async def test_inbox_processor_summary_counts_handoff_failures() -> None:
++    message = _message()
++    graph = RecordingGraph(fail=True)
++    store = RecordingInboxStore([message])
++    processor = ResearchInboxProcessor(
++        container=RecordingContainerFactory(graph),
++        inbox_store=store,
++        consumer_id="worker-1",
++        inbox_key="mvp-hypothesis-builder",
++        graph_dependency=GraphDependency,
++    )
++
++    summary = await processor.process_once_summary()
++
++    assert summary.claimed == 1
++    assert summary.handed_off == 0
++    assert summary.acknowledged == 0
++    assert summary.failed == 1
++    assert store.errors == [(message["id"], "RuntimeError: graph unavailable")]

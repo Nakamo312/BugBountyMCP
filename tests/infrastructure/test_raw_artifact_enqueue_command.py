@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from datetime import datetime, timezone
 from uuid import uuid4
+from tests.infrastructure.graph_projector_cli_test_helpers import graph_projector_cli_source
 
 
 def _raw_artifact_row(**overrides):
@@ -121,7 +122,7 @@ def test_raw_artifact_enqueuer_reads_rows_and_enqueues_idempotent_batches() -> N
 
 
 def test_raw_artifact_enqueue_command_is_exposed_without_apply_loop() -> None:
-    source = Path("services/graph-projector/graph_projector/__main__.py").read_text(encoding="utf-8")
+    source = graph_projector_cli_source()
 
     assert 'subparsers.add_parser("enqueue-raw-artifacts"' in source
     assert "RawArtifactGraphFactEnqueuer" in source

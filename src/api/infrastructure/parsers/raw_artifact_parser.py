@@ -1,6 +1,7 @@
 """Parse raw output artifacts into normalized tool records."""
 from __future__ import annotations
 
+import gzip
 import json
 from pathlib import Path
 from typing import Any
@@ -37,35 +38,52 @@ class RawArtifactParseResult(BaseModel):
 class ProcessEventArtifactParser:
     """Normalize NDJSON artifacts written by FileRawOutputStore."""
 
-    def parse_path(self, path: str | Path) -> RawArtifactParseResult:
+    def parse_path(
+        self,
+        path: str | Path,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> RawArtifactParseResult:
         artifact_path = Path(path)
-        metadata: dict[str, Any] = {}
+        parsed_metadata = dict(metadata or {})
         records: list[NormalizedToolRecord] = []
         errors: list[str] = []
 
-        for line_no, line in enumerate(artifact_path.read_text(encoding="utf-8").splitlines(), start=1):
-            if not line.strip():
-                continue
-            try:
-                item = json.loads(line)
-            except json.JSONDecodeError as exc:
-                errors.append(f"line {line_no}: invalid JSON: {exc.msg}")
-                continue
+        opener = gzip.open if artifact_path.suffix == ".gz" else open
+        with opener(artifact_path, "rt", encoding="utf-8") as file:
+            for line_no, line in enumerate(file, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    errors.append(f"line {line_no}: invalid JSON: {exc.msg}")
+                    continue
 
-            item_type = item.get("type")
-            if item_type == "metadata":
-                payload = item.get("payload")
-                if isinstance(payload, dict):
-                    metadata = payload
-                else:
-                    errors.append(f"line {line_no}: metadata payload must be an object")
-                continue
+                item_type = item.get("type")
+                if item_type == "metadata":
+                    payload = item.get("payload")
+                    if isinstance(payload, dict):
+                        parsed_metadata.update(payload)
+                    else:
+                        errors.append(
+                            f"line {line_no}: metadata payload must be an object"
+                        )
+                    continue
 
-            normalized = self._normalize_event(item, metadata, len(records))
-            if normalized is not None:
-                records.append(normalized)
+                normalized = self._normalize_event(
+                    item,
+                    parsed_metadata,
+                    len(records),
+                )
+                if normalized is not None:
+                    records.append(normalized)
 
-        return RawArtifactParseResult(metadata=metadata, records=records, errors=errors)
+        return RawArtifactParseResult(
+            metadata=parsed_metadata,
+            records=records,
+            errors=errors,
+        )
 
     def _normalize_event(
         self,

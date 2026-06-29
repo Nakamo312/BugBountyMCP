@@ -8,7 +8,9 @@ import {
   Server,
   ShieldAlert,
   Network,
-  AlertCircle
+  GitBranch,
+  AlertCircle,
+  MessageSquare
 } from 'lucide-react'
 import ProgramSelector from './ProgramSelector'
 
@@ -20,9 +22,11 @@ const Layout = ({ children }) => {
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/programs', icon: FolderKanban, label: 'Programs' },
     { path: '/actions', icon: PlayCircle, label: 'Actions' },
+    { path: '/workspace', icon: MessageSquare, label: 'Workspace' },
     { path: '/hosts', icon: Server, label: 'Hosts' },
     { path: '/analysis', icon: ShieldAlert, label: 'Analysis' },
     { path: '/infrastructure', icon: Network, label: 'Infrastructure' },
+    { path: '/surface-components', icon: GitBranch, label: 'Surface Components' },
   ]
 
   return (
@@ -44,7 +48,7 @@ const Layout = ({ children }) => {
           <nav className="flex-1 p-4 space-y-2">
             {navItems.map((item) => {
               const Icon = item.icon
-              const isActive = location.pathname === item.path
+              const isActive = item.path === '/workspace' ? location.pathname.startsWith('/workspace') : location.pathname === item.path
               return (
                 <Link
                   key={item.path}

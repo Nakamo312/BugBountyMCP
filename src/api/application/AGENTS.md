@@ -27,3 +27,20 @@ Read first when changing this layer:
 - Scheduler may create action requests only through `ActionService`.
 - Do not make scheduler publish events or run tools directly.
 - Treat current scheduler state as in-memory only.
+
+## Experience Ranking
+
+- Action outcome memory may feed internal planners, schedulers, and workflow
+  proposal workers. It should not be surfaced as ad-hoc REST handlers or public
+  ranking APIs.
+- Graph/GDS similarity belongs behind application or worker boundaries. It may
+  produce typed advisory intent, proposed actions, or scheduler inputs, but it
+  must not bypass `ActionService`, policy, scope, approval, or budget checks.
+
+## Agent Task Threads
+
+- Human prompts become `agent_tasks`, visible task messages, and a bounded handoff to a LangGraph-owned workflow thread. The prompt text must not become direct tool execution.
+- Agent task runtime execution should happen in an internal LangGraph worker/platform adapter. Do not start a parallel long-running agent-task runtime loop inside the public FastAPI process.
+- Agent replies may point to proposals, actions, artifacts, facts, or graph refs, but real tool execution still goes through `ActionService`, policy, scope, approval, and budget.
+- Keep agent task runtime behind an internal worker boundary. Do not expose LangGraph/GDS/runtime execution as public REST controls, and do not duplicate LangGraph thread/checkpoint/stream semantics in application code.
+- Agent runtimes must pass through the budget policy wrapper. Default to deterministic/no-model mode, trim context before runtime execution, and require explicit configuration before deep/expensive reasoning.

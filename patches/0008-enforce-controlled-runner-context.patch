@@ -1,0 +1,398 @@
+diff --git a/src/api/application/pipeline/builder.py b/src/api/application/pipeline/builder.py
+index 369bf8b..4510819 100644
+--- a/src/api/application/pipeline/builder.py
++++ b/src/api/application/pipeline/builder.py
+@@ -118,6 +118,7 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
+         scope_policy=scope_policy,
+         runtime=spec.runtime,
+         runtime_concurrency=runtime_concurrency,
++        requires_execution_context=(scope_policy is not ScopePolicy.NONE),
+     )
+ 
+ 
+diff --git a/src/api/application/pipeline/scan_node.py b/src/api/application/pipeline/scan_node.py
+index bd4a402..2f7a5f1 100644
+--- a/src/api/application/pipeline/scan_node.py
++++ b/src/api/application/pipeline/scan_node.py
+@@ -15,7 +15,12 @@ from api.application.pipeline.invocation import (
+     metadata,
+     run_raw,
+ )
+-from api.application.contracts import ExecutionMode
++from api.application.contracts import (
++    ExecutionMode,
++    RunnerInvocationContext,
++    SafetyLevel,
++    ToolInvocation,
++)
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -57,6 +62,7 @@ class ScanNode(Node):
+         scope_policy=ScopePolicy.NONE,
+         runtime: Any | None = None,
+         runtime_concurrency: int | None = None,
++        requires_execution_context: bool = False,
+     ):
+         """
+         Initialize generic scan node.
+@@ -96,6 +102,7 @@ class ScanNode(Node):
+         self.runtime_mode = getattr(runtime, "mode", "batch") if runtime is not None else "batch"
+         self.target_shape = getattr(runtime, "target_shape", "list") if runtime is not None else "list"
+         self.artifact_mode = getattr(runtime, "artifact", "per_run") if runtime is not None else "per_run"
++        self.requires_execution_context = requires_execution_context
+         self._scan_semaphore = asyncio.Semaphore(runtime_concurrency or max_parallelism)
+ 
+     async def execute(self, event: Dict[str, Any], ctx: PipelineContext):
+@@ -153,6 +160,7 @@ class ScanNode(Node):
+                 targets,
+                 node_id=self.node_id,
+             )
++            self._enforce_execution_context(event, invocation, runner_context)
+             effective_context = invocation or runner_context
+             stream = run_raw(runner, targets, effective_context)
+             raw_artifact_id = uuid4()
+@@ -280,6 +288,104 @@ class ScanNode(Node):
+             )
+             raise
+ 
++
++    def _enforce_execution_context(
++        self,
++        event: Dict[str, Any],
++        invocation: ToolInvocation | None,
++        runner_context: RunnerInvocationContext | None,
++    ) -> None:
++        """Fail closed when a controlled scan would run without lineage.
++
++        Direct action events must carry a complete ToolInvocation payload.
++        Downstream events may use RunnerInvocationContext, but scoped or
++        explicitly context-required nodes still need root action lineage and
++        inherited hard ceilings before a runner is invoked.
++        """
++        if invocation is None and self._has_partial_action_context(event):
++            raise RuntimeError(
++                f"ScanNode '{self.node_id}' received incomplete action context; "
++                "refusing to run without a complete ToolInvocation"
++            )
++
++        if not self._requires_control_context(event, runner_context):
++            return
++
++        if invocation is not None:
++            return
++
++        if runner_context is None:
++            raise RuntimeError(
++                f"ScanNode '{self.node_id}' requires execution context but none was provided"
++            )
++
++        missing: list[str] = []
++        if runner_context.root_action_id is None:
++            missing.append("root_action_id")
++        if runner_context.execution_budget is None:
++            missing.append("execution_budget")
++        if runner_context.safety_level is None:
++            missing.append("safety_level")
++        if runner_context.policy_decision_id is None:
++            missing.append("policy_decision_id")
++        if self.scope_policy is not ScopePolicy.NONE and runner_context.scope_decision_id is None:
++            missing.append("scope_decision_id")
++
++        if missing:
++            raise RuntimeError(
++                f"ScanNode '{self.node_id}' requires complete runner context; "
++                f"missing: {', '.join(missing)}"
++            )
++
++    def _requires_control_context(
++        self,
++        event: Dict[str, Any],
++        runner_context: RunnerInvocationContext | None,
++    ) -> bool:
++        if self.requires_execution_context:
++            return True
++        if self.scope_policy is not ScopePolicy.NONE:
++            return True
++        safety_level = runner_context.safety_level if runner_context is not None else None
++        if safety_level is None:
++            safety_level = self._event_safety_level(event)
++        return safety_level in {
++            SafetyLevel.SAFE_ACTIVE,
++            SafetyLevel.ACTIVE,
++            SafetyLevel.SENSITIVE,
++        }
++
++    @staticmethod
++    def _event_safety_level(event: Dict[str, Any]) -> SafetyLevel | None:
++        payload = event.get("payload")
++        payload = payload if isinstance(payload, dict) else {}
++        lineage = payload.get("execution_lineage")
++        lineage = lineage if isinstance(lineage, dict) else {}
++        value = (
++            event.get("safety_level")
++            or payload.get("safety_level")
++            or lineage.get("root_safety_level")
++        )
++        if value is None:
++            return None
++        try:
++            return SafetyLevel(str(value))
++        except ValueError:
++            return None
++
++    @staticmethod
++    def _has_partial_action_context(event: Dict[str, Any]) -> bool:
++        action_fields = {
++            "action_id",
++            "capability_id",
++            "profile_id",
++            "safety_level",
++            "policy_decision_id",
++            "scope_decision_id",
++            "execution_budget",
++        }
++        return any(event.get(field) is not None for field in action_fields)
++
+     def set_context_factory(self, bus, container, settings):
+         """
+         Set dependencies for context creation.
+diff --git a/tests/application/test_worker_invocation.py b/tests/application/test_worker_invocation.py
+index 6484123..be5797c 100644
+--- a/tests/application/test_worker_invocation.py
++++ b/tests/application/test_worker_invocation.py
+@@ -57,6 +57,7 @@ from api.application.pipeline.invocation import (
+     run_raw,
+ )
+ from api.application.pipeline.context import PipelineContext
++from api.application.pipeline.scope_policy import ScopePolicy
+ from api.application.pipeline.scan_node import ScanNode
+ from api.application.contracts import ExecutionMode
+ from api.infrastructure.events.event_types import EventType
+@@ -304,3 +305,226 @@ async def test_scan_node_passes_invocation_options_to_runner() -> None:
+     assert ctx.captured[0]["scope_decision_id"] == UUID(
+         ctx.captured[0]["metadata"]["scope_decision_id"]
+     )
++
++
++@pytest.mark.asyncio
++async def test_scoped_scan_node_rejects_event_without_runner_lineage() -> None:
++    class Runner:
++        def __init__(self) -> None:
++            self.calls = []
++
++        def run_raw(self, targets):
++            self.calls.append(targets)
++
++            async def stream():
++                yield ProcessEvent(type="stdout", payload="value")
++
++            return stream()
++
++    class Parser:
++        async def parse_stream(self, stream):
++            async for item in stream:
++                yield item
++
++    class Processor:
++        async def batch_stream(self, stream):
++            async for item in stream:
++                if item.payload:
++                    yield [item.payload]
++
++    class Context(PipelineContext):
++        def __init__(self, runner) -> None:
++            self.runner = runner
++
++        async def get_service(self, service_type):
++            if service_type is Runner:
++                return self.runner
++            if service_type is Processor:
++                return Processor()
++            raise AssertionError(service_type)
++
++        def capture_raw_stream(self, stream, **kwargs):
++            return stream
++
++        def ingest_context(self, raw_artifact_id=None):
++            return None
++
++    runner = Runner()
++    node = ScanNode(
++        node_id="httpx",
++        event_in={EventType.HOST_DISCOVERED},
++        event_out={},
++        runner_type=Runner,
++        processor_type=Processor,
++        parser_type=Parser,
++        execution_mode=ExecutionMode.INLINE,
++        scope_policy=ScopePolicy.CONFIDENCE,
++    )
++
++    with pytest.raises(RuntimeError, match="requires complete runner context"):
++        await node.execute(
++            {
++                "event": "host_discovered",
++                "program_id": str(uuid4()),
++                "job_id": str(uuid4()),
++                "run_id": str(uuid4()),
++                "targets": ["https://api.example.com"],
++            },
++            Context(runner),
++        )
++
++    assert runner.calls == []
++
++
++@pytest.mark.asyncio
++async def test_scoped_scan_node_accepts_complete_downstream_runner_context() -> None:
++    class Runner:
++        def __init__(self) -> None:
++            self.calls = []
++
++        def run_raw(self, targets, timeout=30):
++            self.calls.append((targets, timeout))
++
++            async def stream():
++                yield ProcessEvent(type="stdout", payload="value")
++
++            return stream()
++
++    class Parser:
++        async def parse_stream(self, stream):
++            async for item in stream:
++                yield item
++
++    class Processor:
++        async def batch_stream(self, stream):
++            async for item in stream:
++                if item.payload:
++                    yield [item.payload]
++
++    class Context(PipelineContext):
++        def __init__(self, runner) -> None:
++            self.runner = runner
++            self.captured = []
++
++        async def get_service(self, service_type):
++            if service_type is Runner:
++                return self.runner
++            if service_type is Processor:
++                return Processor()
++            raise AssertionError(service_type)
++
++        def capture_raw_stream(self, stream, **kwargs):
++            self.captured.append(kwargs)
++            return stream
++
++        def ingest_context(self, raw_artifact_id=None):
++            return None
++
++    runner = Runner()
++    node = ScanNode(
++        node_id="httpx",
++        event_in={EventType.HOST_DISCOVERED},
++        event_out={},
++        runner_type=Runner,
++        processor_type=Processor,
++        parser_type=Parser,
++        execution_mode=ExecutionMode.INLINE,
++        scope_policy=ScopePolicy.CONFIDENCE,
++    )
++    scope_decision_id = uuid4()
++    policy_decision_id = uuid4()
++    event = {
++        "event": "host_discovered",
++        "event_id": str(uuid4()),
++        "program_id": str(uuid4()),
++        "job_id": str(uuid4()),
++        "run_id": str(uuid4()),
++        "targets": ["https://api.example.com"],
++        "payload": {
++            "execution_lineage": {
++                "root_action_id": str(uuid4()),
++                "root_capability_id": "subfinder",
++                "root_profile_id": "passive-recon",
++                "root_safety_level": "passive",
++                "policy_decision_id": str(policy_decision_id),
++                "scope_decision_id": str(scope_decision_id),
++                "root_execution_budget": {"max_duration_seconds": 7},
++            },
++            RUNNER_CONTEXT_PAYLOAD_KEY: {"node_id": "subfinder"},
++        },
++    }
++
++    await node.execute(event, Context(runner))
++
++    assert runner.calls == [(["https://api.example.com"], 7)]
++
++
++@pytest.mark.asyncio
++async def test_partial_action_event_is_rejected_before_runner_starts() -> None:
++    class Runner:
++        def __init__(self) -> None:
++            self.calls = []
++
++        def run_raw(self, targets):
++            self.calls.append(targets)
++
++            async def stream():
++                yield ProcessEvent(type="stdout", payload="value")
++
++            return stream()
++
++    class Parser:
++        async def parse_stream(self, stream):
++            async for item in stream:
++                yield item
++
++    class Processor:
++        async def batch_stream(self, stream):
++            async for item in stream:
++                if item.payload:
++                    yield [item.payload]
++
++    class Context(PipelineContext):
++        def __init__(self, runner) -> None:
++            self.runner = runner
++
++        async def get_service(self, service_type):
++            if service_type is Runner:
++                return self.runner
++            if service_type is Processor:
++                return Processor()
++            raise AssertionError(service_type)
++
++        def capture_raw_stream(self, stream, **kwargs):
++            return stream
++
++        def ingest_context(self, raw_artifact_id=None):
++            return None
++
++    runner = Runner()
++    node = ScanNode(
++        node_id="legacy-passive",
++        event_in={EventType.SUBDOMAIN_DISCOVERED},
++        event_out={},
++        runner_type=Runner,
++        processor_type=Processor,
++        parser_type=Parser,
++        execution_mode=ExecutionMode.INLINE,
++        scope_policy=ScopePolicy.NONE,
++    )
++
++    with pytest.raises(RuntimeError, match="incomplete action context"):
++        await node.execute(
++            {
++                "event": "subdomain_discovered",
++                "program_id": str(uuid4()),
++                "job_id": str(uuid4()),
++                "run_id": str(uuid4()),
++                "action_id": str(uuid4()),
++                "safety_level": SafetyLevel.ACTIVE.value,
++                "targets": ["api.example.com"],
++            },
++            Context(runner),
++        )
++
++    assert runner.calls == []

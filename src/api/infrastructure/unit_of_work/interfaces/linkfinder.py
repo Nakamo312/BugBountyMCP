@@ -6,6 +6,7 @@ from api.infrastructure.repositories.interfaces.host_ip import HostIPRepository
 from api.infrastructure.repositories.interfaces.service import ServiceRepository
 from api.infrastructure.repositories.interfaces.endpoint import EndpointRepository
 from api.infrastructure.repositories.interfaces.input_parameters import InputParameterRepository
+from api.infrastructure.repositories.interfaces.javascript_reference import JavaScriptReferenceRepository
 from api.infrastructure.repositories.interfaces.scope_rule import ScopeRuleRepository
 from api.infrastructure.unit_of_work.interfaces.base import AbstractUnitOfWork
 
@@ -19,4 +20,5 @@ class LinkFinderUnitOfWork(AbstractUnitOfWork, ABC):
     services: ServiceRepository
     endpoints: EndpointRepository
     input_parameters: InputParameterRepository
+    javascript_references: JavaScriptReferenceRepository
     scope_rules: ScopeRuleRepository

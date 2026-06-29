@@ -34,6 +34,10 @@ class Node(ABC):
         execution_delay: int = 0,
         execution_mode: ExecutionMode = ExecutionMode.INLINE,
         max_targets_per_run: int | None = None,
+        cooldown_seconds: int | float = 0,
+        max_fanout_per_event: int | None = None,
+        max_expansion_depth: int | None = None,
+        token_cost: int | float = 1,
         retry_policy: dict | None = None,
     ):
         """
@@ -53,6 +57,10 @@ class Node(ABC):
         self.execution_delay = execution_delay
         self.execution_mode = execution_mode
         self.max_targets_per_run = max_targets_per_run
+        self.cooldown_seconds = cooldown_seconds
+        self.max_fanout_per_event = max_fanout_per_event
+        self.max_expansion_depth = max_expansion_depth
+        self.token_cost = token_cost
         self.retry_policy = retry_policy or {
             "max_attempts": 1,
             "backoff_seconds": 0,

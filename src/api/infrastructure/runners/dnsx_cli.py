@@ -1,6 +1,7 @@
 import logging
 from typing import AsyncIterator
 
+from api.infrastructure.commands.command_boundary import command_invocation
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.parsers.process_event_parsers import JSONStdoutProcessEventParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
@@ -44,7 +45,7 @@ class DNSxCliRunner:
 
         logger.info("Starting DNSx Deep: targets=%d threads=%d", target_count, thread_count)
 
-        executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, stdin=stdin, timeout=self.timeout))
 
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
@@ -89,7 +90,7 @@ class DNSxCliRunner:
 
         logger.info("Starting DNSx PTR: ips=%d threads=%d", ip_count, thread_count)
 
-        executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, stdin=stdin, timeout=self.timeout))
 
         async for event in executor.run():
             if event.type == "stderr" and event.payload:

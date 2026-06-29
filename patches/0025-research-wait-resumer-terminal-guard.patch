@@ -1,0 +1,278 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index b9d58e7..6bc3a0a 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -712,9 +712,11 @@ Evidence:
+   `projection_lagging`, `projection_failed`, `result_sets_not_ready`, and
+   `durable_wait_requires_workflow_run` so the graph can distinguish why it
+   is waiting instead of storing only free-form reason text.
+-- `MvpResearchAutoResumer` restores the compiled graph from its PostgreSQL
++- `ResearchWaitResumer` restores the compiled graph from its PostgreSQL
+   checkpoint by workflow-run thread ID; manual `aresume()` calls are no longer
+-  required in the normal runtime path.
++  required in the normal runtime path. It checks workflow-run status before
++  resume and skips terminal runs (`completed`, `failed`, `cancelled`) so stale
++  wait rows cannot revive cancelled or completed research passes.
+ - `MvpResearchInboxHandoff` keeps inbox delivery and LangGraph execution
+   separated: the inbox provides claim/lease and ack, while LangGraph owns
+   start/resume execution through deterministic checkpoint thread IDs.
+diff --git a/src/api/application/di.py b/src/api/application/di.py
+index ebafc4e..bc35ec9 100644
+--- a/src/api/application/di.py
++++ b/src/api/application/di.py
+@@ -117,7 +117,7 @@ from api.infrastructure.langgraph_context import (
+ from api.infrastructure.cypher_gateway import CypherGatewayAuditStore, Neo4jReadExecutor
+ from api.infrastructure.hypotheses import HypothesisStore
+ from api.infrastructure.projections import ProjectionStateStore
+-from api.infrastructure.langgraph_resume import MvpResearchAutoResumer
++from api.infrastructure.langgraph_resume import ResearchWaitResumer
+ from api.infrastructure.agent_wait_state import AgentExecutionStateReader
+ from dishka import AsyncContainer
+ 
+@@ -254,11 +254,15 @@ class OrchestrationProvider(Provider):
+         return AgentWaitConditionStore(session_factory)
+ 
+     @provide(scope=Scope.APP)
+-    def get_mvp_research_auto_resumer(
++    def get_research_wait_resumer(
+         self,
+         container: AsyncContainer,
+-    ) -> MvpResearchAutoResumer:
+-        return MvpResearchAutoResumer(container=container)
++        protocol_store: AgentProtocolStore,
++    ) -> ResearchWaitResumer:
++        return ResearchWaitResumer(
++            container=container,
++            workflow_status_reader=protocol_store,
++        )
+ 
+     @provide(scope=Scope.APP)
+     def get_agent_wait_condition_processor(
+@@ -266,7 +270,7 @@ class OrchestrationProvider(Provider):
+         settings: Settings,
+         store: AgentWaitConditionStore,
+         engine: AgentWaitConditionEngine,
+-        workflow_resumer: MvpResearchAutoResumer,
++        workflow_resumer: ResearchWaitResumer,
+         campaign_lifecycle_reconciler: OrchestrationStore,
+     ) -> AgentWaitConditionProcessor:
+         return AgentWaitConditionProcessor(
+diff --git a/src/api/infrastructure/langgraph_resume.py b/src/api/infrastructure/langgraph_resume.py
+index 7c03d63..64d1997 100644
+--- a/src/api/infrastructure/langgraph_resume.py
++++ b/src/api/infrastructure/langgraph_resume.py
+@@ -1,19 +1,72 @@
+-"""Infrastructure adapter that resumes compiled research graphs through DI."""
++"""Infrastructure adapter that resumes research-control graphs through DI."""
+ from __future__ import annotations
+ 
+-from typing import Any
++from dataclasses import dataclass
++from typing import Any, Protocol
+ 
+ from api.application.agent_wait_conditions import AgentWaitConditionRecord
+ from api.application.research_control_graph import ResearchControlGraph
+ 
++TERMINAL_WORKFLOW_STATUSES = frozenset({"completed", "failed", "cancelled"})
+ 
+-class MvpResearchAutoResumer:
+-    def __init__(self, *, container: Any) -> None:
++
++class WorkflowRunStatusReader(Protocol):
++    async def get_workflow_run_status(self, *, run_id: Any) -> str | None: ...
++
++
++@dataclass(frozen=True, slots=True)
++class ResearchWaitResumeResult:
++    status: str
++    thread_id: str | None = None
++    workflow_status: str | None = None
++
++
++class ResearchWaitResumer:
++    """Continue a research pass after a durable wait condition resolves.
++
++    The wait processor may see old or duplicate wait rows. This adapter keeps
++    that boundary safe: it resumes only non-terminal workflow runs and returns a
++    small status object for observability. LangGraph still owns graph execution;
++    this adapter only performs the handoff.
++    """
++
++    def __init__(
++        self,
++        *,
++        container: Any,
++        workflow_status_reader: WorkflowRunStatusReader | None = None,
++    ) -> None:
+         self.container = container
++        self.workflow_status_reader = workflow_status_reader
+ 
+-    async def resume(self, record: AgentWaitConditionRecord) -> None:
++    async def resume(self, record: AgentWaitConditionRecord) -> ResearchWaitResumeResult:
+         if record.workflow_run_id is None:
+-            return
++            return ResearchWaitResumeResult(status="missing_workflow_run")
++
++        workflow_status = await self._workflow_status(record.workflow_run_id)
++        if workflow_status in TERMINAL_WORKFLOW_STATUSES:
++            return ResearchWaitResumeResult(
++                status="skipped_terminal_workflow",
++                thread_id=str(record.workflow_run_id),
++                workflow_status=workflow_status,
++            )
++
+         async with self.container() as request_container:
+             graph = await request_container.get(ResearchControlGraph)
+             await graph.aresume(thread_id=str(record.workflow_run_id))
++
++        return ResearchWaitResumeResult(
++            status="resumed",
++            thread_id=str(record.workflow_run_id),
++            workflow_status=workflow_status,
++        )
++
++    async def _workflow_status(self, run_id: Any) -> str | None:
++        if self.workflow_status_reader is None:
++            return None
++        return await self.workflow_status_reader.get_workflow_run_status(run_id=run_id)
++
++
++# Backward-compatible alias for old imports. New code should use
++# ResearchWaitResumer.
++MvpResearchAutoResumer = ResearchWaitResumer
+diff --git a/tests/infrastructure/test_mvp_research_auto_resumer.py b/tests/infrastructure/test_research_wait_resumer.py
+similarity index 73%
+rename from tests/infrastructure/test_mvp_research_auto_resumer.py
+rename to tests/infrastructure/test_research_wait_resumer.py
+index b778e11..4f8d3a5 100644
+--- a/tests/infrastructure/test_mvp_research_auto_resumer.py
++++ b/tests/infrastructure/test_research_wait_resumer.py
+@@ -5,7 +5,7 @@ import subprocess
+ import sys
+ from uuid import uuid4
+ 
+-from langgraph.checkpoint.memory import InMemorySaver
++import pytest
+ 
+ from api.application.agent_wait_conditions import (
+     AgentWaitConditionProcessor,
+@@ -16,7 +16,7 @@ from api.application.hypotheses import HypothesisBuildRequest
+ from api.application.research_readiness import ResearchReadinessDecision
+ from api.application.research_control_graph import ResearchControlGraph
+ from api.application.research_pass import ResearchPassResult
+-from api.infrastructure.langgraph_resume import MvpResearchAutoResumer
++from api.infrastructure.langgraph_resume import ResearchWaitResumer
+ 
+ 
+ class RecordingGraph:
+@@ -57,6 +57,16 @@ class RecordingContainer:
+         return RequestScope(RequestContainer(self.graph))
+ 
+ 
++class StaticWorkflowStatusReader:
++    def __init__(self, status: str | None) -> None:
++        self.status = status
++        self.run_ids = []
++
++    async def get_workflow_run_status(self, *, run_id):
++        self.run_ids.append(run_id)
++        return self.status
++
++
+ class SequencedGate:
+     def __init__(self, decisions) -> None:
+         self.decisions = list(decisions)
+@@ -101,11 +111,11 @@ class SingleWaitStore:
+         return True
+ 
+ 
+-async def test_auto_resumer_restores_compiled_graph_by_workflow_run_id() -> None:
++async def test_wait_resumer_restores_compiled_graph_by_workflow_run_id() -> None:
+     workflow_run_id = uuid4()
+     graph = RecordingGraph()
+     container = RecordingContainer(graph)
+-    resumer = MvpResearchAutoResumer(container=container)
++    resumer = ResearchWaitResumer(container=container)
+ 
+     await resumer.resume(
+         AgentWaitConditionRecord(
+@@ -122,6 +132,9 @@ async def test_auto_resumer_restores_compiled_graph_by_workflow_run_id() -> None
+ 
+ 
+ async def test_resolved_wait_automatically_continues_compiled_research_graph() -> None:
++    memory_module = pytest.importorskip("langgraph.checkpoint.memory")
++    InMemorySaver = memory_module.InMemorySaver
++
+     workflow_run_id = uuid4()
+     condition_id = uuid4()
+     research = RecordingResearch()
+@@ -159,7 +172,7 @@ async def test_resolved_wait_automatically_continues_compiled_research_graph() -
+     processor = AgentWaitConditionProcessor(
+         store=SingleWaitStore(record),
+         engine=ResolvedEngine(),
+-        workflow_resumer=MvpResearchAutoResumer(
++        workflow_resumer=ResearchWaitResumer(
+             container=RecordingContainer(graph)
+         ),
+     )
+@@ -173,12 +186,59 @@ async def test_resolved_wait_automatically_continues_compiled_research_graph() -
+     assert research.requests == [request]
+ 
+ 
++async def test_wait_resumer_skips_terminal_workflow_run() -> None:
++    workflow_run_id = uuid4()
++    graph = RecordingGraph()
++    container = RecordingContainer(graph)
++    reader = StaticWorkflowStatusReader("cancelled")
++    resumer = ResearchWaitResumer(
++        container=container,
++        workflow_status_reader=reader,
++    )
++
++    result = await resumer.resume(
++        AgentWaitConditionRecord(
++            condition_id=uuid4(),
++            condition_key="research:new_facts_available:abc",
++            condition_type="new_facts_available",
++            program_id=uuid4(),
++            workflow_run_id=workflow_run_id,
++        )
++    )
++
++    assert result.status == "skipped_terminal_workflow"
++    assert result.thread_id == str(workflow_run_id)
++    assert result.workflow_status == "cancelled"
++    assert reader.run_ids == [workflow_run_id]
++    assert container.scopes == 0
++    assert graph.thread_ids == []
++
++
++async def test_wait_resumer_reports_missing_workflow_run() -> None:
++    graph = RecordingGraph()
++    container = RecordingContainer(graph)
++    resumer = ResearchWaitResumer(container=container)
++
++    result = await resumer.resume(
++        AgentWaitConditionRecord(
++            condition_id=uuid4(),
++            condition_key="research:new_facts_available:abc",
++            condition_type="new_facts_available",
++            program_id=uuid4(),
++        )
++    )
++
++    assert result.status == "missing_workflow_run"
++    assert container.scopes == 0
++    assert graph.thread_ids == []
++
++
+ def test_wait_processor_is_started_and_stopped_with_application_lifespan() -> None:
+     app_source = open("src/api/presentation/rest/app.py", encoding="utf-8").read()
+     di_source = open("src/api/application/di.py", encoding="utf-8").read()
+ 
+     assert "AgentWaitConditionProcessor" in di_source
+-    assert "MvpResearchAutoResumer" in di_source
++    assert "ResearchWaitResumer" in di_source
+     assert "wait_condition_processor.start()" in app_source
+     assert "wait_condition_processor.stop()" in app_source
+ 

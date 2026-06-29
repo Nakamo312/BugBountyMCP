@@ -1,4 +1,5 @@
 from typing import AsyncIterator, List
+from api.infrastructure.commands.command_boundary import command_invocation
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 from api.infrastructure.parsers.httpx_parser import HTTPXProcessEventParser
@@ -11,9 +12,14 @@ class HTTPXCliRunner:
         self.httpx_path = httpx_path
         self.timeout = timeout
 
-    async def run_raw(self, targets: List[str] | str) -> AsyncIterator[ProcessEvent]:
+    async def run_raw(
+        self,
+        targets: List[str] | str,
+        timeout: int | float | None = None,
+        concurrency: int | None = None,
+    ) -> AsyncIterator[ProcessEvent]:
         target_count = 1 if isinstance(targets, str) else len(targets)
-        thread_count = min(target_count, 20)
+        thread_count = min(target_count, 20, concurrency or 20)
 
         command = [
             self.httpx_path,
@@ -44,13 +50,23 @@ class HTTPXCliRunner:
 
         logger.info("Starting HTTPX command: %s, stdin=%s", " ".join(command), stdin)
 
-        executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, stdin=stdin, timeout=self.timeout if timeout is None else timeout))
 
         async for event in executor.run():
             yield event
 
-    async def run(self, targets: List[str] | str) -> AsyncIterator[ProcessEvent]:
+    async def run(
+        self,
+        targets: List[str] | str,
+        timeout: int | float | None = None,
+        concurrency: int | None = None,
+    ) -> AsyncIterator[ProcessEvent]:
         parser = HTTPXProcessEventParser()
-        async for event in parser.parse_stream(self.run_raw(targets)):
+        async for event in parser.parse_stream(
+            self.run_raw(
+                targets,
+                timeout=timeout,
+                concurrency=concurrency,
+            )
+        ):
             yield event
-

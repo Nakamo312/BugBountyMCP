@@ -4,6 +4,8 @@ import argparse
 import json
 
 from .canonicalize import canonicalize_endpoint
+from .deltas import build_surface_deltas
+from .edges import build_surface_edges_from_nodes
 from .nodes import build_snapshot_draft, build_surface_nodes_from_observations
 
 
@@ -90,6 +92,7 @@ def _canonicalize_url(args: argparse.Namespace) -> int:
 def _build_snapshot(args: argparse.Namespace) -> int:
     rows = _load_observation_rows(args)
     nodes = build_surface_nodes_from_observations(rows)
+    edges = build_surface_edges_from_nodes(nodes)
     snapshot = build_snapshot_draft(program_id=args.program_id, nodes=nodes, source_rows=rows)
     result = {
         "snapshot": {
@@ -106,6 +109,13 @@ def _build_snapshot(args: argparse.Namespace) -> int:
             "count": len(nodes),
             "types": snapshot.stats_json.get("node_types", {}),
         },
+        "edges": {
+            "count": len(edges),
+            "types": _count_by(edges, "edge_type"),
+        },
+        "deltas": {
+            "count": None,
+        },
         "dry_run": bool(args.dry_run or args.dry_run_input),
     }
     if args.dry_run or args.dry_run_input:
@@ -118,9 +128,31 @@ def _build_snapshot(args: argparse.Namespace) -> int:
 
     store = PostgresSurfaceStore(args.dsn)
     snapshot_id = store.upsert_snapshot(snapshot)
+    previous_snapshot_id = store.fetch_previous_snapshot_id(
+        program_id=args.program_id,
+        current_snapshot_id=snapshot_id,
+    )
+    previous_nodes = store.fetch_snapshot_nodes(program_id=args.program_id, snapshot_id=previous_snapshot_id)
+    previous_edges = store.fetch_snapshot_edges(program_id=args.program_id, snapshot_id=previous_snapshot_id)
+    deltas = build_surface_deltas(
+        program_id=args.program_id,
+        from_snapshot_id=previous_snapshot_id,
+        to_snapshot_id=snapshot_id,
+        previous_nodes=previous_nodes,
+        previous_edges=previous_edges,
+        current_nodes=nodes,
+        current_edges=edges,
+    )
     nodes_written = store.upsert_nodes(snapshot_id=snapshot_id, nodes=nodes)
+    edges_written = store.upsert_edges(snapshot_id=snapshot_id, edges=edges)
+    deltas_written = store.upsert_deltas(deltas)
     result["snapshot"]["id"] = snapshot_id
+    result["snapshot"]["previous_snapshot_id"] = previous_snapshot_id
     result["nodes"]["written"] = nodes_written
+    result["edges"]["written"] = edges_written
+    result["deltas"]["count"] = len(deltas)
+    result["deltas"]["written"] = deltas_written
+    result["deltas"]["types"] = _count_by(deltas, "delta_type")
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
@@ -158,6 +190,14 @@ def _parse_kv_args(values: list[str]) -> dict[str, str]:
         if key:
             parsed[key] = value
     return parsed
+
+
+def _count_by(items: list[object], attribute: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        value = str(getattr(item, attribute))
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,8 +1,9 @@
 # BugBountyMCP
 
-BugBountyMCP is a controlled bug bounty automation platform. The project is
-moving from scan-specific routes toward a durable action execution core with
-policy, artifacts, projections, graph facts, and future agent-human workflows.
+BugBountyMCP is an experience-first security research system. The project is
+moving from scan-specific routes toward a durable research substrate where
+actions, observations, deltas, evidence, projections, feedback, and agent
+proposals become replayable memory.
 
 ## Documentation
 
@@ -10,6 +11,13 @@ Start with:
 
 - [Root agent index](AGENTS.md)
 - [Documentation index](docs/README.md)
+- [Research operating model](docs/architecture/research-operating-model.md)
+- [Graph math role](docs/architecture/graph-math-role.md)
+- [Graph algorithm backlog](docs/architecture/graph-algorithm-backlog.md)
+- [Typed graph projections](docs/architecture/typed-graph-projections.md)
+- [`docs/architecture/g-http-projection-contract.md`](docs/architecture/g-http-projection-contract.md) — minimal `G_http` projection event/shape contract.
+- [`docs/architecture/bipartite-endpoint-param-contract.md`](docs/architecture/bipartite-endpoint-param-contract.md) — minimal `G_bipartite_endpoint_param` endpoint ↔ param contract.
+- [Orchestration store split plan](docs/architecture/orchestration-store-split-plan.md)
 - [Target architecture](docs/architecture/target-platform.md)
 - [Patch plan to MVP](docs/architecture/patch-plan-to-mvp.md)
 - [Control plane](docs/architecture/control-plane.md)
@@ -18,24 +26,30 @@ Start with:
 ## Architecture Summary
 
 ```text
-ToolActionRequest
-  -> policy/scope/approval
+state / structural signal / retrieved evidence
+  -> hypothesis proposal
+  -> ToolActionRequest
+  -> policy/scope/approval/budget
   -> PostgreSQL state + transactional outbox
   -> RabbitMQ
   -> worker / runner
   -> raw artifact metadata
   -> parser / processor / ingestor
-  -> PostgreSQL canonical facts
-  -> OpenSearch projection
-  -> Neo4j GraphFacts
-  -> LangGraph wait/resume
-  -> hypothesis/evidence/report draft
+  -> PostgreSQL canonical facts and outcomes
+  -> OpenSearch retrieval projection
+  -> Neo4j/GDS structural signal projection
+  -> RAG/RLM analysis tasks
+  -> LangGraph proposal/evidence/report workflow
 ```
 
-PostgreSQL owns canonical operational state. RabbitMQ is transport. OpenSearch
-and Neo4j are rebuildable read models. LangGraph owns future agent-human
-workflow and must use the Tool Execution API instead of bypassing policy or
-runners.
+PostgreSQL owns canonical operational state and research memory. RabbitMQ is
+transport. OpenSearch and Neo4j are rebuildable projections. Neo4j/GDS produces
+structural signals, not findings. RAG retrieves evidence quickly. RLM performs
+deep analysis over selected context. LangGraph coordinates role workflows and
+must use the Tool Execution API instead of bypassing policy or runners.
+
+Typed graph projection work must reference a versioned `ProjectionContract`
+(`projection name + contract_version`) before adding GDS/Cypher logic.
 
 ## Repository Map
 
@@ -119,3 +133,6 @@ Frontend dependencies and build are managed inside `BugBountyDashBoard/`.
 This platform is intended for authorized bug bounty and security research
 automation. It must not run destructive, exploitative, or state-changing actions
 outside explicit scope, policy, and approval workflows.
+
+- `docs/architecture/structural-signal-event-model.md` defines the contract-only StructuralSignal event/read-model boundary: signals are not findings or actions.
+- [`docs/architecture/hypothesis-from-structural-signal-contract.md`](docs/architecture/hypothesis-from-structural-signal-contract.md) — contract-only `StructuralSignal -> HypothesisProposal` boundary.

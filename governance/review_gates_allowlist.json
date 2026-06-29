@@ -1,0 +1,385 @@
+{
+  "long_cypher": {},
+  "long_files": {
+    "BugBountyDashBoard/src/pages/AgentWorkspace.jsx": {
+      "max_lines": 604,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "playwright/playwright_scanner.py": {
+      "max_lines": 822,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/bb-cli/bb_cli/__main__.py": {
+      "max_lines": 517,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/bb-cli/bb_cli/operator_plan.py": {
+      "max_lines": 579,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/bb-cli/bb_cli/render.py": {
+      "max_lines": 677,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/graph-projector/graph_projector/action_experience_proposals.py": {
+      "max_lines": 697,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/search-indexer/search_indexer/reindex.py": {
+      "max_lines": 838,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/surface-engine/surface_engine/canonicalize.py": {
+      "max_lines": 763,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/application/agent_task_inbox_bridge.py": {
+      "max_lines": 510,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/application/research_inbox_bridge.py": {
+      "max_lines": 518,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/adapters/orm_tables/orchestration.py": {
+      "max_lines": 570,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/artifacts/postgres_reader.py": {
+      "max_lines": 618,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/credential_store.py": {
+      "max_lines": 613,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/parsers/line_process_event_parsers.py": {
+      "max_lines": 539,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/application/test_actions_api_contract.py": {
+      "max_lines": 691,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/application/test_agent_wait_conditions.py": {
+      "max_lines": 609,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/application/test_worker_invocation.py": {
+      "max_lines": 617,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/e2e/test_httpx_to_neo4j_graph.py": {
+      "max_lines": 647,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/infrastructure/test_agent_action_proposals.py": {
+      "max_lines": 700,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/infrastructure/test_http_observation_graphfact_producer.py": {
+      "max_lines": 617,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/infrastructure/test_graph_ontology_contract.py": {
+      "max_lines": 747,
+      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    }
+  },
+  "long_functions": {
+    "alembic/versions/31e0f1a2b3c4_create_legacy_discovery_baseline.py::downgrade": {
+      "max_lines": 96,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/31e0f1a2b3c4_create_legacy_discovery_baseline.py::upgrade": {
+      "max_lines": 377,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/a1b2c3d4e5f6_add_api_views.py::upgrade": {
+      "max_lines": 122,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/b8c9d0e1f2g3_add_graph_projection_events.py::upgrade": {
+      "max_lines": 97,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/c3d4e5f6a7b8_add_orchestration_state.py::upgrade": {
+      "max_lines": 124,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/c9d0e1f2g3h5_add_projection_watermarks.py::upgrade": {
+      "max_lines": 124,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/d0e1f2g3h4i6_add_agent_coordination.py::upgrade": {
+      "max_lines": 213,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/e8f9a0b1c2d3_add_credential_secret_storage.py::upgrade": {
+      "max_lines": 123,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/g3h4i5j6k7l8_add_campaign_expansion_budgets.py::upgrade": {
+      "max_lines": 88,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/i9d0e1f2g3h4_add_pipeline_overview_views.py::upgrade": {
+      "max_lines": 124,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/j0e1f2g3h4i5_add_pipeline_graph_views.py::upgrade": {
+      "max_lines": 138,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/k1f2g3h4i5j6_add_node_graph_render_fields.py::upgrade": {
+      "max_lines": 98,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/k7l8m9n0o1p2_add_action_outcome_memory.py::upgrade": {
+      "max_lines": 107,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/m3h4i5j6k7l8_simplify_pipeline_execution_graph.py::upgrade": {
+      "max_lines": 127,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/m9n0o1p2q3r4_add_action_outcome_graph_projection_events.py::upgrade": {
+      "max_lines": 106,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/n4i5j6k7l8m9_add_research_context.py::upgrade": {
+      "max_lines": 315,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/n9o0p1q2r3s4_add_action_experience_proposals.py::upgrade": {
+      "max_lines": 107,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/u1v2w3x4y5z6_add_surface_map.py::upgrade": {
+      "max_lines": 196,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "alembic/versions/w3x4y5z6a7b8_action_request_schema_v2.py::upgrade": {
+      "max_lines": 150,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "playwright/playwright_scanner.py::PlaywrightScanner._explore_state": {
+      "max_lines": 116,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "playwright/playwright_scanner.py::PlaywrightScanner.scan": {
+      "max_lines": 90,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "scripts/visualize_pipeline.py::generate_mermaid_diagram": {
+      "max_lines": 106,
+      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/bb-cli/bb_cli/__main__.py::_add_projection_commands": {
+      "max_lines": 91,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/bb-cli/bb_cli/operator_plan.py::summarize_projection_run_step_audit": {
+      "max_lines": 87,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/bb-cli/bb_cli/render.py::render_program_projection_overview": {
+      "max_lines": 89,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/graph-projector/graph_projector/g_bipartite_endpoint_param_contract.py::validate_endpoint_param_projection_event_shape": {
+      "max_lines": 104,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/graph-projector/graph_projector/query_templates.py::default_query_template_registry": {
+      "max_lines": 125,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/graph-projector/graph_projector/surface_component_report.py::SurfaceComponentReportReader.read": {
+      "max_lines": 82,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/search-indexer/search_indexer/reindex.py::build_parser": {
+      "max_lines": 83,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/search-indexer/search_indexer/reindex.py::main": {
+      "max_lines": 194,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "services/surface-engine/surface_engine/canonicalize.py::canonicalize_endpoint": {
+      "max_lines": 165,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/application/action_experience_proposals.py::ActionExperienceProposalAcceptanceService.accept_as_action": {
+      "max_lines": 83,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/application/agent_runtime_usage.py::summarize_agent_runtime_usage": {
+      "max_lines": 103,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/application/hypothesis_selection.py::HypothesisSelectionPolicy._decision": {
+      "max_lines": 104,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/application/pipeline/invocation.py::build_runner_context": {
+      "max_lines": 106,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/application/pipeline/scan_node.py::ScanNode.execute": {
+      "max_lines": 182,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/application/program_projection_overview.py::build_program_projection_operator_plan": {
+      "max_lines": 165,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/application/services/infrastructure.py::InfrastructureService.get_infrastructure_graph": {
+      "max_lines": 119,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/application/utils/scope_checker.py::ScopeChecker.score_target": {
+      "max_lines": 86,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/adapters/mappers.py::start_mappers": {
+      "max_lines": 331,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/agent_tasks.py::AgentTaskStore.append_followup_message": {
+      "max_lines": 81,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/agent_tasks.py::AgentTaskStore.create_prompt_task": {
+      "max_lines": 92,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/agent_tasks.py::_record_agent_runtime_usage_daily": {
+      "max_lines": 89,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/artifacts/raw_output_store.py::FileRawOutputStore._write_stream": {
+      "max_lines": 103,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/campaign_workspace.py::CampaignWorkspaceStore.load_workspace": {
+      "max_lines": 91,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/credential_store.py::PostgresCredentialStore.put_secret": {
+      "max_lines": 83,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/credentials/materialization.py::materialize_credential_for_runner": {
+      "max_lines": 84,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/hypotheses.py::HypothesisStore.upsert_candidate": {
+      "max_lines": 92,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/ingestors/dnsx_ingestor.py::DNSxResultIngestor.process_record": {
+      "max_lines": 105,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/ingestors/ffuf_ingestor.py::FFUFResultIngestor.process_record": {
+      "max_lines": 84,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/infrastructure/program_projection_overview.py::ProgramProjectionOverviewStore.overview": {
+      "max_lines": 81,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "src/api/presentation/rest/app.py::lifespan": {
+      "max_lines": 120,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/application/bb_cli_support.py::RecordingTransport._handle": {
+      "max_lines": 144,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/application/test_agent_protocol_live_smoke.py::test_agent_protocol_auth_claim_handoff_and_cancel_smoke": {
+      "max_lines": 92,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/application/test_research_control_graph.py::test_research_graph_records_selected_next_steps_without_text_context": {
+      "max_lines": 86,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/application/test_worker_invocation.py::test_scan_node_runtime_concurrency_limits_runner_streams": {
+      "max_lines": 83,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/e2e/test_httpx_to_neo4j_graph.py::_insert_canonical_http_observation": {
+      "max_lines": 174,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/e2e/test_httpx_to_neo4j_graph.py::test_fake_httpx_canonical_observation_projects_endpoint_graph": {
+      "max_lines": 109,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/e2e/test_httpx_to_neo4j_graph.py::test_projection_event_worker_projects_http_observation_graph_without_dedicated_services": {
+      "max_lines": 97,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/e2e/test_httpx_to_neo4j_graph.py::test_rebuild_projects_canonical_inventory_graph_without_artifact_lineage": {
+      "max_lines": 92,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/infrastructure/surface_graph_math_support.py::RecordingSession.run": {
+      "max_lines": 156,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/infrastructure/test_agent_activity.py::_Session.execute": {
+      "max_lines": 106,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/infrastructure/test_agent_task_context_reader.py::_Session.execute": {
+      "max_lines": 102,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/infrastructure/test_agent_task_detail.py::_Session.execute": {
+      "max_lines": 213,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/infrastructure/test_campaign_workspace.py::_Session.execute": {
+      "max_lines": 191,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/infrastructure/test_graph_ontology_yaml_validation.py::test_load_graph_ontology_validates_custom_yaml_references": {
+      "max_lines": 134,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/infrastructure/test_graph_ontology_contract.py::test_load_graph_ontology_validates_custom_yaml_references": {
+      "max_lines": 134,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/infrastructure/test_graph_rebuild_command.py::FakeConnection.__init__": {
+      "max_lines": 147,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/infrastructure/test_orchestration_dispatch_scheduled_facades.py::test_scheduled_work_methods_remain_compatibility_facades": {
+      "max_lines": 97,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/infrastructure/test_structural_signal_event_contract.py::test_structural_signal_event_shape_validation_rejects_signal_mapping_drift": {
+      "max_lines": 97,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/integration/test_artifact_storage_m2.py::test_m2_artifact_metadata_roundtrip_and_lineage_constraints": {
+      "max_lines": 132,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/integration/test_campaign_budget_concurrency.py::test_concurrent_claims_cannot_overspend_campaign_run_budget": {
+      "max_lines": 127,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    },
+    "tests/integration/test_campaign_lifecycle_quiescence.py::test_campaign_waits_for_outbox_then_becomes_quiescent": {
+      "max_lines": 160,
+      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
+    }
+  },
+  "schema_version": 1,
+  "store_score_math": {}
+}

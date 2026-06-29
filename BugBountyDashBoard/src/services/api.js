@@ -112,6 +112,15 @@ export const createAction = ({ catalog_id, program_id, targets, options = {}, re
     requested_by,
   })
 
+export const createCatalogAction = ({ catalog_id, program_id, targets, options = {}, requested_by = 'ui' }) =>
+  createAction({
+    catalog_id,
+    program_id,
+    targets,
+    options,
+    requested_by,
+  })
+
 const asAction = async (capability, profile, data, { targetField = 'targets' } = {}) => {
   const { program_id, [targetField]: targetValue, targets: ignoredTargets, ...options } = data
   const catalog_id = await resolveCatalogId(capability, profile)
@@ -124,7 +133,7 @@ const asAction = async (capability, profile, data, { targetField = 'targets' } =
 }
 
 export const runSubfinder = (data) =>
-  asAction('subfinder', 'passive-enumeration', data)
+  asAction('subfinder', 'passive-recon', data)
 
 export const runHTTPX = (data) =>
   asAction('httpx', 'safe-web-probe', data)
@@ -133,7 +142,7 @@ export const runGAU = (data) =>
   asAction('gau', 'archive-url-discovery', data)
 
 export const runWaymore = (data) =>
-  asAction('waymore', 'archive-url-discovery', data)
+  asAction('gau', 'archive-url-discovery', data)
 
 export const runKatana = (data) =>
   asAction('katana', 'safe-crawl', data)
@@ -142,19 +151,19 @@ export const runPlaywright = (data) =>
   asAction('playwright', 'browser-crawl', data)
 
 export const runLinkFinder = (data) =>
-  asAction('linkfinder', 'js-link-analysis', data)
+  asAction('linkfinder', 'js-endpoint-extraction', data)
 
 export const runMantra = (data) =>
-  asAction('mantra', 'js-secret-scan', data)
+  asAction('mantra', 'js-secret-analysis', data)
 
 export const runFFUF = (data) =>
   asAction('ffuf', 'content-discovery-light', data)
 
 export const runAmass = (data) =>
-  asAction('amass', data.active ? 'active-enumeration' : 'passive-enumeration', data)
+  asAction('amass', data.active ? 'active-enum' : 'passive-enum', data)
 
 export const runDNSx = (data) =>
-  asAction('dnsx', data.mode === 'ptr' ? 'reverse-dns' : 'forward-dns', data)
+  asAction(data.mode === 'ptr' ? 'dnsx-ptr' : 'dnsx', data.mode === 'ptr' ? 'reverse-dns' : 'dns-validate', data)
 
 export const runSubjack = (data) =>
   asAction('subjack', 'takeover-check', data)
@@ -210,6 +219,62 @@ export const getSubdomainTakeoverCandidates = (programId, params = {}) =>
 
 export const getAPIPatterns = (programId, params = {}) =>
   api.get(`/analysis/program/${programId}/api-patterns`, { params })
+
+
+// Agent workroom
+export const getCampaignWorkspace = (params = {}) =>
+  api.get('/campaign-workspace', { params })
+
+export const getAgentActivity = (params = {}) =>
+  api.get('/agent-activity', { params })
+
+export const createAgentTask = (data) =>
+  api.post('/agent-tasks', data)
+
+export const getAgentTaskDetail = (taskId, params = {}) =>
+  api.get(`/agent-tasks/${taskId}/detail`, { params })
+
+export const appendAgentTaskMessage = (taskId, data) =>
+  api.post(`/agent-tasks/${taskId}/messages`, data)
+
+export const acceptAgentActionProposal = (proposalId, data = {}) =>
+  api.post(`/agent-action-proposals/${proposalId}/accept`, data)
+
+export const rejectAgentActionProposal = (proposalId, data = {}) =>
+  api.post(`/agent-action-proposals/${proposalId}/reject`, data)
+
+export const suppressAgentActionProposal = (proposalId, data = {}) =>
+  api.post(`/agent-action-proposals/${proposalId}/suppress`, data)
+
+export const acceptActionExperienceProposal = (proposalId, data = {}) =>
+  api.post(`/action-experience-proposals/${proposalId}/accept`, data)
+
+export const retryAcceptActionExperienceProposal = (proposalId, data = {}) =>
+  api.post(`/action-experience-proposals/${proposalId}/retry-accept`, data)
+
+export const rejectActionExperienceProposal = (proposalId, data = {}) =>
+  api.post(`/action-experience-proposals/${proposalId}/reject`, data)
+
+export const suppressActionExperienceProposal = (proposalId, data = {}) =>
+  api.post(`/action-experience-proposals/${proposalId}/suppress`, data)
+
+
+// Program projection overview
+export const getProgramProjectionOverview = (programId) =>
+  api.get('/program-projection-overview', { params: { program_id: programId } })
+
+export const getProgramProjectionOperatorPlan = (programId) =>
+  api.get('/program-projection-overview/plan', { params: { program_id: programId } })
+
+// Surface component analysis
+export const getSurfaceComponentAnalysis = ({ programId, snapshotId, previousSnapshotId } = {}) => {
+  const params = { program_id: programId, snapshot_id: snapshotId }
+  if (previousSnapshotId) params.previous_snapshot_id = previousSnapshotId
+  return api.get('/surface-component-analysis', { params })
+}
+
+export const getLatestSurfaceComponentAnalysis = (programId) =>
+  api.get('/surface-component-analysis/latest', { params: { program_id: programId } })
 
 // Infrastructure
 export const getInfrastructureGraph = (programId) =>

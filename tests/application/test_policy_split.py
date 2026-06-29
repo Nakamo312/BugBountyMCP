@@ -118,7 +118,17 @@ def test_policy_records_safety_level_from_profile() -> None:
 
 
 def test_profile_approval_is_a_separate_policy_decision() -> None:
+    program_id = uuid4()
     request = _request("ffuf", "content-discovery-light", ["https://example.com"], {"timeout": 10})
+    request = request.model_copy(update={"program_id": program_id})
+    scope_rules = [
+        ScopeRuleModel(
+            program_id=program_id,
+            action=ScopeAction.INCLUDE,
+            rule_type=RuleType.DOMAIN,
+            pattern="example.com",
+        )
+    ]
 
     decision = PolicyService().evaluate(
         request,
@@ -129,6 +139,7 @@ def test_profile_approval_is_a_separate_policy_decision() -> None:
             requires_approval=True,
             scope_policy="strict",
         ),
+        scope_rules=scope_rules,
     )
 
     assert decision.status == PolicyDecisionStatus.REQUIRES_APPROVAL
@@ -205,3 +216,92 @@ def test_scope_policy_blocks_strict_action_when_no_target_matches() -> None:
     assert decision.allowed_targets == []
     assert decision.blocked_targets == ["https://evil.test"]
     assert any("strict scope" in reason for reason in decision.reasons)
+
+
+def test_scope_policy_blocks_strict_action_without_scope_rules() -> None:
+    request = _request(
+        "ffuf",
+        "content-discovery-light",
+        ["https://api.example.com"],
+        {"timeout": 10},
+    )
+
+    decision = PolicyService().evaluate(
+        request,
+        _detail(
+            "ffuf",
+            "content-discovery-light",
+            safety_level="active",
+            requires_approval=True,
+            scope_policy="strict",
+        ),
+    )
+
+    assert decision.status == PolicyDecisionStatus.BLOCKED
+    assert decision.allowed_targets == []
+    assert decision.blocked_targets == ["https://api.example.com"]
+    assert "strict scope requires at least one scope rule" in decision.reasons
+
+
+def test_approval_reapplies_strict_scope_and_does_not_restore_blocked_targets() -> None:
+    program_id = uuid4()
+    request = _request(
+        "ffuf",
+        "content-discovery-light",
+        ["https://api.example.com", "https://evil.test"],
+        {"timeout": 10},
+    )
+    request = request.model_copy(update={"program_id": program_id})
+    scope_rules = [
+        ScopeRuleModel(
+            program_id=program_id,
+            action=ScopeAction.INCLUDE,
+            rule_type=RuleType.DOMAIN,
+            pattern="*.example.com",
+        )
+    ]
+
+    decision = PolicyService().approve(
+        request,
+        _detail(
+            "ffuf",
+            "content-discovery-light",
+            safety_level="active",
+            requires_approval=True,
+            scope_policy="strict",
+        ),
+        approved_by="alice",
+        reason="inside allowed scope",
+        scope_rules=scope_rules,
+    )
+
+    assert decision.status == PolicyDecisionStatus.ALLOWED
+    assert decision.allowed_targets == ["https://api.example.com"]
+    assert decision.blocked_targets == ["https://evil.test"]
+    assert any("strict scope blocked targets" in reason for reason in decision.reasons)
+
+
+def test_approval_fails_closed_when_strict_scope_has_no_rules() -> None:
+    request = _request(
+        "ffuf",
+        "content-discovery-light",
+        ["https://api.example.com"],
+        {"timeout": 10},
+    )
+
+    decision = PolicyService().approve(
+        request,
+        _detail(
+            "ffuf",
+            "content-discovery-light",
+            safety_level="active",
+            requires_approval=True,
+            scope_policy="strict",
+        ),
+        approved_by="alice",
+    )
+
+    assert decision.status == PolicyDecisionStatus.BLOCKED
+    assert decision.allowed_targets == []
+    assert decision.blocked_targets == ["https://api.example.com"]
+    assert "strict scope requires at least one scope rule" in decision.reasons

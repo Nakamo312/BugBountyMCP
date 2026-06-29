@@ -2,6 +2,7 @@ import logging
 from typing import Any, List, Set
 from uuid import UUID
 
+from api.application.contracts import IngestContext
 from api.config import Settings
 from api.infrastructure.ingestors.base_result_ingestor import \
     BaseResultIngestor
@@ -37,37 +38,28 @@ class DNSxResultIngestor(BaseResultIngestor):
         self._discovered_ips: Set[str] = set()
         self._discovered_hostnames: Set[str] = set()
 
-    async def ingest(self, program_id: UUID, results: List[dict[str, Any]]) -> IngestResult:
-        """
-        Ingest DNSx results and return discovered IPs and hostnames.
-
-        Args:
-            program_id: Program UUID
-            results: List of DNSx result dicts
-
-        Returns:
-            IngestResult with ips and hostnames
-        """
-        self._discovered_ips = set()
-        self._discovered_hostnames = set()
-
-        await super().ingest(program_id, results)
-
-        return IngestResult(
-            ips=list(self._discovered_ips),
-            hostnames=list(self._discovered_hostnames)
-        )
-
-    async def _process_batch(self, uow: DNSxUnitOfWork, program_id: UUID, batch: list[dict[str, Any]]):
-        """Process a batch of DNSx results"""
-        for data in batch:
-            await self._process_record(uow, program_id, data)
-
-    async def _process_record(
+    async def before_ingest(
         self,
         uow: DNSxUnitOfWork,
         program_id: UUID,
-        data: dict[str, Any]
+        results: List[dict[str, Any]],
+        context: IngestContext | None = None,
+    ) -> None:
+        self._discovered_ips = set()
+        self._discovered_hostnames = set()
+
+    def build_result(self) -> IngestResult:
+        return IngestResult(
+            ips=list(self._discovered_ips),
+            hostnames=list(self._discovered_hostnames),
+        )
+
+    async def process_record(
+        self,
+        uow: DNSxUnitOfWork,
+        program_id: UUID,
+        data: dict[str, Any],
+        context: IngestContext | None = None,
     ):
         host_name = data.get("host")
         if not host_name:
@@ -167,7 +159,6 @@ class DNSxResultIngestor(BaseResultIngestor):
             )
 
         logger.debug(f"Processed DNS records for host {host_name}: A={len(a_records)}, AAAA={len(aaaa_records)}, CNAME={len(cname_records)}, MX={len(mx_records)}, TXT={len(txt_records)}, NS={len(ns_records)}, SOA={len(soa_records)}, PTR={len(ptr_records)}")
-
 
 class DNSxDiscoveryResultIngestor(DNSxResultIngestor):
     """DNSx ingestor for discovery edges that should materialize new hosts."""

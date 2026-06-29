@@ -8,6 +8,7 @@ from uuid import UUID
 
 from .contracts import GraphEdgeFact, GraphFactBatch, GraphNodeFact
 from .ontology import GraphOntology, GraphRelationshipDefinition
+from .row_codec import optional_uuid_text as _optional_uuid
 
 
 class Neo4jSession(Protocol):
@@ -59,8 +60,13 @@ class GraphFactWriter:
         nodes_written = 0
         edges_written = 0
         edges_skipped = 0
+        refreshed_nodes: set[tuple[str, str, str]] = set()
         for fact in batch.facts:
             if isinstance(fact, GraphNodeFact):
+                refresh_key = (str(fact.program_id), fact.kind, fact.key)
+                if refresh_key not in refreshed_nodes and _has_replaceable_edges(fact):
+                    session.run(_replaceable_edges_delete_query(fact.kind), _replaceable_edges_parameters(fact))
+                    refreshed_nodes.add(refresh_key)
                 session.run(_node_merge_query(fact.kind), _node_parameters(fact))
                 nodes_written += 1
             else:
@@ -75,6 +81,41 @@ class GraphFactWriter:
             edges_skipped=edges_skipped,
         )
 
+
+
+def _has_replaceable_edges(node: GraphNodeFact) -> bool:
+    """Return true when a node owns edge sets that represent its latest state.
+
+    Most graph facts are append-only observations: preserving older edges is
+    correct. ActionOutcome derived edges are different. They encode the current
+    ranking feature vector and mutable snapshot lineage for an outcome. Re-
+    projecting an updated ActionOutcome must replace these edge sets instead of
+    accumulating stale utility buckets or stale before/after snapshot links.
+    """
+
+    return node.kind == "ActionOutcome"
+
+
+def _replaceable_edges_delete_query(label: str) -> str:
+    safe_label = _safe_cypher_name(label)
+    if safe_label != "ActionOutcome":
+        raise ValueError(f"node label has no replaceable edge set: {safe_label}")
+    return """
+MATCH (node:ActionOutcome {program_id: $program_id, key: $key})-[rel]->(dst {program_id: $program_id})
+WHERE type(rel) IN [
+    'HAS_OUTCOME_FEATURE',
+    'BEFORE_SURFACE_SNAPSHOT',
+    'AFTER_SURFACE_SNAPSHOT'
+]
+DELETE rel
+""".strip()
+
+
+def _replaceable_edges_parameters(node: GraphNodeFact) -> dict[str, object]:
+    return {
+        "program_id": str(node.program_id),
+        "key": node.key,
+    }
 
 def _node_merge_query(label: str) -> str:
     safe_label = _safe_cypher_name(label)
@@ -188,9 +229,6 @@ def _edge_parameters(edge: GraphEdgeFact) -> dict[str, object]:
         "properties": _properties(edge.properties),
     }
 
-
-def _optional_uuid(value: UUID | None) -> str | None:
-    return str(value) if value is not None else None
 
 
 def _properties(properties: dict[str, Any]) -> dict[str, object]:

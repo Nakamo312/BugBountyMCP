@@ -4,7 +4,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from api.application.pipeline.catalog import INGESTORS, PARSERS, PROCESSORS, RUNNERS, resolve_component
+from api.application.pipeline.catalog import (
+    INGESTORS,
+    PROCESSORS,
+    resolve_component,
+    resolve_parser_ref,
+    resolve_runner_ref,
+    validate_component_refs,
+)
 from api.application.contracts import ExecutionMode
 from api.application.pipeline.factory import NodeFactory
 from api.application.pipeline.registry import NodeRegistry
@@ -46,19 +53,6 @@ def register_config_nodes(
         registry.register(build_node(node_id, spec, settings))
 
 
-def validate_component_refs(workers: dict[str, PipelineNodeSpec]) -> None:
-    for node_id, spec in workers.items():
-        resolve_component(RUNNERS, spec.runner, "runner", node_id)
-        if spec.runner is not None and spec.parser is None:
-            raise ValueError(f"scan node '{node_id}' must define an explicit parser")
-        if spec.parser is not None:
-            resolve_component(PARSERS, spec.parser, "parser", node_id)
-        if spec.processor is not None:
-            resolve_component(PROCESSORS, spec.processor, "processor", node_id)
-        if spec.ingestor is not None:
-            resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id)
-
-
 def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
     event_in = _resolve_event_set(spec.inputs, node_id, "inputs")
     event_out = _resolve_event_set(spec.outputs.keys(), node_id, "outputs")
@@ -72,24 +66,54 @@ def build_node(node_id: str, spec: PipelineNodeSpec, settings: Settings):
         node_id,
         "max_targets_per_run",
     )
+    cooldown_seconds = _resolve_non_negative_number(
+        spec.cooldown_seconds,
+        settings,
+        node_id,
+        "cooldown_seconds",
+    )
+    max_fanout_per_event = _resolve_optional_int(
+        spec.max_fanout_per_event,
+        settings,
+        node_id,
+        "max_fanout_per_event",
+    )
+    max_expansion_depth = _resolve_optional_int(
+        spec.max_expansion_depth,
+        settings,
+        node_id,
+        "max_expansion_depth",
+    )
+    token_cost = _resolve_positive_number(
+        spec.token_cost,
+        settings,
+        node_id,
+        "token_cost",
+    )
     runtime_concurrency = _resolve_runtime_concurrency(spec, settings, node_id)
 
+    runner_ref = resolve_runner_ref(spec.runner, node_id)
     return NodeFactory.create_scan_node(
         node_id=node_id,
         event_in=event_in,
         event_out=_resolve_scan_outputs(spec.outputs, node_id),
-        runner_type=resolve_component(RUNNERS, spec.runner, "runner", node_id),
-        parser_type=resolve_component(PARSERS, spec.parser, "parser", node_id),
+        runner_type=runner_ref,
+        parser_type=resolve_parser_ref(spec.parser, runner_ref, node_id),
         processor_type=resolve_component(PROCESSORS, spec.processor, "processor", node_id),
         ingestor_type=resolve_component(INGESTORS, spec.ingestor, "ingestor", node_id),
         max_parallelism=max_parallelism,
         execution_delay=_resolve_number(spec.execution_delay, settings, node_id, "execution_delay"),
         execution_mode=execution_mode,
         max_targets_per_run=max_targets_per_run,
+        cooldown_seconds=cooldown_seconds,
+        max_fanout_per_event=max_fanout_per_event,
+        max_expansion_depth=max_expansion_depth,
+        token_cost=token_cost,
         retry_policy=retry_policy,
         scope_policy=scope_policy,
         runtime=spec.runtime,
         runtime_concurrency=runtime_concurrency,
+        requires_execution_context=(scope_policy is not ScopePolicy.NONE),
     )
 
 
@@ -168,6 +192,34 @@ def _resolve_runtime_concurrency(
     if value is None:
         return None
     return _resolve_int(value, settings, node_id, "runtime.concurrency")
+
+
+def _resolve_non_negative_number(
+    value: int | float | str,
+    settings: Settings,
+    node_id: str,
+    field_name: str,
+) -> int | float:
+    resolved = _resolve_number(value, settings, node_id, field_name)
+    if resolved < 0:
+        raise ValueError(
+            f"Pipeline node '{node_id}' field '{field_name}' must be >= 0"
+        )
+    return resolved
+
+
+def _resolve_positive_number(
+    value: int | float | str,
+    settings: Settings,
+    node_id: str,
+    field_name: str,
+) -> int | float:
+    resolved = _resolve_number(value, settings, node_id, field_name)
+    if resolved <= 0:
+        raise ValueError(
+            f"Pipeline node '{node_id}' field '{field_name}' must be > 0"
+        )
+    return resolved
 
 
 def _resolve_number(

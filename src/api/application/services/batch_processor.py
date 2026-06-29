@@ -1,6 +1,6 @@
 """Base batch processor for streaming results from CLI runners"""
 import asyncio
-from typing import AsyncIterator, List, TypeVar, Generic, Dict, Any, Set
+from typing import AsyncIterator, List, TypeVar, Generic, Dict, Any
 from abc import ABC, abstractmethod
 
 from api.config import Settings
@@ -100,24 +100,6 @@ class MantraBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
             return event.payload
         return None
 
-
-class LinkFinderBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
-    """Batch processor for LinkFinder URL discovery results"""
-
-    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
-        return {
-            'min': 5,
-            'max': 20,
-            'timeout': 10.0
-        }
-
-    def _extract_item(self, event) -> Dict[str, Any] | None:
-        """Extract LinkFinder result from event"""
-        if event.type == "result" and event.payload:
-            return event.payload
-        return None
-
-
 class AmassBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
     """Batch processor for Amass graph fact records"""
 
@@ -169,23 +151,6 @@ class HTTPXBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
         return None
 
 
-class SubfinderBatchProcessor(BaseBatchProcessor[str]):
-    """Batch processor for Subfinder subdomains"""
-
-    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
-        return {
-            'min': settings.SUBFINDER_BATCH_MIN,
-            'max': settings.SUBFINDER_BATCH_MAX,
-            'timeout': settings.SUBFINDER_BATCH_TIMEOUT
-        }
-
-    def _extract_item(self, event) -> str | None:
-        """Extract subdomain from event"""
-        if event.type == "subdomain" and event.payload:
-            return event.payload
-        return None
-
-
 class KatanaBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
     """Batch processor for Katana crawl results"""
 
@@ -218,57 +183,6 @@ class FFUFBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
         if event.type == "result" and event.payload:
             return event.payload
         return None
-
-
-class WaymoreBatchProcessor(BaseBatchProcessor[str]):
-    """Batch processor for Waymore URLs with deduplication"""
-
-    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
-        return {
-            'min': 500,
-            'max': 1000,
-            'timeout': 20.0
-        }
-
-    async def batch_stream(self, stream: AsyncIterator) -> AsyncIterator[List[str]]:
-        """Collect URLs with per-scan deduplication"""
-        batch: List[str] = []
-        last_batch_time = asyncio.get_event_loop().time()
-        seen_urls: Set[str] = set()
-
-        async for event in stream:
-            item = self._extract_item(event, seen_urls)
-            if item is None:
-                continue
-
-            batch.append(item)
-            current_time = asyncio.get_event_loop().time()
-            time_elapsed = current_time - last_batch_time
-
-            if len(batch) >= self.batch_size_max:
-                yield batch
-                batch = []
-                last_batch_time = current_time
-            elif len(batch) >= self.batch_size_min and time_elapsed >= self.batch_timeout:
-                yield batch
-                batch = []
-                last_batch_time = current_time
-
-        if batch:
-            yield batch
-
-    def _extract_item(self, event, seen_urls: Set[str]) -> str | None:
-        """Extract URL from event with deduplication"""
-        if event.type != "result":
-            return None
-
-        url = event.payload
-        if url in seen_urls:
-            return None
-
-        seen_urls.add(url)
-        return url
-
 
 class DNSxBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
     """Batch processor for DNSx results"""
@@ -375,24 +289,6 @@ class SmapBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
         return None
 
 
-class Hakip2HostBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
-    """Batch processor for hakip2host reverse DNS/SSL results"""
-
-    def __init__(self, settings: Settings):
-        super().__init__(settings)
-
-    def _get_batch_config(self, settings: Settings) -> Dict[str, Any]:
-        return {
-            'min': 50,
-            'max': 200,
-            'timeout': 15.0
-        }
-
-    def _extract_item(self, event) -> Dict[str, Any] | None:
-        """Extract hakip2host result from event"""
-        if event.type == "result" and event.payload:
-            return event.payload
-        return None
 class PlaywrightBatchProcessor(BaseBatchProcessor[Dict[str, Any]]):
     """Batch processor for Playwright crawl results (same format as Katana)"""
 

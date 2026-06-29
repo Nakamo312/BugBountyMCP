@@ -2,6 +2,7 @@
 import logging
 from typing import AsyncIterator
 
+from api.infrastructure.commands.command_boundary import command_invocation
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.parsers.line_process_event_parsers import SubfinderStdoutParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
@@ -40,7 +41,7 @@ class SubfinderCliRunner:
 
             logger.info("Starting Subfinder command: %s", " ".join(command))
 
-            executor = CommandExecutor(command, stdin=None, timeout=self.timeout)
+            executor = CommandExecutor(command_invocation(command, stdin=None, timeout=self.timeout))
 
             async for event in executor.run():
                 yield event

@@ -1,0 +1,76 @@
+"""Tool catalog projection tables."""
+import uuid
+
+from .base import (
+    ArrayType,
+    Boolean,
+    CheckConstraint,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    JSONType,
+    Integer,
+    LargeBinary,
+    String,
+    Table,
+    Text,
+    UUID,
+    UniqueConstraint,
+    func,
+    metadata,
+    text,
+)
+
+
+
+tool_catalog_snapshots = Table(
+    'tool_catalog_snapshots',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('catalog_hash', String(64), nullable=False, index=True),
+    Column('source_hash', String(64), nullable=False, index=True),
+    Column('source_path', Text, nullable=True),
+    Column('schema_version', String(50), nullable=False),
+    Column('manifest_json', JSONType(), nullable=False, default=dict),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column('activated_at', DateTime(timezone=True), nullable=True),
+    Column('deactivated_at', DateTime(timezone=True), nullable=True),
+    UniqueConstraint('catalog_hash', name='uq_tool_catalog_snapshots_hash'),
+    CheckConstraint("catalog_hash != ''", name='ck_tool_catalog_snapshots_hash_not_empty'),
+    CheckConstraint("source_hash != ''", name='ck_tool_catalog_snapshots_source_hash_not_empty'),
+    CheckConstraint("schema_version != ''", name='ck_tool_catalog_snapshots_schema_not_empty'),
+)
+
+
+tool_catalog_entries = Table(
+    'tool_catalog_entries',
+    metadata,
+    Column('id', UUID(), primary_key=True, default=uuid.uuid4),
+    Column('snapshot_id', UUID(), ForeignKey('tool_catalog_snapshots.id', ondelete='CASCADE'), nullable=False, index=True),
+    Column('capability_id', String(100), nullable=False, index=True),
+    Column('profile_id', String(100), nullable=False, index=True),
+    Column('capability_label', String(255), nullable=False),
+    Column('profile_label', String(255), nullable=False),
+    Column('request_event', String(150), nullable=False, index=True),
+    Column('queue', String(100), nullable=False),
+    Column('default_profile', String(100), nullable=False),
+    Column('mode', String(50), nullable=False),
+    Column('scope_policy', String(50), nullable=False),
+    Column('safety_class', String(50), nullable=False, index=True),
+    Column('allowed_options', JSONType(), nullable=False, default=list),
+    Column('requires_approval', Boolean, nullable=False, default=False),
+    Column('frontend', JSONType(), nullable=False, default=dict),
+    Column('manifest_fragment', JSONType(), nullable=False, default=dict),
+    Column('active', Boolean, nullable=False, default=True, index=True),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint('snapshot_id', 'capability_id', 'profile_id', name='uq_tool_catalog_entries_snapshot_profile'),
+    Index('idx_tool_catalog_entries_active_capability', 'active', 'capability_id', 'profile_id'),
+    CheckConstraint("capability_id != ''", name='ck_tool_catalog_entries_capability_not_empty'),
+    CheckConstraint("profile_id != ''", name='ck_tool_catalog_entries_profile_not_empty'),
+    CheckConstraint("request_event != ''", name='ck_tool_catalog_entries_event_not_empty'),
+    CheckConstraint("queue != ''", name='ck_tool_catalog_entries_queue_not_empty'),
+    CheckConstraint("safety_class IN ('passive', 'safe_active', 'active', 'sensitive')", name='ck_tool_catalog_entries_safety_valid'),
+)

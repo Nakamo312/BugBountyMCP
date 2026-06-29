@@ -50,6 +50,26 @@ class Settings(BaseSettings):
     EVENT_DISPATCH_NOTIFY_CHANNEL: str = "event_dispatches_changed"
     USE_AGENT_WAIT_PROCESSOR: bool = True
     AGENT_WAIT_SWEEP_INTERVAL_SECONDS: float = 5.0
+    USE_AGENT_INBOX_PROCESSOR: bool = False
+    AGENT_TASK_RUNTIME: str = "bounded"
+    AGENT_TASK_RUNTIME_DEFAULT_MODE: str = "none"
+    AGENT_TASK_RUNTIME_ALLOW_DEEP: bool = False
+    AGENT_TASK_RUNTIME_REQUIRE_DEEP_CONFIRMATION: bool = True
+    AGENT_TASK_RUNTIME_DEEP_ALLOWED_ACTORS: str = "human,operator,admin"
+    AGENT_TASK_LANGGRAPH_CHECKPOINT_NS: str = "agent-task"
+    AGENT_TASK_CONTEXT_REF_LIMIT: int = 25
+    AGENT_TASK_CONTEXT_THREAD_MESSAGE_LIMIT: int = 8
+    AGENT_TASK_CONTEXT_RECENT_OUTCOME_LIMIT: int = 8
+    AGENT_TASK_CONTEXT_PENDING_PROPOSAL_LIMIT: int = 5
+    AGENT_TASK_CONTEXT_SURFACE_SAMPLE_LIMIT: int = 8
+    AGENT_PROTOCOL_INTERNAL_TOKEN: str | None = None
+    AGENT_PROTOCOL_ALLOWED_ACTORS: str = "agent-worker,operator,admin"
+    AGENT_PROTOCOL_ALLOW_UNAUTHENTICATED_INTERNAL: bool = False
+    AGENT_INBOX_CONSUMER_ID: str = "mvp-research-inbox-worker"
+    AGENT_INBOX_KEY: str = "mvp-hypothesis-builder"
+    AGENT_INBOX_CLAIM_LIMIT: int = 20
+    AGENT_INBOX_LEASE_SECONDS: int = 300
+    AGENT_INBOX_SWEEP_INTERVAL_SECONDS: float = 2.0
 
     LOG_LEVEL: str = "INFO"
     TOOLS_PATH_PREFIX: str = "/usr/local"
@@ -58,6 +78,11 @@ class Settings(BaseSettings):
     MAX_ACTION_TARGETS: int = 1000
     MAX_ACTION_RATE_PER_SECOND: float = 1000
     ORCHESTRATOR_SCAN_DELAY: float = 30.0
+    CAMPAIGN_MAX_RUNS: int = 1000
+    CAMPAIGN_MAX_TARGETS: int = 100000
+    CAMPAIGN_TOKEN_CAPACITY: float = 100.0
+    CAMPAIGN_TOKEN_REFILL_PER_SECOND: float = 1.0
+    CAMPAIGN_QUIESCENCE_WINDOW_SECONDS: float = 30.0
 
     # Pipeline feature flag
     USE_NODE_PIPELINE: bool = True
@@ -76,10 +101,28 @@ class Settings(BaseSettings):
     SCHEDULER_CONFIG_PATH: str | None = None
     SCHEDULER_TICK_SECONDS: float = 5.0
 
+    # Credential secret storage composition
+    # Default backend is encrypted Postgres; building the store requires
+    # CREDENTIAL_MASTER_KEY so plaintext cannot become an accidental fallback.
+    CREDENTIAL_SECRET_BACKEND: str = "postgres_encrypted"
+    CREDENTIAL_MASTER_KEY: str | None = None
+    CREDENTIAL_KEY_ID: str = "local-env-master-key"
+    CREDENTIAL_ALLOW_DEV_PLAINTEXT: bool = False
+
     # Raw runner output artifacts
     RAW_OUTPUT_DIR: str = "data/raw_outputs"
+    RAW_OUTPUT_COMPRESSION_THRESHOLD_BYTES: int = 1024 * 1024
+    RAW_OUTPUT_PREVIEW_LIMIT_BYTES: int = 16 * 1024
 
     # Batch processing settings
+    HOST_FINDING_BATCH_MIN: int = 50
+    HOST_FINDING_BATCH_MAX: int = 200
+    HOST_FINDING_BATCH_TIMEOUT: float = 10.0
+
+    URL_FINDING_BATCH_MIN: int = 100
+    URL_FINDING_BATCH_MAX: int = 500
+    URL_FINDING_BATCH_TIMEOUT: float = 15.0
+
     SUBFINDER_BATCH_MIN: int = 50
     SUBFINDER_BATCH_MAX: int = 200
     SUBFINDER_BATCH_TIMEOUT: float = 10.0
@@ -109,6 +152,11 @@ class Settings(BaseSettings):
     NAABU_BATCH_MIN: int = 50
     NAABU_BATCH_MAX: int = 200
     NAABU_BATCH_TIMEOUT: float = 15.0
+
+    # ServiceFinding batch settings
+    SERVICE_FINDING_BATCH_MIN: int = 50
+    SERVICE_FINDING_BATCH_MAX: int = 200
+    SERVICE_FINDING_BATCH_TIMEOUT: float = 15.0
 
     # MapCIDR batch settings
     MAPCIDR_BATCH_MIN: int = 50

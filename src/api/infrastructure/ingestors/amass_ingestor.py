@@ -4,6 +4,7 @@ import logging
 from typing import Any, List, Set, Dict
 from uuid import UUID
 
+from api.application.contracts import IngestContext
 from api.config import Settings
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 from api.infrastructure.ingestors.ingest_result import IngestResult
@@ -21,25 +22,21 @@ class AmassResultIngestor(BaseResultIngestor):
         super().__init__(uow, settings.AMASS_INGESTOR_BATCH_SIZE)
         self.settings = settings
 
-    async def ingest(self, program_id: UUID, results: List[Dict[str, Any]]) -> IngestResult:
-        """
-        Ingest normalized Amass fact records into database.
+    async def before_ingest(
+        self,
+        uow: InfrastructureUnitOfWork,
+        program_id: UUID,
+        results: List[Dict[str, Any]],
+        context: IngestContext | None = None,
+    ) -> None:
+        self._parsed_data = self._collect_facts(results)
 
-        Args:
-            program_id: Program UUID
-            results: List of normalized fact dictionaries from AmassGraphParser
-
-        Returns:
-            IngestResult with domains and IPs
-        """
-        parsed_data = self._collect_facts(results)
-        await super().ingest(program_id, results)
-        
+    def build_result(self) -> IngestResult:
         return IngestResult(
-            raw_domains=list(parsed_data["domains"]),
-            ips=list(parsed_data["ips"]),
-            cidrs=list(parsed_data.get("cidrs", [])),
-            asns=[str(asn) for asn in parsed_data.get("asns", [])],
+            raw_domains=list(self._parsed_data["domains"]),
+            ips=list(self._parsed_data["ips"]),
+            cidrs=list(self._parsed_data.get("cidrs", [])),
+            asns=[str(asn) for asn in self._parsed_data.get("asns", [])],
         )
 
     @staticmethod
@@ -62,7 +59,7 @@ class AmassResultIngestor(BaseResultIngestor):
             "asns": asns,
         }
 
-    async def _process_batch(self, uow: InfrastructureUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]]):
+    async def _process_batch(self, uow: InfrastructureUnitOfWork, program_id: UUID, batch: List[Dict[str, Any]], context: IngestContext | None = None) -> None:
         """
         Process a batch of Amass results.
         """

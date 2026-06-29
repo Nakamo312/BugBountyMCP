@@ -2,6 +2,7 @@
 import logging
 from typing import AsyncIterator
 
+from api.infrastructure.commands.command_boundary import command_invocation
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.parsers.line_process_event_parsers import URLStdoutLineResultParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
@@ -58,9 +59,7 @@ class WaymoreCliRunner:
         )
 
         executor = CommandExecutor(
-            command=command,
-            stdin=stdin_input,
-            timeout=self.timeout
+            command_invocation(command, stdin=stdin_input, timeout=self.timeout)
         )
 
         async for event in executor.run():

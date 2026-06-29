@@ -18,8 +18,8 @@ class _GraphFactBase(BaseModel):
 
     program_id: UUID
     producer: str = Field(min_length=1)
-    source_artifact_id: UUID
-    tool_run_id: UUID
+    source_artifact_id: UUID | None = None
+    tool_run_id: UUID | None = None
     confidence: float = Field(ge=0.0, le=1.0)
     properties: dict[str, Any] = Field(default_factory=dict)
 

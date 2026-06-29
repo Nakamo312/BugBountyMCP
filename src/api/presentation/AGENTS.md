@@ -18,3 +18,13 @@ Read first when changing this layer:
 - Keep schemas stable and explicit. Do not leak internal ORM rows as public
   contracts by accident.
 - Startup should wire services, not create tables or perform migrations.
+
+## Experience and Ranking Boundary
+
+- Do not expose action-experience ranking, GDS probes, graph similarity, or
+  internal planner scoring as REST/MCP endpoints.
+- Presentation routes may accept explicit human/operator commands such as action
+  submission, approval, rejection, and feedback, but must call application
+  services instead of infrastructure stores or graph readers directly.
+- Dashboard-facing explanations should read persisted proposals or action state;
+  they should not trigger Neo4j GDS calculations through request/response APIs.

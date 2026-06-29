@@ -34,6 +34,10 @@ class PipelineDefaults(BaseModel):
     execution_delay: int | float | str = 0
     execution_mode: ExecutionModeName = "inline"
     max_targets_per_run: int | str | None = None
+    cooldown_seconds: int | float | str = 0
+    max_fanout_per_event: int | str | None = None
+    max_expansion_depth: int | str | None = None
+    token_cost: int | float | str = 1
     retry: "RetryPolicyConfig" = Field(default_factory=lambda: RetryPolicyConfig())
     scope: ScopePolicyName = "none"
 
@@ -142,6 +146,10 @@ class PipelineNodeSpec(BaseModel):
     execution_delay: int | float | str = 0
     execution_mode: ExecutionModeName = "inline"
     max_targets_per_run: int | str | None = None
+    cooldown_seconds: int | float | str = 0
+    max_fanout_per_event: int | str | None = None
+    max_expansion_depth: int | str | None = None
+    token_cost: int | float | str = 1
     retry: RetryPolicyConfig = Field(default_factory=RetryPolicyConfig)
     max_concurrent_scans: int | str | None = None
     scope: ScopePolicyName = "none"
@@ -179,6 +187,10 @@ class PipelineConfig(BaseModel):
                 "execution_delay",
                 "execution_mode",
                 "max_targets_per_run",
+                "cooldown_seconds",
+                "max_fanout_per_event",
+                "max_expansion_depth",
+                "token_cost",
                 "retry",
                 "scope",
             )

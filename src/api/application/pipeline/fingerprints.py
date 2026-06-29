@@ -46,6 +46,7 @@ def build_target_fingerprint(targets: list[Any] | tuple[Any, ...] | None) -> str
 def build_node_work_key(
     *,
     program_id: UUID | str,
+    campaign_id: UUID | str | None = None,
     node_id: str,
     event_name: str,
     targets: list[Any] | tuple[Any, ...] | None,
@@ -61,6 +62,7 @@ def build_node_work_key(
         {
             "version": version,
             "program_id": str(program_id),
+            "campaign_id": str(campaign_id) if campaign_id is not None else None,
             "node_id": node_id,
             "event_name": event_name,
             "targets": _normalized_targets(targets or []),

@@ -5,11 +5,13 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from api.application.action_catalog import CatalogItemNotFound, CatalogNotReady
-from api.application.contracts import ActionRequest, ActionStatus
+from api.application.contracts import ActionOutcomeFeedback, ActionRequest, ActionStatus
 from api.application.execution_limits import ActionInputValidationError
 from api.application.services.action import (
     ActionApprovalStateError,
     ActionNotFoundError,
+    ActionOutcomeFeedbackUnavailable,
+    ActionOutcomeNotFoundError,
     ActionService,
 )
 from api.application.services.action_catalog import ActionCatalogService
@@ -174,6 +176,32 @@ async def get_action_result(
     except ActionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return result.model_dump(mode="json")
+
+
+@router.post(
+    "/{action_id}/outcome-feedback",
+    summary="Record action outcome feedback",
+    description="Stores human or workflow feedback on a completed action outcome.",
+    tags=["Actions"],
+    status_code=200,
+)
+async def record_action_outcome_feedback(
+    action_id: UUID,
+    request: ActionOutcomeFeedback,
+    action_service: FromDishka[ActionService],
+) -> dict:
+    try:
+        feedback = await action_service.record_outcome_feedback(
+            action_id=action_id,
+            feedback=request,
+        )
+    except ActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ActionOutcomeNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ActionOutcomeFeedbackUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return feedback.model_dump(mode="json")
 
 
 @router.post(

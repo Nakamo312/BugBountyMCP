@@ -3,6 +3,7 @@
 import logging
 from typing import AsyncIterator
 
+from api.infrastructure.commands.command_boundary import command_invocation
 from api.infrastructure.commands.command_executor import CommandExecutor, ProcessEvent
 from api.infrastructure.parsers.line_process_event_parsers import StdoutLineResultParser
 
@@ -80,7 +81,7 @@ class MapCIDRCliRunner:
             f"input={cidrs}"
         )
 
-        executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, stdin=stdin, timeout=self.timeout))
 
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
@@ -135,7 +136,7 @@ class MapCIDRCliRunner:
 
         logger.info(f"Starting mapcidr slice by count: cidrs={len(cidrs)} count={count}")
 
-        executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, stdin=stdin, timeout=self.timeout))
 
         result_count = 0
         async for event in executor.run():
@@ -179,7 +180,7 @@ class MapCIDRCliRunner:
 
         logger.info(f"Starting mapcidr slice by host count: cidrs={len(cidrs)} host_count={host_count}")
 
-        executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, stdin=stdin, timeout=self.timeout))
 
         result_count = 0
         async for event in executor.run():
@@ -218,7 +219,7 @@ class MapCIDRCliRunner:
 
         logger.info(f"Starting mapcidr count: cidrs={len(cidrs)}")
 
-        executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, stdin=stdin, timeout=self.timeout))
 
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
@@ -258,7 +259,7 @@ class MapCIDRCliRunner:
 
         logger.info(f"Starting mapcidr aggregate: ips={len(ips)}")
 
-        executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, stdin=stdin, timeout=self.timeout))
 
         result_count = 0
         async for event in executor.run():

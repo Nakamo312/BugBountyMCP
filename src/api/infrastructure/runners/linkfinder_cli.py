@@ -2,6 +2,7 @@ import logging
 from typing import AsyncIterator, List
 from urllib.parse import urlparse
 
+from api.infrastructure.commands.command_boundary import command_invocation
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.parsers.line_process_event_parsers import LinkFinderStdoutParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
@@ -37,7 +38,7 @@ class LinkFinderCliRunner:
 
             command.extend(["-o", "cli"])
 
-            executor = CommandExecutor(command, timeout=self.timeout)
+            executor = CommandExecutor(command_invocation(command, timeout=self.timeout))
 
             try:
                 async for event in executor.run():

@@ -1,4 +1,11 @@
 import { useState } from 'react'
+import { createCatalogAction } from '@/services/api'
+
+function compactOptions(values) {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== '' && value !== undefined && value !== null)
+  )
+}
 
 export function useActionRunner(selectedProgram) {
   const [activeAction, setActiveAction] = useState(null)
@@ -13,10 +20,10 @@ export function useActionRunner(selectedProgram) {
       }
     }
 
-    if (!action.api || typeof action.api !== 'function') {
+    if (!action.catalogId && (!action.api || typeof action.api !== 'function')) {
       return {
         status: 'error',
-        message: `API function not defined for action ${action.id}`,
+        message: `Action ${action.id} is missing catalog metadata`,
         results: null,
       }
     }
@@ -25,10 +32,21 @@ export function useActionRunner(selectedProgram) {
     setActiveAction(action.id)
 
     try {
-      const response = await action.api({
-        program_id: selectedProgram.id,
-        ...formData,
-      })
+      let response
+      if (action.catalogId) {
+        const { targets, ...rawOptions } = formData
+        response = await createCatalogAction({
+          catalog_id: action.catalogId,
+          program_id: selectedProgram.id,
+          targets: Array.isArray(targets) ? targets : [],
+          options: compactOptions(rawOptions),
+        })
+      } else {
+        response = await action.api({
+          program_id: selectedProgram.id,
+          ...formData,
+        })
+      }
 
       return {
         status: response.data.status,

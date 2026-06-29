@@ -3,10 +3,26 @@ from __future__ import annotations
 
 from typing import Any, Literal, Mapping
 
+from api.application.credential_refs import (
+    AUTH_INJECTION_MODES,
+    CLI_AUTH_INJECTION_MODES,
+    normalize_auth_injection_spec,
+    normalize_credential_ref,
+    reject_raw_credential_option,
+    validate_cli_auth_flag,
+)
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-OptionType = Literal["integer", "number", "boolean", "string"]
+OptionType = Literal[
+    "integer",
+    "number",
+    "boolean",
+    "string",
+    "credential_ref",
+    "auth_injection",
+]
 
 FORBIDDEN_OPTION_KEYS = {
     "cmd",
@@ -33,6 +49,9 @@ class ToolOptionSpec(BaseModel):
     minimum: float | None = None
     maximum: float | None = None
     enum: tuple[Any, ...] = ()
+    allowed_modes: tuple[str, ...] = ()
+    allowed_cli_flags: tuple[str, ...] = ()
+    allow_argv_exposure: bool = False
 
     @field_validator("enum", mode="before")
     @classmethod
@@ -42,6 +61,17 @@ class ToolOptionSpec(BaseModel):
         if isinstance(value, (list, tuple)):
             return tuple(value)
         raise ValueError("enum must be a list or tuple")
+
+    @field_validator("allowed_modes", "allowed_cli_flags", mode="before")
+    @classmethod
+    def normalize_tuple_field(cls, value: Any) -> tuple[str, ...]:
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            raise ValueError("field must be a list or tuple")
+        if isinstance(value, (list, tuple)):
+            return tuple(value)
+        raise ValueError("field must be a list or tuple")
 
     @model_validator(mode="after")
     def validate_contract(self) -> "ToolOptionSpec":
@@ -55,6 +85,22 @@ class ToolOptionSpec(BaseModel):
             self.minimum is not None or self.maximum is not None
         ):
             raise ValueError("minimum/maximum require a numeric option")
+        if self.type != "auth_injection" and (
+            self.allowed_modes or self.allowed_cli_flags or self.allow_argv_exposure
+        ):
+            raise ValueError("auth injection policy fields require auth_injection option")
+        for mode in self.allowed_modes:
+            if mode not in AUTH_INJECTION_MODES:
+                raise ValueError(f"unsupported auth injection mode: {mode}")
+        for flag in self.allowed_cli_flags:
+            try:
+                validate_cli_auth_flag(flag)
+            except ValueError as exc:
+                raise ValueError(str(exc)) from exc
+        if self.allow_argv_exposure and not self.allowed_cli_flags:
+            raise ValueError("allow_argv_exposure requires allowed_cli_flags")
+        if self.allowed_cli_flags and not self.allow_argv_exposure:
+            raise ValueError("allowed_cli_flags require allow_argv_exposure")
         if self.default is not None:
             try:
                 self.validate_value("default", self.default)
@@ -68,6 +114,24 @@ class ToolOptionSpec(BaseModel):
         return self
 
     def validate_value(self, name: str, value: Any) -> Any:
+        if self.type == "credential_ref":
+            try:
+                normalized = normalize_credential_ref(name, value)
+            except ValueError as exc:
+                raise ActionInputValidationError(str(exc)) from exc
+            if self.enum and normalized not in self.enum:
+                raise ActionInputValidationError(f"{name} is not an allowed value")
+            return normalized
+        if self.type == "auth_injection":
+            try:
+                normalized = normalize_auth_injection_spec(name, value)
+            except ValueError as exc:
+                raise ActionInputValidationError(str(exc)) from exc
+            self._validate_auth_injection_policy(name, normalized)
+            if self.enum and normalized not in self.enum:
+                raise ActionInputValidationError(f"{name} is not an allowed value")
+            return normalized
+
         checks = {
             "integer": lambda item: isinstance(item, int)
             and not isinstance(item, bool),
@@ -85,6 +149,23 @@ class ToolOptionSpec(BaseModel):
         if self.enum and value not in self.enum:
             raise ActionInputValidationError(f"{name} is not an allowed value")
         return value
+
+    def _validate_auth_injection_policy(self, name: str, value: Mapping[str, Any]) -> None:
+        mode = value.get("mode")
+        if self.allowed_modes and mode not in self.allowed_modes:
+            raise ActionInputValidationError(f"{name} uses unsupported auth injection mode")
+        if mode in CLI_AUTH_INJECTION_MODES:
+            if not self.allow_argv_exposure:
+                raise ActionInputValidationError(
+                    f"{name} uses argv-exposed auth injection without profile opt-in"
+                )
+            flag = value.get("flag")
+            if not self.allowed_cli_flags:
+                raise ActionInputValidationError(
+                    f"{name} uses CLI auth injection without allowed_cli_flags"
+                )
+            if flag not in self.allowed_cli_flags:
+                raise ActionInputValidationError(f"{name} uses unsupported CLI auth flag")
 
 
 class ExecutionBudget(BaseModel):
@@ -125,6 +206,12 @@ def normalize_options(
     options: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Apply defaults and validate caller options without type coercion."""
+    for name, value in options.items():
+        try:
+            reject_raw_credential_option(name, value)
+        except ValueError as exc:
+            raise ActionInputValidationError(str(exc)) from exc
+
     forbidden = set(schema) & FORBIDDEN_OPTION_KEYS
     if forbidden:
         raise ActionInputValidationError(

@@ -15,7 +15,7 @@ def _graph_batch_store_symbols():
 
 
 def test_graph_fact_batches_table_is_declared_as_durable_projector_queue() -> None:
-    source = Path("src/api/infrastructure/adapters/orm.py").read_text(encoding="utf-8")
+    source = Path("src/api/infrastructure/adapters/orm_tables/graph_projection.py").read_text(encoding="utf-8")
 
     assert "graph_fact_batches = Table(" in source
     assert "'graph_fact_batches'" in source
@@ -90,7 +90,7 @@ def test_graph_fact_batch_store_round_trips_contract_without_computed_fields() -
 
 
 def test_graph_fact_batch_store_has_dedupe_key_for_idempotent_producer_enqueue() -> None:
-    orm_source = Path("src/api/infrastructure/adapters/orm.py").read_text(encoding="utf-8")
+    orm_source = Path("src/api/infrastructure/adapters/orm_tables/graph_projection.py").read_text(encoding="utf-8")
     migration = Path("alembic/versions/a7b8c9d0e1f2_add_graph_fact_batch_dedupe_key.py")
 
     assert "'dedupe_key'" in orm_source
@@ -212,3 +212,26 @@ def test_batch_store_leaves_graph_fact_json_unwrapped_for_non_psycopg2_cursor() 
 
     assert adapted is payload
     assert adapted["facts_json"] == {"facts": []}
+
+
+def test_batch_store_enqueue_statement_is_static_and_bounded() -> None:
+    import sys
+
+    sys.path.insert(0, str(Path("services/graph-projector").resolve()))
+    from graph_projector.batch_store import _graph_fact_batch_insert_statement
+
+    keep_existing = _graph_fact_batch_insert_statement(reset_existing=False)
+    reset = _graph_fact_batch_insert_statement(reset_existing=True)
+
+    assert "INSERT INTO graph_fact_batches" in keep_existing
+    assert "ON CONFLICT (dedupe_key) DO UPDATE" in keep_existing
+    assert "SET updated_at = graph_fact_batches.updated_at" in keep_existing
+    assert "{conflict_update}" not in keep_existing
+    assert "status = 'pending'" not in keep_existing
+
+    assert "INSERT INTO graph_fact_batches" in reset
+    assert "ON CONFLICT (dedupe_key) DO UPDATE" in reset
+    assert "status = 'pending'" in reset
+    assert "attempts = 0" in reset
+    assert "applied_at = NULL" in reset
+    assert "{conflict_update}" not in reset

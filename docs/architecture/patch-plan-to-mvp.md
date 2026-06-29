@@ -35,7 +35,8 @@ Existing important components in the snapshot:
 - `pipeline.yaml` with capabilities and workers.
 - Raw artifacts metadata and file-based raw output storage.
 - OpenSearch projection service: `services/search-indexer`.
-- `services/research-engine` exists but is targeted for removal.
+- Standalone `services/research-engine` has been removed; future hypothesis,
+  critic and report logic belongs in LangGraph/application workflow code.
 - `services/surface-engine` exists from previous patches and should be repurposed as extraction/projection support, not as a central intelligence service.
 
 ## Hard ordering rules
@@ -46,6 +47,57 @@ Existing important components in the snapshot:
 4. Do not let LLMs call RabbitMQ, runners, shell commands, or write DB state directly.
 5. Do not put raw artifacts directly into Neo4j, OpenSearch agent-facing indexes, or LangGraph state.
 6. Do not treat hypothesis as finding. A finding requires evidence and explicit promotion.
+
+## P0 — protective hardening before M3
+
+P0 is a mandatory safety patch before continuing with `research-engine` removal
+or later MVP work.
+
+### 0008a-p0-mvp-hardening.patch
+
+Implement the immediate defensive baseline:
+
+- strict scope policy fails closed when a program has no scope rules;
+- `ActionService` loads program scope rules before policy evaluation;
+- compose-published ports bind only to `127.0.0.1`;
+- monitoring services run only through the explicit `monitoring` profile;
+- no real `PDCP_API_KEY` is stored in source-controlled config;
+- OpenSearch default HTTP observation projection excludes `body_preview`.
+
+Acceptance:
+
+- strict action without scope rules is blocked;
+- tests prove `ActionService` passes loaded scope rules into `PolicyService`;
+- compose contract tests reject non-loopback published ports;
+- monitoring is not enabled by default;
+- config tests reject a source-controlled real PDCP key;
+- search projection tests prove `body_preview` is absent from SQL, documents,
+  and index mappings.
+
+## P1 — next hardening backlog
+
+P1 items are next after P0, but they may be split across M1-M7 patches rather
+than shipped as one large change:
+
+- minimal finding promotion model;
+- evidence pack contract;
+- runner budgets: max duration, max targets, rate, and concurrency
+  (локальные жесткие пределы действия и первых четырех раннеров реализованы;
+  распределенное ограничение и учет потребления кампании остаются);
+- safe tool catalog profiles: `passive`, `safe_active`, `active`, `sensitive`;
+- better deduplication for endpoint, service, and technology facts;
+- stream raw artifact parsing instead of read-all parsing.
+
+## P2 — later MVP backlog
+
+P2 items remain after P1 and should not block P0 or M3:
+
+- Neo4j conflict and provenance handling;
+- CVE/CWE enrichment;
+- agent workflows;
+- metamorphic tests;
+- report drafting;
+- full authentication and RBAC.
 
 ## Phase 0 — architecture baseline
 
@@ -153,15 +205,19 @@ Acceptance:
 
 Add transactional outbox:
 
-- `event_outbox`
-- `event_inbox`
+- `event_store` with destination-specific `event_dispatches` as the accepted
+  MVP outbox implementation;
+- no duplicate literal `event_outbox` table;
+- agent workflow delivery uses its separate durable `agent_inbox`;
 - normalized `event_store`
 - store method that writes action/policy/scope/job/run/outbox in one transaction
 
 Acceptance:
 
 - DB commit can happen without RabbitMQ publish and still leave pending outbox.
-- Duplicate outbox event is prevented by idempotency key.
+- Duplicate destination delivery is prevented by event/destination uniqueness.
+- Delivery is at least once; consumers use `event_id` and work keys for
+  idempotency.
 
 ### 0015-outbox-publisher-service.patch
 
@@ -174,7 +230,8 @@ Add outbox publisher:
 Acceptance:
 
 - Publish failure retries.
-- Concurrent publishers do not double-publish the same event.
+- Concurrent publishers cannot claim the same unexpired delivery lease.
+- A publish-before-ack failure may redeliver; consumers remain idempotent.
 
 ### 0016-tool-execution-api-v2.patch
 
@@ -190,6 +247,15 @@ Legacy `/scan/*` routes become wrappers.
 Acceptance:
 
 - API returns `202 Accepted` with action/job/run/campaign/correlation/wait/result identifiers.
+- `/tool-actions` is exposed as the public MVP route prefix.
+- `GET /tool-actions/{id}` returns the stored action read model.
+- `GET /tool-actions/{id}/events` returns bounded event-store records for the
+  action.
+- `GET /tool-actions/{id}/result` returns bounded run summaries and artifact
+  references without raw artifact bodies. This execution aggregate is not an
+  M6 `agent_result_set`.
+- Existing `/actions` remains available as a compatibility alias until the
+  dashboard and API naming are intentionally consolidated.
 - Blocked action returns blocked state and no job.
 
 ### 0017-runner-tool-invocation-propagation.patch
@@ -199,8 +265,22 @@ Make workers and runners consume `ToolInvocation`.
 Acceptance:
 
 - Runner command builders receive typed options.
+- Profile manifests define strict option schemas, defaults, and hard execution
+  ceilings.
+- Action requests are normalized before policy evaluation and cannot raise
+  profile or system ceilings.
+- Effective budgets are stored in the action event and initial run payload,
+  then rebuilt into `ToolInvocation`.
+- `httpx`, `katana`, `ffuf`, and `naabu` clamp supported timeout, rate, and
+  concurrency arguments to the effective budget.
 - Existing runners preserve shell-safe argument-list construction.
 - Tests prove options reach at least `httpx`, `katana`, `ffuf`, and `naabu` runners.
+
+Remaining:
+
+- distributed rate limiting across workers;
+- campaign-level consumption accounting;
+- fanout/depth/cooldown limits from patch 0018.
 
 ### 0018-worker-idempotency-and-work-key.patch
 
@@ -217,6 +297,24 @@ Acceptance:
 
 - Same work key does not create duplicate live work.
 - Fanout respects budget.
+
+Implemented:
+
+- scheduled `work_key` is isolated by campaign and active duplicates are
+  coalesced;
+- worker config carries `cooldown_seconds`, `max_fanout_per_event`,
+  `max_expansion_depth`, and `token_cost`;
+- child events inherit `campaign_id` and increment `expansion_depth`;
+- chunk creation is bounded by per-event fanout;
+- `campaigns` stores run, target, and token-bucket limits and consumption;
+- `claim_node_run` checks depth, cooldown, run/target limits, and available
+  tokens before creating work;
+- campaign budget consumption and run insertion use one PostgreSQL transaction;
+- duplicate, coalesced, and retry paths do not consume budget again.
+
+Remaining acceptance:
+
+- run the concurrent PostgreSQL budget test in the Docker integration stack.
 
 ### 0019-campaign-lifecycle.patch
 
@@ -236,6 +334,26 @@ Acceptance:
 - Campaign is not quiescent while outbox/jobs/projection lag remain.
 - Campaign becomes quiescent only after quiet window.
 
+Implemented:
+
+- allowed/approved initial work activates the campaign as `running`;
+- downstream scheduled work moves the campaign to `expanding`;
+- the existing wait-condition sweep reconciles active campaign states;
+- active runs and pending outbox keep the campaign active;
+- graph projection events, GraphFact batches, and lagging program projection
+  watermarks move it to `waiting_for_projections`;
+- a campaign becomes `quiescent` only after all work is clear and the
+  30-second quiet window has elapsed;
+- dead runs move a settled campaign to `failed`;
+- `closed`, `cancelled`, and `failed` are explicit terminal states and are not
+  reopened automatically;
+- `campaign_quiescent` uses the same lifecycle reader as the background sweep.
+
+Remaining acceptance:
+
+- run the PostgreSQL lifecycle/quiescence integration contract in the Docker
+  integration stack.
+
 ## M2 — artifact storage cleanup
 
 ### 0020-content-addressed-artifact-store.patch
@@ -248,6 +366,18 @@ Acceptance:
 - Artifact metadata points to content-addressed blob.
 - Raw artifact is recorded before parsing.
 
+Статус: реализовано.
+
+- `FileRawOutputStore` потоково пишет канонические записи событий во временный
+  файл, во время записи считает SHA-256 и атомарно помещает содержимое в
+  `blobs/sha256/<2>/<2>/<sha256>.ndjson`.
+- Контекст конкретного артефакта остается в существующей строке
+  `raw_artifacts`, поэтому одинаковый вывод использует один файл без
+  объединения записей артефактов.
+- Файл и строка метаданных завершаются до передачи сохраненных событий
+  парсеру. Повторное чтение идет построчно и не загружает весь вывод в память.
+- Старые NDJSON-файлы со встроенной записью `metadata` остаются читаемыми.
+
 ### 0021-artifact-compression-and-retention.patch
 
 Add compression and retention policy.
@@ -256,6 +386,19 @@ Acceptance:
 
 - Large raw outputs are compressed.
 - Retention class is stored and queryable.
+
+Статус: реализовано.
+
+- Канонический SHA-256 считается по исходному NDJSON до сжатия.
+- Вывод размером от 1 МиБ сохраняется как детерминированный gzip; порог
+  задается через `RAW_OUTPUT_COMPRESSION_THRESHOLD_BYTES`.
+- Повторное воспроизведение и `ProcessEventArtifactParser` прозрачно читают
+  как обычные `.ndjson`, так и `.ndjson.gz`.
+- `raw_artifacts` хранит доступные для SQL-запроса `content_encoding`,
+  `storage_size_bytes` и `retention_class`.
+- Поддерживаются классы `ephemeral`, `short_lived`, `program_lifetime` и
+  `legal_hold`; для сырого вывода по умолчанию используется
+  `program_lifetime`.
 
 ### 0022-artifact-preview-and-sanitizer.patch
 
@@ -266,6 +409,22 @@ Acceptance:
 - Authorization/Cookie/Set-Cookie/token-like values are redacted.
 - `raw_safe_for_llm=false` by default.
 - `sanitized_safe_for_llm=true` only after sanitizer.
+
+Статус: реализовано.
+
+- `FileRawOutputStore` во время потоковой записи собирает ограниченный preview;
+  предел задается через `RAW_OUTPUT_PREVIEW_LIMIT_BYTES` и по умолчанию равен
+  16 КиБ.
+- В `raw_artifacts` сохраняются внутренний `preview`, `sanitized_preview`,
+  версии sanitizer и политики очистки, а также оба флага безопасности.
+- `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, API-ключи,
+  bearer-токены, пары `token=...` и чувствительные JSON-поля очищаются, включая
+  оборванное значение на границе preview.
+- Ограничение PostgreSQL запрещает `sanitized_safe_for_llm=true` без
+  очищенного preview и обеих версий правил.
+- LangGraph и `bb-artifacts-preview` читают только `sanitized_preview` со
+  значением `sanitized_safe_for_llm=true`; raw preview и `storage_uri` в эти
+  представления не попадают.
 
 ### 0023-artifact-lineage.patch
 
@@ -282,6 +441,24 @@ Acceptance:
 
 - Parser output links back to raw artifact.
 - Sanitized preview links back to raw artifact and sanitizer version.
+
+Статус: реализовано без отдельной дублирующей таблицы lineage.
+
+- `raw_artifacts` хранит `parser_name`, `parser_version`,
+  `scope_decision_id`, `source_targets` и `parent_artifact_id`.
+- `run_id` остается ссылкой артефакта на запуск инструмента.
+- `parent_artifact_id` передается через типизированный `ToolInvocation` и
+  поддерживает производные/повторные запуски.
+- `ScanNode` записывает фактический класс и версию используемого парсера;
+  классы без собственной версии получают базовую версию `1`.
+- Результаты парсера продолжают ссылаться на raw artifact через существующие
+  `http_observations.raw_artifact_id` и
+  `javascript_references.raw_artifact_id`.
+- Очищенный preview находится в той же строке raw artifact и несет
+  `sanitizer_version` и `redaction_policy_version`.
+- Отдельная таблица `artifact_lineage` в MVP не добавлена: текущие внешние
+  ключи и явные поля уже представляют требуемую цепочку без второй модели
+  истины.
 
 ## M3 — remove research-engine as service
 
@@ -338,6 +515,8 @@ Acceptance:
 
 - Project works without Neo4j when disabled.
 - Settings parse Neo4j URL/user/password.
+- Compose uses plain Neo4j for the graph read model; Neo4j GDS is not part of
+  M4.
 
 ### 0029-graphfact-contract.patch
 
@@ -349,8 +528,10 @@ Add GraphFact contracts:
 
 Acceptance:
 
-- Each fact has program/source/tool/confidence lineage.
-- Invalid missing source is rejected.
+- Each fact has program, producer, and confidence.
+- Evidence-backed facts carry artifact/run lineage.
+- Canonical inventory facts may omit artifact/run lineage because they describe
+  current PostgreSQL state, not a reportable evidence chain.
 - Deterministic identity key is required.
 
 ### 0030-graph-ontology-l0-l1.patch
@@ -387,7 +568,22 @@ Add producers for first infrastructure tools:
 Acceptance:
 
 - Each producer emits expected node/edge facts.
-- Facts link to source artifact and tool run.
+- Inventory producers read canonical state for hosts, IPs, host-IP links, and
+  basic services. Do not require full evidence paths for ordinary asset
+  inventory.
+- Canonical inventory projection must not introduce a separate observation table
+  only to explain ordinary Host/IP/Service state; evidence paths start at
+  source-backed observations, hypotheses, findings, and report artifacts.
+- Mutable inventory such as open ports, endpoints, parameters, and technology
+  versions may get lightweight snapshot/history rows when current-state
+  overwrite would lose useful change information.
+- Observation-backed graph producers must not keep hard-coded tool allowlists.
+  A new tool is admitted when it writes a valid canonical observation with
+  non-empty `source_tool`, `program_id`, `run_id`, and `raw_artifact_id`.
+- Projection-event processing uses one shared worker over
+  `graph_projection_events`; do not add per-source compose services for
+  `raw_artifact`, `http_observations`, `javascript_references`, or future
+  infra producers.
 
 ### 0033-graphfact-producers-web-tools.patch
 
@@ -403,6 +599,9 @@ Acceptance:
 - JSFile REFERENCES Endpoint.
 - Endpoint HAS_PARAM Parameter.
 - Raw header/cookie values are not graph nodes by default.
+- JavaScript references are projected from canonical `javascript_references`
+  rows with artifact/run lineage, not by reading raw JS bodies in the graph
+  projector.
 
 ### 0034-graph-rebuild-command.patch
 
@@ -411,7 +610,13 @@ Add graph rebuild command.
 Acceptance:
 
 - Neo4j graph can be rebuilt from PostgreSQL canonical facts and artifact metadata.
+- Rebuild covers canonical inventory Host/IP/Service state directly from
+  `hosts`, `ip_addresses`, `host_ips`, and `services`.
 - Rebuild is idempotent.
+- Rebuild covers the canonical GraphFact read model only; analytical GDS
+  projections are deferred to post-MVP/M8.
+- Existing GraphFactBatch rows can be reset to pending for a controlled rebuild
+  without creating unbounded duplicate rows.
 
 ### 0035-graph-query-templates-v1.patch
 
@@ -420,12 +625,17 @@ Add safe graph query templates:
 - hidden endpoints from JS
 - endpoint neighborhood
 - exposed services by technology
+- evidence path for one graph entity
 - hypothesis evidence paths
 
 Acceptance:
 
 - Every template requires program_id.
 - Results are bounded and shaped.
+- Templates are read-only and reject `gds.*` procedures until GDS receives its
+  own named projection contracts.
+- GDS readiness requires graph rebuild support and these safe templates before a
+  GDS runtime is added.
 
 ## M5 — OpenSearch expansion
 
@@ -456,6 +666,15 @@ Acceptance:
 - Sensitive fields are not indexed raw.
 - Mappings are static and versioned.
 
+Статус: частично реализовано по потребностям первого MVP workflow.
+
+- Добавлены статические versioned mappings `bb-endpoints` и
+  `bb-technologies`.
+- Ранее существующие `bb-http-observations` и `bb-artifacts-preview`
+  сохранены; artifact-preview mapping больше не объявляет `storage_uri`.
+- Остальные roadmap-индексы не добавляются заранее без канонического источника
+  и потребителя.
+
 ### 0038-search-document-producers-v1.patch
 
 Add document producers for artifacts/http/endpoints/technologies/hypotheses.
@@ -464,6 +683,15 @@ Acceptance:
 
 - Documents are sanitized and bounded.
 - Per-program filtering is supported.
+
+Статус: частично реализовано.
+
+- Готовы producers для artifacts, HTTP observations, endpoints и technologies.
+- Endpoint/technology producers читают канонические PostgreSQL facts с
+  обязательным program filter.
+- Technology documents индексируют только нормализованные названия технологий,
+  без произвольных значений и версий из source JSON.
+- Hypothesis producer остается до появления первого workflow-потребителя.
 
 ### 0039-opensearch-projection-lag.patch
 
@@ -623,6 +851,11 @@ MVP is complete after patch `0052-report-builder-draft-workflow.patch` when the 
 
 ## Post-MVP
 
+The approved long-term destination is defined in
+[Long-term target platform](long-term-target-platform.md). The items below are
+an MVP-roadmap summary, not a replacement for that architecture document.
+Implementation status remains in [MVP gap audit](mvp-gap-audit.md).
+
 M8 advanced analytics:
 
 - CVE paths
@@ -633,6 +866,26 @@ M8 advanced analytics:
 - metamorphic testing
 - mutation fuzzing
 - Neo4j GDS named projections
+- link prediction as derived analytics, not canonical facts;
+- state-machine constrained investigation and testing flows;
+- prediction-to-hypothesis-to-approval-to-test-to-evidence-to-review flow;
+- derived entities such as `PredictionRun`, `PredictedRelationship`,
+  `FeatureSnapshot`, `InputGraphSnapshot`, `StateMachineDefinition`,
+  `TestSequence`, `MetamorphicRun`, `InvariantResult`, and `EvidenceBundle`.
+
+M8 safety rule:
+
+```text
+Prediction suggests.
+State machine constrains.
+Metamorphic test validates.
+Evidence supports.
+Human review promotes.
+```
+
+Predictions, state transitions, test sequences, and invariant results must not
+overwrite canonical facts and must not directly create findings or unsafe
+actions.
 
 M9 unified dashboard:
 

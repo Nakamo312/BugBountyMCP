@@ -5,6 +5,7 @@ import logging
 from typing import Any, List, Set
 from uuid import UUID
 
+from api.application.contracts import IngestContext
 from api.config import Settings
 from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
 from api.infrastructure.ingestors.ingest_result import IngestResult
@@ -46,114 +47,74 @@ class TLSxResultIngestor(BaseResultIngestor):
         self._in_scope_ips: Set[str] = set()
         self._scope_rules: List[ScopeRuleModel] = []
 
-    async def ingest(self, program_id: UUID, results: List[dict[str, Any]]) -> IngestResult:
-        """
-        Ingest TLSx results with scope filtering.
-
-        Args:
-            program_id: Program UUID
-            results: List of TLSx result dicts
-
-        Returns:
-            IngestResult with hostnames (non-wildcard certificate domains)
-        """
+    async def before_ingest(
+        self,
+        uow: DNSxUnitOfWork,
+        program_id: UUID,
+        results: List[dict[str, Any]],
+        context: IngestContext | None = None,
+    ) -> None:
         self._discovered_domains = set()
         self._saved_domains = set()
         self._in_scope_ips = set()
+        self._scope_rules = await uow.scope_rules.find_by_program(program_id)
 
-        total_results = len(results)
-        successful_batches = 0
-        failed_batches = 0
+    def build_result(self) -> IngestResult:
+        return IngestResult(raw_domains=list(self._saved_domains))
 
-        logger.info(
-            f"TLSxResultIngestor: Starting ingestion program={program_id} total_results={total_results}"
-        )
+    def log_extra(self) -> str:
+        return f"in_scope_ips={len(self._in_scope_ips)} saved_domains={len(self._saved_domains)}"
 
-        async with self.uow as uow:
-            self._scope_rules = await uow.scope_rules.find_by_program(program_id)
-
-            for batch_index, batch in enumerate(self._chunks(results, self.batch_size)):
-                savepoint_name = f"batch_{batch_index}"
-                await uow.create_savepoint(savepoint_name)
-
-                try:
-                    await self._process_batch(uow, program_id, batch)
-                    await uow.release_savepoint(savepoint_name)
-                    successful_batches += 1
-                except Exception as exc:
-                    await uow.rollback_to_savepoint(savepoint_name)
-                    failed_batches += 1
-                    logger.error(
-                        f"TLSxResultIngestor: Batch {batch_index} failed (size={len(batch)}): {exc}"
-                    )
-            await uow.commit()
-
-        logger.info(
-            f"TLSxResultIngestor: Ingestion completed program={program_id} "
-            f"total={total_results} batches_ok={successful_batches} batches_failed={failed_batches} "
-            f"in_scope_ips={len(self._in_scope_ips)} saved_domains={len(self._saved_domains)}"
-        )
-
-        return IngestResult(
-            raw_domains=list(self._saved_domains)
-        )
-
-    def _chunks(self, data: List[Any], size: int):
-        """Split data into chunks of given size"""
-        for i in range(0, len(data), size):
-            yield data[i:i + size]
-
-    async def _process_batch(self, uow: DNSxUnitOfWork, program_id: UUID, batch: List[dict[str, Any]]):
+    async def process_record(self, uow: DNSxUnitOfWork, program_id: UUID, data: dict[str, Any], context: IngestContext | None = None) -> None:
         """Process batch of TLSx results with scope filtering"""
-        for data in batch:
-            ip_host = data.get("host") or data.get("ip")
-            if not ip_host:
-                continue
+        ip_host = data.get("host") or data.get("ip")
+        if not ip_host:
+            return
 
-            cert_domains = set()
+        cert_domains = set()
 
-            subject_an = data.get("subject_an", [])
-            if subject_an:
-                for domain in subject_an:
-                    if domain and isinstance(domain, str):
-                        cert_domains.add(domain)
-                        self._discovered_domains.add(domain)
+        subject_an = data.get("subject_an", [])
+        if subject_an:
+            for domain in subject_an:
+                if domain and isinstance(domain, str):
+                    cert_domains.add(domain)
+                    self._discovered_domains.add(domain)
 
-            subject_cn = data.get("subject_cn")
-            if subject_cn and isinstance(subject_cn, str):
-                cert_domains.add(subject_cn)
-                self._discovered_domains.add(subject_cn)
+        subject_cn = data.get("subject_cn")
+        if subject_cn and isinstance(subject_cn, str):
+            cert_domains.add(subject_cn)
+            self._discovered_domains.add(subject_cn)
 
-            if cert_domains:
-                in_scope_domains, _ = ScopeChecker.filter_in_scope(
-                    list(cert_domains), self._scope_rules
+        if cert_domains:
+            in_scope_domains, _ = ScopeChecker.filter_in_scope(
+                list(cert_domains), self._scope_rules
+            )
+
+            if in_scope_domains:
+                self._in_scope_ips.add(ip_host)
+
+                await self._ensure_target_identity(
+                    uow,
+                    program_id=program_id,
+                    target=str(ip_host),
                 )
 
-                if in_scope_domains:
-                    self._in_scope_ips.add(ip_host)
+                for domain in in_scope_domains:
+                    if '*' not in domain:
+                        await uow.hosts.ensure(
+                            program_id=program_id,
+                            host=domain,
+                            in_scope=True
+                        )
+                        self._saved_domains.add(domain)
 
-                    await self._ensure_target_identity(
-                        uow,
-                        program_id=program_id,
-                        target=str(ip_host),
-                    )
-
-                    for domain in in_scope_domains:
-                        if '*' not in domain:
-                            await uow.hosts.ensure(
-                                program_id=program_id,
-                                host=domain,
-                                in_scope=True
-                            )
-                            self._saved_domains.add(domain)
-
-                    logger.debug(
-                        f"IP {ip_host} is in-scope (cert domains: {in_scope_domains})"
-                    )
-                else:
-                    logger.debug(
-                        f"IP {ip_host} filtered out (no in-scope cert domains)"
-                    )
+                logger.debug(
+                    f"IP {ip_host} is in-scope (cert domains: {in_scope_domains})"
+                )
+            else:
+                logger.debug(
+                    f"IP {ip_host} filtered out (no in-scope cert domains)"
+                )
 
     @staticmethod
     async def _ensure_target_identity(

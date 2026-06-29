@@ -1,0 +1,283 @@
+--- a/src/api/application/services/policy.py
++++ b/src/api/application/services/policy.py
+@@ -185,15 +185,31 @@
+         *,
+         approved_by: str,
+         reason: str | None = None,
++        scope_rules: Sequence[ScopeRuleModel] | None = None,
+     ) -> PolicyDecision:
+         reasons = [f"Approved by {approved_by}"]
+         if reason:
+             reasons.append(reason)
++
++        scope = self.scope_policy.evaluate(request, detail, scope_rules=scope_rules)
++        reasons.extend(scope.reasons)
++        if scope.blocked_targets and not scope.allowed_targets:
++            return PolicyDecision(
++                action_id=request.action_id,
++                status=PolicyDecisionStatus.BLOCKED,
++                reasons=reasons,
++                allowed_targets=[],
++                blocked_targets=scope.blocked_targets,
++                safety_level=SafetyLevel(detail.safety_level),
++                metadata=self._metadata(detail, approved_by=approved_by),
++            )
++
+         return PolicyDecision(
+             action_id=request.action_id,
+             status=PolicyDecisionStatus.ALLOWED,
+             reasons=reasons,
+-            allowed_targets=request.profile.targets,
++            allowed_targets=scope.allowed_targets,
++            blocked_targets=scope.blocked_targets,
+             safety_level=SafetyLevel(detail.safety_level),
+             metadata=self._metadata(detail, approved_by=approved_by),
+         )
+--- a/src/api/application/services/action.py
++++ b/src/api/application/services/action.py
+@@ -196,13 +196,19 @@
+                 f"Action {action_id} is not awaiting approval: {current_status}"
+             )
+ 
++        scope_rules = await self._scope_rules_for(action)
+         decision = self.policy.approve(
+             action,
+             detail,
+             approved_by=approved_by,
+             reason=reason,
++            scope_rules=scope_rules,
+         )
+         self._attach_catalog(action, decision)
++        if decision.status != PolicyDecisionStatus.ALLOWED:
++            raise ActionApprovalStateError(
++                "Action approval failed policy re-check: " + "; ".join(decision.reasons)
++            )
+         scope_id = await self.store.get_scope_id(action.action_id)
+         envelope = EventEnvelope(
+             event=detail.request_event,
+--- a/tests/application/test_policy_split.py
++++ b/tests/application/test_policy_split.py
+@@ -241,3 +241,67 @@
+     assert decision.allowed_targets == []
+     assert decision.blocked_targets == ["https://api.example.com"]
+     assert "strict scope requires at least one scope rule" in decision.reasons
++
++
++def test_approval_reapplies_strict_scope_and_does_not_restore_blocked_targets() -> None:
++    program_id = uuid4()
++    request = _request(
++        "ffuf",
++        "content-discovery-light",
++        ["https://api.example.com", "https://evil.test"],
++        {"timeout": 10},
++    )
++    request = request.model_copy(update={"program_id": program_id})
++    scope_rules = [
++        ScopeRuleModel(
++            program_id=program_id,
++            action=ScopeAction.INCLUDE,
++            rule_type=RuleType.DOMAIN,
++            pattern="*.example.com",
++        )
++    ]
++
++    decision = PolicyService().approve(
++        request,
++        _detail(
++            "ffuf",
++            "content-discovery-light",
++            safety_level="active",
++            requires_approval=True,
++            scope_policy="strict",
++        ),
++        approved_by="alice",
++        reason="inside allowed scope",
++        scope_rules=scope_rules,
++    )
++
++    assert decision.status == PolicyDecisionStatus.ALLOWED
++    assert decision.allowed_targets == ["https://api.example.com"]
++    assert decision.blocked_targets == ["https://evil.test"]
++    assert any("strict scope blocked targets" in reason for reason in decision.reasons)
++
++
++def test_approval_fails_closed_when_strict_scope_has_no_rules() -> None:
++    request = _request(
++        "ffuf",
++        "content-discovery-light",
++        ["https://api.example.com"],
++        {"timeout": 10},
++    )
++
++    decision = PolicyService().approve(
++        request,
++        _detail(
++            "ffuf",
++            "content-discovery-light",
++            safety_level="active",
++            requires_approval=True,
++            scope_policy="strict",
++        ),
++        approved_by="alice",
++    )
++
++    assert decision.status == PolicyDecisionStatus.BLOCKED
++    assert decision.allowed_targets == []
++    assert decision.blocked_targets == ["https://api.example.com"]
++    assert "strict scope requires at least one scope rule" in decision.reasons
+--- a/tests/application/test_action_schema_v2_contracts.py
++++ b/tests/application/test_action_schema_v2_contracts.py
+@@ -57,7 +57,9 @@
+ 
+     approved = service.approve(
+         request,
+-        _detail("ffuf", "content-discovery-light"),
++        _detail("ffuf", "content-discovery-light").model_copy(
++            update={"scope_policy": "confidence"}
++        ),
+         approved_by="alice",
+         reason="ok",
+     )
+--- a/tests/application/test_event_store_dispatch_contract.py
++++ b/tests/application/test_event_store_dispatch_contract.py
+@@ -24,6 +24,8 @@
+     PolicyDecisionStatus,
+ )
+ from api.application.action_catalog import CatalogDetail
++from api.domain.enums import RuleType, ScopeAction
++from api.domain.models import ScopeRuleModel
+ from api.application.services.action import ActionService
+ from api.application.services.action_catalog import ActionCatalogService
+ from api.application.services.policy import PolicyService
+@@ -84,11 +86,22 @@
+ 
+ 
+ class StubCatalogStore:
+-    def __init__(self, *, capability: str = "httpx", profile: str = "safe-web-probe") -> None:
++    def __init__(
++        self,
++        *,
++        capability: str = "httpx",
++        profile: str = "safe-web-probe",
++        safety_level: str = "safe_active",
++        requires_approval: bool = False,
++        scope_policy: str = "confidence",
++    ) -> None:
+         self.item_id = uuid4()
+         self.snapshot_id = uuid4()
+         self.capability = capability
+         self.profile = profile
++        self.safety_level = safety_level
++        self.requires_approval = requires_approval
++        self.scope_policy = scope_policy
+ 
+     async def list_items(self):
+         return []
+@@ -101,20 +114,52 @@
+             profile=self.profile,
+             capability_label=self.capability,
+             profile_label=self.profile,
+-            safety_level="safe_active",
+-            requires_approval=False,
++            safety_level=self.safety_level,
++            requires_approval=self.requires_approval,
+             mode="routed",
+             queue="analysis",
+             request_event=f"{self.capability}_scan_requested",
+             default_profile=self.profile,
+-            scope_policy="confidence",
++            scope_policy=self.scope_policy,
+             allowed_options=["timeout"],
+         )
+ 
+ 
+-def _service(store, bus, *, capability: str = "httpx", profile: str = "safe-web-probe") -> ActionService:
+-    catalog = ActionCatalogService(StubCatalogStore(capability=capability, profile=profile))
+-    return ActionService(event_bus=bus, store=store, policy=PolicyService(), catalog=catalog)
++class StaticScopeRules:
++    def __init__(self, rules: list[ScopeRuleModel]) -> None:
++        self.rules = rules
++
++    async def find_by_program(self, program_id):
++        return [rule for rule in self.rules if rule.program_id == program_id]
++
++
++def _service(
++    store,
++    bus,
++    *,
++    capability: str = "httpx",
++    profile: str = "safe-web-probe",
++    safety_level: str = "safe_active",
++    requires_approval: bool = False,
++    scope_policy: str = "confidence",
++    scope_rules=None,
++) -> ActionService:
++    catalog = ActionCatalogService(
++        StubCatalogStore(
++            capability=capability,
++            profile=profile,
++            safety_level=safety_level,
++            requires_approval=requires_approval,
++            scope_policy=scope_policy,
++        )
++    )
++    return ActionService(
++        event_bus=bus,
++        store=store,
++        policy=PolicyService(),
++        catalog=catalog,
++        scope_rules=scope_rules,
++    )
+ 
+ 
+ @pytest.mark.asyncio
+@@ -195,6 +240,48 @@
+     assert envelope.event_id == submission.event_id
+ 
+ 
++
++@pytest.mark.asyncio
++async def test_approve_action_rechecks_scope_before_queueing_targets() -> None:
++    program_id = uuid4()
++    pending = ActionRequest(
++        kind=ActionKind.SCAN,
++        program_id=program_id,
++        catalog_id=uuid4(),
++        targets=["https://api.example.com", "https://evil.test"],
++        options={"timeout": 5},
++    )
++    scope_rules = StaticScopeRules(
++        [
++            ScopeRuleModel(
++                program_id=program_id,
++                action=ScopeAction.INCLUDE,
++                rule_type=RuleType.DOMAIN,
++                pattern="*.example.com",
++            )
++        ]
++    )
++    store = StubOrchestrationStore()
++    store.action_for_approval = (pending, ActionStatus.REQUIRES_APPROVAL.value)
++    service = _service(
++        store,
++        RecordingEventBus(),
++        capability="ffuf",
++        profile="content-discovery-light",
++        safety_level="active",
++        requires_approval=True,
++        scope_policy="strict",
++        scope_rules=scope_rules,
++    )
++
++    submission = await service.approve_action(action_id=pending.action_id, approved_by="alice")
++
++    assert submission.status is ActionStatus.QUEUED
++    _, decision, envelope = store.approved_queued[0]
++    assert decision.allowed_targets == ["https://api.example.com"]
++    assert decision.blocked_targets == ["https://evil.test"]
++    assert envelope.targets == ["https://api.example.com"]
++
+ def test_event_dispatch_schema_is_separate_from_event_store() -> None:
+     orm_source = open("src/api/infrastructure/adapters/orm.py", encoding="utf-8").read()
+     migration_source = open(

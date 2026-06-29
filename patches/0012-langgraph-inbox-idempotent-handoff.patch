@@ -1,0 +1,398 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index a09435b..a2f6aee 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -46,7 +46,7 @@ integration, or live OpenSearch integration.
+ | M3 remove research-engine | Done | Standalone `services/research-engine` and its compose service are removed; sanitizer helpers remain in application code. |
+ | M4 Neo4j graph projection | Partial | GraphFact contracts, ontology, Neo4j projector, graph_fact_batches, apply loop, raw-artifact/http-observation/canonical-inventory enqueuing through rebuild, safe query templates, dedupe, notifications, and writer hardening exist. Remaining gaps are richer producer coverage and runtime smoke. |
+ | M5 OpenSearch expansion | Partial | Search-indexer exists with safe document builders, schema versioning and projection lag/readiness; missing-index expansion and producers remain. |
+-| M6 async agent protocol | Partial | Durable workflow/inbox/wait/result-set schema, EventStore routing, all five planned wait predicates including `campaign_quiescent`, automatic wait processing, and minimal REST protocol exist; inbox claim semantics remain. |
++| M6 async agent protocol | Partial | Durable workflow/inbox/wait/result-set schema, EventStore routing, all five planned wait predicates including `campaign_quiescent`, automatic wait processing, claim/lease, and minimal REST protocol exist; auth/cancellation hardening remains. |
+ | M7 LangGraph workflows | Partial | The compiled pointer-only `StateGraph` durably interrupts for readiness and is automatically resumed after its wait condition resolves. Live end-to-end integration remains. |
+ 
+ ## Phase 0 - Architecture Baseline
+@@ -614,6 +614,10 @@ Evidence:
+ - `AgentProtocolStore` exposes durable operations for subscriptions, inbox
+   claim/lease, inbox ack, wait-condition creation/listing, and result-set
+   upsert/list by action/campaign/workflow scope.
++- Claimed inbox messages hand off to LangGraph through deterministic thread IDs:
++  existing workflow runs resume by `workflow_run_id`, while new messages use the
++  stable `agent-inbox:<message_id>` thread key. Ack happens only after the graph
++  checkpoint already exists or the start/resume call succeeds.
+ - REST routes under `/api/v1/agent` expose the M6 agent protocol without raw
+   execution shortcuts.
+ 
+@@ -681,6 +685,9 @@ Evidence:
+ - `MvpResearchAutoResumer` restores the compiled graph from its PostgreSQL
+   checkpoint by workflow-run thread ID; manual `aresume()` calls are no longer
+   required in the normal runtime path.
++- `MvpResearchInboxHandoff` keeps inbox delivery and LangGraph execution
++  separated: the inbox provides claim/lease and ack, while LangGraph owns
++  start/resume execution through deterministic checkpoint thread IDs.
+ - Alembic owns the pinned LangGraph PostgreSQL checkpoint schema; application
+   startup does not run third-party schema setup dynamically.
+ 
+@@ -718,7 +725,7 @@ Next action:
+ 2. Complete M1 outbox/publisher/API naming gaps.
+ 3. Complete remaining M4 graph producer coverage and graph profile smoke.
+ 4. Complete M5 projection lag/readiness.
+-5. Complete the remaining M6 wait predicates and claim semantics.
++5. Complete remaining M6 cancellation/auth boundaries.
+ 6. Run M7 PostgreSQL checkpoint and controlled-loop integration smoke.
+ 
+ ## Open Decisions
+diff --git a/mnt/data/patch_work/0012_work/src/api/application/langgraph_inbox_handoff.py b/src/api/application/langgraph_inbox_handoff.py
+new file mode 100644
+index 0000000..c474e03
+--- /dev/null
++++ b/src/api/application/langgraph_inbox_handoff.py
+@@ -0,0 +1,198 @@
++"""Idempotent handoff from durable agent inbox to LangGraph.
++
++The inbox owns distributed delivery and leasing. LangGraph owns workflow
++execution once a message has been handed off. This boundary prevents a second
++worker from starting a duplicate graph thread when a lease expires after the
++first worker already persisted a checkpoint but crashed before acking the inbox
++message.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Protocol
++from uuid import UUID
++
++from api.application.hypotheses import HypothesisBuildRequest
++from api.application.projections import ProjectionKey
++
++
++class MvpResearchGraph(Protocol):
++    async def ainvoke(
++        self,
++        request: HypothesisBuildRequest,
++        *,
++        thread_id: str,
++        required_projections: tuple[ProjectionKey, ...] = (),
++    ) -> dict[str, Any]: ...
++
++    async def aresume(self, *, thread_id: str) -> dict[str, Any]: ...
++
++    async def aget_state(self, *, thread_id: str) -> Any: ...
++
++
++class AgentInboxAckStore(Protocol):
++    async def ack_inbox_message(self, *, message_id: Any) -> None: ...
++
++
++@dataclass(frozen=True, slots=True)
++class InboxLangGraphHandoffResult:
++    message_id: UUID
++    thread_id: str
++    mode: str
++    acknowledged: bool
++    graph_result: dict[str, Any] | None = None
++
++
++class MvpResearchInboxHandoff:
++    """Hand a claimed inbox message to the MVP research graph exactly once.
++
++    A claimed inbox message is not a LangGraph retry queue. It is a delivery
++    boundary. The thread id is deterministic, so a re-claimed message resumes or
++    acknowledges an already-persisted thread instead of starting a duplicate.
++    """
++
++    def __init__(
++        self,
++        *,
++        graph: MvpResearchGraph,
++        inbox_store: AgentInboxAckStore,
++        required_projections: tuple[ProjectionKey, ...] = (),
++    ) -> None:
++        self.graph = graph
++        self.inbox_store = inbox_store
++        self.required_projections = required_projections
++
++    async def handoff(
++        self,
++        message: dict[str, Any],
++    ) -> InboxLangGraphHandoffResult:
++        message_id = _required_uuid(message, "id")
++        thread_id = langgraph_thread_id_for_inbox_message(message)
++
++        if message.get("workflow_run_id") is not None:
++            graph_result = await self.graph.aresume(thread_id=thread_id)
++            mode = "resume"
++        elif await self._thread_has_checkpoint(thread_id):
++            graph_result = None
++            mode = "already_started"
++        else:
++            graph_result = await self.graph.ainvoke(
++                hypothesis_request_from_inbox_message(message),
++                thread_id=thread_id,
++                required_projections=self.required_projections,
++            )
++            mode = "start"
++
++        await self.inbox_store.ack_inbox_message(message_id=message_id)
++        return InboxLangGraphHandoffResult(
++            message_id=message_id,
++            thread_id=thread_id,
++            mode=mode,
++            acknowledged=True,
++            graph_result=graph_result,
++        )
++
++    async def _thread_has_checkpoint(self, thread_id: str) -> bool:
++        snapshot = await self.graph.aget_state(thread_id=thread_id)
++        values = getattr(snapshot, "values", None)
++        return bool(values)
++
++
++def langgraph_thread_id_for_inbox_message(message: dict[str, Any]) -> str:
++    """Return the deterministic LangGraph thread id for an inbox message."""
++
++    workflow_run_id = message.get("workflow_run_id")
++    if workflow_run_id is not None:
++        return str(workflow_run_id)
++    message_id = _required_uuid(message, "id")
++    return f"agent-inbox:{message_id}"
++
++
++def hypothesis_request_from_inbox_message(
++    message: dict[str, Any],
++    *,
++    default_limit: int = 25,
++) -> HypothesisBuildRequest:
++    """Build a pointer-only hypothesis request from an inbox message.
++
++    The payload may be an EventEnvelope dump, a small agent protocol message, or
++    a direct request object. Only stable IDs and result-set keys are copied.
++    """
++
++    payload = dict(message.get("payload") or {})
++    nested_payload = dict(payload.get("payload") or {})
++    request_payload = dict(
++        payload.get("hypothesis_build_request")
++        or payload.get("request")
++        or nested_payload.get("hypothesis_build_request")
++        or nested_payload.get("request")
++        or {}
++    )
++
++    return HypothesisBuildRequest(
++        program_id=_required_uuid(message, "program_id"),
++        result_key=_first_text(
++            request_payload.get("result_key"),
++            payload.get("result_key"),
++            nested_payload.get("result_key"),
++        ),
++        action_id=_optional_uuid(
++            request_payload.get("action_id")
++            or payload.get("action_id")
++            or nested_payload.get("action_id")
++        ),
++        campaign_id=_optional_uuid(
++            message.get("campaign_id")
++            or request_payload.get("campaign_id")
++            or payload.get("campaign_id")
++            or nested_payload.get("campaign_id")
++        ),
++        workflow_id=_optional_uuid(
++            message.get("workflow_id")
++            or request_payload.get("workflow_id")
++            or payload.get("workflow_id")
++            or nested_payload.get("workflow_id")
++        ),
++        workflow_run_id=_optional_uuid(
++            message.get("workflow_run_id")
++            or request_payload.get("workflow_run_id")
++            or payload.get("workflow_run_id")
++            or nested_payload.get("workflow_run_id")
++        ),
++        limit=_bounded_limit(
++            request_payload.get("limit")
++            or payload.get("limit")
++            or nested_payload.get("limit"),
++            default_limit=default_limit,
++        ),
++    )
++
++
++def _required_uuid(message: dict[str, Any], field: str) -> UUID:
++    value = message.get(field)
++    if value is None:
++        raise ValueError(f"{field} is required for LangGraph inbox handoff")
++    return _parse_uuid(value)
++
++
++def _optional_uuid(value: Any) -> UUID | None:
++    if value is None or value == "":
++        return None
++    return _parse_uuid(value)
++
++
++def _parse_uuid(value: Any) -> UUID:
++    return value if isinstance(value, UUID) else UUID(str(value))
++
++
++def _first_text(*values: Any) -> str | None:
++    for value in values:
++        if isinstance(value, str) and value.strip():
++            return value
++    return None
++
++
++def _bounded_limit(value: Any, *, default_limit: int) -> int:
++    if value is None or value == "":
++        return default_limit
++    return max(1, min(int(value), 100))
+diff --git a/mnt/data/patch_work/0012_work/tests/application/test_langgraph_inbox_handoff.py b/tests/application/test_langgraph_inbox_handoff.py
+new file mode 100644
+index 0000000..8f9f211
+--- /dev/null
++++ b/tests/application/test_langgraph_inbox_handoff.py
+@@ -0,0 +1,145 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from uuid import uuid4
++
++from api.application.langgraph_inbox_handoff import (
++    MvpResearchInboxHandoff,
++    hypothesis_request_from_inbox_message,
++    langgraph_thread_id_for_inbox_message,
++)
++
++
++@dataclass
++class Snapshot:
++    values: dict
++
++
++class RecordingGraph:
++    def __init__(self, *, existing_values=None) -> None:
++        self.existing_values = existing_values or {}
++        self.invoked = []
++        self.resumed = []
++        self.state_lookups = []
++
++    async def ainvoke(self, request, *, thread_id, required_projections=()):
++        self.invoked.append((request, thread_id, required_projections))
++        return {"status": "started", "thread_id": thread_id}
++
++    async def aresume(self, *, thread_id):
++        self.resumed.append(thread_id)
++        return {"status": "resumed", "thread_id": thread_id}
++
++    async def aget_state(self, *, thread_id):
++        self.state_lookups.append(thread_id)
++        return Snapshot(values=self.existing_values)
++
++
++class RecordingInboxStore:
++    def __init__(self) -> None:
++        self.acked = []
++
++    async def ack_inbox_message(self, *, message_id):
++        self.acked.append(message_id)
++
++
++def _message(**overrides):
++    message = {
++        "id": uuid4(),
++        "program_id": uuid4(),
++        "campaign_id": uuid4(),
++        "workflow_id": None,
++        "workflow_run_id": None,
++        "payload": {
++            "hypothesis_build_request": {
++                "result_key": "surface:admin",
++                "limit": 50,
++            }
++        },
++    }
++    message.update(overrides)
++    return message
++
++
++def test_inbox_message_without_workflow_run_gets_stable_thread_id() -> None:
++    message = _message()
++
++    assert langgraph_thread_id_for_inbox_message(message) == f"agent-inbox:{message['id']}"
++
++
++def test_inbox_message_with_workflow_run_resumes_existing_thread_id() -> None:
++    run_id = uuid4()
++    message = _message(workflow_run_id=run_id)
++
++    assert langgraph_thread_id_for_inbox_message(message) == str(run_id)
++
++
++def test_hypothesis_request_from_inbox_message_copies_only_pointer_fields() -> None:
++    program_id = uuid4()
++    campaign_id = uuid4()
++    action_id = uuid4()
++    message = _message(
++        program_id=program_id,
++        campaign_id=campaign_id,
++        payload={
++            "payload": {
++                "result_key": "surface:api",
++                "action_id": str(action_id),
++                "limit": 500,
++                "body": "must not enter graph state",
++            }
++        },
++    )
++
++    request = hypothesis_request_from_inbox_message(message)
++
++    assert request.program_id == program_id
++    assert request.campaign_id == campaign_id
++    assert request.action_id == action_id
++    assert request.result_key == "surface:api"
++    assert request.limit == 100
++    assert "body" not in repr(request)
++
++
++async def test_handoff_starts_graph_once_and_acks_after_persisted_invoke() -> None:
++    message = _message()
++    graph = RecordingGraph()
++    inbox_store = RecordingInboxStore()
++    handoff = MvpResearchInboxHandoff(graph=graph, inbox_store=inbox_store)
++
++    result = await handoff.handoff(message)
++
++    assert result.mode == "start"
++    assert result.thread_id == f"agent-inbox:{message['id']}"
++    assert len(graph.invoked) == 1
++    assert graph.invoked[0][1] == result.thread_id
++    assert inbox_store.acked == [message["id"]]
++
++
++async def test_handoff_acks_existing_checkpoint_without_duplicate_invoke() -> None:
++    message = _message()
++    graph = RecordingGraph(existing_values={"hypothesis_ids": []})
++    inbox_store = RecordingInboxStore()
++    handoff = MvpResearchInboxHandoff(graph=graph, inbox_store=inbox_store)
++
++    result = await handoff.handoff(message)
++
++    assert result.mode == "already_started"
++    assert graph.invoked == []
++    assert inbox_store.acked == [message["id"]]
++
++
++async def test_handoff_resumes_existing_workflow_run_and_acks() -> None:
++    run_id = uuid4()
++    message = _message(workflow_run_id=run_id)
++    graph = RecordingGraph()
++    inbox_store = RecordingInboxStore()
++    handoff = MvpResearchInboxHandoff(graph=graph, inbox_store=inbox_store)
++
++    result = await handoff.handoff(message)
++
++    assert result.mode == "resume"
++    assert result.thread_id == str(run_id)
++    assert graph.resumed == [str(run_id)]
++    assert graph.invoked == []
++    assert inbox_store.acked == [message["id"]]

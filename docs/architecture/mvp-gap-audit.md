@@ -2,7 +2,7 @@
 
 Status: draft audit for `codex/apply-latest-patches`
 
-Date: 2026-06-14
+Date: 2026-06-24
 
 Source roadmap: [Patch plan to MVP](patch-plan-to-mvp.md)
 
@@ -22,29 +22,32 @@ already present, what is only partially implemented, and what remains missing.
 
 ## Current Verification Baseline
 
-Last known Python verification before this audit:
+Current Python verification:
 
 ```bash
-python -m pytest -q
+.\.tmp_pytest\Scripts\python.exe -m pytest -q
 ```
 
-Result reported in this branch: `137 passed`.
+Result: `409 passed, 15 skipped` on June 24, 2026. The skipped set includes
+the PostgreSQL outbox concurrency/retry contracts added for live integration
+acceptance.
 
-This audit did not run Docker smoke tests, frontend build, RabbitMQ integration,
-Neo4j integration, or OpenSearch integration.
+Docker is not installed in the current environment, so this audit did not run
+Docker smoke tests, frontend build, live RabbitMQ integration, live Neo4j
+integration, or live OpenSearch integration.
 
 ## Executive Summary
 
 | Area | Status | Notes |
 | --- | --- | --- |
 | Phase 0 architecture docs | Done | Target architecture, patch plan, root agent index, docs index, control-plane and refactor roadmap docs are present. |
-| M1 execution core | Partial | Action contracts, policy, catalog, scheduler, jobs/runs, event dispatch, and work keys exist, but outbox/publisher, explicit `/tool-actions`, attempts/leases schema, budgets, and quiescence are incomplete. |
-| M2 artifact storage cleanup | Partial | Raw artifact metadata/storage and sanitizer helpers exist, but content-addressed storage, compression, retention, previews, and lineage model are not complete. |
-| M3 remove research-engine | Missing / Blocked | `services/research-engine` and the compose service still exist. This violates the roadmap target until removed or frozen with tests. |
-| M4 Neo4j graph projection | Partial | GraphFact contracts, ontology, Neo4j projector, graph_fact_batches, apply loop, raw-artifact enqueuer, dedupe, notifications, and writer hardening exist. Producers, rebuild, and query templates remain. |
-| M5 OpenSearch expansion | Partial | Search-indexer exists with safe document builders, but missing-index expansion, schema versioning, document producers, and projection lag are incomplete. |
-| M6 async agent protocol | Missing | No durable agent workflow/inbox/wait-condition/result-set implementation found. |
-| M7 LangGraph workflows | Missing | No LangGraph runtime, checkpointer, read tools, approval node, hypothesis workflow, critic, or report builder found. |
+| M1 execution core | Partial | Action contracts, policy, typed profile options, execution ceilings, bounded campaign expansion/lifecycle, catalog, scheduler, jobs/runs, transactional outbox, work keys, and `/tool-actions` routes exist. Live PostgreSQL/RabbitMQ acceptance and remaining attempts/leases decisions are incomplete. |
+| M2 artifact storage cleanup | Partial | Content-addressed storage, gzip compression and queryable retention classes exist; previews, sanitization persistence and lineage remain incomplete. |
+| M3 remove research-engine | Done | Standalone `services/research-engine` and its compose service are removed; sanitizer helpers remain in application code. |
+| M4 Neo4j graph projection | Partial | GraphFact contracts, ontology, Neo4j projector, graph_fact_batches, apply loop, raw-artifact/http-observation/canonical-inventory enqueuing through rebuild, safe query templates, dedupe, notifications, and writer hardening exist. Remaining gaps are richer producer coverage and runtime smoke. |
+| M5 OpenSearch expansion | Partial | Search-indexer exists with safe document builders, schema versioning, projection lag/readiness, endpoint/technology projections, and hypothesis projection; later roadmap indexes remain deferred. |
+| M6 async agent protocol | Partial | Durable workflow/inbox/wait/result-set schema, EventStore routing, all five planned wait predicates including `campaign_quiescent`, automatic wait processing, claim/lease, cancellation boundary, internal-token guarded REST protocol, and auth/claim/handoff/cancel smoke coverage exist. Remaining work is live runtime smoke against real Postgres/LangGraph services. |
+| M7 LangGraph workflows | Partial | The compiled pointer-only `StateGraph` durably interrupts for readiness and is automatically resumed after its wait condition resolves. Live end-to-end integration remains. |
 
 ## Phase 0 - Architecture Baseline
 
@@ -81,7 +84,7 @@ Evidence:
 - `ActionRequest`, `ActionSubmission`, `PolicyDecision`, and `ToolInvocation`
   exist in [contracts.py](../../src/api/application/contracts.py).
 - `ToolInvocation` carries action/job/run/program/capability/profile/targets/
-  options/safety/scope/policy/campaign/correlation fields.
+  options/effective-budget/safety/scope/policy/campaign/correlation fields.
 - Contract tests exist under [tests/application](../../tests/application/) and
   [tests/infrastructure](../../tests/infrastructure/).
 
@@ -164,7 +167,8 @@ Evidence:
 Gaps:
 
 - Need confirm blocked actions never create jobs across all policy paths.
-- API naming still uses `/actions`, not the planned `/tool-actions`.
+- `/tool-actions` exists as an alias; durable schema and stored request naming
+  still use `ActionRequest`.
 
 Next action:
 
@@ -197,28 +201,25 @@ Next action:
 
 ### 0014 Transactional Outbox Schema And Store
 
-Status: `Partial`
+Status: `Done`
 
 Evidence:
 
 - `event_store` and `event_dispatches` exist in [orm.py](../../src/api/infrastructure/adapters/orm.py).
 - Event dispatch claiming exists in [orchestration/store.py](../../src/api/infrastructure/orchestration/store.py).
+- Allowed action state, initial job/run, event, and pending delivery are written
+  by one transaction.
+- Event/destination uniqueness prevents duplicate outbox rows.
+- [Transactional outbox ADR](../adr/event-store-dispatches-outbox.md) accepts
+  this pair as the MVP outbox and documents at-least-once delivery semantics.
 - Tests exist:
   [test_event_store_dispatch_contract.py](../../tests/application/test_event_store_dispatch_contract.py),
-  [test_event_dispatcher.py](../../tests/application/test_event_dispatcher.py).
-
-Gaps:
-
-- Literal `event_outbox` and `event_inbox` tables from the roadmap are not
-  present.
-- Need prove action/policy/scope/job/run/outbox are written atomically in one
-  transaction.
-- Need prove duplicate outbox events are prevented by idempotency key.
+  [test_event_dispatcher.py](../../tests/application/test_event_dispatcher.py),
+  and [test_event_dispatch_outbox.py](../../tests/integration/test_event_dispatch_outbox.py).
 
 Next action:
 
-- Define whether `event_dispatches` is the MVP outbox replacement. If yes,
-  update docs/tests to say so. If no, add `event_outbox` and publisher tests.
+- Run the PostgreSQL integration contract in the isolated compose stack.
 
 ### 0015 Outbox Publisher Service
 
@@ -228,18 +229,21 @@ Evidence:
 
 - Event dispatcher code exists in [dispatcher.py](../../src/api/infrastructure/events/dispatcher.py).
 - Dispatch records support attempts, status, locks, and dispatch timestamps.
+- The dispatcher is wired into API startup, listens for PostgreSQL
+  notifications, and retains periodic sweeping as recovery.
+- Unit tests cover publish success, failure retry, and agent-router failure.
+- An integration contract covers competing claims and retry preservation.
 
 Gaps:
 
-- Need RabbitMQ publisher integration acceptance tests.
-- Need concurrent publisher tests proving no double-publish with lock/lease
-  behavior.
-- Need failure retry test at the transport boundary.
+- The PostgreSQL integration contract is present but cannot run in the current
+  environment because Docker is unavailable.
+- A live RabbitMQ publish/retry acceptance test remains.
 
 Next action:
 
-- Add a fake RabbitMQ publisher test around dispatcher claim, publish failure,
-  retry, and success marking.
+- Run PostgreSQL and RabbitMQ integration acceptance in the isolated compose
+  stack.
 
 ### 0016 Tool Execution API V2
 
@@ -248,46 +252,68 @@ Status: `Partial`
 Evidence:
 
 - Action REST route exists in [actions.py](../../src/api/presentation/rest/routes/actions.py).
-- `POST /actions` returns `202` and action catalog endpoints exist.
+- `POST /actions` and `POST /tool-actions` route to the same control-plane
+  action creation handler and return `202`.
+- `GET /actions/{id}` and `GET /tool-actions/{id}` return the same stored
+  action read model.
+- `GET /actions/{id}/events` and `GET /tool-actions/{id}/events` return stored
+  event-store records linked to the action.
+- `GET /actions/{id}/result` and `GET /tool-actions/{id}/result` return the
+  current action status, readiness, run summaries, and artifact references
+  without loading raw artifact bodies. This is an execution aggregate, not the
+  M6 agent result-set model.
+- The `/actions` prefix remains available for existing dashboard/internal
+  callers while `/tool-actions` satisfies the public MVP terminology.
 - Legacy scan route file is deleted in the staged branch.
 
 Gaps:
 
-- Planned API path is `/tool-actions`, but current implementation exposes
-  `/actions`.
-- Planned `GET /tool-actions/{id}/events` and
-  `GET /tool-actions/{id}/result` are not confirmed.
-- Roadmap says legacy `/scan/*` routes become wrappers; current branch appears
-  to remove the scan route instead.
+- Roadmap says legacy `/scan/*` routes become wrappers; current branch removes
+  the scan route instead.
+- Literal outbox naming and publisher runtime acceptance remain unresolved.
 
 Next action:
 
-- Decide final public path. If `/actions` is intentional, update roadmap
-  terminology. Otherwise add `/tool-actions` routes and keep `/actions` as an
-  alias or dashboard-internal path.
+- Finish the M1 outbox publisher/runtime acceptance and settle whether removed
+  legacy scan routes need temporary compatibility wrappers.
 
 ### 0017 Runner ToolInvocation Propagation
 
-Status: `Partial`
+Status: `Done`
 
 Evidence:
 
 - ToolInvocation builder exists in [invocation.py](../../src/api/application/pipeline/invocation.py).
 - Worker invocation tests exist in [test_worker_invocation.py](../../tests/application/test_worker_invocation.py).
+- Runner acceptance tests in
+  [test_runner_tool_invocation_options.py](../../tests/application/test_runner_tool_invocation_options.py)
+  prove typed options reach `httpx`, `katana`, `ffuf`, and `naabu`
+  `CommandExecutor` calls.
+- Profile manifests define strict option schemas, defaults, and hard ceilings
+  for the first four runner families.
+- `ActionService` applies defaults and resolves request/profile/system ceilings
+  before policy evaluation and job creation.
+- The effective budget is included in the action event, initial `runs.run_payload`,
+  and reconstructed `ToolInvocation`.
+- Runner arguments clamp supported timeout, rate, and concurrency values to the
+  effective budget.
+- The four runner paths construct argument lists and do not accept raw shell
+  command strings.
 
 Gaps:
 
-- Need acceptance tests proving typed options reach `httpx`, `katana`, `ffuf`,
-  and `naabu` runner command builders.
-- Need confirm all runner command construction stays shell-safe argument lists.
+- Distributed rate limiting across workers is not implemented.
+- Campaign-level budget consumption accounting is not implemented.
+- Fanout, depth, and cooldown enforcement remains in patch 0018.
 
 Next action:
 
-- Add runner-specific propagation tests for the four required tools.
+- Add campaign accounting only after the local action/runner ceilings are
+  accepted as the execution boundary.
 
 ### 0018 Worker Idempotency And Work Key
 
-Status: `Partial`
+Status: `Partial` - implementation complete, live PostgreSQL acceptance pending.
 
 Evidence:
 
@@ -295,36 +321,66 @@ Evidence:
 - Work key generation exists in [fingerprints.py](../../src/api/application/pipeline/fingerprints.py).
 - Scheduled node registry uses work keys in [registry.py](../../src/api/application/pipeline/registry.py).
 - Store code handles active work and coalesced triggers.
+- Worker manifests define cooldown, fanout, expansion depth, and token cost.
+- `EventEnvelope` and `PipelineContext` preserve `campaign_id` and increment
+  `expansion_depth` across downstream events.
+- Campaign work keys include `campaign_id`.
+- `campaigns` stores run/target limits, consumption counters, token capacity,
+  available tokens, refill rate, and refill timestamp.
+- `claim_node_run` applies depth, cooldown, run/target budget, and token-bucket
+  checks before inserting a scheduled run.
+- Budget consumption and run insertion are atomic; duplicate/coalesced/retry
+  paths do not consume budget twice.
+- Unit and schema tests exist in
+  [test_campaign_expansion_limits.py](../../tests/application/test_campaign_expansion_limits.py),
+  [test_campaign_budget_claims.py](../../tests/infrastructure/test_campaign_budget_claims.py),
+  and [test_campaign_budget_schema.py](../../tests/infrastructure/test_campaign_budget_schema.py).
+- A live concurrency contract exists in
+  [test_campaign_budget_concurrency.py](../../tests/integration/test_campaign_budget_concurrency.py).
 
 Gaps:
 
-- Fanout limits, depth limits, cooldown, token bucket, and campaign budget
-  fields are not fully confirmed.
+- The concurrent PostgreSQL contract has not been run in the current
+  Docker-less environment.
 
 Next action:
 
-- Add explicit budget/fanout/depth tests before expanding scheduler behavior.
+- Run the integration contract, then continue with patch 0019 campaign
+  lifecycle and quiescence.
 
 ### 0019 Campaign Lifecycle
 
-Status: `Partial`
+Status: `Partial` - implementation complete, live PostgreSQL acceptance pending.
 
 Evidence:
 
 - `campaigns` table exists with status, program, correlation, and workflow
   fields.
 - `ActionRequest` carries `campaign_id`, `correlation_id`, and `workflow_id`.
+- Initial work activates `running`; downstream scheduled work activates
+  `expanding`.
+- `CampaignActivityState` and deterministic lifecycle evaluation cover
+  `created`, `running`, `expanding`, `waiting_for_projections`, `quiescent`,
+  `closed`, `cancelled`, and `failed`.
+- The existing wait-condition sweep reconciles active campaigns.
+- Activity checks cover active runs, pending outbox deliveries, graph
+  projection events, GraphFact batches, and program-level projection lag.
+- The quiet window defaults to 30 seconds.
+- `campaign_quiescent` is implemented in the existing wait engine and uses the
+  same lifecycle reader as background reconciliation.
+- A live PostgreSQL contract exists in
+  [test_campaign_lifecycle_quiescence.py](../../tests/integration/test_campaign_lifecycle_quiescence.py).
 
 Gaps:
 
-- Need lifecycle engine for `created`, `running`, `expanding`,
-  `waiting_for_projections`, `quiescent`, `closed`, `cancelled`, `failed`.
-- Need quiescence detection across outbox/jobs/projection lag and quiet window.
+- The lifecycle integration contract has not been run in the current
+  Docker-less environment.
+- Projection readiness remains program-scoped, so another campaign for the same
+  program can conservatively delay quiescence.
 
 Next action:
 
-- Implement campaign status transitions only after outbox/publisher and
-  projection lag states are made explicit.
+- Run the integration contract, then continue with the next MVP patch.
 
 ## M2 - Artifact Storage Cleanup
 
@@ -337,43 +393,67 @@ Evidence:
 - Raw artifact parser services exist under [services](../../src/api/application/services/)
   and [parsers](../../src/api/infrastructure/parsers/).
 - Sanitizer helpers exist in [sanitizer.py](../../src/api/application/research/sanitizer.py).
+- Сырой вывод инструмента хранится как адресуемый по SHA-256 NDJSON. Одинаковые
+  потоки событий используют один физический файл, а каждая строка
+  `raw_artifacts` сохраняет собственный контекст программы, запуска и
+  инструмента.
+- Сначала завершаются файл и строка метаданных, затем сохраненные события
+  построчно передаются парсеру.
+- Старые NDJSON-артефакты со встроенными метаданными остаются доступными для
+  повторного разбора.
+- Крупные артефакты от 1 МиБ сохраняются как детерминированный gzip, при этом
+  SHA-256 продолжает описывать исходный канонический NDJSON.
+- `raw_artifacts` хранит `content_encoding`, физический размер и индексируемый
+  `retention_class`; повторный разбор прозрачно читает сжатые файлы.
+- При записи создаются ограниченный внутренний preview и очищенный preview с
+  версиями sanitizer/политики. Сырой preview всегда имеет
+  `raw_safe_for_llm=false`.
+- Чувствительные HTTP-заголовки, bearer-токены, пары секретов и JSON-поля
+  очищаются до выставления `sanitized_safe_for_llm=true`.
+- LangGraph и OpenSearch artifact-preview projection выбирают только разрешенные
+  очищенные preview и не получают raw preview или `storage_uri`.
+- Raw artifact хранит явные parser/scope/target/parent ссылки; связь с tool run
+  остается в `run_id`.
+- Канонические HTTP observations и JavaScript references связывают результаты
+  парсера с raw artifact существующими внешними ключами.
+- Sanitized preview связан с тем же raw artifact и версиями sanitizer/policy.
 
 Gaps:
 
-- No confirmed content-addressed artifact blob store.
-- No confirmed compression and retention policy model.
-- No confirmed artifact preview and sanitized-preview persistence.
-- No complete artifact lineage model with parser/sanitizer/source/scope/tool-run
-  references.
+- Live PostgreSQL migration acceptance for the completed M2 artifact schema is
+  implemented in `tests/integration/test_artifact_storage_m2.py`, but remains
+  unexecuted in the current environment because Docker/PostgreSQL is not
+  available.
 
 Next action:
 
-- Decide whether M2 remains in MVP. The current patch plan includes it; if the
-  team wants to defer it, update [patch-plan-to-mvp.md](patch-plan-to-mvp.md)
-  explicitly and keep raw artifacts as immutable referenced evidence.
+- Run the prepared M2 PostgreSQL acceptance in CI or an environment with the
+  isolated integration database; do not block the next roadmap patch on the
+  local absence of Docker.
 
 ## M3 - Remove Research Engine Service
 
-Overall status: `Missing / Blocked`
+Overall status: `Done`
 
 Evidence:
 
-- [services/research-engine](../../services/research-engine/) still exists.
-- `docker-compose.yml` still contains a `research-engine` service.
-- Research-related application sanitizer code exists under
-  [src/api/application/research](../../src/api/application/research/).
+- Standalone `services/research-engine` has been deleted.
+- `docker-compose.yml` no longer defines a `research-engine` service.
+- Research-related sanitizer helpers remain under
+  [src/api/application/research](../../src/api/application/research/) for
+  artifact safety and redaction.
+- Contract coverage exists in
+  [test_m3_research_engine_removal.py](../../tests/test_m3_research_engine_removal.py).
 
 Gaps:
 
-- Roadmap requires no standalone `research-engine` service.
-- Need inventory useful pieces, freeze standalone expansion, and remove compose
-  references.
+- Hypothesis, evidence, critic/verifier and report workflows remain future M6/M7
+  work and must not be reintroduced as a standalone pseudo-intelligence service.
 
 Next action:
 
-- Make M3 the next implementation milestone after committing the current
-  integration branch: inventory, freeze tests, remove service, remove compose
-  entry, keep only explicitly approved sanitizer/shared utilities.
+- Continue with M1 outbox/API naming gaps and M4 graph producers/rebuild/query
+  templates before starting durable agent workflow work.
 
 ## M4 - Neo4j Graph Projection
 
@@ -395,24 +475,79 @@ Evidence:
   [applicator.py](../../services/graph-projector/graph_projector/applicator.py).
 - Raw artifact GraphFact producer/enqueuer exists in
   [raw_artifacts.py](../../services/graph-projector/graph_projector/producers/raw_artifacts.py).
+- Canonical inventory GraphFact producer exists in
+  [canonical_inventory.py](../../services/graph-projector/graph_projector/producers/canonical_inventory.py).
+  It projects current PostgreSQL Host/IP/Service state without
+  `source_artifact_id` and `tool_run_id`; this is intentionally not an evidence
+  path.
+- HTTP observation GraphFact producer/enqueuer exists for lineage-backed
+  `httpx`, `katana`, `ffuf`, and `playwright` observations in
+  [http_observations.py](../../services/graph-projector/graph_projector/producers/http_observations.py).
+  It emits asset facts plus evidence-path facts:
+  `Artifact -> PRODUCED_OBSERVATION -> Observation -> DESCRIBES -> Host/IP/Service/Endpoint`.
+- Query parameter facts are covered for source-backed HTTP observations:
+  `Endpoint -> HAS_PARAM -> Parameter` and
+  `Observation -> DESCRIBES -> Parameter`. Parameter values are not projected
+  into Neo4j by default.
+- JavaScript reference graph facts are covered for source-backed
+  `javascript_references` rows:
+  `JSFile -> REFERENCES -> Endpoint` and
+  `Artifact -> PRODUCED_OBSERVATION -> Observation -> DESCRIBES -> JSFile/Endpoint`.
+  Referenced query strings are not projected into Neo4j by default.
+- LinkFinder ingestion persists extracted endpoint references into the canonical
+  `javascript_references` table when run/artifact lineage is available.
+- Graph producers no longer use hard-coded tool allowlists. New tools such as
+  `arjun` can project through the existing canonical observation type when the
+  row has non-empty `source_tool`, `program_id`, `run_id`, and `raw_artifact_id`.
+- Inventory facts such as hosts, IPs, host-IP links, and basic services are
+  projected from canonical state. Full evidence paths are reserved for
+  source-backed observations, hypotheses, findings, and reportable risk claims,
+  not ordinary asset inventory.
+- Graph rebuild service and CLI command exist in
+  [rebuild.py](../../services/graph-projector/graph_projector/rebuild.py) and
+  [__main__.py](../../services/graph-projector/graph_projector/__main__.py).
+- Safe graph query templates exist in
+  [query_templates.py](../../services/graph-projector/graph_projector/query_templates.py):
+  `endpoint_neighborhood`, `asset_exposure`, `hidden_endpoints_from_js`,
+  `exposed_services_by_technology`, `evidence_path`, and
+  `hypothesis_evidence_paths`.
+- GDS readiness is represented as a prerequisite check in
+  [gds_readiness.py](../../services/graph-projector/graph_projector/gds_readiness.py).
 - Migrations exist for graph batches, dedupe, projection events, and
   notifications.
+- `graph_projection_events` has a table-level PostgreSQL notification trigger,
+  so new ready events wake the existing projection event loop without adding
+  per-source compose services.
+- A single projection-event worker entry point exists in
+  [projection_events.py](../../services/graph-projector/graph_projector/projection_events.py).
+  It processes the registered `graph_projection_events` handlers together and
+  can listen to `graph_projection_events_changed`; per-source compose services
+  are intentionally not part of the runtime shape.
 - Tests exist for contracts, ontology, Neo4j upsert, batch store, apply service,
-  graph projection events, raw artifact producer, and enqueue command.
+  graph projection events, the projection-event worker, raw artifact producer,
+  enqueue command, canonical inventory producer, rebuild, safe query templates,
+  and GDS readiness.
+- Current e2e graph coverage verifies GraphFact projection into plain Neo4j for
+  canonical HTTP observations, the shared projection-event worker path, and
+  canonical inventory rebuild. It does not cover Neo4j GDS, clustering,
+  similarity, or named analytical projections.
 
 Remaining gaps:
 
-- `0032` infra-tool producers for subfinder/dnsx/naabu/httpx are not complete.
-- `0033` web/API producers for katana/linkfinder/nuclei/playwright observations
-  are not complete.
-- `0034` graph rebuild command is not found.
-- `0035` safe graph query templates are not found.
-- Docker runtime smoke for graph profile has not been run.
+- `0032` infra-tool producer coverage has the canonical host/IP/service
+  projection path. Lightweight history remains open only for mutable state such
+  as open ports and technology versions.
+- Katana and Playwright can still add richer source URL coverage for JavaScript
+  references beyond LinkFinder output.
+- Docker runtime smoke for graph profile still needs to be run in an environment
+  with Docker available.
+- Neo4j GDS is intentionally out of M4 and remains post-MVP/M8 work. It must
+  not be treated as present infrastructure until named projection contracts,
+  safe query templates, and rebuild semantics exist.
 
 Next action:
 
-- After M3, finish M4 in this order: producers, rebuild command, query
-  templates, then graph profile smoke.
+- Finish the remaining M4 producer coverage, then run graph profile smoke.
 
 ## M5 - OpenSearch Expansion
 
@@ -425,73 +560,218 @@ Evidence:
 - Document builders and OpenSearch client exist in
   [documents.py](../../services/search-indexer/search_indexer/documents.py) and
   [opensearch_client.py](../../services/search-indexer/search_indexer/opensearch_client.py).
+- Existing documents and static mappings carry `schema_version` and
+  `sanitizer_version`; relevant documents expose canonical artifact/tool-run
+  identifiers.
+- Static `bb-endpoints` and `bb-technologies` mappings and canonical
+  PostgreSQL producers exist. Both support program-scoped reads.
+- Technology documents contain normalized technology names only; arbitrary
+  source JSON values are not indexed.
+- Artifact preview projection count uses the same safe-preview predicate as its
+  source query, preventing false projection lag.
+- Durable per-program projection watermarks are maintained by PostgreSQL source
+  triggers and program-scoped reindex runs. Application-level readiness rejects
+  missing, failed, lagging, or mismatched projection states.
+- `bb-research-hypotheses` projects `research_hypotheses` and linked
+  `research_hypothesis_evidence` for the MVP research workflow. It indexes
+  status, scores, fingerprints, evidence metadata, and only evidence text marked
+  `safe_for_search`.
+- LangGraph accesses hypothesis search through a bounded context tool, not raw
+  OpenSearch DSL. The tool requires `program_id`, clamps `limit`, validates
+  status and `hypothesis_type`, and returns only search-safe hypothesis fields.
+- `HypothesisSelectionPolicy` turns search-safe hypothesis hits into bounded
+  next-step decisions (`build_evidence`, `critic_review`, `draft_report`,
+  `refresh_evidence`, `duplicate_review`, `defer`) without promoting findings
+  or executing tools.
 
 Gaps:
 
-- Need schema-versioned indexes.
-- Need target indexes listed in the roadmap.
-- Need sanitized and bounded producers for artifacts/http/endpoints/technologies/
-  hypotheses.
-- Need projection watermarks and lag state.
+- Remaining roadmap indexes beyond MVP hypotheses need canonical sources and an
+  MVP consumer before implementation.
 
 Next action:
 
-- Do not start M6 until M5 exposes a reliable `projections_ready` signal for
-  agent wait conditions.
+- Keep packages/CVE/OSINT/secrets/agent-event indexes deferred until their
+  canonical sources and first consumers are ready.
 
 ## M6 - Async Agent Protocol
 
-Overall status: `Missing`
+Overall status: `Partial`
 
 Evidence:
 
-- No durable `agent_workflows`, `agent_workflow_runs`, `agent_subscriptions`,
-  `agent_inbox`, `agent_wait_conditions`, or `agent_result_sets` tables were
-  found.
-- No AgentEventRouter implementation was found.
+- Durable coordination schema exists for `agent_workflows`,
+  `agent_workflow_runs`, `agent_subscriptions`, `agent_inbox`,
+  `agent_wait_conditions`, and `agent_result_sets`.
+- `agent_subscriptions` are scoped by program/campaign/correlation and
+  `agent_inbox` writes are protected by a unique `dedupe_key`.
+- `AgentEventRouter` routes matching EventStore envelopes into
+  `AgentInboxStore.enqueue_once` and is wired into the existing durable
+  `EventDispatcher`.
+- `AgentWaitConditionEngine` can evaluate `projections_ready` using the M5
+  projection readiness reader.
+- `AgentWaitConditionEngine` evaluates `new_facts_available` against
+  program-scoped `agent_result_sets` using action/campaign/workflow selectors.
+- `AgentWaitConditionEngine` evaluates `tool_run_completed` from terminal
+  program-scoped run state and `ingestion_completed` from the successful
+  post-ingestion `flushing -> completed` transition.
+- `AgentWaitConditionProcessor` persists `resolved` and `timed_out`
+  transitions through `AgentWaitConditionStore`.
+- The processor runs with application lifecycle, automatically resumes
+  `mvp-research` graphs after an atomic `pending -> resolved` transition, and
+  retries resolved waits while their durable workflow run remains `waiting`.
+- `AgentProtocolStore` exposes durable operations for subscriptions, inbox
+  claim/lease, inbox ack, wait-condition creation/listing, and result-set
+  upsert/list by action/campaign/workflow scope.
+- Claimed inbox messages hand off to LangGraph through deterministic thread IDs:
+  existing workflow runs resume by `workflow_run_id`, while new messages use the
+  stable `agent-inbox:<message_id>` thread key. Ack happens only after the graph
+  checkpoint already exists or the start/resume call succeeds.
+- `ResearchInboxProcessor` wires this boundary as an optional background
+  worker. It claims only its configured subscription `inbox_key`, opens a
+  request-scoped `ResearchControlGraph`, records handoff failures in
+  `agent_inbox.last_error` without releasing the active lease, and leaves
+  retry/checkpoint lifecycle to LangGraph instead of adding a second inbox retry
+  runtime. Each sweep can now return and emit a single structured summary
+  (`claimed`, `started`, `resumed`, `already_started`,
+  `skipped_terminal_workflow`, `failed`, `acknowledged`) so operators can see
+  whether the worker is starting new research passes, resuming existing ones,
+  deduplicating old messages, or only encountering handoff failures without
+  logging one line per inbox message.
+- REST routes under `/api/v1/agent` expose the M6 agent protocol without raw
+  execution shortcuts. The router is guarded by an explicit internal boundary:
+  callers must send an allowed `X-Agent-Actor` and, unless the dev bypass is
+  explicitly enabled, a matching `X-Agent-Internal-Token`. Workflow cancellation
+  persists the workflow/run terminal state, cancels pending subscriptions/inbox/wait
+  edges for the run, and inbox handoff refuses to resume terminal workflow runs.
 
 Gaps:
 
-- All M6 patches remain to be implemented.
+- 0040 is implemented at schema/store level.
+- 0041 is implemented through the existing EventStore dispatcher.
+- 0042 has `tool_run_completed`, `ingestion_completed`, `projections_ready`,
+  result-set-backed `new_facts_available`, `campaign_quiescent`, timeout
+  persistence, and cancellation call paths.
+- 0043 has result-set storage/upsert/list by stable result key and
+  action/campaign/workflow scope.
+- 0044 has subscriptions, inbox claim/lease, inbox ack, workflow cancellation,
+  wait-condition, result-set REST APIs, and an internal actor/token boundary.
 
 Next action:
 
-- Start M6 only after M1 outbox/publisher and M5 projection lag are explicit.
+- Run the agent protocol smoke against real Postgres/LangGraph runtime services, not
+  only in-process fakes.
 
 ## M7 - LangGraph Workflows To MVP
 
-Overall status: `Missing`
+Overall status: `Partial`
 
 Evidence:
 
-- No LangGraph runtime, checkpointer, workflow service, read-only context tools,
-  Cypher gateway, ToolActionRequest tool, approval node, hypothesis builder,
-  critic/verifier workflow, or report builder workflow was found.
+- `LangGraphWorkflowRuntime` exists as an application-layer skeleton that can
+  start, pause, resume, and cancel workflow runs by stable IDs and
+  `checkpoint_ref`.
+- `LangGraphWorkflowStore` persists workflow/run status through existing
+  `agent_workflows` and `agent_workflow_runs` tables.
+- Workflow state stores IDs and pointers (`action_ids`, `wait_condition_ids`,
+  `result_set_keys`, `checkpoint_ref`), not raw artifacts or response bodies.
+- `LangGraphContextTools` exposes read-only program context, result set fetch,
+  OpenSearch sanitized search, bounded hypothesis search/selection, safe graph
+  template rendering, and sanitized artifact previews while denying raw artifact
+  access.
+- `CypherGateway` is restricted to explicit admin/debug use, blocks write
+  clauses and `CALL`, enforces `$program_id`, wraps reads with an outer
+  `LIMIT`, clamps timeout, executes through a Neo4j read executor, and records
+  hashed query/parameter audit rows. Agent/runtime graph access uses registered
+  graph templates via `LangGraphContextTools`.
+- `LangGraphToolActionTool` creates existing `ActionRequest` contracts and
+  delegates to `ActionService.request_action`; it has no RabbitMQ, runner, or
+  direct persistence authority.
+- `LangGraphApprovalNode` coordinates approval-required actions with workflow
+  pause/resume/cancel semantics while delegating approve/reject decisions to the
+  existing `ActionService`.
+- `HypothesisBuilderWorkflow` consumes existing result-set references and stores
+  manual-verification candidates in `research_hypotheses` with linked
+  `research_hypothesis_evidence`; it does not write finding rows.
+- `HypothesisCriticWorkflow` checks missing evidence, program-boundary scope,
+  unsafe artifact content, and unsupported impact before report drafting.
+- `ReportDraftBuilderWorkflow` links evidence refs, redacts authorization,
+  cookie, token, and session values in both body and evidence-chain text, and
+  blocks draft completion when evidence or critic acceptance is missing.
+- `ResearchPass` reuses the existing builder, critic, and report builder
+  in one typed application flow. It returns stored hypothesis IDs, critic
+  decisions, drafts, and a safe summary (`empty`, `needs_evidence`,
+  `drafts_ready`, etc.) without creating findings.
+- `ResearchControlGraph` compiles that flow with LangGraph 1.2.6, persists
+  thread checkpoints through the official PostgreSQL saver, and supports
+  asynchronous state recovery/resume. When bounded hypothesis selection is
+  wired in, it records selected next-step pointers such as `critic_review`,
+  `build_evidence`, or `draft_report`; graph state still contains only request
+  pointers, hypothesis IDs, critic statuses, draft statuses, finding IDs,
+  safe pass summary counters, and selected step metadata, not report bodies
+  or evidence text.
+- `ResearchReadinessGate` reuses M6 projection and result-set readers,
+  persists stable wait conditions, updates durable workflow run state, and
+  drives LangGraph interrupt/resume without calling execution transports. It
+  now emits explicit readiness reason codes such as `projection_missing`,
+  `projection_lagging`, `projection_failed`, `result_sets_not_ready`, and
+  `durable_wait_requires_workflow_run` so the graph can distinguish why it
+  is waiting instead of storing only free-form reason text.
+- `ResearchWaitResumer` restores the compiled graph from its PostgreSQL
+  checkpoint by workflow-run thread ID; manual `aresume()` calls are no longer
+  required in the normal runtime path. It checks workflow-run status before
+  resume and skips terminal runs (`completed`, `failed`, `cancelled`) so stale
+  wait rows cannot revive cancelled or completed research passes.
+- `ResearchInboxBridge` keeps inbox delivery and graph execution
+  separated: the inbox provides claim/lease and ack, while the research graph owns
+  start/resume execution through deterministic checkpoint thread IDs. Bridge
+  results now carry explicit outcomes (`started`, `resumed`, `already_started`,
+  `skipped_terminal_workflow`) plus machine-readable reason codes for skipped
+  terminal workflow runs.
+- Alembic owns the pinned LangGraph PostgreSQL checkpoint schema; application
+  startup does not run third-party schema setup dynamically.
 
 Gaps:
 
-- All M7 patches remain to be implemented.
+- 0045 skeleton is implemented at runtime/store level.
+- 0046 is implemented as a read-only context facade over existing read models;
+  live OpenSearch/Neo4j smoke and richer context shaping remain.
+- 0047 is implemented as a minimal read-only Cypher Gateway; live Neo4j smoke
+  and richer procedure allowlists remain.
+- 0048 is implemented as an API/application-service-only ToolActionRequest
+  wrapper for LangGraph.
+- 0049 is implemented as a thin approval node over existing control-plane
+  approval and workflow runtime state.
+- 0050 is implemented as a deterministic hypothesis builder workflow over
+  existing result-set references and research hypothesis/evidence tables.
+- 0051 is implemented as a deterministic critic/verifier workflow.
+- 0052 is implemented as a redacted, evidence-linked report draft workflow.
+- The semantic stages are connected through `ResearchPass` and compiled
+  through `ResearchControlGraph`.
+- The graph now pauses before research until required named projections and a
+  matching result set are available, then rechecks readiness on resume.
+- A live PostgreSQL checkpoint round-trip remains unverified because Docker is
+  unavailable in the current environment.
 
 Next action:
 
-- Do not implement LangGraph until M6 wait/resume protocol is durable and
-  projection readiness can be queried.
+- Run the PostgreSQL checkpoint round-trip and complete controlled-loop
+  integration with the existing execution/projection services before declaring
+  the whole MVP done.
 
 ## Recommended Next Milestones
 
 1. Commit the current integration branch after final verification.
-2. Complete M3 research-engine removal because it currently conflicts with a
-   hard roadmap rule.
-3. Complete M1 outbox/publisher/API naming gaps.
-4. Complete M4 graph producers, rebuild, and query templates.
-5. Complete M5 projection lag/readiness.
-6. Start M6 agent protocol.
-7. Start M7 LangGraph workflows.
+2. Complete M1 outbox/publisher/API naming gaps.
+3. Complete remaining M4 graph producer coverage and graph profile smoke.
+4. Complete M5 projection lag/readiness.
+5. Complete remaining M6 auth boundaries.
+6. Run M7 PostgreSQL checkpoint and controlled-loop integration smoke.
 
 ## Open Decisions
 
-- Should public API terminology become `/tool-actions`, or is `/actions` the
-  accepted product/API name?
+- Should `/actions` remain permanently as a dashboard/internal alias after
+  `/tool-actions` is treated as the public MVP name?
 - Should `event_dispatches` be documented as the MVP outbox implementation, or
   should literal `event_outbox`/`event_inbox` tables be added?
 - Should M2 artifact storage cleanup stay in MVP, or be explicitly deferred?

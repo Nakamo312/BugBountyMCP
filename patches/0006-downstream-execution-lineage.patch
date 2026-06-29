@@ -1,0 +1,354 @@
+diff --git a/src/api/application/pipeline/context.py b/src/api/application/pipeline/context.py
+index 7d00104..81c0af7 100644
+--- a/src/api/application/pipeline/context.py
++++ b/src/api/application/pipeline/context.py
+@@ -1,6 +1,6 @@
+ """Pipeline execution context"""
+ import logging
+-from collections.abc import AsyncIterator
++from collections.abc import AsyncIterator, Mapping
+ from typing import Dict, Any, Optional, Type, TypeVar, List, Tuple
+ from uuid import UUID, uuid4
+ from dishka import AsyncContainer
+@@ -18,6 +18,19 @@ logger = logging.getLogger(__name__)
+ 
+ T = TypeVar('T')
+ 
++LINEAGE_PAYLOAD_KEY = "execution_lineage"
++
++_LINEAGE_FIELD_MAP = {
++    "action_id": "root_action_id",
++    "capability_id": "root_capability_id",
++    "profile_id": "root_profile_id",
++    "safety_level": "root_safety_level",
++    "policy_decision_id": "policy_decision_id",
++    "scope_decision_id": "scope_decision_id",
++    "requested_by": "requested_by",
++    "execution_budget": "root_execution_budget",
++}
++
+ 
+ class PipelineContext:
+     """
+@@ -47,6 +60,8 @@ class PipelineContext:
+         self.campaign_id: UUID | None = None
+         self.correlation_id: UUID | None = None
+         self.expansion_depth: int = 0
++        self.execution_lineage: dict[str, Any] = {}
++        self.downstream_parent_artifact_id: UUID | None = None
+         self.retry_policy: dict[str, Any] = {
+             "max_attempts": 1,
+             "backoff_seconds": 0,
+@@ -61,6 +76,11 @@ class PipelineContext:
+         self.campaign_id = self._optional_uuid(event.get("campaign_id"))
+         self.correlation_id = self._optional_uuid(event.get("correlation_id"))
+         self.expansion_depth = max(0, int(event.get("expansion_depth", 0) or 0))
++        self.execution_lineage = self._extract_execution_lineage(event)
++        self.downstream_parent_artifact_id = self._optional_uuid(
++            event.get("parent_artifact_id")
++            or self._payload_mapping(event).get("parent_artifact_id")
++        )
+ 
+     async def emit(
+         self,
+@@ -119,8 +139,61 @@ class PipelineContext:
+         if self.correlation_id is not None:
+             envelope_kwargs["correlation_id"] = self.correlation_id
+ 
++        payload = self._downstream_payload()
++        if payload:
++            envelope_kwargs["payload"] = payload
++
+         await self._bus.publish(EventEnvelope(**envelope_kwargs))
+ 
++    def set_downstream_parent_artifact(self, artifact_id: UUID | None) -> None:
++        """Attach the current raw artifact as parent lineage for emitted events."""
++        self.downstream_parent_artifact_id = artifact_id
++
++    def _downstream_payload(self) -> dict[str, Any]:
++        payload: dict[str, Any] = {}
++        if self.execution_lineage:
++            payload[LINEAGE_PAYLOAD_KEY] = dict(self.execution_lineage)
++        if self.downstream_parent_artifact_id is not None:
++            payload["parent_artifact_id"] = str(self.downstream_parent_artifact_id)
++        return payload
++
++    @classmethod
++    def _extract_execution_lineage(cls, event: Mapping[str, Any]) -> dict[str, Any]:
++        payload = cls._payload_mapping(event)
++        inherited = event.get(LINEAGE_PAYLOAD_KEY) or payload.get(LINEAGE_PAYLOAD_KEY)
++        lineage = dict(inherited) if isinstance(inherited, Mapping) else {}
++
++        for source_key, lineage_key in _LINEAGE_FIELD_MAP.items():
++            value = event.get(source_key)
++            if value is None:
++                value = payload.get(source_key)
++            if value is not None:
++                lineage.setdefault(lineage_key, cls._json_safe(value))
++
++        if event.get("campaign_id") is not None:
++            lineage.setdefault("campaign_id", str(event["campaign_id"]))
++        if event.get("correlation_id") is not None:
++            lineage.setdefault("correlation_id", str(event["correlation_id"]))
++        return {key: value for key, value in lineage.items() if value is not None}
++
++    @staticmethod
++    def _payload_mapping(event: Mapping[str, Any]) -> Mapping[str, Any]:
++        payload = event.get("payload")
++        return payload if isinstance(payload, Mapping) else {}
++
++    @staticmethod
++    def _json_safe(value: Any) -> Any:
++        if isinstance(value, UUID):
++            return str(value)
++        if isinstance(value, Mapping):
++            return {
++                str(key): PipelineContext._json_safe(item)
++                for key, item in value.items()
++            }
++        if isinstance(value, list):
++            return [PipelineContext._json_safe(item) for item in value]
++        return value
++
+     async def get_service(self, service_type: Type[T]) -> T:
+         if not self._container:
+             raise RuntimeError("DI container not available in context")
+diff --git a/src/api/application/pipeline/scan_node.py b/src/api/application/pipeline/scan_node.py
+index 5a272ab..2e5e940 100644
+--- a/src/api/application/pipeline/scan_node.py
++++ b/src/api/application/pipeline/scan_node.py
+@@ -146,6 +146,7 @@ class ScanNode(Node):
+             stream = run_raw(runner, targets, invocation)
+             raw_artifact_id = uuid4()
+             if isinstance(ctx, PipelineContext):
++                ctx.set_downstream_parent_artifact(raw_artifact_id)
+                 raw_metadata = {"runner": self.runner_type.__name__, **metadata(invocation)}
+                 stream = ctx.capture_raw_stream(
+                     stream,
+diff --git a/tests/application/test_pipeline_execution_lineage.py b/tests/application/test_pipeline_execution_lineage.py
+new file mode 100644
+index 0000000..a7eba6b
+--- /dev/null
++++ b/tests/application/test_pipeline_execution_lineage.py
+@@ -0,0 +1,221 @@
++from __future__ import annotations
++
++import sys
++import types
++from uuid import uuid4
++
++import pytest
++
++try:
++    from dishka import AsyncContainer  # noqa: F401
++except ImportError:
++    dishka_module = types.ModuleType("dishka")
++
++    class AsyncContainer:  # pragma: no cover - import stub
++        pass
++
++    dishka_module.AsyncContainer = AsyncContainer
++    sys.modules["dishka"] = dishka_module
++
++try:
++    from api.infrastructure.events.event_bus import EventBus  # noqa: F401
++except ImportError:
++    event_bus_module = types.ModuleType("api.infrastructure.events.event_bus")
++
++    class EventBus:  # pragma: no cover - import stub
++        pass
++
++    event_bus_module.EventBus = EventBus
++    sys.modules["api.infrastructure.events.event_bus"] = event_bus_module
++
++try:
++    from api.infrastructure.artifacts.raw_artifact_repository import (  # noqa: F401
++        RawArtifactRepository,
++    )
++except ImportError:
++    raw_repo_module = types.ModuleType(
++        "api.infrastructure.artifacts.raw_artifact_repository"
++    )
++
++    class RawArtifactRepository:  # pragma: no cover - import stub
++        pass
++
++    raw_repo_module.RawArtifactRepository = RawArtifactRepository
++    sys.modules[
++        "api.infrastructure.artifacts.raw_artifact_repository"
++    ] = raw_repo_module
++
++from api.application.pipeline.context import LINEAGE_PAYLOAD_KEY, PipelineContext
++from api.application.pipeline.invocation import build_invocation
++
++
++class RecordingBus:
++    def __init__(self) -> None:
++        self.events = []
++
++    async def publish(self, event):
++        self.events.append(event)
++
++
++@pytest.mark.asyncio
++async def test_pipeline_context_emits_namespaced_execution_lineage_without_fake_invocation() -> None:
++    bus = RecordingBus()
++    action_id = uuid4()
++    policy_id = uuid4()
++    scope_id = uuid4()
++    campaign_id = uuid4()
++    correlation_id = uuid4()
++    context = PipelineContext(node_id="subfinder", bus=bus)
++    context.bind_event(
++        {
++            "event": "subfinder_scan_requested",
++            "event_id": str(uuid4()),
++            "job_id": str(uuid4()),
++            "run_id": str(uuid4()),
++            "program_id": str(uuid4()),
++            "campaign_id": str(campaign_id),
++            "correlation_id": str(correlation_id),
++            "action_id": str(action_id),
++            "capability_id": "subfinder",
++            "profile_id": "passive-recon",
++            "safety_level": "passive",
++            "policy_decision_id": str(policy_id),
++            "scope_decision_id": str(scope_id),
++            "requested_by": "api",
++            "execution_budget": {"max_targets": 25},
++            "targets": ["example.com"],
++        }
++    )
++
++    await context.emit(
++        event="subdomain_discovered",
++        targets=["api.example.com"],
++        program_id=uuid4(),
++    )
++
++    emitted = bus.events[0]
++    lineage = emitted.payload[LINEAGE_PAYLOAD_KEY]
++    assert lineage["root_action_id"] == str(action_id)
++    assert lineage["root_capability_id"] == "subfinder"
++    assert lineage["root_profile_id"] == "passive-recon"
++    assert lineage["policy_decision_id"] == str(policy_id)
++    assert lineage["scope_decision_id"] == str(scope_id)
++    assert lineage["root_execution_budget"] == {"max_targets": 25}
++
++    legacy_event = emitted.to_legacy_dict()
++    assert "action_id" not in legacy_event
++    assert "capability_id" not in legacy_event
++    assert build_invocation(legacy_event, legacy_event["targets"]) is None
++
++
++@pytest.mark.asyncio
++async def test_pipeline_context_emits_parent_artifact_for_downstream_lineage() -> None:
++    bus = RecordingBus()
++    parent_artifact_id = uuid4()
++    context = PipelineContext(node_id="katana", bus=bus)
++    context.bind_event(
++        {
++            "event": "host_discovered",
++            "event_id": str(uuid4()),
++            "job_id": str(uuid4()),
++            "run_id": str(uuid4()),
++            "program_id": str(uuid4()),
++            "targets": ["https://example.com"],
++            "payload": {
++                LINEAGE_PAYLOAD_KEY: {
++                    "root_action_id": str(uuid4()),
++                    "root_capability_id": "httpx",
++                }
++            },
++        }
++    )
++    context.set_downstream_parent_artifact(parent_artifact_id)
++
++    await context.emit(
++        event="js_files_discovered",
++        targets=["https://example.com/app.js"],
++        program_id=uuid4(),
++    )
++
++    emitted = bus.events[0]
++    assert emitted.payload["parent_artifact_id"] == str(parent_artifact_id)
++    assert emitted.payload[LINEAGE_PAYLOAD_KEY]["root_capability_id"] == "httpx"
++    assert emitted.to_legacy_dict()["parent_artifact_id"] == str(parent_artifact_id)
++
++
++@pytest.mark.asyncio
++async def test_scan_node_sets_raw_artifact_as_downstream_parent() -> None:
++    from api.application.contracts import ExecutionMode, SafetyLevel
++    from api.application.pipeline.scan_node import ScanNode
++    from api.infrastructure.events.event_types import EventType
++    from api.infrastructure.schemas.models.process_event import ProcessEvent
++
++    class Runner:
++        def run_raw(self, targets):
++            async def stream():
++                yield ProcessEvent(type="stdout", payload="value")
++
++            return stream()
++
++    class Parser:
++        async def parse_stream(self, stream):
++            async for item in stream:
++                yield item
++
++    class Processor:
++        async def batch_stream(self, stream):
++            async for item in stream:
++                if item.payload:
++                    yield [item.payload]
++
++    class Context(PipelineContext):
++        def __init__(self) -> None:
++            self.runner = Runner()
++            self.captured = []
++
++        async def get_service(self, service_type):
++            if service_type is Runner:
++                return self.runner
++            if service_type is Processor:
++                return Processor()
++            raise AssertionError(service_type)
++
++        def capture_raw_stream(self, stream, **kwargs):
++            self.captured.append(kwargs)
++            return stream
++
++        def ingest_context(self, raw_artifact_id=None):
++            return None
++
++    node = ScanNode(
++        node_id="httpx",
++        event_in={EventType.HTTPX_SCAN_REQUESTED},
++        event_out={},
++        runner_type=Runner,
++        processor_type=Processor,
++        parser_type=Parser,
++        execution_mode=ExecutionMode.INLINE,
++    )
++    ctx = Context()
++    event = {
++        "event_id": str(uuid4()),
++        "event": "httpx_scan_requested",
++        "program_id": str(uuid4()),
++        "job_id": str(uuid4()),
++        "run_id": str(uuid4()),
++        "correlation_id": str(uuid4()),
++        "action_id": str(uuid4()),
++        "capability_id": "httpx",
++        "profile_id": "safe-web-probe",
++        "safety_level": SafetyLevel.SAFE_ACTIVE.value,
++        "policy_decision_id": str(uuid4()),
++        "scope_decision_id": str(uuid4()),
++        "campaign_id": str(uuid4()),
++        "targets": ["https://example.com"],
++        "options": {},
++        "execution_budget": {"max_targets": 20},
++    }
++
++    await node.execute(event, ctx)  # type: ignore[arg-type]
++
++    assert ctx.downstream_parent_artifact_id == ctx.captured[0]["artifact_id"]

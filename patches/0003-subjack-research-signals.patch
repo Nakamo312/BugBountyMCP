@@ -1,0 +1,542 @@
+diff --git a/src/api/infrastructure/ingestors/subjack_ingestor.py b/src/api/infrastructure/ingestors/subjack_ingestor.py
+index f3284d2..748b51b 100644
+--- a/src/api/infrastructure/ingestors/subjack_ingestor.py
++++ b/src/api/infrastructure/ingestors/subjack_ingestor.py
+@@ -1,98 +1,150 @@
+-"""Subjack result ingestor for subdomain takeover findings"""
+-import logging
+-from typing import Any
+-from uuid import UUID
+-
+-from api.config import Settings
+-from api.domain.models import FindingModel, VulnTypeModel
+-from api.domain.enums import Severity
+-from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
+-from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
+-
+-logger = logging.getLogger(__name__)
+-
+-SUBDOMAIN_TAKEOVER_CODE = "subdomain_takeover"
+-
+-
+-class SubjackResultIngestor(BaseResultIngestor):
+-    """
+-    Handles batch ingestion of Subjack subdomain takeover scan results.
+-    Creates findings for vulnerable subdomains with host_id reference.
+-    """
+-
+-    def __init__(self, uow: HTTPXUnitOfWork, settings: Settings):
+-        super().__init__(uow, settings.HTTPX_INGESTOR_BATCH_SIZE)
+-        self.settings = settings
+-
+-    async def _process_batch(self, uow: HTTPXUnitOfWork, program_id: UUID, batch: list[dict[str, Any]]):
+-        """Process a batch of Subjack results"""
+-        vuln_type = await self._ensure_vuln_type(uow)
+-
+-        for data in batch:
+-            await self._process_result(uow, program_id, vuln_type.id, data)
+-
+-    async def _ensure_vuln_type(self, uow: HTTPXUnitOfWork) -> VulnTypeModel:
+-        """Ensure subdomain_takeover vuln_type exists"""
+-        existing = await uow.vuln_types.get_by_fields(code=SUBDOMAIN_TAKEOVER_CODE)
+-        if existing:
+-            return existing
+-
+-        vuln_type = VulnTypeModel(
+-            code=SUBDOMAIN_TAKEOVER_CODE,
+-            severity=Severity.HIGH,
+-            category="infrastructure"
+-        )
+-        await uow.vuln_types.add(vuln_type)
+-        return vuln_type
+-
+-    async def _process_result(
+-        self,
+-        uow: HTTPXUnitOfWork,
+-        program_id: UUID,
+-        vuln_type_id: UUID,
+-        data: dict[str, Any]
+-    ):
+-        """Process single Subjack result and create finding"""
+-        subdomain = data.get("subdomain")
+-        service = data.get("service")
+-        vulnerable = data.get("vulnerable", False)
+-        cname = data.get("cname")
+-
+-        if not subdomain or not vulnerable:
+-            logger.debug("Skipping non-vulnerable or invalid Subjack result")
+-            return
+-
+-        host = await uow.hosts.get_by_fields(program_id=program_id, host=subdomain)
+-        if not host:
+-            logger.warning(f"Host {subdomain} not found in program {program_id}, skipping finding")
+-            return
+-
+-        description = f"Subdomain takeover detected on {subdomain} via {service}"
+-        if cname:
+-            description += f" (CNAME: {cname})"
+-
+-        evidence = {
+-            "subdomain": subdomain,
+-            "service": service,
+-            "cname": cname,
+-            "tool": "subjack"
+-        }
+-
+-        finding = FindingModel(
+-            program_id=program_id,
+-            vuln_type_id=vuln_type_id,
+-            host_id=host.id,
+-            description=description,
+-            evidence=evidence,
+-            verified=False,
+-            false_positive=False
+-        )
+-
+-        await uow.findings.ensure(
+-            program_id=program_id,
+-            vuln_type_id=vuln_type_id,
+-            host_id=host.id,
+-            unique_fields=["program_id", "vuln_type_id", "host_id"]
+-        )
+-
+-        logger.info(f"Created subdomain takeover finding: {subdomain} ({service})")
++"""Subjack result ingestor for subdomain takeover research signals."""
++from __future__ import annotations
++
++import hashlib
++import json
++import logging
++from typing import Any
++from uuid import UUID
++
++from api.application.contracts import IngestContext
++from api.config import Settings
++from api.infrastructure.ingestors.base_result_ingestor import BaseResultIngestor
++from api.infrastructure.ingestors.ingest_result import IngestResult
++from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
++
++logger = logging.getLogger(__name__)
++
++SUBDOMAIN_TAKEOVER_SIGNAL_TYPE = "subdomain_takeover_possible"
++SUBDOMAIN_TAKEOVER_SIGNAL_VERSION = "subjack-signal-v1"
++SUBDOMAIN_TAKEOVER_RULE_ID = "subjack_takeover_possible"
++SUBDOMAIN_TAKEOVER_RULE_VERSION = "subjack-rule-v1"
++
++
++class SubjackResultIngestor(BaseResultIngestor):
++    """
++    Handles batch ingestion of Subjack subdomain takeover scan results.
++
++    Subjack output is stored as a research signal, not a FindingModel. A scanner
++    observation is evidence for a later hypothesis/critic/promotion workflow;
++    it is not itself a verified finding.
++    """
++
++    def __init__(self, uow: HTTPXUnitOfWork, settings: Settings):
++        super().__init__(uow, settings.HTTPX_INGESTOR_BATCH_SIZE)
++        self.settings = settings
++        self._signals_created = 0
++        self._skipped = 0
++
++    async def ingest(
++        self,
++        program_id: UUID,
++        results: list[dict[str, Any]],
++        context: IngestContext | None = None,
++    ) -> IngestResult:
++        self._signals_created = 0
++        self._skipped = 0
++        await super().ingest(program_id, results, context=context)
++        logger.info(
++            "Subjack ingestion completed: program=%s signals=%d skipped=%d",
++            program_id,
++            self._signals_created,
++            self._skipped,
++        )
++        return IngestResult()
++
++    async def _process_batch(
++        self,
++        uow: HTTPXUnitOfWork,
++        program_id: UUID,
++        batch: list[dict[str, Any]],
++        context: IngestContext | None = None,
++    ):
++        """Process a batch of Subjack results."""
++        for data in batch:
++            await self._process_result(uow, program_id, data, context=context)
++
++    async def _process_result(
++        self,
++        uow: HTTPXUnitOfWork,
++        program_id: UUID,
++        data: dict[str, Any],
++        context: IngestContext | None = None,
++    ) -> None:
++        """Process one Subjack result as a research signal."""
++        subdomain = self._string_or_none(data.get("subdomain"))
++        service = self._string_or_none(data.get("service")) or "unknown"
++        vulnerable = bool(data.get("vulnerable", False))
++        cname = self._string_or_none(data.get("cname"))
++
++        if not subdomain or not vulnerable:
++            self._skipped += 1
++            logger.debug("Skipping non-vulnerable or invalid Subjack result")
++            return
++
++        host = await uow.hosts.get_by_fields(program_id=program_id, host=subdomain)
++        if not host:
++            self._skipped += 1
++            logger.warning(
++                "Host %s not found in program %s, skipping takeover signal",
++                subdomain,
++                program_id,
++            )
++            return
++
++        payload = {
++            "subdomain": subdomain,
++            "service": service,
++            "cname": cname,
++            "source_tool": "subjack",
++            "claim": "Subjack reported a possible subdomain takeover. Manual verification is required before promotion.",
++            "job_id": str(context.job_id) if context and context.job_id else None,
++            "run_id": str(context.run_id) if context and context.run_id else None,
++            "correlation_id": str(context.correlation_id) if context and context.correlation_id else None,
++            "raw_artifact_id": str(context.raw_artifact_id) if context and context.raw_artifact_id else None,
++        }
++
++        await uow.research_signals.upsert_signal(
++            program_id=program_id,
++            signal_type=SUBDOMAIN_TAKEOVER_SIGNAL_TYPE,
++            signal_version=SUBDOMAIN_TAKEOVER_SIGNAL_VERSION,
++            rule_id=SUBDOMAIN_TAKEOVER_RULE_ID,
++            rule_version=SUBDOMAIN_TAKEOVER_RULE_VERSION,
++            asset_type="host",
++            asset_id=str(host.id),
++            evidence_fingerprint=self._fingerprint(
++                program_id=program_id,
++                subdomain=subdomain,
++                service=service,
++                cname=cname,
++            ),
++            confidence=0.65,
++            payload_json={key: value for key, value in payload.items() if value is not None},
++        )
++        self._signals_created += 1
++        logger.info("Recorded subdomain takeover signal: %s (%s)", subdomain, service)
++
++    @staticmethod
++    def _fingerprint(
++        *,
++        program_id: UUID,
++        subdomain: str,
++        service: str,
++        cname: str | None,
++    ) -> str:
++        payload = {
++            "program_id": str(program_id),
++            "signal_type": SUBDOMAIN_TAKEOVER_SIGNAL_TYPE,
++            "subdomain": subdomain,
++            "service": service,
++            "cname": cname,
++        }
++        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
++        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
++
++    @staticmethod
++    def _string_or_none(value: Any) -> str | None:
++        if value is None:
++            return None
++        string_value = str(value).strip()
++        return string_value or None
+diff --git a/src/api/infrastructure/repositories/adapters/research_signal.py b/src/api/infrastructure/repositories/adapters/research_signal.py
+new file mode 100644
+index 0000000..8f952d2
+--- /dev/null
++++ b/src/api/infrastructure/repositories/adapters/research_signal.py
+@@ -0,0 +1,61 @@
++"""SQLAlchemy research signal repository."""
++from __future__ import annotations
++
++from typing import Any
++from uuid import UUID
++
++from sqlalchemy.dialects.postgresql import insert
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from api.infrastructure.adapters.orm import research_signals
++from api.infrastructure.repositories.interfaces.research_signal import ResearchSignalRepository
++
++
++class SQLAlchemyResearchSignalRepository(ResearchSignalRepository):
++    """PostgreSQL-backed research signal repository."""
++
++    def __init__(self, session: AsyncSession) -> None:
++        self.session = session
++
++    async def upsert_signal(
++        self,
++        *,
++        program_id: UUID,
++        signal_type: str,
++        signal_version: str,
++        rule_id: str,
++        rule_version: str,
++        evidence_fingerprint: str,
++        confidence: float,
++        payload_json: dict[str, Any],
++        asset_type: str | None = None,
++        asset_id: str | None = None,
++        observation_id: UUID | None = None,
++        producer_run_id: UUID | None = None,
++    ) -> None:
++        statement = insert(research_signals).values(
++            program_id=program_id,
++            producer_run_id=producer_run_id,
++            signal_type=signal_type,
++            signal_version=signal_version,
++            rule_id=rule_id,
++            rule_version=rule_version,
++            asset_type=asset_type,
++            asset_id=asset_id,
++            observation_id=observation_id,
++            evidence_fingerprint=evidence_fingerprint,
++            confidence=max(0.0, min(float(confidence), 1.0)),
++            payload_json=payload_json,
++        )
++        statement = statement.on_conflict_do_update(
++            constraint="uq_research_signal_fingerprint",
++            set_={
++                "producer_run_id": producer_run_id,
++                "asset_type": asset_type,
++                "asset_id": asset_id,
++                "observation_id": observation_id,
++                "confidence": max(0.0, min(float(confidence), 1.0)),
++                "payload_json": payload_json,
++            },
++        )
++        await self.session.execute(statement)
+diff --git a/src/api/infrastructure/repositories/interfaces/research_signal.py b/src/api/infrastructure/repositories/interfaces/research_signal.py
+new file mode 100644
+index 0000000..c3862da
+--- /dev/null
++++ b/src/api/infrastructure/repositories/interfaces/research_signal.py
+@@ -0,0 +1,30 @@
++"""Research signal repository interface."""
++from __future__ import annotations
++
++from abc import ABC, abstractmethod
++from typing import Any
++from uuid import UUID
++
++
++class ResearchSignalRepository(ABC):
++    """Repository interface for durable research signals."""
++
++    @abstractmethod
++    async def upsert_signal(
++        self,
++        *,
++        program_id: UUID,
++        signal_type: str,
++        signal_version: str,
++        rule_id: str,
++        rule_version: str,
++        evidence_fingerprint: str,
++        confidence: float,
++        payload_json: dict[str, Any],
++        asset_type: str | None = None,
++        asset_id: str | None = None,
++        observation_id: UUID | None = None,
++        producer_run_id: UUID | None = None,
++    ) -> None:
++        """Insert or update a signal identified by its program/type/version/fingerprint."""
++        raise NotImplementedError
+diff --git a/src/api/infrastructure/unit_of_work/adapters/httpx.py b/src/api/infrastructure/unit_of_work/adapters/httpx.py
+index c2fbc18..2012520 100644
+--- a/src/api/infrastructure/unit_of_work/adapters/httpx.py
++++ b/src/api/infrastructure/unit_of_work/adapters/httpx.py
+@@ -8,6 +8,7 @@ from api.infrastructure.repositories.adapters.service import SQLAlchemyServiceRe
+ from api.infrastructure.repositories.adapters.header import SQLAlchemyHeaderRepository
+ from api.infrastructure.repositories.adapters.http_observation import SQLAlchemyHTTPObservationRepository
+ from api.infrastructure.repositories.adapters.scope_rule import SQLAlchemyScopeRuleRepository
++from api.infrastructure.repositories.adapters.research_signal import SQLAlchemyResearchSignalRepository
+ from api.infrastructure.unit_of_work.adapters.base import SQLAlchemyAbstractUnitOfWork
+ from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
+ 
+@@ -26,5 +27,6 @@ class SQLAlchemyHTTPXUnitOfWork(SQLAlchemyAbstractUnitOfWork, HTTPXUnitOfWork):
+         self.headers = SQLAlchemyHeaderRepository(session=self._session)
+         self.http_observations = SQLAlchemyHTTPObservationRepository(session=self._session)
+         self.scope_rules = SQLAlchemyScopeRuleRepository(session=self._session)
++        self.research_signals = SQLAlchemyResearchSignalRepository(session=self._session)
+ 
+         return self
+diff --git a/src/api/infrastructure/unit_of_work/interfaces/httpx.py b/src/api/infrastructure/unit_of_work/interfaces/httpx.py
+index e861ecf..2e4a3f5 100644
+--- a/src/api/infrastructure/unit_of_work/interfaces/httpx.py
++++ b/src/api/infrastructure/unit_of_work/interfaces/httpx.py
+@@ -9,6 +9,7 @@ from api.infrastructure.repositories.interfaces.input_parameters import InputPar
+ from api.infrastructure.repositories.interfaces.header import HeaderRepository
+ from api.infrastructure.repositories.interfaces.http_observation import HTTPObservationRepository
+ from api.infrastructure.repositories.interfaces.scope_rule import ScopeRuleRepository
++from api.infrastructure.repositories.interfaces.research_signal import ResearchSignalRepository
+ from api.infrastructure.unit_of_work.interfaces.base import AbstractUnitOfWork
+ 
+ 
+@@ -24,4 +25,5 @@ class HTTPXUnitOfWork(AbstractUnitOfWork, ABC):
+     headers: HeaderRepository
+     http_observations: HTTPObservationRepository
+     scope_rules: ScopeRuleRepository
++    research_signals: ResearchSignalRepository
+ 
+diff --git a/tests/infrastructure/test_subjack_ingestor.py b/tests/infrastructure/test_subjack_ingestor.py
+new file mode 100644
+index 0000000..3bf45ec
+--- /dev/null
++++ b/tests/infrastructure/test_subjack_ingestor.py
+@@ -0,0 +1,143 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from types import SimpleNamespace
++from uuid import uuid4
++
++import pytest
++
++from api.infrastructure.ingestors.subjack_ingestor import (
++    SUBDOMAIN_TAKEOVER_SIGNAL_TYPE,
++    SUBDOMAIN_TAKEOVER_SIGNAL_VERSION,
++    SubjackResultIngestor,
++)
++
++
++@dataclass
++class FakeHost:
++    id: object
++
++
++class FakeHostsRepository:
++    def __init__(self, host: FakeHost | None) -> None:
++        self.host = host
++        self.calls: list[dict[str, object]] = []
++
++    async def get_by_fields(self, **filters):
++        self.calls.append(filters)
++        return self.host
++
++
++class FakeResearchSignalsRepository:
++    def __init__(self) -> None:
++        self.records: list[dict[str, object]] = []
++
++    async def upsert_signal(self, **kwargs) -> None:
++        self.records.append(kwargs)
++
++
++class FakeUoW:
++    def __init__(self, host: FakeHost | None = None) -> None:
++        self.hosts = FakeHostsRepository(host)
++        self.research_signals = FakeResearchSignalsRepository()
++
++
++@pytest.mark.asyncio
++async def test_subjack_records_research_signal_not_finding() -> None:
++    program_id = uuid4()
++    host_id = uuid4()
++    uow = FakeUoW(FakeHost(id=host_id))
++    ingestor = SubjackResultIngestor(
++        uow=uow,
++        settings=SimpleNamespace(HTTPX_INGESTOR_BATCH_SIZE=50),
++    )
++
++    await ingestor._process_result(
++        uow,
++        program_id,
++        {
++            "subdomain": "takeover.example.com",
++            "service": "github",
++            "vulnerable": True,
++            "cname": "example.github.io",
++        },
++    )
++
++    assert len(uow.research_signals.records) == 1
++    signal = uow.research_signals.records[0]
++    assert signal["program_id"] == program_id
++    assert signal["signal_type"] == SUBDOMAIN_TAKEOVER_SIGNAL_TYPE
++    assert signal["signal_version"] == SUBDOMAIN_TAKEOVER_SIGNAL_VERSION
++    assert signal["asset_type"] == "host"
++    assert signal["asset_id"] == str(host_id)
++    assert signal["confidence"] == 0.65
++    assert signal["payload_json"]["source_tool"] == "subjack"
++    assert "Manual verification is required" in signal["payload_json"]["claim"]
++    assert not hasattr(uow, "findings")
++    assert not hasattr(uow, "vuln_types")
++
++
++@pytest.mark.asyncio
++async def test_subjack_skips_non_vulnerable_results() -> None:
++    program_id = uuid4()
++    uow = FakeUoW(FakeHost(id=uuid4()))
++    ingestor = SubjackResultIngestor(
++        uow=uow,
++        settings=SimpleNamespace(HTTPX_INGESTOR_BATCH_SIZE=50),
++    )
++
++    await ingestor._process_result(
++        uow,
++        program_id,
++        {
++            "subdomain": "safe.example.com",
++            "service": "github",
++            "vulnerable": False,
++        },
++    )
++
++    assert uow.research_signals.records == []
++    assert uow.hosts.calls == []
++
++
++@pytest.mark.asyncio
++async def test_subjack_skips_signal_when_host_is_unknown() -> None:
++    program_id = uuid4()
++    uow = FakeUoW(host=None)
++    ingestor = SubjackResultIngestor(
++        uow=uow,
++        settings=SimpleNamespace(HTTPX_INGESTOR_BATCH_SIZE=50),
++    )
++
++    await ingestor._process_result(
++        uow,
++        program_id,
++        {
++            "subdomain": "missing.example.com",
++            "service": "github",
++            "vulnerable": True,
++        },
++    )
++
++    assert uow.research_signals.records == []
++    assert uow.hosts.calls == [{"program_id": program_id, "host": "missing.example.com"}]
++
++
++def test_subjack_signal_fingerprint_is_stable() -> None:
++    program_id = uuid4()
++
++    first = SubjackResultIngestor._fingerprint(
++        program_id=program_id,
++        subdomain="takeover.example.com",
++        service="github",
++        cname="example.github.io",
++    )
++    second = SubjackResultIngestor._fingerprint(
++        program_id=program_id,
++        subdomain="takeover.example.com",
++        service="github",
++        cname="example.github.io",
++    )
++
++    assert first == second
++    assert len(first) == 64

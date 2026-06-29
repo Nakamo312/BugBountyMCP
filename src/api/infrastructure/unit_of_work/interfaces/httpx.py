@@ -9,6 +9,7 @@ from api.infrastructure.repositories.interfaces.input_parameters import InputPar
 from api.infrastructure.repositories.interfaces.header import HeaderRepository
 from api.infrastructure.repositories.interfaces.http_observation import HTTPObservationRepository
 from api.infrastructure.repositories.interfaces.scope_rule import ScopeRuleRepository
+from api.infrastructure.repositories.interfaces.research_signal import ResearchSignalRepository
 from api.infrastructure.unit_of_work.interfaces.base import AbstractUnitOfWork
 
 
@@ -24,4 +25,5 @@ class HTTPXUnitOfWork(AbstractUnitOfWork, ABC):
     headers: HeaderRepository
     http_observations: HTTPObservationRepository
     scope_rules: ScopeRuleRepository
+    research_signals: ResearchSignalRepository
 

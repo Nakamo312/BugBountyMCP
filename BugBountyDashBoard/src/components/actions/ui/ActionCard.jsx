@@ -50,6 +50,9 @@ function ActionCard({ action, actionRunner }) {
           <div>
             <h3 className="font-semibold text-gray-900">{action.name}</h3>
             <p className="text-sm text-gray-600">{action.description}</p>
+            {action.requiresApproval && (
+              <p className="mt-1 text-xs font-medium text-amber-600">Requires approval</p>
+            )}
           </div>
         </header>
       </div>
@@ -64,9 +67,12 @@ function ActionCard({ action, actionRunner }) {
             >
               ✕
             </button>
-            <h2 className="text-xl font-bold mb-4">{action.name}</h2>
+            <h2 className="text-xl font-bold mb-1">{action.name}</h2>
+            {action.badge && (
+              <p className="mb-4 text-sm text-gray-500">{action.badge}</p>
+            )}
             <ActionFormFactory
-              type={action.form}
+              action={action}
               onRun={handleRunAction}
               loading={actionRunner.loading}
               actionColor={action.color}

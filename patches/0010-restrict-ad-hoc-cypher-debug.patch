@@ -1,0 +1,193 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index b486170..82d0017 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -649,9 +649,11 @@ Evidence:
+ - `LangGraphContextTools` exposes read-only program context, result set fetch,
+   OpenSearch sanitized search, safe graph template rendering, and sanitized
+   artifact previews while denying raw artifact access.
+-- `CypherGateway` blocks write clauses and `CALL`, enforces `$program_id`,
+-  wraps reads with an outer `LIMIT`, clamps timeout, executes through a Neo4j
+-  read executor, and records hashed query/parameter audit rows.
++- `CypherGateway` is restricted to explicit admin/debug use, blocks write
++  clauses and `CALL`, enforces `$program_id`, wraps reads with an outer
++  `LIMIT`, clamps timeout, executes through a Neo4j read executor, and records
++  hashed query/parameter audit rows. Agent/runtime graph access uses registered
++  graph templates via `LangGraphContextTools`.
+ - `LangGraphToolActionTool` creates existing `ActionRequest` contracts and
+   delegates to `ActionService.request_action`; it has no RabbitMQ, runner, or
+   direct persistence authority.
+diff --git a/src/api/application/cypher_gateway.py b/src/api/application/cypher_gateway.py
+index 47a78bc..da7b7ab 100644
+--- a/src/api/application/cypher_gateway.py
++++ b/src/api/application/cypher_gateway.py
+@@ -17,6 +17,13 @@ class CypherPolicyError(ValueError):
+     pass
+ 
+ 
++class CypherAccessDenied(PermissionError):
++    pass
++
++
++_DEBUG_ACTORS = frozenset({"admin", "operator", "debug"})
++
++
+ @dataclass(frozen=True, slots=True)
+ class CypherGatewayRequest:
+     program_id: UUID
+@@ -24,8 +31,9 @@ class CypherGatewayRequest:
+     parameters: dict[str, Any] = field(default_factory=dict)
+     limit: int = 100
+     timeout_seconds: float = 3.0
+-    actor: str = "langgraph"
++    actor: str = "api"
+     workflow_id: UUID | None = None
++    debug_approved: bool = False
+ 
+ 
+ @dataclass(frozen=True, slots=True)
+@@ -82,8 +90,9 @@ class CypherGateway:
+         }
+ 
+         try:
++            self._authorize_debug_access(request)
+             safe_query = self._safe_query(request.query)
+-        except CypherPolicyError as exc:
++        except (CypherAccessDenied, CypherPolicyError) as exc:
+             await self.audit_store.record_query(
+                 program_id=request.program_id,
+                 workflow_id=request.workflow_id,
+@@ -121,6 +130,15 @@ class CypherGateway:
+             timeout_seconds=timeout_seconds,
+         )
+ 
++    @staticmethod
++    def _authorize_debug_access(request: CypherGatewayRequest) -> None:
++        actor = request.actor.strip().lower()
++        if not request.debug_approved or actor not in _DEBUG_ACTORS:
++            raise CypherAccessDenied(
++                "ad-hoc Cypher is restricted to explicit admin/debug use; "
++                "agent and runtime graph access must use registered templates"
++            )
++
+     @staticmethod
+     def _safe_query(query: str) -> str:
+         stripped = query.strip().rstrip(";")
+diff --git a/src/api/presentation/rest/routes/graph.py b/src/api/presentation/rest/routes/graph.py
+index ba377d7..89f5a88 100644
+--- a/src/api/presentation/rest/routes/graph.py
++++ b/src/api/presentation/rest/routes/graph.py
+@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
+ 
+ from api.application.cypher_gateway import (
+     CypherGateway,
++    CypherAccessDenied,
+     CypherGatewayRequest,
+     CypherPolicyError,
+ )
+@@ -27,15 +28,18 @@ class CypherQueryRequest(BaseModel):
+     timeout_seconds: float = Field(default=3.0, gt=0, le=3.0)
+     actor: str = Field(default="api", min_length=1, max_length=100)
+     workflow_id: UUID | None = None
++    debug_approved: bool = False
+ 
+ 
+ @router.post("/cypher")
+-async def execute_cypher(
++async def execute_debug_cypher(
+     request: CypherQueryRequest,
+     gateway: FromDishka[CypherGateway],
+ ) -> dict[str, Any]:
+     try:
+         result = await gateway.execute(CypherGatewayRequest(**request.model_dump()))
++    except CypherAccessDenied as exc:
++        raise HTTPException(status_code=403, detail=str(exc)) from exc
+     except CypherPolicyError as exc:
+         raise HTTPException(status_code=400, detail=str(exc)) from exc
+ 
+diff --git a/tests/application/test_cypher_gateway.py b/tests/application/test_cypher_gateway.py
+index 9291e54..8012b0b 100644
+--- a/tests/application/test_cypher_gateway.py
++++ b/tests/application/test_cypher_gateway.py
+@@ -5,6 +5,7 @@ from uuid import uuid4
+ import pytest
+ 
+ from api.application.cypher_gateway import (
++    CypherAccessDenied,
+     CypherGateway,
+     CypherGatewayRequest,
+     CypherPolicyError,
+@@ -44,8 +45,9 @@ async def test_cypher_gateway_executes_read_query_with_program_boundary_limit_ti
+             parameters={"program_id": "attacker-controlled"},
+             limit=500,
+             timeout_seconds=99,
+-            actor="langgraph",
++            actor="admin",
+             workflow_id=uuid4(),
++            debug_approved=True,
+         )
+     )
+ 
+@@ -83,6 +85,8 @@ async def test_cypher_gateway_blocks_write_clauses_and_calls(query: str) -> None
+                 program_id=uuid4(),
+                 query=query,
+                 parameters={"program_id": "p"},
++                actor="admin",
++                debug_approved=True,
+             )
+         )
+ 
+@@ -95,5 +99,37 @@ async def test_cypher_gateway_requires_program_id_parameter_reference() -> None:
+             CypherGatewayRequest(
+                 program_id=uuid4(),
+                 query="MATCH (n) RETURN n",
++                actor="admin",
++                debug_approved=True,
++            )
++        )
++
++
++async def test_cypher_gateway_denies_default_api_actor_without_debug_approval() -> None:
++    audit = RecordingAuditStore()
++    gateway = CypherGateway(executor=RecordingExecutor(), audit_store=audit)
++
++    with pytest.raises(CypherAccessDenied, match="admin/debug"):
++        await gateway.execute(
++            CypherGatewayRequest(
++                program_id=uuid4(),
++                query="MATCH (n {program_id: $program_id}) RETURN n",
++            )
++        )
++
++    assert audit.records[0]["allowed"] is False
++    assert "registered templates" in audit.records[0]["reason"]
++
++
++async def test_cypher_gateway_denies_langgraph_actor_even_with_debug_flag() -> None:
++    gateway = CypherGateway(executor=RecordingExecutor(), audit_store=RecordingAuditStore())
++
++    with pytest.raises(CypherAccessDenied):
++        await gateway.execute(
++            CypherGatewayRequest(
++                program_id=uuid4(),
++                query="MATCH (n {program_id: $program_id}) RETURN n",
++                actor="langgraph",
++                debug_approved=True,
+             )
+         )
+diff --git a/tests/application/test_cypher_gateway_api_contract.py b/tests/application/test_cypher_gateway_api_contract.py
+index 3b4d4d0..554d981 100644
+--- a/tests/application/test_cypher_gateway_api_contract.py
++++ b/tests/application/test_cypher_gateway_api_contract.py
+@@ -10,7 +10,11 @@ def test_cypher_gateway_route_exposes_single_safe_boundary() -> None:
+ 
+     assert '@router.post("/cypher")' in route_source
+     assert "CypherGateway" in route_source
++    assert "debug_approved" in route_source
++    assert "CypherAccessDenied" in route_source
++    assert "status_code=403" in route_source
+     assert 'prefix="/api/v1/graph"' in router_source
+     assert "get_cypher_gateway" in di_source
++    assert "CypherGateway" not in Path("src/api/application/langgraph_context_tools.py").read_text(encoding="utf-8")
+     for forbidden in ("session.run", "GraphDatabase", "subprocess", "RabbitMQ"):
+         assert forbidden not in route_source

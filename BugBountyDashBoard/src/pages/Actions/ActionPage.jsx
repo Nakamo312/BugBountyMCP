@@ -1,16 +1,13 @@
-import { useState } from 'react'
 import { useProgram } from '@/context/ProgramContext'
 import { useActionRunner } from '@/components/actions/hooks/useActionRunner'
-import { ACTIONS } from '@/components/actions'
+import { useActionCatalog } from '@/components/actions/hooks/useActionCatalog'
 import ActionCard from '@/components/actions/ui/ActionCard'
 import ActionGrid from '@/components/actions/ui/ActionGrid'
-import ActionFormFactory from '@/components/actions/ui/ActionFormFactory'
-import ActionToast from '@/components/actions/ui/ActionToast'
 
 export default function ActionsPage() {
   const { selectedProgram } = useProgram()
   const actionRunner = useActionRunner(selectedProgram)
-  const [toastResult, setToastResult] = useState(null)
+  const { actions, loading, error } = useActionCatalog()
 
   if (!selectedProgram) {
     return (
@@ -20,31 +17,32 @@ export default function ActionsPage() {
     )
   }
 
-  const handleRunAction = async (action, data) => {
-    const result = await actionRunner.runAction(action, data)
-    if (result) setToastResult(result)
+  if (loading) {
+    return (
+      <div className="text-center py-10 text-gray-500">
+        Loading action catalog...
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-700">
+        Action catalog failed to load: {error}
+      </div>
+    )
   }
 
   return (
-    <>
-      <ActionGrid>
-        {ACTIONS.map(action => (
-          <ActionCard
-            key={action.id}
-            action={action}
-            actionRunner={actionRunner}
-            active={actionRunner?.activeAction === action.id}
-          >
-            <ActionFormFactory
-              type={action.form}
-              onRun={data => handleRunAction(action, data)}
-              loading={actionRunner?.loading || false}
-            />
-          </ActionCard>
-        ))}
-      </ActionGrid>
-
-      <ActionToast actionResult={toastResult} onClose={() => setToastResult(null)} />
-    </>
+    <ActionGrid>
+      {actions.map(action => (
+        <ActionCard
+          key={action.id}
+          action={action}
+          actionRunner={actionRunner}
+          active={actionRunner?.activeAction === action.id}
+        />
+      ))}
+    </ActionGrid>
   )
 }

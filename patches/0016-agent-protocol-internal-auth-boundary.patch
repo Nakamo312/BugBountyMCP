@@ -1,0 +1,267 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index e730062..7d5040e 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -46,7 +46,7 @@ integration, or live OpenSearch integration.
+ | M3 remove research-engine | Done | Standalone `services/research-engine` and its compose service are removed; sanitizer helpers remain in application code. |
+ | M4 Neo4j graph projection | Partial | GraphFact contracts, ontology, Neo4j projector, graph_fact_batches, apply loop, raw-artifact/http-observation/canonical-inventory enqueuing through rebuild, safe query templates, dedupe, notifications, and writer hardening exist. Remaining gaps are richer producer coverage and runtime smoke. |
+ | M5 OpenSearch expansion | Partial | Search-indexer exists with safe document builders, schema versioning and projection lag/readiness; missing-index expansion and producers remain. |
+-| M6 async agent protocol | Partial | Durable workflow/inbox/wait/result-set schema, EventStore routing, all five planned wait predicates including `campaign_quiescent`, automatic wait processing, claim/lease, and minimal REST protocol exist; auth/cancellation hardening remains. |
++| M6 async agent protocol | Partial | Durable workflow/inbox/wait/result-set schema, EventStore routing, all five planned wait predicates including `campaign_quiescent`, automatic wait processing, claim/lease, cancellation boundary, and internal-token guarded REST protocol exist. Live auth integration and end-to-end smoke remain. |
+ | M7 LangGraph workflows | Partial | The compiled pointer-only `StateGraph` durably interrupts for readiness and is automatically resumed after its wait condition resolves. Live end-to-end integration remains. |
+ 
+ ## Phase 0 - Architecture Baseline
+@@ -625,9 +625,11 @@ Evidence:
+   retry/checkpoint lifecycle to LangGraph instead of adding a second inbox retry
+   runtime.
+ - REST routes under `/api/v1/agent` expose the M6 agent protocol without raw
+-  execution shortcuts. Workflow cancellation persists the workflow/run terminal
+-  state, cancels pending subscriptions/inbox/wait edges for the run, and inbox
+-  handoff refuses to resume terminal workflow runs.
++  execution shortcuts. The router is guarded by an explicit internal boundary:
++  callers must send an allowed `X-Agent-Actor` and, unless the dev bypass is
++  explicitly enabled, a matching `X-Agent-Internal-Token`. Workflow cancellation
++  persists the workflow/run terminal state, cancels pending subscriptions/inbox/wait
++  edges for the run, and inbox handoff refuses to resume terminal workflow runs.
+ 
+ Gaps:
+ 
+@@ -639,11 +641,12 @@ Gaps:
+ - 0043 has result-set storage/upsert/list by stable result key and
+   action/campaign/workflow scope.
+ - 0044 has subscriptions, inbox claim/lease, inbox ack, workflow cancellation,
+-  wait-condition, and result-set REST APIs; richer auth boundaries remain.
++  wait-condition, result-set REST APIs, and an internal actor/token boundary.
+ 
+ Next action:
+ 
+-- Add richer auth boundaries for the agent protocol.
++- Add live end-to-end smoke for the agent protocol with auth headers, inbox
++  claim/lease, LangGraph handoff, and cancellation.
+ 
+ ## M7 - LangGraph Workflows To MVP
+ 
+diff --git a/src/api/config.py b/src/api/config.py
+index bcee806..4f398e9 100644
+--- a/src/api/config.py
++++ b/src/api/config.py
+@@ -51,6 +51,9 @@ class Settings(BaseSettings):
+     USE_AGENT_WAIT_PROCESSOR: bool = True
+     AGENT_WAIT_SWEEP_INTERVAL_SECONDS: float = 5.0
+     USE_AGENT_INBOX_PROCESSOR: bool = False
++    AGENT_PROTOCOL_INTERNAL_TOKEN: str | None = None
++    AGENT_PROTOCOL_ALLOWED_ACTORS: str = "agent-worker,operator,admin"
++    AGENT_PROTOCOL_ALLOW_UNAUTHENTICATED_INTERNAL: bool = False
+     AGENT_INBOX_CONSUMER_ID: str = "mvp-research-inbox-worker"
+     AGENT_INBOX_KEY: str = "mvp-hypothesis-builder"
+     AGENT_INBOX_CLAIM_LIMIT: int = 20
+diff --git a/src/api/presentation/rest/routes/agent_protocol.py b/src/api/presentation/rest/routes/agent_protocol.py
+index fc5b93d..416850b 100644
+--- a/src/api/presentation/rest/routes/agent_protocol.py
++++ b/src/api/presentation/rest/routes/agent_protocol.py
+@@ -5,14 +5,18 @@ from typing import Any
+ from uuid import UUID
+ 
+ from dishka.integrations.fastapi import DishkaRoute, FromDishka
+-from fastapi import APIRouter, Query
++from fastapi import APIRouter, Depends, Query
+ from pydantic import BaseModel, ConfigDict, Field
+ 
+ from api.application.langgraph_workflows import LangGraphWorkflowRuntime
+ from api.infrastructure.agent_coordination import AgentProtocolStore
++from api.presentation.rest.security import require_agent_protocol_internal_access
+ 
+ 
+-router = APIRouter(route_class=DishkaRoute)
++router = APIRouter(
++    route_class=DishkaRoute,
++    dependencies=[Depends(require_agent_protocol_internal_access)],
++)
+ 
+ 
+ class AgentSubscriptionCreateRequest(BaseModel):
+diff --git a/src/api/presentation/rest/security.py b/src/api/presentation/rest/security.py
+new file mode 100644
+index 0000000..1a36d56
+--- /dev/null
++++ b/src/api/presentation/rest/security.py
+@@ -0,0 +1,63 @@
++from __future__ import annotations
++
++import hmac
++from dataclasses import dataclass
++from typing import Annotated
++
++from fastapi import Header, HTTPException, Request, status
++
++
++@dataclass(frozen=True)
++class AgentProtocolPrincipal:
++    actor: str
++
++
++def _allowed_agent_protocol_actors(raw: str | None) -> set[str]:
++    actors = {actor.strip() for actor in (raw or "").split(",") if actor.strip()}
++    return actors or {"agent-worker", "operator", "admin"}
++
++
++def require_agent_protocol_internal_access(
++    request: Request,
++    x_agent_actor: Annotated[str | None, Header(alias="X-Agent-Actor")] = None,
++    x_agent_internal_token: Annotated[
++        str | None, Header(alias="X-Agent-Internal-Token")
++    ] = None,
++) -> AgentProtocolPrincipal:
++    """Guard agent coordination endpoints behind an explicit internal boundary.
++
++    Agent protocol routes coordinate durable inbox/result-set/workflow state.
++    They are not public product APIs and must not be callable by browser UI,
++    LangGraph tools, or anonymous clients.
++    """
++
++    settings = getattr(request.app.state, "settings", None)
++    actor = (x_agent_actor or "").strip()
++    allowed_actors = _allowed_agent_protocol_actors(
++        getattr(settings, "AGENT_PROTOCOL_ALLOWED_ACTORS", None)
++    )
++    if not actor or actor not in allowed_actors:
++        raise HTTPException(
++            status_code=status.HTTP_403_FORBIDDEN,
++            detail="agent protocol access denied",
++        )
++
++    configured_token = getattr(settings, "AGENT_PROTOCOL_INTERNAL_TOKEN", None)
++    allow_unauthenticated_dev = bool(
++        getattr(settings, "AGENT_PROTOCOL_ALLOW_UNAUTHENTICATED_INTERNAL", False)
++    )
++    if not configured_token:
++        if allow_unauthenticated_dev:
++            return AgentProtocolPrincipal(actor=actor)
++        raise HTTPException(
++            status_code=status.HTTP_403_FORBIDDEN,
++            detail="agent protocol internal token is not configured",
++        )
++
++    if not hmac.compare_digest(str(x_agent_internal_token or ""), str(configured_token)):
++        raise HTTPException(
++            status_code=status.HTTP_403_FORBIDDEN,
++            detail="agent protocol access denied",
++        )
++
++    return AgentProtocolPrincipal(actor=actor)
+diff --git a/tests/application/test_agent_protocol_api_contract.py b/tests/application/test_agent_protocol_api_contract.py
+index 199f1af..5bd4e7c 100644
+--- a/tests/application/test_agent_protocol_api_contract.py
++++ b/tests/application/test_agent_protocol_api_contract.py
+@@ -27,8 +27,13 @@ def test_agent_protocol_routes_expose_m6_coordination_endpoints() -> None:
+ 
+     assert "AgentProtocolStore" in source
+     assert "LangGraphWorkflowRuntime" in source
++    assert "Depends(require_agent_protocol_internal_access)" in source
+     assert "AgentProtocolStore" in di_source
+     assert "agent_protocol_router" in router_source
++    security_source = Path("src/api/presentation/rest/security.py").read_text(encoding="utf-8")
++    assert "X-Agent-Actor" in security_source
++    assert "X-Agent-Internal-Token" in security_source
++    assert "AGENT_PROTOCOL_INTERNAL_TOKEN" in Path("src/api/config.py").read_text(encoding="utf-8")
+     assert 'prefix="/api/v1/agent"' in router_source
+ 
+ 
+diff --git a/tests/application/test_agent_protocol_auth_boundary.py b/tests/application/test_agent_protocol_auth_boundary.py
+new file mode 100644
+index 0000000..31a63c4
+--- /dev/null
++++ b/tests/application/test_agent_protocol_auth_boundary.py
+@@ -0,0 +1,92 @@
++from __future__ import annotations
++
++from types import SimpleNamespace
++
++import pytest
++from fastapi import HTTPException
++
++from api.presentation.rest.security import require_agent_protocol_internal_access
++
++
++class _Request:
++    def __init__(self, settings: object) -> None:
++        self.app = SimpleNamespace(state=SimpleNamespace(settings=settings))
++
++
++def _settings(**overrides: object) -> object:
++    values = {
++        "AGENT_PROTOCOL_INTERNAL_TOKEN": "expected-token",
++        "AGENT_PROTOCOL_ALLOWED_ACTORS": "agent-worker,operator,admin",
++        "AGENT_PROTOCOL_ALLOW_UNAUTHENTICATED_INTERNAL": False,
++    }
++    values.update(overrides)
++    return SimpleNamespace(**values)
++
++
++def test_agent_protocol_access_requires_allowed_actor_and_matching_token() -> None:
++    principal = require_agent_protocol_internal_access(
++        _Request(_settings()),
++        x_agent_actor="agent-worker",
++        x_agent_internal_token="expected-token",
++    )
++
++    assert principal.actor == "agent-worker"
++
++
++@pytest.mark.parametrize(
++    ("actor", "token", "detail"),
++    (
++        (None, "expected-token", "agent protocol access denied"),
++        ("browser", "expected-token", "agent protocol access denied"),
++        ("agent-worker", None, "agent protocol access denied"),
++        ("agent-worker", "wrong-token", "agent protocol access denied"),
++    ),
++)
++def test_agent_protocol_access_rejects_missing_actor_or_invalid_token(
++    actor: str | None,
++    token: str | None,
++    detail: str,
++) -> None:
++    with pytest.raises(HTTPException) as exc_info:
++        require_agent_protocol_internal_access(
++            _Request(_settings()),
++            x_agent_actor=actor,
++            x_agent_internal_token=token,
++        )
++
++    assert exc_info.value.status_code == 403
++    assert exc_info.value.detail == detail
++
++
++def test_agent_protocol_access_fails_closed_when_token_is_not_configured() -> None:
++    with pytest.raises(HTTPException) as exc_info:
++        require_agent_protocol_internal_access(
++            _Request(_settings(AGENT_PROTOCOL_INTERNAL_TOKEN=None)),
++            x_agent_actor="agent-worker",
++            x_agent_internal_token="anything",
++        )
++
++    assert exc_info.value.status_code == 403
++    assert exc_info.value.detail == "agent protocol internal token is not configured"
++
++
++def test_agent_protocol_dev_bypass_still_requires_allowed_actor() -> None:
++    settings = _settings(
++        AGENT_PROTOCOL_INTERNAL_TOKEN=None,
++        AGENT_PROTOCOL_ALLOW_UNAUTHENTICATED_INTERNAL=True,
++    )
++
++    principal = require_agent_protocol_internal_access(
++        _Request(settings),
++        x_agent_actor="operator",
++        x_agent_internal_token=None,
++    )
++
++    assert principal.actor == "operator"
++
++    with pytest.raises(HTTPException):
++        require_agent_protocol_internal_access(
++            _Request(settings),
++            x_agent_actor="browser",
++            x_agent_internal_token=None,
++        )

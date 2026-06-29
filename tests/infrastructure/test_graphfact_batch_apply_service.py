@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID, uuid4
+from tests.infrastructure.graph_projector_cli_test_helpers import graph_projector_cli_source
 
 
 def _apply_symbols():
@@ -42,11 +43,11 @@ class FakeBatchStore:
         self.calls.append(StoreCall("claim_next", (worker_id, lock_seconds, max_attempts)))
         return self.claimed
 
-    def mark_applied(self, batch_id: UUID) -> None:
-        self.calls.append(StoreCall("mark_applied", (batch_id,)))
+    def mark_applied(self, batch_id: UUID, *, worker_id: str) -> None:
+        self.calls.append(StoreCall("mark_applied", (batch_id, worker_id)))
 
-    def mark_failed(self, batch_id: UUID, *, error: str, dead: bool) -> None:
-        self.calls.append(StoreCall("mark_failed", (batch_id, error, dead)))
+    def mark_failed(self, batch_id: UUID, *, error: str, dead: bool, worker_id: str) -> None:
+        self.calls.append(StoreCall("mark_failed", (batch_id, error, dead, worker_id)))
 
 
 class SequenceBatchStore:
@@ -60,11 +61,11 @@ class SequenceBatchStore:
             return None
         return self.claimed_batches.pop(0)
 
-    def mark_applied(self, batch_id: UUID) -> None:
-        self.calls.append(StoreCall("mark_applied", (batch_id,)))
+    def mark_applied(self, batch_id: UUID, *, worker_id: str) -> None:
+        self.calls.append(StoreCall("mark_applied", (batch_id, worker_id)))
 
-    def mark_failed(self, batch_id: UUID, *, error: str, dead: bool) -> None:
-        self.calls.append(StoreCall("mark_failed", (batch_id, error, dead)))
+    def mark_failed(self, batch_id: UUID, *, error: str, dead: bool, worker_id: str) -> None:
+        self.calls.append(StoreCall("mark_failed", (batch_id, error, dead, worker_id)))
 
 
 class FakeSession:
@@ -222,7 +223,7 @@ def test_graph_projector_settings_parse_postgres_connection(monkeypatch) -> None
 
 
 def test_apply_one_cli_command_is_exposed_without_producer_loop() -> None:
-    source = Path("services/graph-projector/graph_projector/__main__.py").read_text(encoding="utf-8")
+    source = graph_projector_cli_source()
 
     assert 'subparsers.add_parser("apply-one"' in source
     assert "GraphFactBatchApplicator" in source
@@ -344,12 +345,12 @@ def test_graphfact_batch_notification_waiter_listens_to_configured_channel() -> 
     source = Path("services/graph-projector/graph_projector/applicator.py").read_text(encoding="utf-8")
 
     assert "class GraphFactBatchNotificationWaiter" in source
-    assert "LISTEN" in source
+    assert "listen_statement" in source
     assert "graph_fact_batches_changed" in source
 
 
 def test_apply_loop_cli_command_is_exposed_without_producers() -> None:
-    source = Path("services/graph-projector/graph_projector/__main__.py").read_text(encoding="utf-8")
+    source = graph_projector_cli_source()
 
     assert 'subparsers.add_parser("apply-loop"' in source
     assert "apply_loop" in source
@@ -431,3 +432,22 @@ def test_applicator_marks_skipped_edge_batch_dead_after_final_attempt() -> None:
     assert store.calls[-1].name == "mark_failed"
     assert store.calls[-1].args[1] == "GraphFactBatch skipped 2 edge(s); missing endpoint nodes may arrive later"
     assert store.calls[-1].args[2] is True
+
+
+def test_graph_fact_batch_state_transitions_use_worker_lease_guard() -> None:
+    _, _, Store, *_ = _apply_symbols()
+    applied_sql = next(
+        value
+        for value in Store.mark_applied.__code__.co_consts
+        if isinstance(value, str) and "UPDATE graph_fact_batches" in value
+    )
+    failed_sql = next(
+        value
+        for value in Store.mark_failed.__code__.co_consts
+        if isinstance(value, str) and "UPDATE graph_fact_batches" in value
+    )
+
+    assert "AND status = 'locked'" in applied_sql
+    assert "AND locked_by = %(worker_id)s" in applied_sql
+    assert "AND status = 'locked'" in failed_sql
+    assert "AND locked_by = %(worker_id)s" in failed_sql

@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from tests.infrastructure.graph_projector_cli_test_helpers import graph_projector_cli_source
 
 
 def _symbols():
@@ -139,7 +140,7 @@ def test_http_observation_producer_builds_asset_graphfacts() -> None:
 
     assert batch is not None
     assert batch.program_id == row["program_id"]
-    assert batch.produced_by == "httpx-observation-producer"
+    assert batch.produced_by == "http-observation-producer"
     assert batch.parser_version == "http-observations.v1"
 
     svc_key = "api.example.com:443/https"
@@ -182,6 +183,103 @@ def test_http_observation_producer_builds_asset_graphfacts() -> None:
         assert fact.confidence == 1.0
 
 
+@pytest.mark.parametrize("source_tool", ["httpx", "katana", "ffuf", "playwright"])
+def test_http_observation_producer_supports_lineage_backed_http_tools(source_tool: str) -> None:
+    HttpObservationGraphFactProducer, _, _, _ = _symbols()
+    row = _observation_row(source_tool=source_tool)
+
+    batch = HttpObservationGraphFactProducer().produce([row])
+
+    assert batch is not None
+    assert batch.produced_by == "http-observation-producer"
+    assert {fact.producer for fact in batch.facts} == {source_tool}
+    assert any(getattr(fact, "kind", None) == "Observation" for fact in batch.facts)
+
+
+def test_http_observation_producer_links_observation_to_artifact_and_entities() -> None:
+    HttpObservationGraphFactProducer, _, _, _ = _symbols()
+    row = _observation_row()
+
+    batch = HttpObservationGraphFactProducer(parser_version="http-observations.v1").produce([row])
+
+    assert batch is not None
+    observation_key = str(row["observation_id"])
+    svc_key = "api.example.com:443/https"
+    endpoint_key = "api.example.com:443/https:GET:/v1/users/{id}"
+    node_facts = {(fact.kind, fact.key) for fact in batch.facts if hasattr(fact, "kind")}
+    assert ("Artifact", str(row["raw_artifact_id"])) in node_facts
+    assert ("Observation", observation_key) in node_facts
+
+    artifact_fact = next(fact for fact in batch.facts if getattr(fact, "kind", None) == "Artifact")
+    observation_fact = next(
+        fact for fact in batch.facts if getattr(fact, "kind", None) == "Observation"
+    )
+    assert artifact_fact.properties["artifact_id"] == str(row["raw_artifact_id"])
+    assert observation_fact.properties["observation_id"] == observation_key
+    assert observation_fact.properties["observation_type"] == "http_observation"
+    assert observation_fact.properties["parser_version"] == "http-observations.v1"
+
+    edge_facts = {
+        (fact.src_kind, fact.src_key, fact.edge_kind, fact.dst_kind, fact.dst_key)
+        for fact in batch.facts
+        if hasattr(fact, "edge_kind")
+    }
+    assert (
+        "Artifact",
+        str(row["raw_artifact_id"]),
+        "PRODUCED_OBSERVATION",
+        "Observation",
+        observation_key,
+    ) in edge_facts
+    assert ("Observation", observation_key, "DESCRIBES", "Host", "api.example.com") in edge_facts
+    assert ("Observation", observation_key, "DESCRIBES", "IP", "203.0.113.10") in edge_facts
+    assert ("Observation", observation_key, "DESCRIBES", "Service", svc_key) in edge_facts
+    assert ("Observation", observation_key, "DESCRIBES", "Endpoint", endpoint_key) in edge_facts
+
+
+def test_http_observation_producer_projects_query_parameters() -> None:
+    HttpObservationGraphFactProducer, _, _, _ = _symbols()
+    row = _observation_row(
+        url="https://api.example.com/v1/users/123?user_id=123&debug=true",
+    )
+
+    batch = HttpObservationGraphFactProducer(parser_version="http-observations.v1").produce([row])
+
+    assert batch is not None
+    endpoint_key = "api.example.com:443/https:GET:/v1/users/{id}"
+    user_id_key = f"{endpoint_key}:query:user_id"
+    debug_key = f"{endpoint_key}:query:debug"
+    node_facts = {(fact.kind, fact.key) for fact in batch.facts if hasattr(fact, "kind")}
+    assert ("Parameter", user_id_key) in node_facts
+    assert ("Parameter", debug_key) in node_facts
+
+    user_id = next(fact for fact in batch.facts if getattr(fact, "key", None) == user_id_key)
+    assert user_id.properties == {
+        "endpoint_location_name": user_id_key,
+        "endpoint_key": endpoint_key,
+        "location": "query",
+        "name": "user_id",
+        "param_type": "string",
+        "is_array": False,
+    }
+    assert all("123" not in fact.properties.values() for fact in batch.facts)
+
+    edge_facts = {
+        (fact.src_kind, fact.src_key, fact.edge_kind, fact.dst_kind, fact.dst_key)
+        for fact in batch.facts
+        if hasattr(fact, "edge_kind")
+    }
+    assert ("Endpoint", endpoint_key, "HAS_PARAM", "Parameter", user_id_key) in edge_facts
+    assert ("Endpoint", endpoint_key, "HAS_PARAM", "Parameter", debug_key) in edge_facts
+    assert (
+        "Observation",
+        str(row["observation_id"]),
+        "DESCRIBES",
+        "Parameter",
+        user_id_key,
+    ) in edge_facts
+
+
 def test_http_observation_producer_deduplicates_repeated_rows() -> None:
     HttpObservationGraphFactProducer, _, _, _ = _symbols()
     row = _observation_row()
@@ -189,7 +287,7 @@ def test_http_observation_producer_deduplicates_repeated_rows() -> None:
     batch = HttpObservationGraphFactProducer().produce([row, dict(row, observation_id=uuid4())])
 
     assert batch is not None
-    assert len(batch.facts) == 7
+    assert len(batch.facts) == 20
     identity_keys = [fact.identity_key for fact in batch.facts]
     assert len(identity_keys) == len(set(identity_keys))
 
@@ -216,7 +314,7 @@ def test_http_observation_producer_preserves_distinct_lineage_for_same_graph_ide
     batch = HttpObservationGraphFactProducer().produce([first, second])
 
     assert batch is not None
-    assert len(batch.facts) == 14
+    assert len(batch.facts) == 28
     endpoint_facts = [
         fact
         for fact in batch.facts
@@ -240,19 +338,16 @@ def test_http_observation_producer_skips_rows_without_run_or_artifact_lineage() 
     assert HttpObservationGraphFactProducer().produce([_observation_row(raw_artifact_id=None)]) is None
 
 
-def test_http_observation_producer_skips_non_httpx_rows() -> None:
+def test_http_observation_producer_accepts_new_source_tools_for_canonical_rows() -> None:
     HttpObservationGraphFactProducer, _, _, _ = _symbols()
     program_id = uuid4()
     httpx_row = _observation_row(program_id=program_id)
-    katana_row = _observation_row(program_id=program_id, source_tool="katana")
+    arjun_row = _observation_row(program_id=program_id, source_tool="arjun")
 
-    assert HttpObservationGraphFactProducer().produce([katana_row]) is None
-
-    batch = HttpObservationGraphFactProducer().produce([httpx_row, katana_row])
+    batch = HttpObservationGraphFactProducer().produce([httpx_row, arjun_row])
 
     assert batch is not None
-    assert len(batch.facts) == 7
-    assert all(fact.producer == "httpx" for fact in batch.facts)
+    assert {fact.producer for fact in batch.facts} == {"httpx", "arjun"}
 
 
 def test_http_observation_producer_rejects_mixed_program_rows() -> None:
@@ -375,13 +470,16 @@ def test_http_observation_enqueuer_claims_ready_events_and_enqueues_one_batch_pe
     assert "host_ips" in query
     assert "ho.run_id IS NOT NULL" in query
     assert "ho.raw_artifact_id IS NOT NULL" in query
-    assert "ho.source_tool = 'httpx'" in query
+    assert "ho.source_tool IS NOT NULL" in query
+    assert "ho.source_tool != ''" in query
+    assert "source_tool = ANY" not in query
+    assert "source_tools" not in parameters
     assert parameters["limit"] == 25
     assert parameters["worker_id"] == "worker-http"
     assert parameters["max_attempts"] == 3
     batch, dedupe_key = store.calls[0]
     assert batch.program_id == row["program_id"]
-    assert len(batch.facts) == 9
+    assert len(batch.facts) == 22
     assert dedupe_key == dedupe_key_fn(raw_artifact_id, "http-observations.v1")
     processed_call = next(call for call in connection.cursor_obj.calls if "SET status = 'processed'" in call[0])
     assert "WHERE id = %(event_id)s" in processed_call[0]
@@ -499,8 +597,8 @@ def test_http_observation_enqueue_loop_validates_inputs() -> None:
         HttpObservationEnqueueLoopResult.run(enqueuer, limit=1, poll_seconds=-0.1)
 
 
-def test_enqueue_http_observations_cli_settings_and_compose_service_are_exposed() -> None:
-    main_source = Path("services/graph-projector/graph_projector/__main__.py").read_text(encoding="utf-8")
+def test_http_observation_enqueue_loop_is_not_exposed_as_dedicated_compose_service() -> None:
+    main_source = graph_projector_cli_source()
     settings_source = Path("services/graph-projector/graph_projector/settings.py").read_text(encoding="utf-8")
     compose_source = Path("docker-compose.yml").read_text(encoding="utf-8")
 
@@ -512,7 +610,8 @@ def test_enqueue_http_observations_cli_settings_and_compose_service_are_exposed(
     assert "HTTP_OBSERVATION_ENQUEUE_LIMIT" in settings_source
     assert "http_observation_enqueue_poll_seconds" in settings_source
     assert "HTTP_OBSERVATION_ENQUEUE_POLL_SECONDS" in settings_source
-    assert "graph-projector-http-observation-enqueuer" in compose_source
-    assert "HTTP_OBSERVATION_ENQUEUE_LIMIT" in compose_source
-    assert "HTTP_OBSERVATION_ENQUEUE_POLL_SECONDS" in compose_source
-    assert 'command: ["enqueue-http-observations-loop"]' in compose_source
+    assert "graph-projector-canonical-fact-enqueuer" not in compose_source
+    assert "graph-projector-http-observation-enqueuer" not in compose_source
+    assert "HTTP_OBSERVATION_ENQUEUE_LIMIT" not in compose_source
+    assert "HTTP_OBSERVATION_ENQUEUE_POLL_SECONDS" not in compose_source
+    assert 'command: ["enqueue-http-observations-loop"]' not in compose_source

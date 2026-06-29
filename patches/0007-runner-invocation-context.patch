@@ -1,0 +1,2025 @@
+diff --git a/src/api/application/contracts.py b/src/api/application/contracts.py
+index d5cf787..f7a6d77 100644
+--- a/src/api/application/contracts.py
++++ b/src/api/application/contracts.py
+@@ -1,107 +1,107 @@
+-"""Typed application contracts used across orchestration and MCP boundaries."""
+-from __future__ import annotations
+-
+-from dataclasses import dataclass
+-from datetime import datetime, timezone
+-from enum import Enum
+-from typing import Any
+-from uuid import UUID, uuid4
+-
++"""Typed application contracts used across orchestration and MCP boundaries."""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from enum import Enum
++from typing import Any
++from uuid import UUID, uuid4
++
+ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
+ 
+ from api.application.execution_limits import (
+     ExecutionBudget,
+     ExecutionBudgetRequest,
+ )
+-
+-
+-class ActionKind(str, Enum):
+-    SCAN = "scan"
+-    ANALYSIS = "analysis"
+-    TRIAGE = "triage"
+-
+-
+-class PolicyDecisionStatus(str, Enum):
+-    ALLOWED = "allowed"
+-    BLOCKED = "blocked"
+-    REQUIRES_APPROVAL = "requires_approval"
+-    REJECTED = "rejected"
+-
+-
+-class ActionStatus(str, Enum):
+-    QUEUED = "queued"
+-    BLOCKED = "blocked"
+-    REQUIRES_APPROVAL = "requires_approval"
+-    REJECTED = "rejected"
+-
+-
+-class ExecutionStatus(str, Enum):
+-    QUEUED = "queued"
+-    LEASED = "leased"
+-    RUNNING = "running"
+-    FLUSHING = "flushing"
+-    COMPLETED = "completed"
+-    FAILED = "failed"
+-    DEAD = "dead"
+-    CANCELLED = "cancelled"
+-
+-
+-class ExecutionMode(str, Enum):
+-    INLINE = "inline"
+-    SCHEDULED = "scheduled"
+-
+-
+-class TerminalOutcome(str, Enum):
+-    COMPLETED = "completed"
+-    PARTIAL = "partial"
+-    TOOL_FAILED = "tool_failed"
+-    SKIPPED = "skipped"
+-    POLICY_BLOCKED = "policy_blocked"
+-
+-
+-class SafetyLevel(str, Enum):
+-    PASSIVE = "passive"
+-    SAFE_ACTIVE = "safe_active"
+-    ACTIVE = "active"
+-    SENSITIVE = "sensitive"
+-
+-
+-class EventEnvelope(BaseModel):
+-    """Stable event envelope for RabbitMQ and future event-store replay."""
+-
+-    model_config = ConfigDict(extra="allow")
+-
+-    event_id: UUID = Field(default_factory=uuid4)
+-    event: str = Field(..., min_length=1)
+-    program_id: UUID
+-    targets: list[str] = Field(default_factory=list)
+-    source: str = "unknown"
+-    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+-    job_id: UUID = Field(default_factory=uuid4)
++
++
++class ActionKind(str, Enum):
++    SCAN = "scan"
++    ANALYSIS = "analysis"
++    TRIAGE = "triage"
++
++
++class PolicyDecisionStatus(str, Enum):
++    ALLOWED = "allowed"
++    BLOCKED = "blocked"
++    REQUIRES_APPROVAL = "requires_approval"
++    REJECTED = "rejected"
++
++
++class ActionStatus(str, Enum):
++    QUEUED = "queued"
++    BLOCKED = "blocked"
++    REQUIRES_APPROVAL = "requires_approval"
++    REJECTED = "rejected"
++
++
++class ExecutionStatus(str, Enum):
++    QUEUED = "queued"
++    LEASED = "leased"
++    RUNNING = "running"
++    FLUSHING = "flushing"
++    COMPLETED = "completed"
++    FAILED = "failed"
++    DEAD = "dead"
++    CANCELLED = "cancelled"
++
++
++class ExecutionMode(str, Enum):
++    INLINE = "inline"
++    SCHEDULED = "scheduled"
++
++
++class TerminalOutcome(str, Enum):
++    COMPLETED = "completed"
++    PARTIAL = "partial"
++    TOOL_FAILED = "tool_failed"
++    SKIPPED = "skipped"
++    POLICY_BLOCKED = "policy_blocked"
++
++
++class SafetyLevel(str, Enum):
++    PASSIVE = "passive"
++    SAFE_ACTIVE = "safe_active"
++    ACTIVE = "active"
++    SENSITIVE = "sensitive"
++
++
++class EventEnvelope(BaseModel):
++    """Stable event envelope for RabbitMQ and future event-store replay."""
++
++    model_config = ConfigDict(extra="allow")
++
++    event_id: UUID = Field(default_factory=uuid4)
++    event: str = Field(..., min_length=1)
++    program_id: UUID
++    targets: list[str] = Field(default_factory=list)
++    source: str = "unknown"
++    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
++    job_id: UUID = Field(default_factory=uuid4)
+     run_id: UUID = Field(default_factory=uuid4)
+     campaign_id: UUID | None = None
+     correlation_id: UUID = Field(default_factory=uuid4)
+     causation_id: UUID | None = None
+     expansion_depth: int = Field(default=0, ge=0)
+     profile: str | None = None
+-    payload: dict[str, Any] = Field(default_factory=dict)
+-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+-
+-    @field_validator("targets")
+-    @classmethod
+-    def targets_must_be_strings(cls, value: list[str]) -> list[str]:
+-        return [target for target in value if isinstance(target, str) and target.strip()]
+-
+-    @classmethod
+-    def from_legacy(cls, event: dict[str, Any]) -> "EventEnvelope":
+-        """Normalize the current loose event dict into a typed envelope."""
+-        payload = dict(event)
+-        known = {
+-            "event",
+-            "program_id",
+-            "targets",
+-            "source",
+-            "confidence",
++    payload: dict[str, Any] = Field(default_factory=dict)
++    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
++
++    @field_validator("targets")
++    @classmethod
++    def targets_must_be_strings(cls, value: list[str]) -> list[str]:
++        return [target for target in value if isinstance(target, str) and target.strip()]
++
++    @classmethod
++    def from_legacy(cls, event: dict[str, Any]) -> "EventEnvelope":
++        """Normalize the current loose event dict into a typed envelope."""
++        payload = dict(event)
++        known = {
++            "event",
++            "program_id",
++            "targets",
++            "source",
++            "confidence",
+             "job_id",
+             "run_id",
+             "campaign_id",
+@@ -109,45 +109,45 @@ class EventEnvelope(BaseModel):
+             "causation_id",
+             "expansion_depth",
+             "profile",
+-            "payload",
+-            "created_at",
+-            "event_id",
+-        }
+-        extra_payload = {key: payload.pop(key) for key in list(payload) if key not in known}
+-        if "target" in extra_payload and "targets" not in event:
+-            payload["targets"] = [extra_payload["target"]]
+-        payload["payload"] = {**extra_payload, **payload.get("payload", {})}
+-        return cls(**payload)
+-
+-    def to_legacy_dict(self) -> dict[str, Any]:
+-        """Return a dict compatible with existing consumers during migration."""
+-        data = self.model_dump(mode="json")
+-        data["target"] = self.targets[0] if self.targets else None
+-        data.update(self.payload)
+-        return data
+-
+-
+-@dataclass(frozen=True)
+-class EventDispatchRecord:
+-    """Leased delivery work for one stored event and one destination."""
+-
+-    dispatch_id: UUID
+-    event_id: UUID
+-    destination: str
+-    routing_key: str
+-    attempts: int
+-    envelope: EventEnvelope
+-
+-
+-class ScanProfile(BaseModel):
+-    """Validated scan profile request. Runner adapters must only use allowed options."""
+-
+-    capability_id: str
+-    profile_id: str
+-    targets: list[str] = Field(min_length=1)
+-    options: dict[str, Any] = Field(default_factory=dict)
+-
+-
++            "payload",
++            "created_at",
++            "event_id",
++        }
++        extra_payload = {key: payload.pop(key) for key in list(payload) if key not in known}
++        if "target" in extra_payload and "targets" not in event:
++            payload["targets"] = [extra_payload["target"]]
++        payload["payload"] = {**extra_payload, **payload.get("payload", {})}
++        return cls(**payload)
++
++    def to_legacy_dict(self) -> dict[str, Any]:
++        """Return a dict compatible with existing consumers during migration."""
++        data = self.model_dump(mode="json")
++        data["target"] = self.targets[0] if self.targets else None
++        data.update(self.payload)
++        return data
++
++
++@dataclass(frozen=True)
++class EventDispatchRecord:
++    """Leased delivery work for one stored event and one destination."""
++
++    dispatch_id: UUID
++    event_id: UUID
++    destination: str
++    routing_key: str
++    attempts: int
++    envelope: EventEnvelope
++
++
++class ScanProfile(BaseModel):
++    """Validated scan profile request. Runner adapters must only use allowed options."""
++
++    capability_id: str
++    profile_id: str
++    targets: list[str] = Field(min_length=1)
++    options: dict[str, Any] = Field(default_factory=dict)
++
++
+ class ActionRequest(BaseModel):
+     """Public action request selected by active catalog entry."""
+ 
+@@ -213,20 +213,20 @@ class ActionRequest(BaseModel):
+             self._effective_budget = execution_budget
+         return self
+ 
+-
+-class PolicyDecision(BaseModel):
+-    """Result of checking scope, rate, approval, and capability policy."""
+-
+-    decision_id: UUID = Field(default_factory=uuid4)
+-    action_id: UUID
+-    status: PolicyDecisionStatus
+-    reasons: list[str] = Field(default_factory=list)
+-    allowed_targets: list[str] = Field(default_factory=list)
+-    blocked_targets: list[str] = Field(default_factory=list)
+-    safety_level: SafetyLevel | None = None
+-    metadata: dict[str, Any] = Field(default_factory=dict)
+-
+-
++
++class PolicyDecision(BaseModel):
++    """Result of checking scope, rate, approval, and capability policy."""
++
++    decision_id: UUID = Field(default_factory=uuid4)
++    action_id: UUID
++    status: PolicyDecisionStatus
++    reasons: list[str] = Field(default_factory=list)
++    allowed_targets: list[str] = Field(default_factory=list)
++    blocked_targets: list[str] = Field(default_factory=list)
++    safety_level: SafetyLevel | None = None
++    metadata: dict[str, Any] = Field(default_factory=dict)
++
++
+ class ActionSubmission(BaseModel):
+     """Result returned to the control plane after policy and enqueue decisions."""
+ 
+@@ -243,20 +243,20 @@ class ActionSubmission(BaseModel):
+     events_url: str | None = None
+     result_url: str | None = None
+     policy_decision: PolicyDecision
+-
+-
++
++
+ class ActionRecord(BaseModel):
+     """Stored control-plane action summary for review and approval queues."""
+-
+-    action_id: UUID
+-    program_id: UUID
+-    kind: ActionKind
+-    capability_id: str
+-    profile_id: str
+-    requested_by: str
+-    status: ActionStatus
+-    targets: list[str] = Field(default_factory=list)
+-    options: dict[str, Any] = Field(default_factory=dict)
++
++    action_id: UUID
++    program_id: UUID
++    kind: ActionKind
++    capability_id: str
++    profile_id: str
++    requested_by: str
++    status: ActionStatus
++    targets: list[str] = Field(default_factory=list)
++    options: dict[str, Any] = Field(default_factory=dict)
+     created_at: datetime
+     updated_at: datetime
+ 
+@@ -352,18 +352,68 @@ class ToolInvocation(BaseModel):
+         return [str(target).strip() for target in candidates if str(target).strip()]
+ 
+ 
++class RunnerInvocationContext(BaseModel):
++    """Current runner execution context for downstream pipeline events.
++
++    This is deliberately not a ToolInvocation. It identifies the node that is
++    currently executing and may carry inherited action ceilings, but it does
++    not pretend that a downstream worker is the original capability/profile.
++    """
++
++    model_config = ConfigDict(extra="forbid")
++
++    job_id: UUID | None = None
++    run_id: UUID | None = None
++    program_id: UUID
++    node_id: str = Field(..., min_length=1)
++    targets: list[str] = Field(default_factory=list)
++    options: dict[str, Any] = Field(default_factory=dict)
++    execution_budget: ExecutionBudget | None = None
++    safety_level: SafetyLevel | None = None
++    scope_decision_id: UUID | None = None
++    policy_decision_id: UUID | None = None
++    campaign_id: UUID | None = None
++    correlation_id: UUID | None = None
++    requested_by: str | None = None
++    source_event_id: UUID | None = None
++    parent_artifact_id: UUID | None = None
++    root_action_id: UUID | None = None
++    root_capability_id: str | None = None
++    root_profile_id: str | None = None
++    upstream_node_id: str | None = None
++    payload: dict[str, Any] = Field(default_factory=dict)
++
++    @field_validator("targets", mode="before")
++    @classmethod
++    def normalize_targets(cls, value: Any) -> list[str]:
++        if value is None:
++            return []
++        if isinstance(value, str):
++            candidates = [value]
++        else:
++            candidates = list(value)
++        return [str(target).strip() for target in candidates if str(target).strip()]
++
++    def downstream_payload(self) -> dict[str, Any]:
++        """Return compact JSON-safe context for a downstream event payload."""
++        data = self.model_dump(mode="json", exclude_none=True, exclude={"payload"})
++        data["target_count"] = len(self.targets)
++        data.pop("targets", None)
++        return data
++
++
+ class ToolResult(BaseModel):
+-    """Normalized result metadata for runner output before ingestion."""
+-
+-    run_id: UUID
+-    capability_id: str
+-    status: str
+-    result_count: int = 0
+-    raw_ref: str | None = None
+-    metadata: dict[str, Any] = Field(default_factory=dict)
+-
+-
+-@dataclass(frozen=True)
++    """Normalized result metadata for runner output before ingestion."""
++
++    run_id: UUID
++    capability_id: str
++    status: str
++    result_count: int = 0
++    raw_ref: str | None = None
++    metadata: dict[str, Any] = Field(default_factory=dict)
++
++
++@dataclass(frozen=True)
+ class NodeRunClaim:
+     """Durable ownership claim for one pipeline node handling one trigger."""
+ 
+@@ -373,36 +423,36 @@ class NodeRunClaim:
+     terminal_outcome: TerminalOutcome | None = None
+     created: bool = False
+     blocked_reason: str | None = None
+-
+-    @property
++
++    @property
+     def is_terminal(self) -> bool:
+         return self.terminal_outcome in {
+-            TerminalOutcome.COMPLETED,
+-            TerminalOutcome.PARTIAL,
+-            TerminalOutcome.TOOL_FAILED,
+-            TerminalOutcome.SKIPPED,
++            TerminalOutcome.COMPLETED,
++            TerminalOutcome.PARTIAL,
++            TerminalOutcome.TOOL_FAILED,
++            TerminalOutcome.SKIPPED,
+             TerminalOutcome.POLICY_BLOCKED,
+         }
+ 
+     @property
+     def is_blocked(self) -> bool:
+         return self.blocked_reason is not None
+-
+-
+-@dataclass(frozen=True)
+-class ScheduledNodeRun:
+-    """Leased scheduled node run plus reconstructed input event."""
+-
+-    run_id: UUID
+-    node_id: str
+-    event: dict[str, Any]
+-
+-
+-@dataclass(frozen=True)
+-class IngestContext:
+-    """Run and artifact identity supplied to result ingestors."""
+-
+-    job_id: UUID | None = None
+-    run_id: UUID | None = None
+-    correlation_id: UUID | None = None
+-    raw_artifact_id: UUID | None = None
++
++
++@dataclass(frozen=True)
++class ScheduledNodeRun:
++    """Leased scheduled node run plus reconstructed input event."""
++
++    run_id: UUID
++    node_id: str
++    event: dict[str, Any]
++
++
++@dataclass(frozen=True)
++class IngestContext:
++    """Run and artifact identity supplied to result ingestors."""
++
++    job_id: UUID | None = None
++    run_id: UUID | None = None
++    correlation_id: UUID | None = None
++    raw_artifact_id: UUID | None = None
+diff --git a/src/api/application/pipeline/context.py b/src/api/application/pipeline/context.py
+index 81c0af7..2fda2db 100644
+--- a/src/api/application/pipeline/context.py
++++ b/src/api/application/pipeline/context.py
+@@ -13,6 +13,7 @@ from api.infrastructure.artifacts.raw_artifact_repository import RawArtifactRepo
+ from api.config import Settings
+ from api.application.contracts import EventEnvelope, ExecutionStatus, IngestContext, TerminalOutcome
+ from api.application.pipeline.scope_policy import ScopePolicy
++from api.application.pipeline.invocation import RUNNER_CONTEXT_PAYLOAD_KEY
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -61,6 +62,8 @@ class PipelineContext:
+         self.correlation_id: UUID | None = None
+         self.expansion_depth: int = 0
+         self.execution_lineage: dict[str, Any] = {}
++        self.upstream_runner_context: dict[str, Any] = {}
++        self.current_runner_context: dict[str, Any] = {}
+         self.downstream_parent_artifact_id: UUID | None = None
+         self.retry_policy: dict[str, Any] = {
+             "max_attempts": 1,
+@@ -77,6 +80,7 @@ class PipelineContext:
+         self.correlation_id = self._optional_uuid(event.get("correlation_id"))
+         self.expansion_depth = max(0, int(event.get("expansion_depth", 0) or 0))
+         self.execution_lineage = self._extract_execution_lineage(event)
++        self.upstream_runner_context = self._extract_runner_context(event)
+         self.downstream_parent_artifact_id = self._optional_uuid(
+             event.get("parent_artifact_id")
+             or self._payload_mapping(event).get("parent_artifact_id")
+@@ -149,10 +153,28 @@ class PipelineContext:
+         """Attach the current raw artifact as parent lineage for emitted events."""
+         self.downstream_parent_artifact_id = artifact_id
+ 
++    def set_current_runner_context(self, context: Any) -> None:
++        """Attach current-node execution context to downstream event payloads."""
++        if hasattr(context, "downstream_payload"):
++            payload = context.downstream_payload()
++        elif hasattr(context, "model_dump"):
++            payload = context.model_dump(mode="json", exclude_none=True)
++        elif isinstance(context, Mapping):
++            payload = dict(context)
++        else:
++            payload = {}
++        self.current_runner_context = {
++            str(key): self._json_safe(value)
++            for key, value in payload.items()
++            if value is not None
++        }
++
+     def _downstream_payload(self) -> dict[str, Any]:
+         payload: dict[str, Any] = {}
+         if self.execution_lineage:
+             payload[LINEAGE_PAYLOAD_KEY] = dict(self.execution_lineage)
++        if self.current_runner_context:
++            payload[RUNNER_CONTEXT_PAYLOAD_KEY] = dict(self.current_runner_context)
+         if self.downstream_parent_artifact_id is not None:
+             payload["parent_artifact_id"] = str(self.downstream_parent_artifact_id)
+         return payload
+@@ -176,6 +198,21 @@ class PipelineContext:
+             lineage.setdefault("correlation_id", str(event["correlation_id"]))
+         return {key: value for key, value in lineage.items() if value is not None}
+ 
++
++    @classmethod
++    def _extract_runner_context(cls, event: Mapping[str, Any]) -> dict[str, Any]:
++        payload = cls._payload_mapping(event)
++        context = event.get(RUNNER_CONTEXT_PAYLOAD_KEY) or payload.get(
++            RUNNER_CONTEXT_PAYLOAD_KEY
++        )
++        if not isinstance(context, Mapping):
++            return {}
++        return {
++            str(key): cls._json_safe(value)
++            for key, value in context.items()
++            if value is not None
++        }
++
+     @staticmethod
+     def _payload_mapping(event: Mapping[str, Any]) -> Mapping[str, Any]:
+         payload = event.get("payload")
+diff --git a/src/api/application/pipeline/invocation.py b/src/api/application/pipeline/invocation.py
+index 031a525..f875acf 100644
+--- a/src/api/application/pipeline/invocation.py
++++ b/src/api/application/pipeline/invocation.py
+@@ -1,111 +1,121 @@
+-"""Helpers for building runner invocation context from pipeline events."""
+-from __future__ import annotations
+-
+-import inspect
+-from collections.abc import AsyncIterator, Mapping
+-from typing import Any
++"""Helpers for building runner invocation context from pipeline events."""
++from __future__ import annotations
++
++import inspect
++from collections.abc import AsyncIterator, Mapping
++from typing import Any
+ from uuid import UUID
+ 
+-from api.application.contracts import SafetyLevel, ToolInvocation
++from api.application.contracts import (
++    RunnerInvocationContext,
++    SafetyLevel,
++    ToolInvocation,
++)
+ from api.application.execution_limits import ExecutionBudget
+ from api.infrastructure.schemas.models.process_event import ProcessEvent
+-
+-_CONTEXT_KEYS = {
+-    "action_id",
+-    "capability_id",
+-    "profile_id",
+-    "safety_level",
+-    "policy_decision_id",
++
++LINEAGE_PAYLOAD_KEY = "execution_lineage"
++RUNNER_CONTEXT_PAYLOAD_KEY = "runner_invocation_context"
++
++_CONTEXT_KEYS = {
++    "action_id",
++    "capability_id",
++    "profile_id",
++    "safety_level",
++    "policy_decision_id",
+     "scope_decision_id",
+     "parent_artifact_id",
+-    "campaign_id",
++    "campaign_id",
+     "requested_by",
+     "options",
+     "execution_budget",
+ }
+-_EVENT_KEYS = {
+-    "event",
+-    "event_id",
+-    "program_id",
+-    "targets",
+-    "target",
+-    "source",
+-    "confidence",
+-    "job_id",
+-    "run_id",
+-    "correlation_id",
+-    "causation_id",
+-    "profile",
+-    "payload",
+-    "created_at",
+-}
+-_TARGET_PARAM_NAMES = {
+-    "targets",
+-    "target",
+-    "hosts",
+-    "host",
+-    "urls",
+-    "url",
+-    "ips",
+-    "ip",
+-    "domains",
+-    "domain",
+-    "js_urls",
+-}
+-
+-
+-def option_map(event: Mapping[str, Any]) -> dict[str, Any]:
+-    """Return action options from a legacy event dict."""
+-    direct = event.get("options")
+-    if isinstance(direct, Mapping):
+-        return dict(direct)
+-
+-    payload = event.get("payload")
+-    if isinstance(payload, Mapping):
+-        nested = payload.get("options")
+-        if isinstance(nested, Mapping):
+-            return dict(nested)
+-        return {
+-            str(key): value
+-            for key, value in payload.items()
+-            if key not in _CONTEXT_KEYS and key not in _EVENT_KEYS
+-        }
+-
+-    return {
+-        str(key): value
+-        for key, value in event.items()
+-        if key not in _CONTEXT_KEYS and key not in _EVENT_KEYS
+-    }
+-
+-
++_EVENT_KEYS = {
++    "event",
++    "event_id",
++    "program_id",
++    "targets",
++    "target",
++    "source",
++    "confidence",
++    "job_id",
++    "run_id",
++    "correlation_id",
++    "causation_id",
++    "profile",
++    "payload",
++    "created_at",
++}
++_TARGET_PARAM_NAMES = {
++    "targets",
++    "target",
++    "hosts",
++    "host",
++    "urls",
++    "url",
++    "ips",
++    "ip",
++    "domains",
++    "domain",
++    "js_urls",
++}
++
++
++InvocationContext = ToolInvocation | RunnerInvocationContext
++
++
++def option_map(event: Mapping[str, Any]) -> dict[str, Any]:
++    """Return action options from a legacy event dict."""
++    direct = event.get("options")
++    if isinstance(direct, Mapping):
++        return dict(direct)
++
++    payload = event.get("payload")
++    if isinstance(payload, Mapping):
++        nested = payload.get("options")
++        if isinstance(nested, Mapping):
++            return dict(nested)
++        return {
++            str(key): value
++            for key, value in payload.items()
++            if key not in _CONTEXT_KEYS and key not in _EVENT_KEYS
++        }
++
++    return {
++        str(key): value
++        for key, value in event.items()
++        if key not in _CONTEXT_KEYS and key not in _EVENT_KEYS
++    }
++
++
+ def build_invocation(
+-    event: Mapping[str, Any],
+-    targets: list[str],
+-) -> ToolInvocation | None:
+-    """Build ToolInvocation when an event carries complete action context."""
+-    try:
++    event: Mapping[str, Any],
++    targets: list[str],
++) -> ToolInvocation | None:
++    """Build ToolInvocation when an event carries complete action context."""
++    try:
+         payload = dict(event.get("payload") or {})
+         parent_artifact_id = (
+             event.get("parent_artifact_id")
+             or payload.get("parent_artifact_id")
+         )
+         return ToolInvocation(
+-            action_id=UUID(str(event["action_id"])),
+-            job_id=UUID(str(event["job_id"])),
+-            run_id=UUID(str(event["run_id"])),
+-            program_id=UUID(str(event["program_id"])),
+-            capability_id=str(event["capability_id"]),
+-            profile_id=str(event["profile_id"]),
++            action_id=UUID(str(event["action_id"])),
++            job_id=UUID(str(event["job_id"])),
++            run_id=UUID(str(event["run_id"])),
++            program_id=UUID(str(event["program_id"])),
++            capability_id=str(event["capability_id"]),
++            profile_id=str(event["profile_id"]),
+             targets=targets,
+             options=option_map(event),
+             execution_budget=ExecutionBudget.model_validate(
+                 event["execution_budget"]
+             ),
+             safety_level=SafetyLevel(str(event["safety_level"])),
+-            scope_decision_id=UUID(str(event["scope_decision_id"])),
+-            policy_decision_id=UUID(str(event["policy_decision_id"])),
+-            campaign_id=UUID(str(event["campaign_id"])),
+-            correlation_id=UUID(str(event["correlation_id"])),
++            scope_decision_id=UUID(str(event["scope_decision_id"])),
++            policy_decision_id=UUID(str(event["policy_decision_id"])),
++            campaign_id=UUID(str(event["campaign_id"])),
++            correlation_id=UUID(str(event["correlation_id"])),
+             requested_by=(str(event["requested_by"]) if event.get("requested_by") else None),
+             source_event_id=(UUID(str(event["event_id"])) if event.get("event_id") else None),
+             parent_artifact_id=(
+@@ -114,34 +124,171 @@ def build_invocation(
+                 else None
+             ),
+             payload=payload,
+-        )
+-    except (KeyError, TypeError, ValueError):
+-        return None
+-
+-
+-def metadata(invocation: ToolInvocation | None) -> dict[str, Any]:
+-    """Return compact raw-artifact metadata from invocation context."""
+-    if invocation is None:
+-        return {}
+-    return {
+-        "action_id": str(invocation.action_id),
+-        "capability_id": invocation.capability_id,
+-        "profile_id": invocation.profile_id,
+-        "policy_decision_id": str(invocation.policy_decision_id),
+-        "scope_decision_id": str(invocation.scope_decision_id),
+-        "parent_artifact_id": (
+-            str(invocation.parent_artifact_id)
+-            if invocation.parent_artifact_id
+-            else None
+-        ),
+-        "safety_level": invocation.safety_level.value,
+-    }
+-
+-
++        )
++    except (KeyError, TypeError, ValueError):
++        return None
++
++
++def build_runner_context(
++    event: Mapping[str, Any],
++    targets: list[str],
++    *,
++    node_id: str,
++) -> RunnerInvocationContext | None:
++    """Build current-node execution context without faking tool identity.
++
++    Downstream events usually do not carry the original action capability/profile
++    as top-level fields. This context preserves root lineage and inherited hard
++    ceilings while keeping the current runner identity at the node level.
++    """
++    try:
++        payload = _payload_mapping(event)
++        lineage = _lineage_mapping(event)
++        upstream_runner = _upstream_runner_context(event)
++        budget_payload = (
++            event.get("execution_budget")
++            or payload.get("execution_budget")
++            or lineage.get("root_execution_budget")
++        )
++        safety_value = (
++            event.get("safety_level")
++            or payload.get("safety_level")
++            or lineage.get("root_safety_level")
++        )
++        parent_artifact_id = (
++            event.get("parent_artifact_id")
++            or payload.get("parent_artifact_id")
++        )
++        return RunnerInvocationContext(
++            job_id=_optional_uuid(event.get("job_id")),
++            run_id=_optional_uuid(event.get("run_id")),
++            program_id=UUID(str(event["program_id"])),
++            node_id=node_id,
++            targets=targets,
++            options={},
++            execution_budget=(
++                ExecutionBudget.model_validate(budget_payload)
++                if budget_payload
++                else None
++            ),
++            safety_level=(SafetyLevel(str(safety_value)) if safety_value else None),
++            scope_decision_id=_optional_uuid(
++                event.get("scope_decision_id")
++                or payload.get("scope_decision_id")
++                or lineage.get("scope_decision_id")
++            ),
++            policy_decision_id=_optional_uuid(
++                event.get("policy_decision_id")
++                or payload.get("policy_decision_id")
++                or lineage.get("policy_decision_id")
++            ),
++            campaign_id=_optional_uuid(
++                event.get("campaign_id") or lineage.get("campaign_id")
++            ),
++            correlation_id=_optional_uuid(
++                event.get("correlation_id") or lineage.get("correlation_id")
++            ),
++            requested_by=(
++                str(event.get("requested_by") or lineage.get("requested_by"))
++                if (event.get("requested_by") or lineage.get("requested_by"))
++                else None
++            ),
++            source_event_id=_optional_uuid(event.get("event_id")),
++            parent_artifact_id=_optional_uuid(parent_artifact_id),
++            root_action_id=_optional_uuid(
++                event.get("action_id")
++                or payload.get("action_id")
++                or lineage.get("root_action_id")
++            ),
++            root_capability_id=(
++                str(
++                    event.get("capability_id")
++                    or payload.get("capability_id")
++                    or lineage.get("root_capability_id")
++                )
++                if (
++                    event.get("capability_id")
++                    or payload.get("capability_id")
++                    or lineage.get("root_capability_id")
++                )
++                else None
++            ),
++            root_profile_id=(
++                str(
++                    event.get("profile_id")
++                    or payload.get("profile_id")
++                    or lineage.get("root_profile_id")
++                )
++                if (
++                    event.get("profile_id")
++                    or payload.get("profile_id")
++                    or lineage.get("root_profile_id")
++                )
++                else None
++            ),
++            upstream_node_id=(
++                str(upstream_runner.get("node_id"))
++                if upstream_runner.get("node_id")
++                else None
++            ),
++            payload=payload,
++        )
++    except (KeyError, TypeError, ValueError):
++        return None
++
++
++def metadata(
++    invocation: ToolInvocation | None,
++    runner_context: RunnerInvocationContext | None = None,
++) -> dict[str, Any]:
++    """Return compact raw-artifact metadata from execution context."""
++    data: dict[str, Any] = {}
++    if invocation is not None:
++        data.update(
++            {
++                "action_id": str(invocation.action_id),
++                "capability_id": invocation.capability_id,
++                "profile_id": invocation.profile_id,
++                "policy_decision_id": str(invocation.policy_decision_id),
++                "scope_decision_id": str(invocation.scope_decision_id),
++                "parent_artifact_id": (
++                    str(invocation.parent_artifact_id)
++                    if invocation.parent_artifact_id
++                    else None
++                ),
++                "safety_level": invocation.safety_level.value,
++            }
++        )
++    if runner_context is not None:
++        data.update(
++            {
++                "runner_context_version": "runner-context-v1",
++                "node_id": runner_context.node_id,
++                "root_action_id": (
++                    str(runner_context.root_action_id)
++                    if runner_context.root_action_id
++                    else None
++                ),
++                "root_capability_id": runner_context.root_capability_id,
++                "root_profile_id": runner_context.root_profile_id,
++                "upstream_node_id": runner_context.upstream_node_id,
++            }
++        )
++        if not data.get("safety_level") and runner_context.safety_level is not None:
++            data["safety_level"] = runner_context.safety_level.value
++        if not data.get("policy_decision_id") and runner_context.policy_decision_id:
++            data["policy_decision_id"] = str(runner_context.policy_decision_id)
++        if not data.get("scope_decision_id") and runner_context.scope_decision_id:
++            data["scope_decision_id"] = str(runner_context.scope_decision_id)
++        if not data.get("parent_artifact_id") and runner_context.parent_artifact_id:
++            data["parent_artifact_id"] = str(runner_context.parent_artifact_id)
++    return {key: value for key, value in data.items() if value is not None}
++
++
+ def run_raw(
+     runner: Any,
+     targets: list[str] | str,
+-    invocation: ToolInvocation | None = None,
++    invocation: InvocationContext | None = None,
+ ) -> AsyncIterator[ProcessEvent]:
+     """Call runner.run_raw with only supported action options."""
+     method = runner.run_raw
+@@ -149,8 +296,8 @@ def run_raw(
+     params = signature.parameters
+     options = dict(invocation.options if invocation is not None else {})
+ 
+-    if invocation is not None:
+-        budget = invocation.execution_budget
++    budget = invocation.execution_budget if invocation is not None else None
++    if budget is not None:
+         if budget.max_duration_seconds is not None and "timeout" in params:
+             requested_timeout = options.get(
+                 "timeout",
+@@ -172,19 +319,46 @@ def run_raw(
+     accepts_any = any(
+         param.kind is inspect.Parameter.VAR_KEYWORD
+         for param in params.values()
+-    )
+-    if accepts_any:
+-        return method(targets, **options)
+-
+-    accepted = {
+-        name
+-        for name, param in params.items()
+-        if name not in _TARGET_PARAM_NAMES
+-        and param.kind
+-        in {
+-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+-            inspect.Parameter.KEYWORD_ONLY,
+-        }
+-    }
+-    kwargs = {key: value for key, value in options.items() if key in accepted}
+-    return method(targets, **kwargs)
++    )
++    if accepts_any:
++        return method(targets, **options)
++
++    accepted = {
++        name
++        for name, param in params.items()
++        if name not in _TARGET_PARAM_NAMES
++        and param.kind
++        in {
++            inspect.Parameter.POSITIONAL_OR_KEYWORD,
++            inspect.Parameter.KEYWORD_ONLY,
++        }
++    }
++    kwargs = {key: value for key, value in options.items() if key in accepted}
++    return method(targets, **kwargs)
++
++
++def _payload_mapping(event: Mapping[str, Any]) -> Mapping[str, Any]:
++    payload = event.get("payload")
++    return payload if isinstance(payload, Mapping) else {}
++
++
++def _lineage_mapping(event: Mapping[str, Any]) -> Mapping[str, Any]:
++    payload = _payload_mapping(event)
++    lineage = event.get(LINEAGE_PAYLOAD_KEY) or payload.get(LINEAGE_PAYLOAD_KEY)
++    return lineage if isinstance(lineage, Mapping) else {}
++
++
++def _upstream_runner_context(event: Mapping[str, Any]) -> Mapping[str, Any]:
++    payload = _payload_mapping(event)
++    context = event.get(RUNNER_CONTEXT_PAYLOAD_KEY) or payload.get(
++        RUNNER_CONTEXT_PAYLOAD_KEY
++    )
++    return context if isinstance(context, Mapping) else {}
++
++
++def _optional_uuid(value: Any) -> UUID | None:
++    if value in (None, ""):
++        return None
++    if isinstance(value, UUID):
++        return value
++    return UUID(str(value))
+diff --git a/src/api/application/pipeline/scan_node.py b/src/api/application/pipeline/scan_node.py
+index 2e5e940..bd4a402 100644
+--- a/src/api/application/pipeline/scan_node.py
++++ b/src/api/application/pipeline/scan_node.py
+@@ -1,45 +1,50 @@
+-"""Generic scan node for CLI tools"""
++"""Generic scan node for CLI tools"""
+ import asyncio
+ from typing import Dict, Any, Set, Optional, Callable, List, Type
+ from uuid import UUID, uuid4
+ import logging
+-
+-from api.application.pipeline.node import Node
+-from api.application.pipeline.context import PipelineContext
++
++from api.application.pipeline.node import Node
++from api.application.pipeline.context import PipelineContext
+ from api.infrastructure.events.event_types import EventType
+ from api.application.pipeline.scope_policy import ScopePolicy
+ from api.application.pipeline.ingestion import ingest_with_optional_context
+-from api.application.pipeline.invocation import build_invocation, metadata, run_raw
++from api.application.pipeline.invocation import (
++    build_invocation,
++    build_runner_context,
++    metadata,
++    run_raw,
++)
+ from api.application.contracts import ExecutionMode
+-
+-logger = logging.getLogger(__name__)
+-
+-
+-class ScanNode(Node):
+-    """
+-    Generic node for CLI scan tools.
+-    Gets dependencies from DI container on each execution.
+-
+-    Event Flow:
+-    1. Receive event from EventBus
+-    2. Extract targets via target_extractor
+-    3. Get runner/processor/ingestor from DI (REQUEST scope)
+-    4. Run: runner → parser → batch processor
+-    5. Capture raw artifact before parsing
+-    6. Ingest normalized state
+-    7. Emit deterministic events from IngestResult
+-    """
+-
+-    def __init__(
+-        self,
+-        node_id: str,
++
++logger = logging.getLogger(__name__)
++
++
++class ScanNode(Node):
++    """
++    Generic node for CLI scan tools.
++    Gets dependencies from DI container on each execution.
++
++    Event Flow:
++    1. Receive event from EventBus
++    2. Extract targets via target_extractor
++    3. Get runner/processor/ingestor from DI (REQUEST scope)
++    4. Run: runner → parser → batch processor
++    5. Capture raw artifact before parsing
++    6. Ingest normalized state
++    7. Emit deterministic events from IngestResult
++    """
++
++    def __init__(
++        self,
++        node_id: str,
+         event_in: Set[EventType],
+         event_out: Dict[EventType, str],
+         runner_type: Type,
+         processor_type: Type,
+         parser_type: Optional[Type] = None,
+         ingestor_type: Optional[Type] = None,
+-        target_extractor: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
++        target_extractor: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
+         max_parallelism: int = 1,
+         execution_delay: int = 0,
+         execution_mode: ExecutionMode = ExecutionMode.INLINE,
+@@ -52,24 +57,24 @@ class ScanNode(Node):
+         scope_policy=ScopePolicy.NONE,
+         runtime: Any | None = None,
+         runtime_concurrency: int | None = None,
+-    ):
+-        """
+-        Initialize generic scan node.
+-
+-        Args:
+-            node_id: Unique node identifier
+-            event_in: Set of event types this node accepts
+-            event_out: Map of event_type → result_key for emitting
+-            runner_type: Runner class (will be resolved from DI)
+-            processor_type: Processor class (will be resolved from DI)
+-            ingestor_type: Optional ingestor class (will be resolved from DI)
+-            target_extractor: Function to extract targets from event
+-            max_parallelism: Maximum concurrent executions
+-            execution_delay: Delay in seconds before executing (default: 0)
+-        """
+-        super().__init__(
+-            node_id=node_id,
+-            event_in=event_in,
++    ):
++        """
++        Initialize generic scan node.
++
++        Args:
++            node_id: Unique node identifier
++            event_in: Set of event types this node accepts
++            event_out: Map of event_type → result_key for emitting
++            runner_type: Runner class (will be resolved from DI)
++            processor_type: Processor class (will be resolved from DI)
++            ingestor_type: Optional ingestor class (will be resolved from DI)
++            target_extractor: Function to extract targets from event
++            max_parallelism: Maximum concurrent executions
++            execution_delay: Delay in seconds before executing (default: 0)
++        """
++        super().__init__(
++            node_id=node_id,
++            event_in=event_in,
+             event_out=set(event_out.keys()),
+             max_parallelism=max_parallelism,
+             execution_delay=execution_delay,
+@@ -92,39 +97,39 @@ class ScanNode(Node):
+         self.target_shape = getattr(runtime, "target_shape", "list") if runtime is not None else "list"
+         self.artifact_mode = getattr(runtime, "artifact", "per_run") if runtime is not None else "per_run"
+         self._scan_semaphore = asyncio.Semaphore(runtime_concurrency or max_parallelism)
+-
+-    async def execute(self, event: Dict[str, Any], ctx: PipelineContext):
+-        """
+-        Execute scan: extract targets → get dependencies from DI → run → batch → ingest → emit.
+-
+-        Args:
+-            event: Incoming event data
+-            ctx: Pipeline context for emitting downstream events
+-        """
++
++    async def execute(self, event: Dict[str, Any], ctx: PipelineContext):
++        """
++        Execute scan: extract targets → get dependencies from DI → run → batch → ingest → emit.
++
++        Args:
++            event: Incoming event data
++            ctx: Pipeline context for emitting downstream events
++        """
+         program_id = UUID(event["program_id"])
+         job_id = UUID(event["job_id"]) if event.get("job_id") else None
+         run_id = UUID(event["run_id"]) if event.get("run_id") else None
+         targets = self.target_extractor(event)
+-
+-        if not targets:
+-            self.logger.warning(f"No targets in event: {event.get('_event_type')}")
+-            return
+-
+-        self.logger.info(
+-            f"Starting scan: node={self.node_id} program={program_id} targets={len(targets)}"
+-        )
+-
+-        runner = await ctx.get_service(self.runner_type)
+-        processor = None
+-        if self.processor_type is not None and self.processor_type is not type(None):
+-            processor = await ctx.get_service(self.processor_type)
+-        ingestor = None
+-        if self.ingestor_type is not None and self.ingestor_type is not type(None):
+-            ingestor = await ctx.get_service(self.ingestor_type)
+-
+-        batch_count = 0
+-
+-        try:
++
++        if not targets:
++            self.logger.warning(f"No targets in event: {event.get('_event_type')}")
++            return
++
++        self.logger.info(
++            f"Starting scan: node={self.node_id} program={program_id} targets={len(targets)}"
++        )
++
++        runner = await ctx.get_service(self.runner_type)
++        processor = None
++        if self.processor_type is not None and self.processor_type is not type(None):
++            processor = await ctx.get_service(self.processor_type)
++        ingestor = None
++        if self.ingestor_type is not None and self.ingestor_type is not type(None):
++            ingestor = await ctx.get_service(self.ingestor_type)
++
++        batch_count = 0
++
++        try:
+             if self.parser_type is None:
+                 raise RuntimeError(f"ScanNode '{self.node_id}' requires an explicit parser")
+             if not hasattr(runner, "run_raw"):
+@@ -143,11 +148,22 @@ class ScanNode(Node):
+                 )
+             )
+             invocation = build_invocation(event, targets)
+-            stream = run_raw(runner, targets, invocation)
++            runner_context = build_runner_context(
++                event,
++                targets,
++                node_id=self.node_id,
++            )
++            effective_context = invocation or runner_context
++            stream = run_raw(runner, targets, effective_context)
+             raw_artifact_id = uuid4()
+             if isinstance(ctx, PipelineContext):
+                 ctx.set_downstream_parent_artifact(raw_artifact_id)
+-                raw_metadata = {"runner": self.runner_type.__name__, **metadata(invocation)}
++                if runner_context is not None:
++                    ctx.set_current_runner_context(runner_context)
++                raw_metadata = {
++                    "runner": self.runner_type.__name__,
++                    **metadata(invocation, runner_context),
++                }
+                 stream = ctx.capture_raw_stream(
+                     stream,
+                     program_id=program_id,
+@@ -162,22 +178,30 @@ class ScanNode(Node):
+                     scope_decision_id=(
+                         invocation.scope_decision_id
+                         if invocation is not None
+-                        else None
++                        else (
++                            runner_context.scope_decision_id
++                            if runner_context is not None
++                            else None
++                        )
+                     ),
+                     parent_artifact_id=(
+                         invocation.parent_artifact_id
+                         if invocation is not None
+-                        else None
++                        else (
++                            runner_context.parent_artifact_id
++                            if runner_context is not None
++                            else None
++                        )
+                     ),
+                 )
+             stream = parser.parse_stream(stream)
+             ingest_context = ctx.ingest_context(raw_artifact_id) if isinstance(ctx, PipelineContext) else None
+ 
+             if processor:
+-                async for batch in processor.batch_stream(stream):
+-                    if not batch:
+-                        continue
+-
++                async for batch in processor.batch_stream(stream):
++                    if not batch:
++                        continue
++
+                     batch_count += 1
+ 
+                     if ingestor:
+@@ -187,42 +211,42 @@ class ScanNode(Node):
+                             batch,
+                             ingest_context,
+                         )
+-
+-                        for event_type, result_key in self.event_out_map.items():
+-                            data = getattr(ingest_result, result_key, [])
+-                            if data:
+-                                event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
+-                                await ctx.emit(
+-                                    event=event_name,
+-                                    targets=data,
+-                                    program_id=program_id,
+-                                    confidence=0.7
+-                                )
+-                                self.logger.debug(
+-                                    f"Emitted {event_name}: {len(data)} items"
+-                                )
+-                    else:
+-                        for event_type, result_key in self.event_out_map.items():
+-                            if batch:
+-                                event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
+-                                await ctx.emit(
+-                                    event=event_name,
+-                                    targets=batch,
+-                                    program_id=program_id,
+-                                    confidence=0.9
+-                                )
+-                                self.logger.debug(
+-                                    f"Emitted {event_name}: {len(batch)} items"
+-                                )
+-            else:
+-                results = []
+-                async for event in stream:
+-                    if event.type == "result" and event.payload:
+-                        results.append(event.payload)
+-
+-                if results:
+-                    batch_count = 1
+-
++
++                        for event_type, result_key in self.event_out_map.items():
++                            data = getattr(ingest_result, result_key, [])
++                            if data:
++                                event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
++                                await ctx.emit(
++                                    event=event_name,
++                                    targets=data,
++                                    program_id=program_id,
++                                    confidence=0.7
++                                )
++                                self.logger.debug(
++                                    f"Emitted {event_name}: {len(data)} items"
++                                )
++                    else:
++                        for event_type, result_key in self.event_out_map.items():
++                            if batch:
++                                event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
++                                await ctx.emit(
++                                    event=event_name,
++                                    targets=batch,
++                                    program_id=program_id,
++                                    confidence=0.9
++                                )
++                                self.logger.debug(
++                                    f"Emitted {event_name}: {len(batch)} items"
++                                )
++            else:
++                results = []
++                async for event in stream:
++                    if event.type == "result" and event.payload:
++                        results.append(event.payload)
++
++                if results:
++                    batch_count = 1
++
+                     if ingestor:
+                         ingest_result = await ingest_with_optional_context(
+                             ingestor,
+@@ -230,70 +254,70 @@ class ScanNode(Node):
+                             results,
+                             ingest_context,
+                         )
+-
+-                        for event_type, result_key in self.event_out_map.items():
+-                            data = getattr(ingest_result, result_key, [])
+-                            if data:
+-                                event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
+-                                await ctx.emit(
+-                                    event=event_name,
+-                                    targets=data,
+-                                    program_id=program_id,
+-                                    confidence=0.7
+-                                )
+-                                self.logger.debug(
+-                                    f"Emitted {event_name}: {len(data)} items"
+-                                )
+-
+-            self.logger.info(
+-                f"Scan completed: node={self.node_id} program={program_id} batches={batch_count}"
+-            )
+-
+-        except Exception as exc:
+-            self.logger.error(
+-                f"Scan failed: node={self.node_id} program={program_id} error={exc}",
+-                exc_info=True
+-            )
+-            raise
+-
+-    def set_context_factory(self, bus, container, settings):
+-        """
+-        Set dependencies for context creation.
+-        Called by NodeRegistry after node creation.
+-
+-        Args:
+-            bus: EventBus instance
+-            container: DI container
+-            settings: Application settings
+-        """
+-        self._bus = bus
+-        self._container = container
+-        self._settings = settings
+-
+-    async def _create_context(self) -> PipelineContext:
+-        """
+-        Create context with EventBus/DI/Settings injected.
+-
+-        Returns:
+-            Pipeline context with all dependencies
+-        """
+-        return PipelineContext(
+-            node_id=self.node_id,
+-            bus=getattr(self, '_bus', None),
+-            container=getattr(self, '_container', None),
+-            settings=getattr(self, '_settings', None),
+-            scope_policy=self.scope_policy
+-        )
+-
+-    @staticmethod
+-    def _default_target_extractor(event: Dict[str, Any]) -> List[str]:
+-        """
+-        Default target extractor - expects 'targets' field.
+-
+-        Args:
+-            event: Event payload with 'targets' list
+-
+-        Returns:
+-            List of targets (URLs, hosts, IPs, subdomains, etc.)
+-        """
+-        return event.get("targets", [])
++
++                        for event_type, result_key in self.event_out_map.items():
++                            data = getattr(ingest_result, result_key, [])
++                            if data:
++                                event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
++                                await ctx.emit(
++                                    event=event_name,
++                                    targets=data,
++                                    program_id=program_id,
++                                    confidence=0.7
++                                )
++                                self.logger.debug(
++                                    f"Emitted {event_name}: {len(data)} items"
++                                )
++
++            self.logger.info(
++                f"Scan completed: node={self.node_id} program={program_id} batches={batch_count}"
++            )
++
++        except Exception as exc:
++            self.logger.error(
++                f"Scan failed: node={self.node_id} program={program_id} error={exc}",
++                exc_info=True
++            )
++            raise
++
++    def set_context_factory(self, bus, container, settings):
++        """
++        Set dependencies for context creation.
++        Called by NodeRegistry after node creation.
++
++        Args:
++            bus: EventBus instance
++            container: DI container
++            settings: Application settings
++        """
++        self._bus = bus
++        self._container = container
++        self._settings = settings
++
++    async def _create_context(self) -> PipelineContext:
++        """
++        Create context with EventBus/DI/Settings injected.
++
++        Returns:
++            Pipeline context with all dependencies
++        """
++        return PipelineContext(
++            node_id=self.node_id,
++            bus=getattr(self, '_bus', None),
++            container=getattr(self, '_container', None),
++            settings=getattr(self, '_settings', None),
++            scope_policy=self.scope_policy
++        )
++
++    @staticmethod
++    def _default_target_extractor(event: Dict[str, Any]) -> List[str]:
++        """
++        Default target extractor - expects 'targets' field.
++
++        Args:
++            event: Event payload with 'targets' list
++
++        Returns:
++            List of targets (URLs, hosts, IPs, subdomains, etc.)
++        """
++        return event.get("targets", [])
+diff --git a/tests/application/test_pipeline_execution_lineage.py b/tests/application/test_pipeline_execution_lineage.py
+index a7eba6b..a8998af 100644
+--- a/tests/application/test_pipeline_execution_lineage.py
++++ b/tests/application/test_pipeline_execution_lineage.py
+@@ -46,6 +46,7 @@ except ImportError:
+     ] = raw_repo_module
+ 
+ from api.application.pipeline.context import LINEAGE_PAYLOAD_KEY, PipelineContext
++from api.application.pipeline.invocation import RUNNER_CONTEXT_PAYLOAD_KEY
+ from api.application.pipeline.invocation import build_invocation
+ 
+ 
+@@ -143,6 +144,50 @@ async def test_pipeline_context_emits_parent_artifact_for_downstream_lineage() -
+     assert emitted.to_legacy_dict()["parent_artifact_id"] == str(parent_artifact_id)
+ 
+ 
++@pytest.mark.asyncio
++async def test_pipeline_context_emits_current_runner_context_separately() -> None:
++    bus = RecordingBus()
++    context = PipelineContext(node_id="httpx", bus=bus)
++    context.bind_event(
++        {
++            "event": "subdomain_discovered",
++            "event_id": str(uuid4()),
++            "job_id": str(uuid4()),
++            "run_id": str(uuid4()),
++            "program_id": str(uuid4()),
++            "targets": ["api.example.com"],
++            "payload": {
++                RUNNER_CONTEXT_PAYLOAD_KEY: {
++                    "node_id": "subfinder",
++                    "target_count": 1,
++                }
++            },
++        }
++    )
++    context.set_current_runner_context(
++        {
++            "node_id": "httpx",
++            "run_id": str(uuid4()),
++            "targets": ["https://api.example.com"],
++            "target_count": 1,
++        }
++    )
++
++    await context.emit(
++        event="url_discovered",
++        targets=["https://api.example.com"],
++        program_id=uuid4(),
++    )
++
++    emitted = bus.events[0]
++    runner_context = emitted.payload[RUNNER_CONTEXT_PAYLOAD_KEY]
++    assert context.upstream_runner_context["node_id"] == "subfinder"
++    assert runner_context["node_id"] == "httpx"
++    assert runner_context["target_count"] == 1
++    assert "action_id" not in emitted.to_legacy_dict()
++    assert "capability_id" not in emitted.to_legacy_dict()
++
++
+ @pytest.mark.asyncio
+ async def test_scan_node_sets_raw_artifact_as_downstream_parent() -> None:
+     from api.application.contracts import ExecutionMode, SafetyLevel
+diff --git a/tests/application/test_worker_invocation.py b/tests/application/test_worker_invocation.py
+index ee9ce24..6484123 100644
+--- a/tests/application/test_worker_invocation.py
++++ b/tests/application/test_worker_invocation.py
+@@ -1,11 +1,11 @@
+-from __future__ import annotations
+-
+-import sys
+-import types
++from __future__ import annotations
++
++import sys
++import types
+ from uuid import UUID, uuid4
+-
+-import pytest
+-
++
++import pytest
++
+ # Keep this unit test usable in minimal environments without replacing real
+ # modules when the project dependencies are installed.
+ try:
+@@ -46,36 +46,43 @@ except ImportError:
+     sys.modules[
+         "api.infrastructure.artifacts.raw_artifact_repository"
+     ] = raw_repo_module
+-
+-from api.application.contracts import SafetyLevel
+-from api.application.pipeline.invocation import build_invocation, metadata, option_map, run_raw
+-from api.application.pipeline.context import PipelineContext
+-from api.application.pipeline.scan_node import ScanNode
+-from api.application.contracts import ExecutionMode
+-from api.infrastructure.events.event_types import EventType
+-from api.infrastructure.schemas.models.process_event import ProcessEvent
+-
+-
+-def _event(**overrides):
+-    action_id = uuid4()
+-    policy_id = uuid4()
+-    scope_id = uuid4()
+-    campaign_id = uuid4()
+-    event = {
+-        "event_id": str(uuid4()),
+-        "event": "katana_scan_requested",
+-        "program_id": str(uuid4()),
+-        "job_id": str(uuid4()),
+-        "run_id": str(uuid4()),
+-        "correlation_id": str(uuid4()),
+-        "action_id": str(action_id),
+-        "capability_id": "katana",
+-        "profile_id": "crawl-light",
+-        "safety_level": SafetyLevel.PASSIVE.value,
+-        "policy_decision_id": str(policy_id),
+-        "scope_decision_id": str(scope_id),
+-        "campaign_id": str(campaign_id),
+-        "requested_by": "api",
++
++from api.application.contracts import SafetyLevel
++from api.application.pipeline.invocation import (
++    RUNNER_CONTEXT_PAYLOAD_KEY,
++    build_invocation,
++    build_runner_context,
++    metadata,
++    option_map,
++    run_raw,
++)
++from api.application.pipeline.context import PipelineContext
++from api.application.pipeline.scan_node import ScanNode
++from api.application.contracts import ExecutionMode
++from api.infrastructure.events.event_types import EventType
++from api.infrastructure.schemas.models.process_event import ProcessEvent
++
++
++def _event(**overrides):
++    action_id = uuid4()
++    policy_id = uuid4()
++    scope_id = uuid4()
++    campaign_id = uuid4()
++    event = {
++        "event_id": str(uuid4()),
++        "event": "katana_scan_requested",
++        "program_id": str(uuid4()),
++        "job_id": str(uuid4()),
++        "run_id": str(uuid4()),
++        "correlation_id": str(uuid4()),
++        "action_id": str(action_id),
++        "capability_id": "katana",
++        "profile_id": "crawl-light",
++        "safety_level": SafetyLevel.PASSIVE.value,
++        "policy_decision_id": str(policy_id),
++        "scope_decision_id": str(scope_id),
++        "campaign_id": str(campaign_id),
++        "requested_by": "api",
+         "targets": ["https://example.com"],
+         "options": {"depth": 4, "timeout": 10},
+         "execution_budget": {
+@@ -85,131 +92,211 @@ def _event(**overrides):
+             "concurrency": 2,
+         },
+         "payload": {"options": {"depth": 3}},
+-    }
+-    event.update(overrides)
+-    return event
+-
+-
+-def test_build_invocation_from_action_event() -> None:
+-    event = _event()
+-
+-    invocation = build_invocation(event, ["https://example.com"])
+-
+-    assert invocation is not None
+-    assert invocation.capability_id == "katana"
+-    assert invocation.profile_id == "crawl-light"
++    }
++    event.update(overrides)
++    return event
++
++
++def test_build_invocation_from_action_event() -> None:
++    event = _event()
++
++    invocation = build_invocation(event, ["https://example.com"])
++
++    assert invocation is not None
++    assert invocation.capability_id == "katana"
++    assert invocation.profile_id == "crawl-light"
+     assert invocation.options == {"depth": 4, "timeout": 10}
+     assert invocation.execution_budget.max_targets == 20
+     assert invocation.execution_budget.concurrency == 2
+-    assert invocation.safety_level is SafetyLevel.PASSIVE
+-    assert metadata(invocation)["capability_id"] == "katana"
+-
+-
+-def test_build_invocation_ignores_downstream_events() -> None:
+-    event = {
+-        "event": "host_discovered",
+-        "program_id": str(uuid4()),
+-        "job_id": str(uuid4()),
+-        "run_id": str(uuid4()),
+-        "targets": ["api.example.com"],
+-    }
+-
+-    assert build_invocation(event, ["api.example.com"]) is None
+-
+-
+-def test_option_map_prefers_nested_options() -> None:
+-    event = {
+-        "event": "katana_scan_requested",
+-        "depth": 9,
+-        "payload": {"options": {"depth": 2}},
+-        "options": {"depth": 4},
+-    }
+-
+-    assert option_map(event) == {"depth": 4}
+-
+-
+-def test_run_raw_passes_only_supported_options() -> None:
+-    class Runner:
+-        def __init__(self) -> None:
+-            self.calls = []
+-
+-        def run_raw(self, targets, depth=1):
+-            self.calls.append((targets, depth))
+-            async def stream():
+-                yield ProcessEvent(type="stdout", payload="ok")
+-            return stream()
+-
+-    runner = Runner()
+-    invocation = build_invocation(_event(), ["https://example.com"])
+-
+-    run_raw(runner, ["https://example.com"], invocation)
+-
+-    assert runner.calls == [(["https://example.com"], 4)]
+-
+-
+-@pytest.mark.asyncio
+-async def test_scan_node_passes_invocation_options_to_runner() -> None:
+-    class Runner:
+-        def __init__(self) -> None:
+-            self.calls = []
+-
+-        def run_raw(self, targets, depth=1):
+-            self.calls.append((targets, depth))
+-            async def stream():
+-                yield ProcessEvent(type="stdout", payload="value")
+-            return stream()
+-
++    assert invocation.safety_level is SafetyLevel.PASSIVE
++    assert metadata(invocation)["capability_id"] == "katana"
++
++
++def test_build_invocation_ignores_downstream_events() -> None:
++    event = {
++        "event": "host_discovered",
++        "program_id": str(uuid4()),
++        "job_id": str(uuid4()),
++        "run_id": str(uuid4()),
++        "targets": ["api.example.com"],
++    }
++
++    assert build_invocation(event, ["api.example.com"]) is None
++
++
++
++def test_runner_context_uses_lineage_budget_without_root_action_options() -> None:
++    class Runner:
++        def __init__(self) -> None:
++            self.calls = []
++
++        def run_raw(self, targets, timeout=30, depth=1):
++            self.calls.append((targets, timeout, depth))
++
++            async def stream():
++                yield ProcessEvent(type="stdout", payload="ok")
++
++            return stream()
++
++    root_action_id = uuid4()
++    event = {
++        "event": "host_discovered",
++        "event_id": str(uuid4()),
++        "program_id": str(uuid4()),
++        "job_id": str(uuid4()),
++        "run_id": str(uuid4()),
++        "targets": ["https://api.example.com"],
++        "payload": {
++            "options": {"depth": 9},
++            "execution_lineage": {
++                "root_action_id": str(root_action_id),
++                "root_capability_id": "katana",
++                "root_profile_id": "crawl-light",
++                "root_safety_level": "safe_active",
++                "root_execution_budget": {"max_duration_seconds": 5},
++            },
++            RUNNER_CONTEXT_PAYLOAD_KEY: {"node_id": "httpx"},
++        },
++    }
++
++    context = build_runner_context(
++        event,
++        ["https://api.example.com"],
++        node_id="katana",
++    )
++    assert context is not None
++    assert context.node_id == "katana"
++    assert context.root_action_id == root_action_id
++    assert context.root_capability_id == "katana"
++    assert context.upstream_node_id == "httpx"
++
++    runner = Runner()
++    run_raw(runner, ["https://api.example.com"], context)
++
++    assert runner.calls == [(["https://api.example.com"], 5, 1)]
++
++
++def test_metadata_includes_runner_context_without_faking_capability() -> None:
++    event = {
++        "event": "host_discovered",
++        "event_id": str(uuid4()),
++        "program_id": str(uuid4()),
++        "job_id": str(uuid4()),
++        "run_id": str(uuid4()),
++        "targets": ["api.example.com"],
++        "payload": {
++            "execution_lineage": {
++                "root_action_id": str(uuid4()),
++                "root_capability_id": "subfinder",
++                "root_profile_id": "passive-recon",
++                "root_safety_level": "passive",
++            }
++        },
++    }
++
++    context = build_runner_context(event, ["api.example.com"], node_id="httpx")
++    assert context is not None
++
++    data = metadata(None, context)
++
++    assert data["node_id"] == "httpx"
++    assert data["root_capability_id"] == "subfinder"
++    assert "capability_id" not in data
++    assert data["safety_level"] == "passive"
++
++def test_option_map_prefers_nested_options() -> None:
++    event = {
++        "event": "katana_scan_requested",
++        "depth": 9,
++        "payload": {"options": {"depth": 2}},
++        "options": {"depth": 4},
++    }
++
++    assert option_map(event) == {"depth": 4}
++
++
++def test_run_raw_passes_only_supported_options() -> None:
++    class Runner:
++        def __init__(self) -> None:
++            self.calls = []
++
++        def run_raw(self, targets, depth=1):
++            self.calls.append((targets, depth))
++            async def stream():
++                yield ProcessEvent(type="stdout", payload="ok")
++            return stream()
++
++    runner = Runner()
++    invocation = build_invocation(_event(), ["https://example.com"])
++
++    run_raw(runner, ["https://example.com"], invocation)
++
++    assert runner.calls == [(["https://example.com"], 4)]
++
++
++@pytest.mark.asyncio
++async def test_scan_node_passes_invocation_options_to_runner() -> None:
++    class Runner:
++        def __init__(self) -> None:
++            self.calls = []
++
++        def run_raw(self, targets, depth=1):
++            self.calls.append((targets, depth))
++            async def stream():
++                yield ProcessEvent(type="stdout", payload="value")
++            return stream()
++
+     class Parser:
+         parser_version = "test-parser-v2"
+ 
+         async def parse_stream(self, stream):
+-            async for item in stream:
+-                yield item
+-
+-    class Processor:
+-        async def batch_stream(self, stream):
+-            async for item in stream:
+-                if item.payload:
+-                    yield [item.payload]
+-
+-    class Context(PipelineContext):
+-        def __init__(self, runner) -> None:
+-            self.runner = runner
+-            self.captured = []
+-            self.emitted = []
+-
+-        async def get_service(self, service_type):
+-            if service_type is Runner:
+-                return self.runner
+-            if service_type is Processor:
+-                return Processor()
+-            raise AssertionError(service_type)
+-
+-        def capture_raw_stream(self, stream, **kwargs):
+-            self.captured.append(kwargs)
+-            return stream
+-
+-        def ingest_context(self, raw_artifact_id=None):
+-            return None
+-
+-        async def emit(self, **kwargs):
+-            self.emitted.append(kwargs)
+-
+-    runner = Runner()
+-    ctx = Context(runner)
+-    node = ScanNode(
+-        node_id="katana",
+-        event_in={EventType.KATANA_SCAN_REQUESTED},
+-        event_out={},
+-        runner_type=Runner,
+-        processor_type=Processor,
+-        parser_type=Parser,
+-        execution_mode=ExecutionMode.INLINE,
+-    )
+-
+-    await node.execute(_event(), ctx)  # type: ignore[arg-type]
+-
+-    assert runner.calls == [(["https://example.com"], 4)]
++            async for item in stream:
++                yield item
++
++    class Processor:
++        async def batch_stream(self, stream):
++            async for item in stream:
++                if item.payload:
++                    yield [item.payload]
++
++    class Context(PipelineContext):
++        def __init__(self, runner) -> None:
++            self.runner = runner
++            self.captured = []
++            self.emitted = []
++
++        async def get_service(self, service_type):
++            if service_type is Runner:
++                return self.runner
++            if service_type is Processor:
++                return Processor()
++            raise AssertionError(service_type)
++
++        def capture_raw_stream(self, stream, **kwargs):
++            self.captured.append(kwargs)
++            return stream
++
++        def ingest_context(self, raw_artifact_id=None):
++            return None
++
++        async def emit(self, **kwargs):
++            self.emitted.append(kwargs)
++
++    runner = Runner()
++    ctx = Context(runner)
++    node = ScanNode(
++        node_id="katana",
++        event_in={EventType.KATANA_SCAN_REQUESTED},
++        event_out={},
++        runner_type=Runner,
++        processor_type=Processor,
++        parser_type=Parser,
++        execution_mode=ExecutionMode.INLINE,
++    )
++
++    await node.execute(_event(), ctx)  # type: ignore[arg-type]
++
++    assert runner.calls == [(["https://example.com"], 4)]
+     assert ctx.captured[0]["metadata"]["capability_id"] == "katana"
+     assert ctx.captured[0]["metadata"]["safety_level"] == "passive"
+     assert ctx.captured[0]["parser_name"] == "Parser"

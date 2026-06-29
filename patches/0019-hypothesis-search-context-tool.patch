@@ -1,0 +1,517 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index 9045b35..fe67510 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -576,6 +576,9 @@ Evidence:
+   `research_hypothesis_evidence` for the MVP research workflow. It indexes
+   status, scores, fingerprints, evidence metadata, and only evidence text marked
+   `safe_for_search`.
++- LangGraph accesses hypothesis search through a bounded context tool, not raw
++  OpenSearch DSL. The tool requires `program_id`, clamps `limit`, validates
++  status and `hypothesis_type`, and returns only search-safe hypothesis fields.
+ 
+ Gaps:
+ 
+@@ -664,8 +667,8 @@ Evidence:
+ - Workflow state stores IDs and pointers (`action_ids`, `wait_condition_ids`,
+   `result_set_keys`, `checkpoint_ref`), not raw artifacts or response bodies.
+ - `LangGraphContextTools` exposes read-only program context, result set fetch,
+-  OpenSearch sanitized search, safe graph template rendering, and sanitized
+-  artifact previews while denying raw artifact access.
++  OpenSearch sanitized search, bounded hypothesis search, safe graph template
++  rendering, and sanitized artifact previews while denying raw artifact access.
+ - `CypherGateway` is restricted to explicit admin/debug use, blocks write
+   clauses and `CALL`, enforces `$program_id`, wraps reads with an outer
+   `LIMIT`, clamps timeout, executes through a Neo4j read executor, and records
+diff --git a/src/api/application/langgraph_context_tools.py b/src/api/application/langgraph_context_tools.py
+index b450f4f..b698d6b 100644
+--- a/src/api/application/langgraph_context_tools.py
++++ b/src/api/application/langgraph_context_tools.py
+@@ -6,7 +6,7 @@ publish transport events, or return raw artifact bodies.
+ """
+ from __future__ import annotations
+ 
+-from collections.abc import Mapping
++from collections.abc import Iterable, Mapping
+ from typing import Any, Protocol
+ from uuid import UUID
+ 
+@@ -19,6 +19,42 @@ class RawArtifactAccessDenied(PermissionError):
+     pass
+ 
+ 
++class InvalidHypothesisSearch(ValueError):
++    pass
++
++
++HYPOTHESIS_SEARCH_INDEX = "bb-research-hypotheses"
++HYPOTHESIS_STATUSES = frozenset({
++    "new",
++    "needs_verification",
++    "reviewing",
++    "dismissed",
++    "duplicate",
++    "promoted",
++    "stale",
++})
++HYPOTHESIS_RESULT_FIELDS = frozenset({
++    "hypothesis_id",
++    "program_id",
++    "hypothesis_type",
++    "status",
++    "priority_score",
++    "confidence",
++    "severity_guess",
++    "safety_level",
++    "score_version",
++    "source_signal_fingerprints",
++    "evidence_count",
++    "evidence_ref_types",
++    "evidence_roles",
++    "evidence_claim_types",
++    "evidence_ref_ids",
++    "safe_evidence_text",
++    "last_seen",
++    "updated_at",
++})
++
++
+ class ProgramContextReader(Protocol):
+     async def list_hosts(self, *, program_id: UUID, limit: int) -> list[Any]: ...
+ 
+@@ -45,6 +81,16 @@ class SearchReader(Protocol):
+         limit: int,
+     ) -> dict[str, Any]: ...
+ 
++    async def search_hypotheses(
++        self,
++        *,
++        program_id: UUID,
++        status: str | None,
++        hypothesis_type: str | None,
++        min_priority_score: int,
++        limit: int,
++    ) -> dict[str, Any]: ...
++
+ 
+ class GraphTemplateRenderer(Protocol):
+     def render(
+@@ -135,6 +181,42 @@ class LangGraphContextTools:
+             "hits": self._strip_raw_fields(hits),
+         }
+ 
++
++    async def search_hypotheses(
++        self,
++        *,
++        program_id: UUID,
++        status: str | Iterable[str] | None = None,
++        hypothesis_type: str | None = None,
++        min_priority_score: int = 0,
++        limit: int = 25,
++    ) -> dict[str, Any]:
++        statuses = self._normalize_hypothesis_status(status)
++        priority = self._priority_score(min_priority_score)
++        result = await self.search_reader.search_hypotheses(
++            program_id=program_id,
++            status=statuses[0] if len(statuses) == 1 else None,
++            hypothesis_type=self._safe_optional_text(hypothesis_type, field_name="hypothesis_type"),
++            min_priority_score=priority,
++            limit=self._limit(limit),
++        )
++        hits = self._normalize_rows(result.get("hits", []))
++        if len(statuses) > 1:
++            hits = [hit for hit in hits if str(hit.get("status")) in statuses]
++        self._ensure_program_boundary(program_id, hits)
++        safe_hits = [
++            self._project_hypothesis_search_hit(hit)
++            for hit in self._strip_raw_fields(hits)
++        ]
++        return {
++            "index": HYPOTHESIS_SEARCH_INDEX,
++            "program_id": str(program_id),
++            "status": statuses if statuses else None,
++            "hypothesis_type": hypothesis_type,
++            "min_priority_score": priority,
++            "hits": safe_hits,
++        }
++
+     async def graph_template_query(
+         self,
+         *,
+@@ -186,6 +268,54 @@ class LangGraphContextTools:
+     def _limit(value: int) -> int:
+         return max(1, min(int(value), 100))
+ 
++    @staticmethod
++    def _priority_score(value: int | float) -> int:
++        score = int(value)
++        if score < 0 or score > 100:
++            raise InvalidHypothesisSearch("min_priority_score must be between 0 and 100")
++        return score
++
++    @staticmethod
++    def _safe_optional_text(value: str | None, *, field_name: str) -> str | None:
++        if value is None:
++            return None
++        text = value.strip()
++        if not text:
++            return None
++        if len(text) > 100:
++            raise InvalidHypothesisSearch(f"{field_name} is too long")
++        allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_:-.")
++        if any(char not in allowed for char in text):
++            raise InvalidHypothesisSearch(f"{field_name} contains unsupported characters")
++        return text
++
++    @classmethod
++    def _normalize_hypothesis_status(cls, status: str | Iterable[str] | None) -> list[str]:
++        if status is None:
++            return []
++        if isinstance(status, str):
++            values = [status]
++        else:
++            values = list(status)
++        normalized: list[str] = []
++        for item in values:
++            text = str(item).strip()
++            if not text:
++                continue
++            if text not in HYPOTHESIS_STATUSES:
++                raise InvalidHypothesisSearch(f"unsupported hypothesis status: {text}")
++            if text not in normalized:
++                normalized.append(text)
++        return normalized
++
++    @staticmethod
++    def _project_hypothesis_search_hit(row: dict[str, Any]) -> dict[str, Any]:
++        return {
++            key: row[key]
++            for key in HYPOTHESIS_RESULT_FIELDS
++            if key in row
++        }
++
+     @classmethod
+     def _normalize_rows(cls, rows: list[Any]) -> list[dict[str, Any]]:
+         return [cls._normalize_value(row) for row in rows]
+diff --git a/src/api/infrastructure/langgraph_context.py b/src/api/infrastructure/langgraph_context.py
+index cc09e0e..a15e41a 100644
+--- a/src/api/infrastructure/langgraph_context.py
++++ b/src/api/infrastructure/langgraph_context.py
+@@ -96,6 +96,24 @@ class OpenSearchSanitizedSearchReader:
+             limit=limit,
+         )
+ 
++    async def search_hypotheses(
++        self,
++        *,
++        program_id: UUID,
++        status: str | None,
++        hypothesis_type: str | None,
++        min_priority_score: int,
++        limit: int,
++    ) -> dict[str, Any]:
++        return await asyncio.to_thread(
++            self._search_hypotheses_sync,
++            program_id=program_id,
++            status=status,
++            hypothesis_type=hypothesis_type,
++            min_priority_score=min_priority_score,
++            limit=limit,
++        )
++
+     def _search_sync(
+         self,
+         *,
+@@ -143,3 +161,74 @@ class OpenSearchSanitizedSearchReader:
+             "program_id": str(program_id),
+             "hits": hits,
+         }
++
++    def _search_hypotheses_sync(
++        self,
++        *,
++        program_id: UUID,
++        status: str | None,
++        hypothesis_type: str | None,
++        min_priority_score: int,
++        limit: int,
++    ) -> dict[str, Any]:
++        filters: list[dict[str, Any]] = [
++            {"term": {"program_id": str(program_id)}},
++            {"range": {"priority_score": {"gte": int(min_priority_score)}}},
++        ]
++        if status:
++            filters.append({"term": {"status": status}})
++        if hypothesis_type:
++            filters.append({"term": {"hypothesis_type": hypothesis_type}})
++        request = {
++            "size": max(1, min(int(limit), 100)),
++            "_source": {
++                "includes": [
++                    "hypothesis_id",
++                    "program_id",
++                    "hypothesis_type",
++                    "status",
++                    "priority_score",
++                    "confidence",
++                    "severity_guess",
++                    "safety_level",
++                    "score_version",
++                    "source_signal_fingerprints",
++                    "evidence_count",
++                    "evidence_ref_types",
++                    "evidence_roles",
++                    "evidence_claim_types",
++                    "evidence_ref_ids",
++                    "safe_evidence_text",
++                    "last_seen",
++                    "updated_at",
++                ]
++            },
++            "query": {"bool": {"filter": filters}},
++            "sort": [
++                {"priority_score": {"order": "desc"}},
++                {"last_seen": {"order": "desc", "missing": "_last"}},
++                {"hypothesis_id": {"order": "asc"}},
++            ],
++        }
++        response = requests.post(
++            f"{self.base_url}/bb-research-hypotheses/_search",
++            json=request,
++            timeout=self.timeout_seconds,
++            auth=self.auth,
++            verify=self.verify_certs,
++        )
++        response.raise_for_status()
++        payload = response.json()
++        hits = [
++            {
++                **(hit.get("_source") or {}),
++                "_id": hit.get("_id"),
++                "_score": hit.get("_score"),
++            }
++            for hit in payload.get("hits", {}).get("hits", [])
++        ]
++        return {
++            "index": "bb-research-hypotheses",
++            "program_id": str(program_id),
++            "hits": hits,
++        }
+diff --git a/tests/application/test_langgraph_context_tools.py b/tests/application/test_langgraph_context_tools.py
+index 4b0e218..e3a3d3f 100644
+--- a/tests/application/test_langgraph_context_tools.py
++++ b/tests/application/test_langgraph_context_tools.py
+@@ -8,6 +8,7 @@ from api.application.langgraph_context_tools import (
+     LangGraphContextTools,
+     ProgramBoundaryError,
+     RawArtifactAccessDenied,
++    InvalidHypothesisSearch,
+ )
+ 
+ 
+@@ -56,11 +57,32 @@ class FakeRawArtifactPreviewReader:
+ class FakeSearchReader:
+     def __init__(self) -> None:
+         self.calls = []
++        self.hypothesis_calls = []
+ 
+     async def search(self, **kwargs):
+         self.calls.append(kwargs)
+         return {"hits": [{"program_id": kwargs["program_id"], "id": "doc-1"}]}
+ 
++    async def search_hypotheses(self, **kwargs):
++        self.hypothesis_calls.append(kwargs)
++        return {
++            "hits": [
++                {
++                    "hypothesis_id": "hyp-1",
++                    "program_id": kwargs["program_id"],
++                    "hypothesis_type": kwargs.get("hypothesis_type"),
++                    "status": kwargs.get("status") or "needs_verification",
++                    "priority_score": 85,
++                    "confidence": 0.7,
++                    "evidence_count": 2,
++                    "safe_evidence_text": ["safe only"],
++                    "raw_content": "must be stripped",
++                    "claim": "must not be projected",
++                    "_score": 1.0,
++                }
++            ]
++        }
++
+ 
+ class FakeGraphTemplateRenderer:
+     def render(self, *, template_name, parameters):
+@@ -198,3 +220,99 @@ def test_context_tools_are_wired_without_execution_surfaces() -> None:
+     assert "default_query_template_registry" in infra_source
+     for forbidden in ("RabbitMQ", "EventBus", "runner", "subprocess", "raw_artifacts"):
+         assert forbidden not in app_source
++
++async def test_context_tools_search_hypotheses_uses_restricted_template() -> None:
++    program_id = uuid4()
++    search_reader = FakeSearchReader()
++
++    result = await _tools(search_reader=search_reader).search_hypotheses(
++        program_id=program_id,
++        status="needs_verification",
++        hypothesis_type="graph_surface_followup",
++        min_priority_score=70,
++        limit=500,
++    )
++
++    assert result["index"] == "bb-research-hypotheses"
++    assert result["program_id"] == str(program_id)
++    assert result["hits"] == [
++        {
++            "hypothesis_id": "hyp-1",
++            "program_id": str(program_id),
++            "hypothesis_type": "graph_surface_followup",
++            "status": "needs_verification",
++            "priority_score": 85,
++            "confidence": 0.7,
++            "evidence_count": 2,
++            "safe_evidence_text": ["safe only"],
++        }
++    ]
++    assert search_reader.hypothesis_calls == [
++        {
++            "program_id": program_id,
++            "status": "needs_verification",
++            "hypothesis_type": "graph_surface_followup",
++            "min_priority_score": 70,
++            "limit": 100,
++        }
++    ]
++
++
++async def test_context_tools_search_hypotheses_rejects_invalid_filters() -> None:
++    tools = _tools()
++    program_id = uuid4()
++
++    with pytest.raises(InvalidHypothesisSearch):
++        await tools.search_hypotheses(program_id=program_id, status="raw")
++
++    with pytest.raises(InvalidHypothesisSearch):
++        await tools.search_hypotheses(program_id=program_id, min_priority_score=101)
++
++    with pytest.raises(InvalidHypothesisSearch):
++        await tools.search_hypotheses(
++            program_id=program_id,
++            hypothesis_type='graph_surface_followup" OR *',
++        )
++
++
++async def test_context_tools_search_hypotheses_rejects_cross_program_hits() -> None:
++    class CrossProgramHypothesisSearchReader(FakeSearchReader):
++        async def search_hypotheses(self, **kwargs):
++            return {
++                "hits": [
++                    {
++                        "hypothesis_id": "hyp-cross",
++                        "program_id": uuid4(),
++                        "status": "needs_verification",
++                    }
++                ]
++            }
++
++    with pytest.raises(ProgramBoundaryError):
++        await _tools(search_reader=CrossProgramHypothesisSearchReader()).search_hypotheses(
++            program_id=uuid4(),
++            status="needs_verification",
++        )
++
++
++async def test_context_tools_search_hypotheses_filters_multiple_statuses_locally() -> None:
++    class MultiStatusSearchReader(FakeSearchReader):
++        async def search_hypotheses(self, **kwargs):
++            self.hypothesis_calls.append(kwargs)
++            return {
++                "hits": [
++                    {"hypothesis_id": "hyp-1", "program_id": kwargs["program_id"], "status": "new"},
++                    {"hypothesis_id": "hyp-2", "program_id": kwargs["program_id"], "status": "stale"},
++                ]
++            }
++
++    program_id = uuid4()
++    search_reader = MultiStatusSearchReader()
++
++    result = await _tools(search_reader=search_reader).search_hypotheses(
++        program_id=program_id,
++        status=["new", "needs_verification"],
++    )
++
++    assert [item["hypothesis_id"] for item in result["hits"]] == ["hyp-1"]
++    assert search_reader.hypothesis_calls[0]["status"] is None
+diff --git a/tests/application/test_langgraph_hypothesis_search_reader.py b/tests/application/test_langgraph_hypothesis_search_reader.py
+new file mode 100644
+index 0000000..7978c12
+--- /dev/null
++++ b/tests/application/test_langgraph_hypothesis_search_reader.py
+@@ -0,0 +1,66 @@
++from __future__ import annotations
++
++from uuid import uuid4
++
++from api.config import Settings
++from api.infrastructure.langgraph_context import OpenSearchSanitizedSearchReader
++
++
++class FakeResponse:
++    def __init__(self) -> None:
++        self.payload = {
++            "hits": {
++                "hits": [
++                    {
++                        "_id": "hyp-1",
++                        "_score": 1.0,
++                        "_source": {
++                            "hypothesis_id": "hyp-1",
++                            "program_id": "program-1",
++                            "safe_evidence_text": ["safe excerpt"],
++                        },
++                    }
++                ]
++            }
++        }
++
++    def raise_for_status(self) -> None:
++        return None
++
++    def json(self):
++        return self.payload
++
++
++def test_opensearch_hypothesis_search_uses_restricted_query(monkeypatch) -> None:
++    calls = []
++
++    def fake_post(url, **kwargs):
++        calls.append((url, kwargs))
++        return FakeResponse()
++
++    monkeypatch.setattr("api.infrastructure.langgraph_context.requests.post", fake_post)
++    settings = Settings(OPENSEARCH_URL="http://opensearch:9200")
++    reader = OpenSearchSanitizedSearchReader(settings)
++    program_id = uuid4()
++
++    result = reader._search_hypotheses_sync(
++        program_id=program_id,
++        status="needs_verification",
++        hypothesis_type="graph_surface_followup",
++        min_priority_score=70,
++        limit=500,
++    )
++
++    url, kwargs = calls[0]
++    request = kwargs["json"]
++    assert url == "http://opensearch:9200/bb-research-hypotheses/_search"
++    assert request["size"] == 100
++    assert {"term": {"program_id": str(program_id)}} in request["query"]["bool"]["filter"]
++    assert {"term": {"status": "needs_verification"}} in request["query"]["bool"]["filter"]
++    assert {"term": {"hypothesis_type": "graph_surface_followup"}} in request["query"]["bool"]["filter"]
++    assert {"range": {"priority_score": {"gte": 70}}} in request["query"]["bool"]["filter"]
++    assert "safe_evidence_text" in request["_source"]["includes"]
++    assert "claim" not in request["_source"]["includes"]
++    assert "raw_content" not in request["_source"]["includes"]
++    assert result["index"] == "bb-research-hypotheses"
++    assert result["hits"][0]["hypothesis_id"] == "hyp-1"

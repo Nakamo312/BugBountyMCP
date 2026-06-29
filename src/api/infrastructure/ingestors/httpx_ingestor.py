@@ -29,68 +29,26 @@ class HTTPXResultIngestor(BaseResultIngestor):
         self._js_files: List[str] = []
         self._scope_rules: List[ScopeRuleModel] = []
 
-    async def ingest(
+    async def before_ingest(
         self,
+        uow: HTTPXUnitOfWork,
         program_id: UUID,
         results: List[Dict[str, Any]],
         context: IngestContext | None = None,
-    ) -> IngestResult:
-        """
-        Ingest HTTPX results and return only NEW entities.
-
-        Args:
-            program_id: Program UUID
-            results: List of HTTPX result dicts
-
-        Returns:
-            IngestResult with new_hosts and js_files
-        """
+    ) -> None:
         self._new_hosts = set()
         self._seen_hosts = set()
         self._js_files = []
+        self._scope_rules = await uow.scope_rules.find_by_program(program_id)
 
-        total_results = len(results)
-        successful_batches = 0
-        failed_batches = 0
-
-        logger.info(
-            f"HTTPXResultIngestor: Starting ingestion program={program_id} total_results={total_results}"
-        )
-
-        async with self.uow as uow:
-            self._scope_rules = await uow.scope_rules.find_by_program(program_id)
-
-            for batch_index, batch in enumerate(self._chunks(results, self.batch_size)):
-                savepoint_name = f"batch_{batch_index}"
-                await uow.create_savepoint(savepoint_name)
-
-                try:
-                    await self._process_batch(uow, program_id, batch, context=context)
-                    await uow.release_savepoint(savepoint_name)
-                    successful_batches += 1
-                except Exception as exc:
-                    await uow.rollback_to_savepoint(savepoint_name)
-                    failed_batches += 1
-                    logger.error(
-                        f"HTTPXResultIngestor: Batch {batch_index} failed (size={len(batch)}): {exc}"
-                    )
-            await uow.commit()
-
-        logger.info(
-            f"HTTPXResultIngestor: Ingestion completed program={program_id} "
-            f"total={total_results} batches_ok={successful_batches} batches_failed={failed_batches} "
-            f"new_hosts={len(self._new_hosts)} js_files={len(self._js_files)}"
-        )
-
+    def build_result(self) -> IngestResult:
         return IngestResult(
             new_hosts=list(self._new_hosts),
-            js_files=self._js_files
+            js_files=self._js_files,
         )
 
-    def _chunks(self, data: List[Any], size: int):
-        """Split data into chunks of given size"""
-        for i in range(0, len(data), size):
-            yield data[i:i + size]
+    def log_extra(self) -> str:
+        return f"new_hosts={len(self._new_hosts)} js_files={len(self._js_files)}"
 
     async def _process_batch(
         self,

@@ -1,0 +1,304 @@
+diff --git a/src/api/application/pipeline/pipeline.yaml b/src/api/application/pipeline/pipeline.yaml
+index e9063c9..deb15bf 100644
+--- a/src/api/application/pipeline/pipeline.yaml
++++ b/src/api/application/pipeline/pipeline.yaml
+@@ -79,7 +79,20 @@ capabilities:
+       passive-recon:
+         label: Passive subdomain discovery
+         safety_level: passive
+-        allowed_options: [timeout, probe]
++        options:
++          timeout:
++            type: integer
++            default: 600
++            minimum: 1
++            maximum: 1800
++          probe:
++            type: boolean
++            default: false
++        budgets:
++          max_duration_seconds: 1800
++          max_targets: 50
++          rate_per_second: 10
++          concurrency: 5
+ 
+   httpx:
+     label: HTTPX
+@@ -146,7 +159,22 @@ capabilities:
+       browser-crawl:
+         label: Browser crawl with network capture
+         safety_level: active
+-        allowed_options: [depth, timeout]
++        options:
++          depth:
++            type: integer
++            default: 2
++            minimum: 1
++            maximum: 5
++          timeout:
++            type: integer
++            default: 600
++            minimum: 1
++            maximum: 1200
++        budgets:
++          max_duration_seconds: 1200
++          max_targets: 5
++          rate_per_second: 2
++          concurrency: 1
+         requires_approval: true
+ 
+   gau:
+@@ -159,7 +187,20 @@ capabilities:
+       archive-url-discovery:
+         label: Archived URL discovery
+         safety_level: passive
+-        allowed_options: [include_subs, timeout]
++        options:
++          include_subs:
++            type: boolean
++            default: true
++          timeout:
++            type: integer
++            default: 1800
++            minimum: 1
++            maximum: 3600
++        budgets:
++          max_duration_seconds: 3600
++          max_targets: 10
++          rate_per_second: 5
++          concurrency: 2
+ 
+   linkfinder:
+     label: LinkFinder
+@@ -171,7 +212,17 @@ capabilities:
+       js-endpoint-extraction:
+         label: JavaScript endpoint extraction
+         safety_level: safe_active
+-        allowed_options: [timeout]
++        options:
++          timeout:
++            type: integer
++            default: 60
++            minimum: 1
++            maximum: 300
++        budgets:
++          max_duration_seconds: 300
++          max_targets: 100
++          rate_per_second: 20
++          concurrency: 3
+ 
+   ffuf:
+     label: FFUF
+@@ -206,11 +257,37 @@ capabilities:
+       passive-enum:
+         label: Passive infrastructure enumeration
+         safety_level: passive
+-        allowed_options: [active, timeout]
++        options:
++          active:
++            type: boolean
++            default: false
++          timeout:
++            type: integer
++            default: 1800
++            minimum: 1
++            maximum: 3600
++        budgets:
++          max_duration_seconds: 3600
++          max_targets: 25
++          rate_per_second: 1
++          concurrency: 1
+       active-enum:
+         label: Active infrastructure enumeration
+         safety_level: active
+-        allowed_options: [active, timeout]
++        options:
++          active:
++            type: boolean
++            default: true
++          timeout:
++            type: integer
++            default: 1800
++            minimum: 1
++            maximum: 3600
++        budgets:
++          max_duration_seconds: 3600
++          max_targets: 10
++          rate_per_second: 1
++          concurrency: 1
+         requires_approval: true
+ 
+   dnsx:
+@@ -223,7 +300,21 @@ capabilities:
+       dns-validate:
+         label: DNS validation
+         safety_level: safe_active
+-        allowed_options: [mode, timeout]
++        options:
++          mode:
++            type: string
++            default: deep
++            enum: [deep]
++          timeout:
++            type: integer
++            default: 600
++            minimum: 1
++            maximum: 1200
++        budgets:
++          max_duration_seconds: 1200
++          max_targets: 1000
++          rate_per_second: 100
++          concurrency: 5
+ 
+   dnsx-ptr:
+     label: DNSx PTR
+@@ -235,7 +326,21 @@ capabilities:
+       reverse-dns:
+         label: Reverse DNS lookup
+         safety_level: safe_active
+-        allowed_options: [mode, timeout]
++        options:
++          mode:
++            type: string
++            default: ptr
++            enum: [ptr]
++          timeout:
++            type: integer
++            default: 600
++            minimum: 1
++            maximum: 1200
++        budgets:
++          max_duration_seconds: 1200
++          max_targets: 1000
++          rate_per_second: 100
++          concurrency: 5
+ 
+   subjack:
+     label: Subjack
+@@ -247,7 +352,17 @@ capabilities:
+       takeover-check:
+         label: Subdomain takeover check
+         safety_level: safe_active
+-        allowed_options: [timeout]
++        options:
++          timeout:
++            type: integer
++            default: 300
++            minimum: 1
++            maximum: 900
++        budgets:
++          max_duration_seconds: 900
++          max_targets: 100
++          rate_per_second: 20
++          concurrency: 5
+ 
+   asnmap:
+     label: ASNMap
+@@ -259,7 +374,21 @@ capabilities:
+       asn-discovery:
+         label: ASN and CIDR discovery
+         safety_level: passive
+-        allowed_options: [mode, timeout]
++        options:
++          mode:
++            type: string
++            default: auto
++            enum: [auto, domain, asn]
++          timeout:
++            type: integer
++            default: 300
++            minimum: 1
++            maximum: 900
++        budgets:
++          max_duration_seconds: 900
++          max_targets: 100
++          rate_per_second: 20
++          concurrency: 5
+ 
+   mapcidr:
+     label: MapCIDR
+@@ -271,7 +400,26 @@ capabilities:
+       cidr-expand:
+         label: CIDR expansion
+         safety_level: passive
+-        allowed_options: [skip_base, skip_broadcast, shuffle, timeout]
++        options:
++          skip_base:
++            type: boolean
++            default: false
++          skip_broadcast:
++            type: boolean
++            default: false
++          shuffle:
++            type: boolean
++            default: false
++          timeout:
++            type: integer
++            default: 300
++            minimum: 1
++            maximum: 900
++        budgets:
++          max_duration_seconds: 900
++          max_targets: 100
++          rate_per_second: 100
++          concurrency: 5
+ 
+   naabu:
+     label: Naabu
+@@ -364,7 +512,17 @@ capabilities:
+       js-secret-analysis:
+         label: JavaScript secret analysis
+         safety_level: safe_active
+-        allowed_options: [timeout]
++        options:
++          timeout:
++            type: integer
++            default: 300
++            minimum: 1
++            maximum: 900
++        budgets:
++          max_duration_seconds: 900
++          max_targets: 100
++          rate_per_second: 20
++          concurrency: 5
+ 
+ workers:
+   httpx:
+diff --git a/tests/application/test_capability_catalog_manifest_snapshot.py b/tests/application/test_capability_catalog_manifest_snapshot.py
+index 60714bb..026b6a6 100644
+--- a/tests/application/test_capability_catalog_manifest_snapshot.py
++++ b/tests/application/test_capability_catalog_manifest_snapshot.py
+@@ -30,8 +30,13 @@ def test_catalog_hash_changes_when_manifest_options_change() -> None:
+     capability_id = next(iter(mutated_payload["capabilities"]))
+     profile_id = next(iter(mutated_payload["capabilities"][capability_id]["profiles"]))
+     mutated_payload["capabilities"][capability_id]["profiles"][profile_id][
+-        "allowed_options"
+-    ].append("__test_option__")
++        "options"
++    ]["__test_option__"] = {
++        "type": "boolean",
++        "default": False,
++        "required": False,
++        "enum": [],
++    }
+ 
+     mutated_config = config.__class__.model_validate(mutated_payload)
+     mutated = build_tool_catalog_snapshot(mutated_config)
+diff --git a/tests/application/test_profile_execution_budgets.py b/tests/application/test_profile_execution_budgets.py
+index 66b9916..39be00e 100644
+--- a/tests/application/test_profile_execution_budgets.py
++++ b/tests/application/test_profile_execution_budgets.py
+@@ -4,11 +4,10 @@ from api.application.pipeline.yaml_config import load_pipeline_config
+ from api.config import Settings
+ 
+ 
+-def test_first_runner_profiles_have_typed_options_and_budgets() -> None:
++def test_all_runner_profiles_have_typed_options_and_budgets() -> None:
+     config = load_pipeline_config()
+ 
+-    for capability_id in ("httpx", "katana", "ffuf", "naabu"):
+-        capability = config.capabilities[capability_id]
++    for capability in config.capabilities.values():
+         for profile in capability.profiles.values():
+             assert profile.options
+             assert profile.allowed_options == []

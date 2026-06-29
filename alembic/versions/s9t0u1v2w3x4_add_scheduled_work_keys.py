@@ -7,8 +7,9 @@ Create Date: 2026-06-09 00:00:00.000000
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
-from api.infrastructure.database.types import JSONType
+JSONType = postgresql.JSONB
 
 
 revision = 's9t0u1v2w3x4'

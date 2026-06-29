@@ -16,4 +16,9 @@ Read first when changing this layer:
 - Avoid introducing new direct execution surfaces. Tool execution should stay
   behind capabilities, profiles, policy, and pipeline nodes.
 - Do not expose free-form SQL or shell command execution through MCP/API helpers.
+
+- Authenticated tool execution must use opaque credential references and a
+  runner-side lease/injection boundary. Do not put tokens, cookies, API keys,
+  Authorization headers, or session material into argv, stdin, logs, process
+  events, parser payloads, read models, or graph facts.
 - Any storage schema change needs an Alembic migration and tests.

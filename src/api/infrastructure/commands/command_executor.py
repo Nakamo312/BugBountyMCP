@@ -3,12 +3,35 @@ import asyncio
 import logging
 import os
 import signal
-from typing import AsyncIterator, List, Optional
+from collections.abc import Mapping, Sequence
+from typing import AsyncIterator, Optional
 import subprocess
+from api.infrastructure.commands.command_boundary import (
+    CommandInvocation,
+    command_invocation,
+    summarize_env_for_log,
+)
 from api.infrastructure.schemas.enums.process_state import ProcessState
 from api.infrastructure.schemas.models.process_event import ProcessEvent
 
 logger = logging.getLogger(__name__)
+
+def _normalize_invocation(
+    command: Sequence[str] | CommandInvocation,
+    *,
+    stdin: str | None,
+    timeout: int | float,
+    env: Mapping[str, str] | None,
+) -> CommandInvocation:
+    if isinstance(command, CommandInvocation):
+        if stdin is not None:
+            raise ValueError("stdin must be part of CommandInvocation, not a separate override")
+        if timeout != 600:
+            raise ValueError("timeout must be part of CommandInvocation, not a separate override")
+        if env is not None:
+            raise ValueError("env must be part of CommandInvocation, not a separate override")
+        return command
+    return command_invocation(command, stdin=stdin, timeout=timeout, env=env)
 
 
 class CommandExecutor:
@@ -19,19 +42,28 @@ class CommandExecutor:
 
     def __init__(
         self,
-        command: List[str],
+        command: Sequence[str] | CommandInvocation,
         stdin: Optional[str] = None,
-        timeout: int = 600,
+        timeout: int | float = 600,
+        env: Mapping[str, str] | None = None,
     ):
-        self.command = command
-        self.stdin = stdin
-        self.timeout = timeout
+        self.invocation = _normalize_invocation(command, stdin=stdin, timeout=timeout, env=env)
+        self.command = list(self.invocation.argv)
+        self.stdin = self.invocation.stdin
+        self.timeout = self.invocation.timeout
+        self.env = dict(self.invocation.env)
         self.state = ProcessState.CREATED
         self.process: Optional[asyncio.subprocess.Process] = None
 
     async def run(self) -> AsyncIterator[ProcessEvent]:
         self.state = ProcessState.STARTING
-        logger.info("Starting process: %s", " ".join(self.command))
+        logger.info(
+            "Starting process: %s env=%s",
+            self.invocation.command_for_log,
+            summarize_env_for_log(self.invocation.env),
+        )
+
+        process_env = self.invocation.process_env(os.environ) if self.invocation.env else None
 
         try:
             self.process = await asyncio.create_subprocess_exec(
@@ -41,6 +73,7 @@ class CommandExecutor:
                 stderr=asyncio.subprocess.PIPE,
                 limit=1024 * 1024,
                 start_new_session=True,
+                env=process_env,
             )
         except Exception as exc:
             self.state = ProcessState.FAILED

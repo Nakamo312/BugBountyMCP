@@ -1,0 +1,410 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index 3b53d19..9045b35 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -45,7 +45,7 @@ integration, or live OpenSearch integration.
+ | M2 artifact storage cleanup | Partial | Content-addressed storage, gzip compression and queryable retention classes exist; previews, sanitization persistence and lineage remain incomplete. |
+ | M3 remove research-engine | Done | Standalone `services/research-engine` and its compose service are removed; sanitizer helpers remain in application code. |
+ | M4 Neo4j graph projection | Partial | GraphFact contracts, ontology, Neo4j projector, graph_fact_batches, apply loop, raw-artifact/http-observation/canonical-inventory enqueuing through rebuild, safe query templates, dedupe, notifications, and writer hardening exist. Remaining gaps are richer producer coverage and runtime smoke. |
+-| M5 OpenSearch expansion | Partial | Search-indexer exists with safe document builders, schema versioning and projection lag/readiness; missing-index expansion and producers remain. |
++| M5 OpenSearch expansion | Partial | Search-indexer exists with safe document builders, schema versioning, projection lag/readiness, endpoint/technology projections, and hypothesis projection; later roadmap indexes remain deferred. |
+ | M6 async agent protocol | Partial | Durable workflow/inbox/wait/result-set schema, EventStore routing, all five planned wait predicates including `campaign_quiescent`, automatic wait processing, claim/lease, cancellation boundary, internal-token guarded REST protocol, and auth/claim/handoff/cancel smoke coverage exist. Remaining work is live runtime smoke against real Postgres/LangGraph services. |
+ | M7 LangGraph workflows | Partial | The compiled pointer-only `StateGraph` durably interrupts for readiness and is automatically resumed after its wait condition resolves. Live end-to-end integration remains. |
+ 
+@@ -572,18 +572,20 @@ Evidence:
+ - Durable per-program projection watermarks are maintained by PostgreSQL source
+   triggers and program-scoped reindex runs. Application-level readiness rejects
+   missing, failed, lagging, or mismatched projection states.
++- `bb-research-hypotheses` projects `research_hypotheses` and linked
++  `research_hypothesis_evidence` for the MVP research workflow. It indexes
++  status, scores, fingerprints, evidence metadata, and only evidence text marked
++  `safe_for_search`.
+ 
+ Gaps:
+ 
+-- Remaining roadmap indexes need canonical sources and an MVP consumer before
+-  implementation.
+-- Hypothesis search projection remains for the first workflow that requires it.
++- Remaining roadmap indexes beyond MVP hypotheses need canonical sources and an
++  MVP consumer before implementation.
+ 
+ Next action:
+ 
+-- Add the hypothesis search projection when the first workflow consumes it;
+-  keep packages/CVE/OSINT/secrets/agent-event indexes deferred until their
+-  canonical sources are ready.
++- Keep packages/CVE/OSINT/secrets/agent-event indexes deferred until their
++  canonical sources and first consumers are ready.
+ 
+ ## M6 - Async Agent Protocol
+ 
+diff --git a/services/search-indexer/search_indexer/documents.py b/services/search-indexer/search_indexer/documents.py
+index d818273..2d4aebf 100644
+--- a/services/search-indexer/search_indexer/documents.py
++++ b/services/search-indexer/search_indexer/documents.py
+@@ -261,6 +261,76 @@ def build_finding_document(row: Mapping[str, Any]) -> dict[str, Any]:
+     return {key: value for key, value in doc.items() if value is not None}
+ 
+ 
++def _evidence_items(row: Mapping[str, Any]) -> list[Mapping[str, Any]]:
++    items = row.get("evidence") or []
++    if not isinstance(items, list):
++        return []
++    return [item for item in items if isinstance(item, Mapping)]
++
++
++def _unique_strings(values: Any, *, limit: int = 100) -> list[str]:
++    result: list[str] = []
++    seen: set[str] = set()
++    for value in values or []:
++        text = str(value or "").strip()
++        if not text or text in seen:
++            continue
++        seen.add(text)
++        result.append(text)
++        if len(result) >= limit:
++            break
++    return result
++
++
++def _safe_evidence_text(evidence: list[Mapping[str, Any]]) -> list[str]:
++    snippets: list[str] = []
++    for item in evidence:
++        if item.get("safe_for_search") is not True:
++            continue
++        for key in ("claim", "safe_excerpt"):
++            text = sanitize_text(item.get(key), limit=MAX_EVIDENCE_STRING_CHARS)
++            if text:
++                snippets.append(text)
++    return _unique_strings(snippets, limit=50)
++
++
++def build_hypothesis_document(row: Mapping[str, Any]) -> dict[str, Any]:
++    first_seen = stringify(row.get("first_seen"))
++    last_seen = stringify(row.get("last_seen"))
++    updated_at = stringify(row.get("updated_at"))
++    evidence = _evidence_items(row)
++    doc = {
++        "schema_version": SCHEMA_VERSION,
++        "sanitizer_version": SANITIZER_VERSION,
++        "id": stringify(row.get("id")),
++        "hypothesis_id": stringify(row.get("id")),
++        "program_id": stringify(row.get("program_id")),
++        "hypothesis_type": row.get("hypothesis_type"),
++        "hypothesis_fingerprint": row.get("hypothesis_fingerprint"),
++        "status": row.get("status"),
++        "state_version": row.get("state_version"),
++        "priority_score": row.get("priority_score"),
++        "confidence": row.get("confidence"),
++        "severity_guess": row.get("severity_guess"),
++        "safety_level": row.get("safety_level"),
++        "score_version": row.get("score_version"),
++        "inputs_hash": row.get("inputs_hash"),
++        "source_signal_fingerprints": _unique_strings(row.get("source_signal_fingerprints")),
++        "duplicate_of_hypothesis_id": stringify(row.get("duplicate_of_hypothesis_id")),
++        "evidence_count": row.get("evidence_count"),
++        "evidence_ref_types": _unique_strings(item.get("ref_type") for item in evidence),
++        "evidence_roles": _unique_strings(item.get("role") for item in evidence),
++        "evidence_claim_types": _unique_strings(item.get("claim_type") for item in evidence),
++        "evidence_ref_ids": _unique_strings(item.get("ref_id") for item in evidence),
++        "safe_evidence_text": _safe_evidence_text(evidence),
++        "first_seen": first_seen,
++        "last_seen": last_seen,
++        "updated_at": updated_at,
++        "@timestamp": updated_at or last_seen or first_seen,
++    }
++    return {key: value for key, value in doc.items() if value not in (None, [], {})}
++
++
+ def build_detection_signal_document(row: Mapping[str, Any]) -> dict[str, Any]:
+     created_at = stringify(row.get("created_at"))
+     doc = {
+diff --git a/services/search-indexer/search_indexer/postgres_reader.py b/services/search-indexer/search_indexer/postgres_reader.py
+index 4392ff9..ecbab2a 100644
+--- a/services/search-indexer/search_indexer/postgres_reader.py
++++ b/services/search-indexer/search_indexer/postgres_reader.py
+@@ -167,6 +167,53 @@ ORDER BY created_at DESC
+ LIMIT %s OFFSET %s
+ """
+ 
++
++HYPOTHESES_SQL = """
++SELECT
++    rh.id::text AS id,
++    rh.program_id::text AS program_id,
++    rh.hypothesis_type,
++    rh.hypothesis_fingerprint,
++    rh.status,
++    rh.state_version,
++    rh.priority_score,
++    rh.confidence,
++    rh.severity_guess,
++    rh.safety_level,
++    rh.score_version,
++    rh.inputs_hash,
++    rh.source_signal_fingerprints,
++    rh.duplicate_of_hypothesis_id::text AS duplicate_of_hypothesis_id,
++    rh.first_seen,
++    rh.last_seen,
++    rh.updated_at,
++    COUNT(rhe.id)::int AS evidence_count,
++    COALESCE(
++        jsonb_agg(
++            jsonb_build_object(
++                'id', rhe.id::text,
++                'ref_type', rhe.ref_type,
++                'ref_id', rhe.ref_id,
++                'field_path', rhe.field_path,
++                'role', rhe.role,
++                'claim_type', rhe.claim_type,
++                'claim', CASE WHEN rhe.safe_for_search THEN rhe.claim ELSE NULL END,
++                'safe_excerpt', CASE WHEN rhe.safe_for_search THEN rhe.safe_excerpt ELSE NULL END,
++                'safe_for_search', rhe.safe_for_search,
++                'sensitivity_level', rhe.sensitivity_level
++            )
++            ORDER BY rhe.created_at, rhe.id
++        ) FILTER (WHERE rhe.id IS NOT NULL),
++        '[]'::jsonb
++    ) AS evidence
++FROM research_hypotheses rh
++LEFT JOIN research_hypothesis_evidence rhe ON rhe.hypothesis_id = rh.id
++WHERE (%s::uuid IS NULL OR rh.program_id = %s::uuid)
++GROUP BY rh.id
++ORDER BY rh.priority_score DESC, rh.last_seen DESC, rh.id
++LIMIT %s OFFSET %s
++"""
++
+ COUNT_SQL = {
+     "http-observations": "SELECT count(*) FROM http_observations WHERE program_id = %s::uuid",
+     "artifacts": (
+@@ -189,6 +236,7 @@ COUNT_SQL = {
+     ),
+     "findings": "SELECT count(*) FROM findings WHERE program_id = %s::uuid",
+     "detection-signals": "SELECT count(*) FROM event_store WHERE program_id = %s::uuid",
++    "hypotheses": "SELECT count(*) FROM research_hypotheses WHERE program_id = %s::uuid",
+ }
+ 
+ 
+@@ -216,6 +264,9 @@ class PostgresSearchReader:
+     def fetch_detection_signals(self, *, limit: int, offset: int = 0, program_id: str | None = None) -> list[dict[str, Any]]:
+         return self._fetch_all(DETECTION_SIGNALS_SQL, limit=limit, offset=offset, program_id=program_id)
+ 
++    def fetch_hypotheses(self, *, limit: int, offset: int = 0, program_id: str | None = None) -> list[dict[str, Any]]:
++        return self._fetch_all(HYPOTHESES_SQL, limit=limit, offset=offset, program_id=program_id)
++
+     def count_target(self, *, target: str, program_id: str) -> int:
+         with psycopg2.connect(self.dsn) as connection:
+             connection.set_session(readonly=True, autocommit=True)
+diff --git a/services/search-indexer/search_indexer/reindex.py b/services/search-indexer/search_indexer/reindex.py
+index b38921f..415adaa 100644
+--- a/services/search-indexer/search_indexer/reindex.py
++++ b/services/search-indexer/search_indexer/reindex.py
+@@ -11,6 +11,7 @@ from search_indexer.documents import (
+     build_endpoint_document,
+     build_finding_document,
+     build_http_observation_document,
++    build_hypothesis_document,
+     build_technology_document,
+ )
+ from search_indexer.opensearch_client import OpenSearchClient
+@@ -22,6 +23,7 @@ HTTP_OBSERVATIONS_INDEX = "bb-http-observations"
+ ARTIFACTS_PREVIEW_INDEX = "bb-artifacts-preview"
+ FINDINGS_INDEX = "bb-findings"
+ DETECTION_SIGNALS_INDEX = "bb-detection-signals"
++HYPOTHESES_INDEX = "bb-research-hypotheses"
+ ENDPOINTS_INDEX = "bb-endpoints"
+ TECHNOLOGIES_INDEX = "bb-technologies"
+ 
+@@ -225,6 +227,41 @@ INDEX_MAPPINGS: dict[str, dict[str, Any]] = {
+             },
+         },
+     },
++    HYPOTHESES_INDEX: {
++        "settings": single_node_settings(),
++        "mappings": {
++            "dynamic": False,
++            "properties": {
++                "schema_version": {"type": "keyword"},
++                "sanitizer_version": {"type": "keyword"},
++                "id": {"type": "keyword"},
++                "hypothesis_id": {"type": "keyword"},
++                "@timestamp": {"type": "date"},
++                "first_seen": {"type": "date"},
++                "last_seen": {"type": "date"},
++                "updated_at": {"type": "date"},
++                "program_id": {"type": "keyword"},
++                "hypothesis_type": {"type": "keyword"},
++                "hypothesis_fingerprint": {"type": "keyword"},
++                "status": {"type": "keyword"},
++                "state_version": {"type": "integer"},
++                "priority_score": {"type": "integer"},
++                "confidence": {"type": "float"},
++                "severity_guess": {"type": "keyword"},
++                "safety_level": {"type": "keyword"},
++                "score_version": {"type": "keyword"},
++                "inputs_hash": {"type": "keyword"},
++                "source_signal_fingerprints": {"type": "keyword"},
++                "duplicate_of_hypothesis_id": {"type": "keyword"},
++                "evidence_count": {"type": "integer"},
++                "evidence_ref_types": {"type": "keyword"},
++                "evidence_roles": {"type": "keyword"},
++                "evidence_claim_types": {"type": "keyword"},
++                "evidence_ref_ids": {"type": "keyword"},
++                "safe_evidence_text": {"type": "text"},
++            },
++        },
++    },
+ }
+ 
+ INDEX_RETENTION_POLICIES: dict[str, dict[str, Any]] = {
+@@ -244,6 +281,14 @@ INDEX_RETENTION_POLICIES: dict[str, dict[str, Any]] = {
+             delete_after="30d",
+         ),
+     },
++    HYPOTHESES_INDEX: {
++        "policy_id": "bb-research-hypotheses-dev-retention",
++        "delete_after": "90d",
++        "policy": delete_after_policy(
++            description="Delete rebuildable research hypothesis indexes after 90 days in dev.",
++            delete_after="90d",
++        ),
++    },
+     DETECTION_SIGNALS_INDEX: {
+         "policy_id": "bb-detection-signals-dev-retention",
+         "delete_after": "90d",
+@@ -293,6 +338,11 @@ TARGETS: dict[str, TargetSpec] = {
+         lambda reader, limit, offset, program_id: reader.fetch_detection_signals(limit=limit, offset=offset, program_id=program_id),
+         build_detection_signal_document,
+     ),
++    "hypotheses": (
++        HYPOTHESES_INDEX,
++        lambda reader, limit, offset, program_id: reader.fetch_hypotheses(limit=limit, offset=offset, program_id=program_id),
++        build_hypothesis_document,
++    ),
+ }
+ 
+ 
+diff --git a/tests/search_indexer/test_hypothesis_index.py b/tests/search_indexer/test_hypothesis_index.py
+new file mode 100644
+index 0000000..ae0a793
+--- /dev/null
++++ b/tests/search_indexer/test_hypothesis_index.py
+@@ -0,0 +1,98 @@
++from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++
++sys.path.insert(0, str(Path("services/search-indexer").resolve()))
++
++from search_indexer.documents import build_hypothesis_document  # noqa: E402
++from search_indexer.postgres_reader import COUNT_SQL, HYPOTHESES_SQL  # noqa: E402
++from search_indexer.reindex import (  # noqa: E402
++    HYPOTHESES_INDEX,
++    INDEX_MAPPINGS,
++    INDEX_RETENTION_POLICIES,
++    TARGETS,
++)
++
++
++def test_hypothesis_index_is_registered_with_static_mapping() -> None:
++    assert TARGETS["hypotheses"][0] == HYPOTHESES_INDEX == "bb-research-hypotheses"
++
++    mapping = INDEX_MAPPINGS[HYPOTHESES_INDEX]["mappings"]
++    properties = mapping["properties"]
++
++    assert mapping["dynamic"] is False
++    assert properties["schema_version"] == {"type": "keyword"}
++    assert properties["sanitizer_version"] == {"type": "keyword"}
++    assert properties["program_id"] == {"type": "keyword"}
++    assert properties["hypothesis_type"] == {"type": "keyword"}
++    assert properties["status"] == {"type": "keyword"}
++    assert properties["safe_evidence_text"] == {"type": "text"}
++    assert HYPOTHESES_INDEX in INDEX_RETENTION_POLICIES
++
++
++def test_hypothesis_sql_reads_canonical_tables_and_redacts_unsafe_evidence() -> None:
++    assert "FROM research_hypotheses rh" in HYPOTHESES_SQL
++    assert "LEFT JOIN research_hypothesis_evidence rhe" in HYPOTHESES_SQL
++    assert "rh.program_id = %s::uuid" in HYPOTHESES_SQL
++    assert "CASE WHEN rhe.safe_for_search THEN rhe.claim ELSE NULL END" in HYPOTHESES_SQL
++    assert "CASE WHEN rhe.safe_for_search THEN rhe.safe_excerpt ELSE NULL END" in HYPOTHESES_SQL
++    assert COUNT_SQL["hypotheses"] == "SELECT count(*) FROM research_hypotheses WHERE program_id = %s::uuid"
++
++
++def test_hypothesis_document_indexes_only_search_safe_evidence_text() -> None:
++    document = build_hypothesis_document(
++        {
++            "id": "hyp-1",
++            "program_id": "program-1",
++            "hypothesis_type": "search_surface_followup",
++            "hypothesis_fingerprint": "fingerprint-1",
++            "status": "needs_verification",
++            "state_version": 2,
++            "priority_score": 80,
++            "confidence": 0.7,
++            "severity_guess": "medium",
++            "safety_level": "passive",
++            "score_version": "hypothesis-builder-v1",
++            "inputs_hash": "inputs-1",
++            "source_signal_fingerprints": ["signal-1", "signal-1", "signal-2"],
++            "evidence_count": 2,
++            "updated_at": "2026-06-24T12:00:00+00:00",
++            "evidence": [
++                {
++                    "ref_type": "search",
++                    "ref_id": "search-1",
++                    "role": "primary",
++                    "claim_type": "safe_claim",
++                    "claim": "Search projection shows token=secret-value in a URL.",
++                    "safe_excerpt": "token=secret-value",
++                    "safe_for_search": True,
++                },
++                {
++                    "ref_type": "artifact",
++                    "ref_id": "artifact-1",
++                    "role": "supporting",
++                    "claim_type": "unsafe_claim",
++                    "claim": "Authorization: Bearer should-not-index",
++                    "safe_excerpt": "should-not-index",
++                    "safe_for_search": False,
++                },
++            ],
++        }
++    )
++
++    assert document["id"] == "hyp-1"
++    assert document["hypothesis_id"] == "hyp-1"
++    assert document["program_id"] == "program-1"
++    assert document["source_signal_fingerprints"] == ["signal-1", "signal-2"]
++    assert document["evidence_ref_types"] == ["search", "artifact"]
++    assert document["evidence_roles"] == ["primary", "supporting"]
++    assert document["evidence_claim_types"] == ["safe_claim", "unsafe_claim"]
++    assert document["evidence_ref_ids"] == ["search-1", "artifact-1"]
++    assert document["safe_evidence_text"] == [
++        "Search projection shows token=[redacted] in a URL.",
++        "token=[redacted]",
++    ]
++    assert "should-not-index" not in str(document)
++    assert "secret-value" not in str(document)
+diff --git a/tests/search_indexer/test_schema_versioning.py b/tests/search_indexer/test_schema_versioning.py
+index d7158d6..be70802 100644
+--- a/tests/search_indexer/test_schema_versioning.py
++++ b/tests/search_indexer/test_schema_versioning.py
+@@ -13,6 +13,7 @@ from search_indexer.documents import (  # noqa: E402
+     build_detection_signal_document,
+     build_finding_document,
+     build_http_observation_document,
++    build_hypothesis_document,
+ )
+ from search_indexer.reindex import INDEX_MAPPINGS  # noqa: E402
+ 
+@@ -23,6 +24,7 @@ def test_all_search_documents_carry_schema_and_sanitizer_versions() -> None:
+         build_artifact_preview_document,
+         build_finding_document,
+         build_detection_signal_document,
++        build_hypothesis_document,
+     )
+ 
+     for builder in builders:

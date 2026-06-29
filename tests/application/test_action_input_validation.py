@@ -98,7 +98,6 @@ def _service():
     store = RecordingStore()
     policy = RecordingPolicy()
     service = ActionService(
-        event_bus=NoopBus(),
         store=store,
         policy=policy,
         catalog=ActionCatalogService(catalog_store),

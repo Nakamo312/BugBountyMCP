@@ -3,6 +3,7 @@
 import logging
 from typing import AsyncIterator
 
+from api.infrastructure.commands.command_boundary import command_invocation
 from api.infrastructure.commands.command_executor import CommandExecutor, ProcessEvent
 from api.infrastructure.parsers.process_event_parsers import JSONStdoutProcessEventParser
 
@@ -93,7 +94,7 @@ class TLSxCliRunner:
             f"Starting tlsx default cert scan: targets={len(targets)} ports={ports}"
         )
 
-        executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, stdin=stdin, timeout=self.timeout))
 
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
@@ -161,7 +162,7 @@ class TLSxCliRunner:
             f"ports={ports} total_probes={len(targets)}"
         )
 
-        executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, stdin=stdin, timeout=self.timeout))
 
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
@@ -236,7 +237,7 @@ class TLSxCliRunner:
             f"cipher={include_cipher} hash={include_hash} jarm={include_jarm}"
         )
 
-        executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, stdin=stdin, timeout=self.timeout))
 
         async for event in executor.run():
             if event.type == "stderr" and event.payload:

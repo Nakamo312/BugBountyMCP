@@ -1,6 +1,7 @@
 import logging
 from typing import AsyncIterator, Optional
 
+from api.infrastructure.commands.command_boundary import command_invocation
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.parsers.amass_parser import AmassGraphParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
@@ -50,7 +51,8 @@ class AmassCliRunner:
                 command.extend(["-brute", "-w", self.wordlist])
                 logger.info(f"Using wordlist: {self.wordlist}")
 
-        executor = CommandExecutor(command=command, timeout=self.timeout)
+        invocation = command_invocation(command, timeout=self.timeout)
+        executor = CommandExecutor(invocation)
 
         result_count = 0
         async for event in executor.run():

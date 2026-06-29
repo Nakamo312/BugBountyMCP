@@ -4,6 +4,7 @@ from api.infrastructure.repositories.adapters.host_ip import SQLAlchemyHostIPRep
 from api.infrastructure.repositories.adapters.service import SQLAlchemyServiceRepository
 from api.infrastructure.repositories.adapters.endpoint import SQLAlchemyEndpointRepository
 from api.infrastructure.repositories.adapters.input_parameters import SQLAlchemyInputParameterRepository
+from api.infrastructure.repositories.adapters.javascript_reference import SQLAlchemyJavaScriptReferenceRepository
 from api.infrastructure.repositories.adapters.scope_rule import SQLAlchemyScopeRuleRepository
 from api.infrastructure.unit_of_work.adapters.base import SQLAlchemyAbstractUnitOfWork
 from api.infrastructure.unit_of_work.interfaces.linkfinder import LinkFinderUnitOfWork
@@ -20,6 +21,7 @@ class SQLAlchemyLinkFinderUnitOfWork(SQLAlchemyAbstractUnitOfWork, LinkFinderUni
         self.services = SQLAlchemyServiceRepository(session=self._session)
         self.endpoints = SQLAlchemyEndpointRepository(session=self._session)
         self.input_parameters = SQLAlchemyInputParameterRepository(session=self._session)
+        self.javascript_references = SQLAlchemyJavaScriptReferenceRepository(session=self._session)
         self.scope_rules = SQLAlchemyScopeRuleRepository(session=self._session)
 
         return self

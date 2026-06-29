@@ -1,0 +1,451 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index 822c485..e730062 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -625,23 +625,25 @@ Evidence:
+   retry/checkpoint lifecycle to LangGraph instead of adding a second inbox retry
+   runtime.
+ - REST routes under `/api/v1/agent` expose the M6 agent protocol without raw
+-  execution shortcuts.
++  execution shortcuts. Workflow cancellation persists the workflow/run terminal
++  state, cancels pending subscriptions/inbox/wait edges for the run, and inbox
++  handoff refuses to resume terminal workflow runs.
+ 
+ Gaps:
+ 
+ - 0040 is implemented at schema/store level.
+ - 0041 is implemented through the existing EventStore dispatcher.
+ - 0042 has `tool_run_completed`, `ingestion_completed`, `projections_ready`,
+-  result-set-backed `new_facts_available`, `campaign_quiescent`, and timeout
+-  persistence; cancellation call paths remain.
++  result-set-backed `new_facts_available`, `campaign_quiescent`, timeout
++  persistence, and cancellation call paths.
+ - 0043 has result-set storage/upsert/list by stable result key and
+   action/campaign/workflow scope.
+-- 0044 has subscriptions, inbox claim/lease, inbox ack, wait-condition, and
+-  result-set REST APIs; richer auth boundaries remain.
++- 0044 has subscriptions, inbox claim/lease, inbox ack, workflow cancellation,
++  wait-condition, and result-set REST APIs; richer auth boundaries remain.
+ 
+ Next action:
+ 
+-- Add cancellation call paths and auth boundaries for the agent protocol.
++- Add richer auth boundaries for the agent protocol.
+ 
+ ## M7 - LangGraph Workflows To MVP
+ 
+@@ -731,7 +733,7 @@ Next action:
+ 2. Complete M1 outbox/publisher/API naming gaps.
+ 3. Complete remaining M4 graph producer coverage and graph profile smoke.
+ 4. Complete M5 projection lag/readiness.
+-5. Complete remaining M6 cancellation/auth boundaries.
++5. Complete remaining M6 auth boundaries.
+ 6. Run M7 PostgreSQL checkpoint and controlled-loop integration smoke.
+ 
+ ## Open Decisions
+diff --git a/src/api/application/langgraph_inbox_handoff.py b/src/api/application/langgraph_inbox_handoff.py
+index 8ace062..bae4712 100644
+--- a/src/api/application/langgraph_inbox_handoff.py
++++ b/src/api/application/langgraph_inbox_handoff.py
+@@ -39,6 +39,10 @@ class AgentInboxAckStore(Protocol):
+     async def ack_inbox_message(self, *, message_id: Any) -> None: ...
+ 
+ 
++class AgentWorkflowRunStatusReader(Protocol):
++    async def get_workflow_run_status(self, *, run_id: Any) -> str | None: ...
++
++
+ class AgentInboxFailureStore(Protocol):
+     async def record_inbox_handoff_error(
+         self,
+@@ -57,9 +61,12 @@ class InboxLangGraphHandoffResult:
+     graph_result: dict[str, Any] | None = None
+ 
+ 
+-
+-
+-class AgentInboxClaimStore(AgentInboxAckStore, AgentInboxFailureStore, Protocol):
++class AgentInboxClaimStore(
++    AgentInboxAckStore,
++    AgentInboxFailureStore,
++    AgentWorkflowRunStatusReader,
++    Protocol,
++):
+     async def claim_inbox(
+         self,
+         *,
+@@ -210,6 +217,7 @@ class MvpResearchInboxProcessor:
+             handoff = MvpResearchInboxHandoff(
+                 graph=graph,
+                 inbox_store=self.inbox_store,
++                workflow_state_reader=self.inbox_store,
+                 required_projections=self.required_projections,
+             )
+             return await handoff.handoff(message)
+@@ -229,10 +237,12 @@ class MvpResearchInboxHandoff:
+         graph: MvpResearchGraph,
+         inbox_store: AgentInboxAckStore,
+         required_projections: tuple[ProjectionKey, ...] = (),
++        workflow_state_reader: AgentWorkflowRunStatusReader | None = None,
+     ) -> None:
+         self.graph = graph
+         self.inbox_store = inbox_store
+         self.required_projections = required_projections
++        self.workflow_state_reader = workflow_state_reader
+ 
+     async def handoff(
+         self,
+@@ -241,7 +251,18 @@ class MvpResearchInboxHandoff:
+         message_id = _required_uuid(message, "id")
+         thread_id = langgraph_thread_id_for_inbox_message(message)
+ 
+-        if message.get("workflow_run_id") is not None:
++        workflow_run_id = message.get("workflow_run_id")
++        if workflow_run_id is not None:
++            status = await self._workflow_run_status(workflow_run_id)
++            if _terminal_workflow_status(status):
++                await self.inbox_store.ack_inbox_message(message_id=message_id)
++                return InboxLangGraphHandoffResult(
++                    message_id=message_id,
++                    thread_id=thread_id,
++                    mode=f"workflow_{status}",
++                    acknowledged=True,
++                    graph_result=None,
++                )
+             graph_result = await self.graph.aresume(thread_id=thread_id)
+             mode = "resume"
+         elif await self._thread_has_checkpoint(thread_id):
+@@ -269,6 +290,11 @@ class MvpResearchInboxHandoff:
+         values = getattr(snapshot, "values", None)
+         return bool(values)
+ 
++    async def _workflow_run_status(self, run_id: Any) -> str | None:
++        if self.workflow_state_reader is None:
++            return None
++        return await self.workflow_state_reader.get_workflow_run_status(run_id=run_id)
++
+ 
+ def langgraph_thread_id_for_inbox_message(message: dict[str, Any]) -> str:
+     """Return the deterministic LangGraph thread id for an inbox message."""
+@@ -370,6 +396,10 @@ def _bounded_limit(value: Any, *, default_limit: int) -> int:
+     return max(1, min(int(value), 100))
+ 
+ 
++def _terminal_workflow_status(status: str | None) -> bool:
++    return status in {"completed", "failed", "cancelled"}
++
++
+ def _error_summary(exc: Exception, *, max_length: int = 4000) -> str:
+     message = f"{type(exc).__name__}: {exc}".strip()
+     if not message:
+diff --git a/src/api/infrastructure/agent_coordination.py b/src/api/infrastructure/agent_coordination.py
+index f1c88bf..ec5c130 100644
+--- a/src/api/infrastructure/agent_coordination.py
++++ b/src/api/infrastructure/agent_coordination.py
+@@ -502,6 +502,89 @@ class AgentProtocolStore:
+             await session.execute(statement)
+             await session.commit()
+ 
++
++    async def get_workflow_run_status(self, *, run_id: Any) -> str | None:
++        query = select(agent_workflow_runs.c.status).where(
++            agent_workflow_runs.c.id == run_id
++        )
++        async with self.session_factory() as session:
++            result = await session.execute(query)
++        return result.scalar_one_or_none()
++
++    async def cancel_workflow_run_dependents(
++        self,
++        *,
++        run_id: Any,
++        reason: str | None = None,
++        now: datetime | None = None,
++    ) -> dict[str, int]:
++        """Persist cancellation intent around a workflow run.
++
++        LangGraph owns graph execution. This method cancels only durable agent
++        protocol edges that could otherwise re-deliver or resume work for a run
++        that was already cancelled: subscriptions, inbox messages, and pending
++        wait conditions.
++        """
++
++        now = now or datetime.now(timezone.utc)
++        reason_text = (reason or "workflow cancelled")[:4000]
++        inbox_error = f"workflow cancelled: {reason_text}"[:4000]
++        payload = {"reason": reason_text}
++
++        subscription_statement = (
++            update(agent_subscriptions)
++            .where(
++                agent_subscriptions.c.workflow_run_id == run_id,
++                agent_subscriptions.c.status.in_(["active", "paused"]),
++            )
++            .values(status="cancelled", updated_at=now)
++        )
++        inbox_statement = (
++            update(agent_inbox)
++            .where(
++                agent_inbox.c.workflow_run_id == run_id,
++                agent_inbox.c.status.in_(["pending", "claimed", "failed"]),
++            )
++            .values(
++                status="cancelled",
++                locked_by=None,
++                locked_until=None,
++                last_error=inbox_error,
++                updated_at=now,
++            )
++        )
++        wait_statement = (
++            update(agent_wait_conditions)
++            .where(
++                agent_wait_conditions.c.workflow_run_id == run_id,
++                agent_wait_conditions.c.status == "pending",
++            )
++            .values(
++                status="cancelled",
++                resolved_payload=payload,
++                resolved_at=now,
++                updated_at=now,
++            )
++        )
++
++        async with self.session_factory() as session:
++            subscription_result = await session.execute(subscription_statement)
++            inbox_result = await session.execute(inbox_statement)
++            wait_result = await session.execute(wait_statement)
++            await session.commit()
++
++        return {
++            "subscriptions_cancelled": max(
++                0, int(getattr(subscription_result, "rowcount", 0) or 0)
++            ),
++            "inbox_messages_cancelled": max(
++                0, int(getattr(inbox_result, "rowcount", 0) or 0)
++            ),
++            "wait_conditions_cancelled": max(
++                0, int(getattr(wait_result, "rowcount", 0) or 0)
++            ),
++        }
++
+     async def create_wait_condition(
+         self,
+         *,
+diff --git a/src/api/presentation/rest/routes/agent_protocol.py b/src/api/presentation/rest/routes/agent_protocol.py
+index b5176d6..fc5b93d 100644
+--- a/src/api/presentation/rest/routes/agent_protocol.py
++++ b/src/api/presentation/rest/routes/agent_protocol.py
+@@ -8,6 +8,7 @@ from dishka.integrations.fastapi import DishkaRoute, FromDishka
+ from fastapi import APIRouter, Query
+ from pydantic import BaseModel, ConfigDict, Field
+ 
++from api.application.langgraph_workflows import LangGraphWorkflowRuntime
+ from api.infrastructure.agent_coordination import AgentProtocolStore
+ 
+ 
+@@ -59,6 +60,12 @@ class AgentResultSetUpsertRequest(BaseModel):
+     correlation_id: UUID | None = None
+ 
+ 
++class AgentWorkflowCancelRequest(BaseModel):
++    model_config = ConfigDict(extra="forbid")
++
++    reason: str | None = Field(default=None, max_length=4000)
++
++
+ class AgentInboxClaimRequest(BaseModel):
+     model_config = ConfigDict(extra="forbid")
+ 
+@@ -116,6 +123,24 @@ async def ack_inbox_message(
+     return {"message_id": message_id, "status": "processed"}
+ 
+ 
++@router.post("/workflows/{run_id}/cancel")
++async def cancel_workflow_run(
++    run_id: UUID,
++    request: AgentWorkflowCancelRequest,
++    workflow_runtime: FromDishka[LangGraphWorkflowRuntime],
++    store: FromDishka[AgentProtocolStore],
++) -> dict[str, Any]:
++    state = await workflow_runtime.cancel(run_id=run_id, reason=request.reason)
++    cancelled = await store.cancel_workflow_run_dependents(
++        run_id=run_id,
++        reason=request.reason,
++    )
++    return {
++        "workflow": state.to_dict(),
++        "cancelled": cancelled,
++    }
++
++
+ @router.post("/wait-conditions", status_code=201)
+ async def create_wait_condition(
+     request: AgentWaitConditionCreateRequest,
+diff --git a/tests/application/test_agent_protocol_api_contract.py b/tests/application/test_agent_protocol_api_contract.py
+index 832e393..199f1af 100644
+--- a/tests/application/test_agent_protocol_api_contract.py
++++ b/tests/application/test_agent_protocol_api_contract.py
+@@ -17,6 +17,7 @@ def test_agent_protocol_routes_expose_m6_coordination_endpoints() -> None:
+         '@router.get("/inbox"',
+         '@router.post("/inbox/claim"',
+         '@router.post("/inbox/{message_id}/ack"',
++        '@router.post("/workflows/{run_id}/cancel"',
+         '@router.post("/wait-conditions"',
+         '@router.get("/wait-conditions"',
+         '@router.post("/result-sets"',
+@@ -25,6 +26,7 @@ def test_agent_protocol_routes_expose_m6_coordination_endpoints() -> None:
+         assert endpoint in source
+ 
+     assert "AgentProtocolStore" in source
++    assert "LangGraphWorkflowRuntime" in source
+     assert "AgentProtocolStore" in di_source
+     assert "agent_protocol_router" in router_source
+     assert 'prefix="/api/v1/agent"' in router_source
+diff --git a/tests/application/test_langgraph_inbox_handoff.py b/tests/application/test_langgraph_inbox_handoff.py
+index 8f9f211..71b2f9d 100644
+--- a/tests/application/test_langgraph_inbox_handoff.py
++++ b/tests/application/test_langgraph_inbox_handoff.py
+@@ -43,6 +43,16 @@ class RecordingInboxStore:
+         self.acked.append(message_id)
+ 
+ 
++class RecordingWorkflowStatusReader:
++    def __init__(self, status: str | None) -> None:
++        self.status = status
++        self.lookups = []
++
++    async def get_workflow_run_status(self, *, run_id):
++        self.lookups.append(run_id)
++        return self.status
++
++
+ def _message(**overrides):
+     message = {
+         "id": uuid4(),
+@@ -143,3 +153,43 @@ async def test_handoff_resumes_existing_workflow_run_and_acks() -> None:
+     assert graph.resumed == [str(run_id)]
+     assert graph.invoked == []
+     assert inbox_store.acked == [message["id"]]
++
++
++async def test_handoff_does_not_resume_cancelled_workflow_run() -> None:
++    run_id = uuid4()
++    message = _message(workflow_run_id=run_id)
++    graph = RecordingGraph()
++    inbox_store = RecordingInboxStore()
++    status_reader = RecordingWorkflowStatusReader("cancelled")
++    handoff = MvpResearchInboxHandoff(
++        graph=graph,
++        inbox_store=inbox_store,
++        workflow_state_reader=status_reader,
++    )
++
++    result = await handoff.handoff(message)
++
++    assert result.mode == "workflow_cancelled"
++    assert graph.resumed == []
++    assert graph.invoked == []
++    assert inbox_store.acked == [message["id"]]
++    assert status_reader.lookups == [run_id]
++
++
++async def test_handoff_resumes_non_terminal_workflow_run_after_status_check() -> None:
++    run_id = uuid4()
++    message = _message(workflow_run_id=run_id)
++    graph = RecordingGraph()
++    inbox_store = RecordingInboxStore()
++    status_reader = RecordingWorkflowStatusReader("waiting")
++    handoff = MvpResearchInboxHandoff(
++        graph=graph,
++        inbox_store=inbox_store,
++        workflow_state_reader=status_reader,
++    )
++
++    result = await handoff.handoff(message)
++
++    assert result.mode == "resume"
++    assert graph.resumed == [str(run_id)]
++    assert inbox_store.acked == [message["id"]]
+diff --git a/tests/infrastructure/test_agent_protocol_store.py b/tests/infrastructure/test_agent_protocol_store.py
+index 4c7970a..e6d7d4f 100644
+--- a/tests/infrastructure/test_agent_protocol_store.py
++++ b/tests/infrastructure/test_agent_protocol_store.py
+@@ -8,9 +8,10 @@ from api.infrastructure.agent_coordination import AgentProtocolStore
+ 
+ 
+ class FakeResult:
+-    def __init__(self, rows=None, scalar=None) -> None:
++    def __init__(self, rows=None, scalar=None, rowcount=0) -> None:
+         self._rows = rows or []
+         self._scalar = scalar
++        self.rowcount = rowcount
+ 
+     def mappings(self):
+         return self
+@@ -26,9 +27,10 @@ class FakeResult:
+ 
+ 
+ class FakeSession:
+-    def __init__(self, rows=None, scalar=None) -> None:
++    def __init__(self, rows=None, scalar=None, rowcount=0) -> None:
+         self.rows = rows or []
+         self.scalar = scalar
++        self.rowcount = rowcount
+         self.statements = []
+         self.committed = False
+ 
+@@ -40,7 +42,7 @@ class FakeSession:
+ 
+     async def execute(self, statement):
+         self.statements.append(statement)
+-        return FakeResult(self.rows, self.scalar)
++        return FakeResult(self.rows, self.scalar, self.rowcount)
+ 
+     async def commit(self) -> None:
+         self.committed = True
+@@ -219,3 +221,44 @@ async def test_agent_protocol_store_lists_result_sets_by_scope() -> None:
+     compiled = str(session.statements[0].compile(dialect=postgresql.dialect()))
+     assert "agent_result_sets.program_id" in compiled
+     assert "agent_result_sets.action_id" in compiled
++
++
++async def test_agent_protocol_store_reads_workflow_run_status() -> None:
++    session = FakeSession(scalar="cancelled")
++    store = AgentProtocolStore(FakeSessionFactory(session))
++
++    status = await store.get_workflow_run_status(run_id=uuid4())
++
++    assert status == "cancelled"
++    compiled = str(session.statements[0].compile(dialect=postgresql.dialect()))
++    assert "SELECT agent_workflow_runs.status" in compiled
++    assert "agent_workflow_runs.id" in compiled
++
++
++async def test_agent_protocol_store_cancels_workflow_run_dependents() -> None:
++    session = FakeSession(rowcount=1)
++    store = AgentProtocolStore(FakeSessionFactory(session))
++
++    result = await store.cancel_workflow_run_dependents(
++        run_id=uuid4(),
++        reason="operator cancelled",
++    )
++
++    assert result == {
++        "subscriptions_cancelled": 1,
++        "inbox_messages_cancelled": 1,
++        "wait_conditions_cancelled": 1,
++    }
++    assert session.committed is True
++    compiled = "\n".join(
++        str(statement.compile(dialect=postgresql.dialect()))
++        for statement in session.statements
++    )
++    assert "UPDATE agent_subscriptions" in compiled
++    assert "UPDATE agent_inbox" in compiled
++    assert "UPDATE agent_wait_conditions" in compiled
++    assert "agent_inbox.status IN" in compiled
++    assert "agent_wait_conditions.status =" in compiled
++    inbox_statement = session.statements[1].compile(dialect=postgresql.dialect())
++    assert inbox_statement.params["status"] == "cancelled"
++    assert inbox_statement.params["last_error"].startswith("workflow cancelled")

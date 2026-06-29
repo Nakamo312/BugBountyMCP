@@ -29,63 +29,21 @@ class KatanaResultIngestor(BaseResultIngestor):
         self._js_files = []
         self._scope_rules: List[ScopeRuleModel] = []
 
-    async def ingest(
+    async def before_ingest(
         self,
+        uow: KatanaUnitOfWork,
         program_id: UUID,
         results: List[Dict[str, Any]],
         context: IngestContext | None = None,
-    ) -> IngestResult:
-        """
-        Ingest Katana results and return discovered JS files.
-
-        Args:
-            program_id: Program UUID
-            results: List of Katana JSON results
-
-        Returns:
-            IngestResult with js_files list
-        """
+    ) -> None:
         self._js_files = []
+        self._scope_rules = await uow.scope_rules.find_by_program(program_id)
 
-        total_results = len(results)
-        successful_batches = 0
-        failed_batches = 0
-
-        logger.info(
-            f"KatanaResultIngestor: Starting ingestion program={program_id} total_results={total_results}"
-        )
-
-        async with self.uow as uow:
-            self._scope_rules = await uow.scope_rules.find_by_program(program_id)
-
-            for batch_index, batch in enumerate(self._chunks(results, self.batch_size)):
-                savepoint_name = f"batch_{batch_index}"
-                await uow.create_savepoint(savepoint_name)
-
-                try:
-                    await self._process_batch(uow, program_id, batch, context=context)
-                    await uow.release_savepoint(savepoint_name)
-                    successful_batches += 1
-                except Exception as exc:
-                    await uow.rollback_to_savepoint(savepoint_name)
-                    failed_batches += 1
-                    logger.error(
-                        f"KatanaResultIngestor: Batch {batch_index} failed (size={len(batch)}): {exc}"
-                    )
-            await uow.commit()
-
-        logger.info(
-            f"KatanaResultIngestor: Ingestion completed program={program_id} "
-            f"total={total_results} batches_ok={successful_batches} batches_failed={failed_batches} "
-            f"js_files={len(self._js_files)}"
-        )
-
+    def build_result(self) -> IngestResult:
         return IngestResult(js_files=list(set(self._js_files)))
 
-    def _chunks(self, data: List[Any], size: int):
-        """Split data into chunks of given size"""
-        for i in range(0, len(data), size):
-            yield data[i:i + size]
+    def log_extra(self) -> str:
+        return f"js_files={len(self._js_files)}"
 
     async def _process_batch(
         self,

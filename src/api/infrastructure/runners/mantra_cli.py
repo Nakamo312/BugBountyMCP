@@ -1,5 +1,6 @@
 import logging
 from typing import AsyncIterator, List
+from api.infrastructure.commands.command_boundary import command_invocation
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.parsers.line_process_event_parsers import MantraStdoutParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
@@ -35,9 +36,7 @@ class MantraCliRunner:
         logger.info(f"Running Mantra on {len(js_urls)} JS files")
 
         executor = CommandExecutor(
-            command=command,
-            stdin=stdin_data,
-            timeout=self.timeout
+            command_invocation(command, stdin=stdin_data, timeout=self.timeout)
         )
 
         try:

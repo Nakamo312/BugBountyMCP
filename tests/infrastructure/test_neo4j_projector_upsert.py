@@ -320,3 +320,93 @@ def test_graph_fact_writer_does_not_load_ontology_yaml_inside_write_path() -> No
     assert "load_graph_ontology" not in source
     assert "default_graph_ontology" not in source
     assert "ontology.yaml" not in source
+
+
+def test_graph_fact_writer_replaces_action_outcome_derived_edges_before_reprojecting() -> None:
+    GraphNodeFact, GraphEdgeFact, GraphFactBatch, default_graph_ontology, GraphOntologyRegistry, GraphFactWriter = (
+        _graph_writer_symbols()
+    )
+
+    program_id = uuid4()
+    outcome_id = uuid4()
+    registry = GraphOntologyRegistry(default_graph_ontology())
+    writer = GraphFactWriter(registry)
+    session = RecordingSession()
+    batch = GraphFactBatch(
+        program_id=program_id,
+        produced_by="action-outcome-memory",
+        parser_version="action-outcome-memory.v1",
+        facts=[
+            GraphNodeFact(
+                program_id=program_id,
+                kind="ActionOutcome",
+                key=str(outcome_id),
+                producer="action-outcome-memory",
+                tool_run_id=uuid4(),
+                confidence=1.0,
+                properties={"information_gain_score": 4.0},
+            ),
+            GraphNodeFact(
+                program_id=program_id,
+                kind="OutcomeFeature",
+                key="information_gain_bucket:1-5",
+                producer="action-outcome-memory",
+                tool_run_id=uuid4(),
+                confidence=1.0,
+                properties={"feature_type": "information_gain_bucket", "feature_value": "1-5"},
+            ),
+            GraphEdgeFact(
+                program_id=program_id,
+                src_kind="ActionOutcome",
+                src_key=str(outcome_id),
+                edge_kind="HAS_OUTCOME_FEATURE",
+                dst_kind="OutcomeFeature",
+                dst_key="information_gain_bucket:1-5",
+                producer="action-outcome-memory",
+                tool_run_id=uuid4(),
+                confidence=1.0,
+            ),
+        ],
+    )
+
+    result = writer.write_batch(session, batch)
+
+    assert result.nodes_written == 2
+    assert result.edges_written == 1
+    assert "DELETE rel" in session.calls[0].query
+    assert "HAS_OUTCOME_FEATURE" in session.calls[0].query
+    assert "BEFORE_SURFACE_SNAPSHOT" in session.calls[0].query
+    assert "AFTER_SURFACE_SNAPSHOT" in session.calls[0].query
+    assert session.calls[0].parameters == {"program_id": str(program_id), "key": str(outcome_id)}
+    assert "MERGE (node:ActionOutcome" in session.calls[1].query
+
+
+def test_graph_fact_writer_does_not_refresh_append_only_nodes() -> None:
+    GraphNodeFact, _, GraphFactBatch, default_graph_ontology, GraphOntologyRegistry, GraphFactWriter = (
+        _graph_writer_symbols()
+    )
+
+    program_id = uuid4()
+    registry = GraphOntologyRegistry(default_graph_ontology())
+    writer = GraphFactWriter(registry)
+    session = RecordingSession()
+    batch = GraphFactBatch(
+        program_id=program_id,
+        produced_by="raw-artifact-metadata",
+        parser_version="raw-artifact-metadata.v1",
+        facts=[
+            GraphNodeFact(
+                program_id=program_id,
+                kind="Artifact",
+                key=str(uuid4()),
+                producer="raw-artifact-metadata",
+                source_artifact_id=uuid4(),
+                confidence=1.0,
+            ),
+        ],
+    )
+
+    writer.write_batch(session, batch)
+
+    assert len(session.calls) == 1
+    assert "DELETE rel" not in session.calls[0].query

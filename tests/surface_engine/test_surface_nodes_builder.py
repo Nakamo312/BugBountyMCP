@@ -118,3 +118,47 @@ def test_snapshot_draft_is_deterministic_and_summarizes_node_types():
         "response_shape": 1,
         "route_template": 1,
     }
+
+from surface_engine.deltas import build_surface_deltas  # noqa: E402
+from surface_engine.edges import build_surface_edges_from_nodes  # noqa: E402
+
+
+def test_surface_edge_builder_connects_endpoint_shapes_without_domain_labels():
+    nodes = build_surface_nodes_from_observations([_row()])
+    edges = build_surface_edges_from_nodes(nodes)
+
+    assert {edge.edge_type for edge in edges} == {"HAS_ROUTE_SHAPE", "HAS_RESPONSE_SHAPE"}
+    assert all(edge.weight == 1.0 for edge in edges)
+    payload = json.dumps([edge.evidence_json for edge in edges], sort_keys=True)
+    assert "admin" not in payload.lower()
+    assert "swagger" not in payload.lower()
+
+
+def test_surface_delta_builder_scores_structural_introductions_not_counts():
+    first_rows = [_row(id="11111111-1111-1111-1111-111111111111", url="https://example.com/api/users/123")]
+    second_rows = [
+        *first_rows,
+        _row(id="22222222-2222-2222-2222-222222222222", url="https://example.com/api/orders/456"),
+    ]
+    first_nodes = build_surface_nodes_from_observations(first_rows)
+    second_nodes = build_surface_nodes_from_observations(second_rows)
+    first_edges = build_surface_edges_from_nodes(first_nodes)
+    second_edges = build_surface_edges_from_nodes(second_nodes)
+
+    deltas = build_surface_deltas(
+        program_id=PROGRAM_ID,
+        from_snapshot_id="snap-before",
+        to_snapshot_id="snap-after",
+        previous_nodes=[
+            {"node_fingerprint": node.node_fingerprint, "feature_fingerprint": node.feature_fingerprint}
+            for node in first_nodes
+        ],
+        previous_edges=[{"edge_fingerprint": edge.edge_fingerprint} for edge in first_edges],
+        current_nodes=second_nodes,
+        current_edges=second_edges,
+    )
+
+    assert any(delta.delta_type == "node_introduced" for delta in deltas)
+    assert any(delta.delta_type == "edge_introduced" for delta in deltas)
+    assert all(0 <= delta.novelty_score <= 100 for delta in deltas)
+    assert all("score_basis" in delta.details_json for delta in deltas)

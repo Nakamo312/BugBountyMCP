@@ -1,12 +1,16 @@
 """MapCIDR Service for CIDR operations"""
+from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from api.application.dto.scan_dto import MapCIDRScanOutputDTO
-from api.infrastructure.events.event_bus import EventBus
 from api.infrastructure.events.event_types import EventType
+from api.infrastructure.runners.cli_tool_factory import CliToolRunnerFactory
+
+if TYPE_CHECKING:
+    from api.infrastructure.events.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +26,17 @@ class MapCIDRService:
     - Host counting
     """
 
-    def __init__(self, runner: Any, bus: EventBus):
-        self.runner = runner
+    def __init__(self, runner_factory: CliToolRunnerFactory, bus: EventBus):
+        self.runner_factory = runner_factory
         self.bus = bus
+
+    async def _collect(self, values: list[str], **options) -> list[str]:
+        runner = self.runner_factory.create("mapcidr")
+        results: list[str] = []
+        async for event in runner.run(values, **options):
+            if event.type == "result" and event.payload:
+                results.append(str(event.payload))
+        return results
 
     async def expand(
         self,
@@ -52,15 +64,13 @@ class MapCIDRService:
             f"skip_base={skip_base} skip_broadcast={skip_broadcast} shuffle={shuffle}"
         )
 
-        ips = []
-        async for event in self.runner.expand(
-            cidrs=cidrs,
+        ips = await self._collect(
+            cidrs,
+            mode="expand",
             skip_base=skip_base,
             skip_broadcast=skip_broadcast,
-            shuffle=shuffle
-        ):
-            if event.type == "result":
-                ips.append(event.payload)
+            shuffle=shuffle,
+        )
 
         if ips:
             await self.bus.publish({
@@ -108,10 +118,7 @@ class MapCIDRService:
             f"cidrs={len(cidrs)} count={count}"
         )
 
-        sliced_cidrs = []
-        async for event in self.runner.slice_by_count(cidrs=cidrs, count=count):
-            if event.type == "result":
-                sliced_cidrs.append(event.payload)
+        sliced_cidrs = await self._collect(cidrs, mode="slice_by_count", count=count)
 
         if sliced_cidrs:
             await self.bus.publish({
@@ -159,10 +166,11 @@ class MapCIDRService:
             f"cidrs={len(cidrs)} host_count={host_count}"
         )
 
-        sliced_cidrs = []
-        async for event in self.runner.slice_by_host_count(cidrs=cidrs, host_count=host_count):
-            if event.type == "result":
-                sliced_cidrs.append(event.payload)
+        sliced_cidrs = await self._collect(
+            cidrs,
+            mode="slice_by_host_count",
+            host_count=host_count,
+        )
 
         if sliced_cidrs:
             await self.bus.publish({
@@ -207,10 +215,7 @@ class MapCIDRService:
             f"Starting mapcidr aggregate: program={program_id} ips={len(ips)}"
         )
 
-        aggregated_cidrs = []
-        async for event in self.runner.aggregate(ips=ips):
-            if event.type == "result":
-                aggregated_cidrs.append(event.payload)
+        aggregated_cidrs = await self._collect(ips, mode="aggregate")
 
         if aggregated_cidrs:
             await self.bus.publish({

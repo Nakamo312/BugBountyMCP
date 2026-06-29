@@ -3,6 +3,7 @@
 import logging
 from typing import AsyncIterator
 
+from api.infrastructure.commands.command_boundary import command_invocation
 from api.infrastructure.commands.command_executor import CommandExecutor, ProcessEvent
 from api.infrastructure.parsers.line_process_event_parsers import Hakip2HostStdoutParser
 
@@ -46,7 +47,7 @@ class Hakip2HostCliRunner:
             f"Starting hakip2host: ips={len(targets)} stdin={stdin[:100]}"
         )
 
-        executor = CommandExecutor(command, stdin=stdin, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, stdin=stdin, timeout=self.timeout))
 
         async for event in executor.run():
             if event.type == "stderr" and event.payload:

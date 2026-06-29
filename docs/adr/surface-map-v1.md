@@ -125,7 +125,7 @@ Do not reimplement these from scratch:
 
 - existing path normalization under `src/api/infrastructure/normalization/path_normalizer.py`;
 - existing tests around path normalization;
-- existing `research-engine` package for evidence packs, value shapes, gatekeeping, and research hypothesis writing;
+- existing application-level sanitizer and future evidence-pack contracts;
 - existing `search-indexer` service for rebuildable OpenSearch projections.
 
 The Surface Map should reuse or wrap these components rather than creating duplicate logic.

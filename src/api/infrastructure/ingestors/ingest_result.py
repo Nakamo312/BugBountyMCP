@@ -1,4 +1,6 @@
 """IngestResult dataclass for returning new entities from ingestors"""
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import List
 
@@ -18,3 +20,16 @@ class IngestResult:
     ips: List[str] = field(default_factory=list)
     hostnames: List[str] = field(default_factory=list)
     raw_domains: List[str] = field(default_factory=list)
+
+    def merge(self, other: "IngestResult") -> "IngestResult":
+        """Return a new result containing values from both results."""
+        return IngestResult(
+            new_hosts=[*self.new_hosts, *other.new_hosts],
+            js_files=[*self.js_files, *other.js_files],
+            asns=[*self.asns, *other.asns],
+            cidrs=[*self.cidrs, *other.cidrs],
+            urls=[*self.urls, *other.urls],
+            ips=[*self.ips, *other.ips],
+            hostnames=[*self.hostnames, *other.hostnames],
+            raw_domains=[*self.raw_domains, *other.raw_domains],
+        )

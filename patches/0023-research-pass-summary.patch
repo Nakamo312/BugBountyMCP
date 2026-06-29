@@ -1,0 +1,665 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index 9d25a87..88bbdc3 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -693,16 +693,18 @@ Evidence:
+ - `ReportDraftBuilderWorkflow` links evidence refs, redacts authorization,
+   cookie, token, and session values in both body and evidence-chain text, and
+   blocks draft completion when evidence or critic acceptance is missing.
+-- `MvpResearchWorkflow` reuses the existing builder, critic, and report builder
++- `ResearchPass` reuses the existing builder, critic, and report builder
+   in one typed application flow. It returns stored hypothesis IDs, critic
+-  decisions, and drafts without creating findings.
++  decisions, drafts, and a safe summary (`empty`, `needs_evidence`,
++  `drafts_ready`, etc.) without creating findings.
+ - `ResearchControlGraph` compiles that flow with LangGraph 1.2.6, persists
+   thread checkpoints through the official PostgreSQL saver, and supports
+   asynchronous state recovery/resume. When bounded hypothesis selection is
+   wired in, it records selected next-step pointers such as `critic_review`,
+   `build_evidence`, or `draft_report`; graph state still contains only request
+-  pointers, hypothesis IDs, critic statuses, draft statuses, finding IDs, and
+-  selected step metadata, not report bodies or evidence text.
++  pointers, hypothesis IDs, critic statuses, draft statuses, finding IDs,
++  safe pass summary counters, and selected step metadata, not report bodies
++  or evidence text.
+ - `MvpResearchReadinessGate` reuses M6 projection and result-set readers,
+   persists stable wait conditions, updates durable workflow run state, and
+   drives LangGraph interrupt/resume without calling execution transports.
+@@ -730,7 +732,7 @@ Gaps:
+   existing result-set references and research hypothesis/evidence tables.
+ - 0051 is implemented as a deterministic critic/verifier workflow.
+ - 0052 is implemented as a redacted, evidence-linked report draft workflow.
+-- The semantic stages are connected through `MvpResearchWorkflow` and compiled
++- The semantic stages are connected through `ResearchPass` and compiled
+   through `ResearchControlGraph`.
+ - The graph now pauses before research until required named projections and a
+   matching result set are available, then rechecks readiness on resume.
+diff --git a/src/api/application/di.py b/src/api/application/di.py
+index 8bff7ad..dd7910c 100644
+--- a/src/api/application/di.py
++++ b/src/api/application/di.py
+@@ -30,7 +30,7 @@ from api.application.langgraph_inbox_handoff import MvpResearchInboxProcessor
+ from api.application.langgraph_context_tools import LangGraphContextTools
+ from api.application.langgraph_tool_action import LangGraphToolActionTool
+ from api.application.langgraph_workflows import LangGraphWorkflowRuntime
+-from api.application.mvp_research_workflow import MvpResearchWorkflow
++from api.application.research_pass import ResearchPass
+ from api.application.research_control_graph import ResearchControlGraph
+ from api.application.mvp_research_readiness import MvpResearchReadinessGate
+ from api.application.report_drafts import ReportDraftBuilderWorkflow
+@@ -407,13 +407,13 @@ class OrchestrationProvider(Provider):
+         return ReportDraftBuilderWorkflow()
+ 
+     @provide(scope=Scope.REQUEST)
+-    def get_mvp_research_workflow(
++    def get_research_pass(
+         self,
+         hypothesis_builder: HypothesisBuilderWorkflow,
+         hypothesis_critic: HypothesisCriticWorkflow,
+         report_builder: ReportDraftBuilderWorkflow,
+-    ) -> MvpResearchWorkflow:
+-        return MvpResearchWorkflow(
++    ) -> ResearchPass:
++        return ResearchPass(
+             hypothesis_builder=hypothesis_builder,
+             hypothesis_critic=hypothesis_critic,
+             report_builder=report_builder,
+@@ -422,7 +422,7 @@ class OrchestrationProvider(Provider):
+     @provide(scope=Scope.REQUEST)
+     def get_research_control_graph(
+         self,
+-        research_workflow: MvpResearchWorkflow,
++        research_workflow: ResearchPass,
+         readiness_gate: MvpResearchReadinessGate,
+         context_tools: LangGraphContextTools,
+         checkpointer: AsyncPostgresSaver,
+diff --git a/src/api/application/mvp_research_workflow.py b/src/api/application/mvp_research_workflow.py
+index 0dfc7b1..f23f591 100644
+--- a/src/api/application/mvp_research_workflow.py
++++ b/src/api/application/mvp_research_workflow.py
+@@ -1,78 +1,31 @@
+-"""MVP semantic workflow from normalized result sets to report drafts."""
++"""Backward-compatible imports for the renamed research pass."""
+ from __future__ import annotations
+ 
+-from dataclasses import dataclass
+-from typing import Protocol
+-from uuid import UUID
+-
+-from api.application.hypotheses import (
+-    HypothesisBuildRequest,
+-    HypothesisBuildResult,
+-    HypothesisCandidate,
+-    StoredHypothesis,
++from api.application.research_pass import (
++    HypothesisBuilder,
++    HypothesisCritic,
++    ReportDraftBuilder,
++    ResearchPass,
++    ResearchPassItem,
++    ResearchPassResult,
++    ResearchPassSummary,
++    summarize_research_pass,
+ )
+-from api.application.hypothesis_critic import CriticDecision
+-from api.application.report_drafts import ReportDraft
+-
+-
+-class HypothesisBuilder(Protocol):
+-    async def build_from_result_sets(
+-        self,
+-        request: HypothesisBuildRequest,
+-    ) -> HypothesisBuildResult: ...
+-
+-
+-class HypothesisCritic(Protocol):
+-    async def review(self, candidate: HypothesisCandidate) -> CriticDecision: ...
+-
+-
+-class ReportDraftBuilder(Protocol):
+-    def build(
+-        self,
+-        candidate: HypothesisCandidate,
+-        critic_decision: CriticDecision,
+-    ) -> ReportDraft: ...
+-
+-
+-@dataclass(frozen=True, slots=True)
+-class MvpResearchItem:
+-    hypothesis: StoredHypothesis
+-    critic: CriticDecision
+-    report_draft: ReportDraft
+-
+-
+-@dataclass(frozen=True, slots=True)
+-class MvpResearchResult:
+-    items: tuple[MvpResearchItem, ...]
+-    finding_ids: tuple[UUID, ...] = ()
+-
+-
+-class MvpResearchWorkflow:
+-    def __init__(
+-        self,
+-        *,
+-        hypothesis_builder: HypothesisBuilder,
+-        hypothesis_critic: HypothesisCritic,
+-        report_builder: ReportDraftBuilder,
+-    ) -> None:
+-        self.hypothesis_builder = hypothesis_builder
+-        self.hypothesis_critic = hypothesis_critic
+-        self.report_builder = report_builder
+ 
+-    async def run(self, request: HypothesisBuildRequest) -> MvpResearchResult:
+-        build_result = await self.hypothesis_builder.build_from_result_sets(request)
+-        items = []
+-        for stored, candidate in zip(
+-            build_result.hypotheses,
+-            build_result.candidates,
+-            strict=True,
+-        ):
+-            decision = await self.hypothesis_critic.review(candidate)
+-            items.append(
+-                MvpResearchItem(
+-                    hypothesis=stored,
+-                    critic=decision,
+-                    report_draft=self.report_builder.build(candidate, decision),
+-                )
+-            )
+-        return MvpResearchResult(items=tuple(items))
++MvpResearchItem = ResearchPassItem
++MvpResearchResult = ResearchPassResult
++MvpResearchWorkflow = ResearchPass
++
++__all__ = [
++    "HypothesisBuilder",
++    "HypothesisCritic",
++    "MvpResearchItem",
++    "MvpResearchResult",
++    "MvpResearchWorkflow",
++    "ReportDraftBuilder",
++    "ResearchPass",
++    "ResearchPassItem",
++    "ResearchPassResult",
++    "ResearchPassSummary",
++    "summarize_research_pass",
++]
+diff --git a/src/api/application/research_control_graph.py b/src/api/application/research_control_graph.py
+index 79d737d..ff82a52 100644
+--- a/src/api/application/research_control_graph.py
++++ b/src/api/application/research_control_graph.py
+@@ -12,12 +12,12 @@ from api.application.mvp_research_readiness import (
+     MvpResearchReadinessGate,
+     ResearchReadinessDecision,
+ )
+-from api.application.mvp_research_workflow import MvpResearchResult
++from api.application.research_pass import ResearchPassResult
+ from api.application.projections import ProjectionKey
+ 
+ 
+ class ResearchWorkflow(Protocol):
+-    async def run(self, request: HypothesisBuildRequest) -> MvpResearchResult: ...
++    async def run(self, request: HypothesisBuildRequest) -> ResearchPassResult: ...
+ 
+ 
+ class HypothesisStepSelector(Protocol):
+@@ -49,6 +49,8 @@ class ResearchControlState(TypedDict, total=False):
+     critic_statuses: list[str]
+     draft_statuses: list[str]
+     finding_ids: list[str]
++    research_pass_status: str
++    research_pass_summary: dict[str, int | str]
+     selection_status: str
+     selected_hypothesis_steps: list[dict[str, Any]]
+ 
+@@ -148,6 +150,7 @@ class ResearchControlGraph:
+         state: ResearchControlState,
+     ) -> ResearchControlState:
+         result = await self.research_workflow.run(self._request(state))
++        summary = result.safe_summary()
+         return {
+             "hypothesis_ids": [
+                 str(item.hypothesis.hypothesis_id) for item in result.items
+@@ -155,6 +158,8 @@ class ResearchControlGraph:
+             "critic_statuses": [item.critic.status for item in result.items],
+             "draft_statuses": [item.report_draft.status for item in result.items],
+             "finding_ids": [str(value) for value in result.finding_ids],
++            "research_pass_status": str(summary["status"]),
++            "research_pass_summary": summary,
+         }
+ 
+     async def _select_next_steps(
+diff --git a/src/api/application/research_pass.py b/src/api/application/research_pass.py
+new file mode 100644
+index 0000000..a6307cc
+--- /dev/null
++++ b/src/api/application/research_pass.py
+@@ -0,0 +1,160 @@
++"""Research pass from normalized result sets to critic decisions and report drafts."""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Protocol
++from uuid import UUID
++
++from api.application.hypotheses import (
++    HypothesisBuildRequest,
++    HypothesisBuildResult,
++    HypothesisCandidate,
++    StoredHypothesis,
++)
++from api.application.hypothesis_critic import CriticDecision
++from api.application.report_drafts import ReportDraft
++
++
++class HypothesisBuilder(Protocol):
++    async def build_from_result_sets(
++        self,
++        request: HypothesisBuildRequest,
++    ) -> HypothesisBuildResult: ...
++
++
++class HypothesisCritic(Protocol):
++    async def review(self, candidate: HypothesisCandidate) -> CriticDecision: ...
++
++
++class ReportDraftBuilder(Protocol):
++    def build(
++        self,
++        candidate: HypothesisCandidate,
++        critic_decision: CriticDecision,
++    ) -> ReportDraft: ...
++
++
++@dataclass(frozen=True, slots=True)
++class ResearchPassItem:
++    hypothesis: StoredHypothesis
++    critic: CriticDecision
++    report_draft: ReportDraft
++
++
++@dataclass(frozen=True, slots=True)
++class ResearchPassSummary:
++    status: str
++    total_hypotheses: int
++    accepted_by_critic: int
++    needs_evidence: int
++    rejected_by_critic: int
++    drafts_ready: int
++    blocked_drafts: int
++
++    def as_safe_dict(self) -> dict[str, int | str]:
++        return {
++            "status": self.status,
++            "total_hypotheses": self.total_hypotheses,
++            "accepted_by_critic": self.accepted_by_critic,
++            "needs_evidence": self.needs_evidence,
++            "rejected_by_critic": self.rejected_by_critic,
++            "drafts_ready": self.drafts_ready,
++            "blocked_drafts": self.blocked_drafts,
++        }
++
++
++@dataclass(frozen=True, slots=True)
++class ResearchPassResult:
++    items: tuple[ResearchPassItem, ...]
++    finding_ids: tuple[UUID, ...] = ()
++    summary: ResearchPassSummary | None = None
++
++    def safe_summary(self) -> dict[str, int | str]:
++        return (self.summary or summarize_research_pass(self.items)).as_safe_dict()
++
++
++class ResearchPass:
++    def __init__(
++        self,
++        *,
++        hypothesis_builder: HypothesisBuilder,
++        hypothesis_critic: HypothesisCritic,
++        report_builder: ReportDraftBuilder,
++    ) -> None:
++        self.hypothesis_builder = hypothesis_builder
++        self.hypothesis_critic = hypothesis_critic
++        self.report_builder = report_builder
++
++    async def run(self, request: HypothesisBuildRequest) -> ResearchPassResult:
++        build_result = await self.hypothesis_builder.build_from_result_sets(request)
++        items = []
++        for stored, candidate in zip(
++            build_result.hypotheses,
++            build_result.candidates,
++            strict=True,
++        ):
++            decision = await self.hypothesis_critic.review(candidate)
++            report_draft = self.report_builder.build(candidate, decision)
++            items.append(
++                ResearchPassItem(
++                    hypothesis=stored,
++                    critic=decision,
++                    report_draft=report_draft,
++                )
++            )
++        result_items = tuple(items)
++        return ResearchPassResult(
++            items=result_items,
++            summary=summarize_research_pass(result_items),
++        )
++
++
++def summarize_research_pass(
++    items: tuple[ResearchPassItem, ...],
++) -> ResearchPassSummary:
++    total = len(items)
++    accepted = sum(1 for item in items if item.critic.status == "accepted")
++    needs_evidence = sum(
++        1 for item in items if item.critic.status == "needs_evidence"
++    )
++    rejected = sum(1 for item in items if item.critic.status == "rejected")
++    drafts_ready = sum(1 for item in items if item.report_draft.status == "draft")
++    blocked_drafts = sum(
++        1 for item in items if item.report_draft.status.startswith("blocked_")
++    )
++    return ResearchPassSummary(
++        status=_research_pass_status(
++            total=total,
++            drafts_ready=drafts_ready,
++            needs_evidence=needs_evidence,
++            rejected=rejected,
++            accepted=accepted,
++        ),
++        total_hypotheses=total,
++        accepted_by_critic=accepted,
++        needs_evidence=needs_evidence,
++        rejected_by_critic=rejected,
++        drafts_ready=drafts_ready,
++        blocked_drafts=blocked_drafts,
++    )
++
++
++def _research_pass_status(
++    *,
++    total: int,
++    drafts_ready: int,
++    needs_evidence: int,
++    rejected: int,
++    accepted: int,
++) -> str:
++    if total == 0:
++        return "empty"
++    if drafts_ready:
++        return "drafts_ready"
++    if needs_evidence:
++        return "needs_evidence"
++    if rejected == total:
++        return "rejected"
++    if accepted:
++        return "reviewed"
++    return "reviewed"
+diff --git a/tests/application/test_research_control_graph.py b/tests/application/test_research_control_graph.py
+index f85af4a..da78fde 100644
+--- a/tests/application/test_research_control_graph.py
++++ b/tests/application/test_research_control_graph.py
+@@ -8,17 +8,17 @@ from api.application.hypotheses import HypothesisBuildRequest, StoredHypothesis
+ from api.application.hypothesis_critic import CriticDecision
+ from api.application.research_control_graph import ResearchControlGraph
+ from api.application.mvp_research_readiness import ResearchReadinessDecision
+-from api.application.mvp_research_workflow import MvpResearchItem, MvpResearchResult
++from api.application.research_pass import ResearchPassItem, ResearchPassResult
+ from api.application.projections import ProjectionKey
+ from api.application.report_drafts import ReportDraft
+ 
+ 
+ class RecordingResearchWorkflow:
+-    def __init__(self, result: MvpResearchResult) -> None:
++    def __init__(self, result: ResearchPassResult) -> None:
+         self.result = result
+         self.requests = []
+ 
+-    async def run(self, request: HypothesisBuildRequest) -> MvpResearchResult:
++    async def run(self, request: HypothesisBuildRequest) -> ResearchPassResult:
+         self.requests.append(request)
+         return self.result
+ 
+@@ -49,9 +49,9 @@ async def test_compiled_research_graph_persists_pointer_only_state() -> None:
+     workflow_run_id = uuid4()
+     hypothesis_id = uuid4()
+     research = RecordingResearchWorkflow(
+-        MvpResearchResult(
++        ResearchPassResult(
+             items=(
+-                MvpResearchItem(
++                ResearchPassItem(
+                     hypothesis=StoredHypothesis(
+                         hypothesis_id=hypothesis_id,
+                         program_id=program_id,
+@@ -97,6 +97,16 @@ async def test_compiled_research_graph_persists_pointer_only_state() -> None:
+     assert result["critic_statuses"] == ["accepted"]
+     assert result["draft_statuses"] == ["draft"]
+     assert result["finding_ids"] == []
++    assert result["research_pass_status"] == "drafts_ready"
++    assert result["research_pass_summary"] == {
++        "status": "drafts_ready",
++        "total_hypotheses": 1,
++        "accepted_by_critic": 1,
++        "needs_evidence": 0,
++        "rejected_by_critic": 0,
++        "drafts_ready": 1,
++        "blocked_drafts": 0,
++    }
+     assert snapshot.values == result
+     assert resumed == result
+     assert research.requests == [request]
+@@ -132,7 +142,7 @@ async def test_research_graph_interrupts_until_projection_and_result_sets_are_re
+     program_id = uuid4()
+     workflow_run_id = uuid4()
+     wait_condition_id = uuid4()
+-    research = RecordingResearchWorkflow(MvpResearchResult(items=()))
++    research = RecordingResearchWorkflow(ResearchPassResult(items=()))
+     gate = SequencedReadinessGate(
+         [
+             ResearchReadinessDecision(
+@@ -178,6 +188,8 @@ async def test_research_graph_interrupts_until_projection_and_result_sets_are_re
+     assert completed["readiness_status"] == "ready"
+     assert completed["result_set_keys"] == ["surface:admin"]
+     assert completed["hypothesis_ids"] == []
++    assert completed["research_pass_status"] == "empty"
++    assert completed["research_pass_summary"]["total_hypotheses"] == 0
+     assert research.requests == [request]
+     assert len(gate.calls) == 2
+     assert gate.calls[0][1] == required
+@@ -188,9 +200,9 @@ async def test_research_graph_records_selected_next_steps_without_text_context()
+     workflow_run_id = uuid4()
+     hypothesis_id = uuid4()
+     research = RecordingResearchWorkflow(
+-        MvpResearchResult(
++        ResearchPassResult(
+             items=(
+-                MvpResearchItem(
++                ResearchPassItem(
+                     hypothesis=StoredHypothesis(
+                         hypothesis_id=hypothesis_id,
+                         program_id=program_id,
+diff --git a/tests/application/test_mvp_research_workflow.py b/tests/application/test_research_pass.py
+similarity index 62%
+rename from tests/application/test_mvp_research_workflow.py
+rename to tests/application/test_research_pass.py
+index 0aecacd..83c9690 100644
+--- a/tests/application/test_mvp_research_workflow.py
++++ b/tests/application/test_research_pass.py
+@@ -10,7 +10,7 @@ from api.application.hypotheses import (
+     StoredHypothesis,
+ )
+ from api.application.hypothesis_critic import CriticDecision
+-from api.application.mvp_research_workflow import MvpResearchWorkflow
++from api.application.research_pass import ResearchPass
+ from api.application.report_drafts import ReportDraft
+ 
+ 
+@@ -64,7 +64,7 @@ class RecordingReportBuilder:
+         )
+ 
+ 
+-async def test_mvp_research_workflow_builds_reviews_and_drafts_without_findings() -> None:
++async def test_research_pass_builds_reviews_and_drafts_without_findings() -> None:
+     program_id = uuid4()
+     hypothesis_id = uuid4()
+     candidate = HypothesisCandidate(
+@@ -92,7 +92,7 @@ async def test_mvp_research_workflow_builds_reviews_and_drafts_without_findings(
+     builder = RecordingBuilder(candidate=candidate, stored=stored)
+     critic = RecordingCritic()
+     report_builder = RecordingReportBuilder()
+-    workflow = MvpResearchWorkflow(
++    workflow = ResearchPass(
+         hypothesis_builder=builder,
+         hypothesis_critic=critic,
+         report_builder=report_builder,
+@@ -109,16 +109,25 @@ async def test_mvp_research_workflow_builds_reviews_and_drafts_without_findings(
+     assert result.items[0].critic.status == "accepted"
+     assert result.items[0].report_draft.status == "draft"
+     assert result.finding_ids == ()
+-
+-
+-async def test_mvp_research_workflow_returns_empty_result_when_builder_has_no_candidates() -> None:
++    assert result.safe_summary() == {
++        "status": "drafts_ready",
++        "total_hypotheses": 1,
++        "accepted_by_critic": 1,
++        "needs_evidence": 0,
++        "rejected_by_critic": 0,
++        "drafts_ready": 1,
++        "blocked_drafts": 0,
++    }
++
++
++async def test_research_pass_returns_empty_summary_when_builder_has_no_candidates() -> None:
+     program_id = uuid4()
+ 
+     class EmptyBuilder:
+         async def build_from_result_sets(self, request):
+             return HypothesisBuildResult(hypotheses=(), candidates=())
+ 
+-    workflow = MvpResearchWorkflow(
++    workflow = ResearchPass(
+         hypothesis_builder=EmptyBuilder(),
+         hypothesis_critic=RecordingCritic(),
+         report_builder=RecordingReportBuilder(),
+@@ -128,16 +137,72 @@ async def test_mvp_research_workflow_returns_empty_result_when_builder_has_no_ca
+ 
+     assert result.items == ()
+     assert result.finding_ids == ()
++    assert result.safe_summary()["status"] == "empty"
++    assert result.safe_summary()["total_hypotheses"] == 0
++
++
++def test_research_pass_summarizes_blocked_report_drafts() -> None:
++    program_id = uuid4()
++    hypothesis_id = uuid4()
++    candidate = HypothesisCandidate(
++        program_id=program_id,
++        hypothesis_type="tenant_boundary",
++        evidence=(),
++    )
++    stored = StoredHypothesis(
++        hypothesis_id=hypothesis_id,
++        program_id=program_id,
++        hypothesis_type=candidate.hypothesis_type,
++        status=candidate.status,
++        priority_score=candidate.priority_score,
++        confidence=candidate.confidence,
++        evidence_count=0,
++    )
++
++    from api.application.research_pass import (
++        ResearchPassItem,
++        summarize_research_pass,
++    )
++
++    summary = summarize_research_pass(
++        (
++            ResearchPassItem(
++                hypothesis=stored,
++                critic=CriticDecision(
++                    status="needs_evidence",
++                    checks=(),
++                    can_draft_report=False,
++                ),
++                report_draft=ReportDraft(
++                    status="blocked_missing_evidence",
++                    title="Blocked",
++                    body="unsafe body must not matter",
++                    evidence_chain=(),
++                    redactions=(),
++                ),
++            ),
++        )
++    )
++
++    assert summary.as_safe_dict() == {
++        "status": "needs_evidence",
++        "total_hypotheses": 1,
++        "accepted_by_critic": 0,
++        "needs_evidence": 1,
++        "rejected_by_critic": 0,
++        "drafts_ready": 0,
++        "blocked_drafts": 1,
++    }
+ 
+ 
+-def test_mvp_research_workflow_is_wired_through_di_without_execution_authority() -> None:
++def test_research_pass_is_wired_through_di_without_execution_authority() -> None:
+     workflow_source = open(
+-        "src/api/application/mvp_research_workflow.py",
++        "src/api/application/research_pass.py",
+         encoding="utf-8",
+     ).read()
+     di_source = open("src/api/application/di.py", encoding="utf-8").read()
+ 
+-    assert "get_mvp_research_workflow" in di_source
++    assert "get_research_pass" in di_source
+     for forbidden in (
+         "RabbitMQ",
+         "EventBus",
+diff --git a/tests/infrastructure/test_mvp_research_auto_resumer.py b/tests/infrastructure/test_mvp_research_auto_resumer.py
+index 0c70217..bd38601 100644
+--- a/tests/infrastructure/test_mvp_research_auto_resumer.py
++++ b/tests/infrastructure/test_mvp_research_auto_resumer.py
+@@ -15,7 +15,7 @@ from api.application.agent_wait_conditions import (
+ from api.application.hypotheses import HypothesisBuildRequest
+ from api.application.mvp_research_readiness import ResearchReadinessDecision
+ from api.application.research_control_graph import ResearchControlGraph
+-from api.application.mvp_research_workflow import MvpResearchResult
++from api.application.research_pass import ResearchPassResult
+ from api.infrastructure.langgraph_resume import MvpResearchAutoResumer
+ 
+ 
+@@ -71,7 +71,7 @@ class RecordingResearch:
+ 
+     async def run(self, request):
+         self.requests.append(request)
+-        return MvpResearchResult(items=())
++        return ResearchPassResult(items=())
+ 
+ 
+ class ResolvedEngine:
+diff --git a/tests/integration/test_langgraph_checkpoint_roundtrip.py b/tests/integration/test_langgraph_checkpoint_roundtrip.py
+index ac3ffac..ec5f3cf 100644
+--- a/tests/integration/test_langgraph_checkpoint_roundtrip.py
++++ b/tests/integration/test_langgraph_checkpoint_roundtrip.py
+@@ -8,15 +8,15 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+ 
+ from api.application.hypotheses import HypothesisBuildRequest
+ from api.application.research_control_graph import ResearchControlGraph
+-from api.application.mvp_research_workflow import MvpResearchResult
++from api.application.research_pass import ResearchPassResult
+ 
+ 
+ pytestmark = pytest.mark.integration
+ 
+ 
+ class EmptyResearchWorkflow:
+-    async def run(self, request: HypothesisBuildRequest) -> MvpResearchResult:
+-        return MvpResearchResult(items=())
++    async def run(self, request: HypothesisBuildRequest) -> ResearchPassResult:
++        return ResearchPassResult(items=())
+ 
+ 
+ async def test_langgraph_checkpoint_round_trip_uses_migrated_postgres_schema(

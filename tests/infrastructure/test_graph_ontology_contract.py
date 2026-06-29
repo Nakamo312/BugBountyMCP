@@ -43,6 +43,7 @@ def test_graph_ontology_describes_one_shared_graph_not_separate_graphs() -> None
         "CIDR",
         "Service",
         "Endpoint",
+        "Parameter",
         "Tool",
         "ToolRun",
         "Artifact",
@@ -190,6 +191,65 @@ def test_named_projections_are_task_scoped_slices_of_the_shared_graph() -> None:
     assert "Observation" in evidence_path.node_labels
     assert "Evidence" in evidence_path.node_labels
     assert "PRODUCED_OBSERVATION" in evidence_path.relationship_types
+
+    endpoint_neighborhood = projections["endpoint_neighborhood"]
+    assert "Parameter" in endpoint_neighborhood.node_labels
+    assert "HAS_PARAM" in endpoint_neighborhood.relationship_types
+
+
+def test_default_ontology_supports_endpoint_parameters() -> None:
+    symbols = _graph_ontology()
+    ontology = symbols["default_graph_ontology"]()
+
+    nodes = {definition.label: definition for definition in ontology.node_definitions}
+    relationships = {definition.relationship_type: definition for definition in ontology.relationship_definitions}
+
+    parameter = nodes["Parameter"]
+    assert parameter.identity.graph_key == "endpoint_location_name"
+    assert parameter.identity.source_properties == ("endpoint_key", "location", "name")
+    assert parameter.required_properties == (
+        "program_id",
+        "endpoint_location_name",
+        "endpoint_key",
+        "location",
+        "name",
+    )
+    assert "http_observations" in parameter.parser_outputs
+
+    has_param = relationships["HAS_PARAM"]
+    assert has_param.source_labels == ("Endpoint",)
+    assert has_param.target_labels == ("Parameter",)
+    assert "endpoint_neighborhood" in has_param.projections
+
+    describes = relationships["DESCRIBES"]
+    assert "Parameter" in describes.target_labels
+
+
+def test_default_ontology_supports_javascript_references_to_endpoints() -> None:
+    symbols = _graph_ontology()
+    ontology = symbols["default_graph_ontology"]()
+
+    nodes = {definition.label: definition for definition in ontology.node_definitions}
+    relationships = {definition.relationship_type: definition for definition in ontology.relationship_definitions}
+    projections = {definition.name: definition for definition in ontology.projection_definitions}
+
+    js_file = nodes["JSFile"]
+    assert js_file.identity.graph_key == "url"
+    assert js_file.required_properties == ("program_id", "url")
+    assert "javascript_references" in js_file.parser_outputs
+
+    references = relationships["REFERENCES"]
+    assert references.source_labels == ("JSFile",)
+    assert references.target_labels == ("Endpoint",)
+    assert "endpoint_neighborhood" in references.projections
+    assert "evidence_path" in references.projections
+
+    describes = relationships["DESCRIBES"]
+    assert "JSFile" in describes.target_labels
+
+    endpoint_neighborhood = projections["endpoint_neighborhood"]
+    assert "JSFile" in endpoint_neighborhood.node_labels
+    assert "REFERENCES" in endpoint_neighborhood.relationship_types
 
 
 def test_default_ontology_uses_host_as_domain_asset_not_separate_domain_label() -> None:

@@ -185,15 +185,31 @@ class PolicyService:
         *,
         approved_by: str,
         reason: str | None = None,
+        scope_rules: Sequence[ScopeRuleModel] | None = None,
     ) -> PolicyDecision:
         reasons = [f"Approved by {approved_by}"]
         if reason:
             reasons.append(reason)
+
+        scope = self.scope_policy.evaluate(request, detail, scope_rules=scope_rules)
+        reasons.extend(scope.reasons)
+        if scope.blocked_targets and not scope.allowed_targets:
+            return PolicyDecision(
+                action_id=request.action_id,
+                status=PolicyDecisionStatus.BLOCKED,
+                reasons=reasons,
+                allowed_targets=[],
+                blocked_targets=scope.blocked_targets,
+                safety_level=SafetyLevel(detail.safety_level),
+                metadata=self._metadata(detail, approved_by=approved_by),
+            )
+
         return PolicyDecision(
             action_id=request.action_id,
             status=PolicyDecisionStatus.ALLOWED,
             reasons=reasons,
-            allowed_targets=request.profile.targets,
+            allowed_targets=scope.allowed_targets,
+            blocked_targets=scope.blocked_targets,
             safety_level=SafetyLevel(detail.safety_level),
             metadata=self._metadata(detail, approved_by=approved_by),
         )

@@ -48,3 +48,18 @@ def test_docker_compose_graph_projector_is_optional_graph_profile() -> None:
     assert services["graph-projector"]["profiles"] == ["graph"]
     assert services["graph-projector"]["depends_on"]["neo4j"]["condition"] == "service_healthy"
     assert "neo4j_data" in compose["volumes"]
+
+
+def test_compose_uses_plain_neo4j_until_gds_is_explicitly_scheduled() -> None:
+    main_compose = yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
+    integration_compose = yaml.safe_load(
+        Path("docker-compose.integration.yml").read_text(encoding="utf-8")
+    )
+
+    main_image = main_compose["services"]["neo4j"]["image"].lower()
+    integration_image = integration_compose["services"]["neo4j-integration"]["image"].lower()
+
+    assert "graph-data-science" not in main_image
+    assert "graph-data-science" not in integration_image
+    assert "gds" not in main_compose["services"]
+    assert "gds" not in integration_compose["services"]

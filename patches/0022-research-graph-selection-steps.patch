@@ -1,0 +1,265 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index cbcfef1..9d25a87 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -698,8 +698,11 @@ Evidence:
+   decisions, and drafts without creating findings.
+ - `ResearchControlGraph` compiles that flow with LangGraph 1.2.6, persists
+   thread checkpoints through the official PostgreSQL saver, and supports
+-  asynchronous state recovery/resume. Graph state contains only request
+-  pointers, hypothesis IDs, critic statuses, draft statuses, and finding IDs.
++  asynchronous state recovery/resume. When bounded hypothesis selection is
++  wired in, it records selected next-step pointers such as `critic_review`,
++  `build_evidence`, or `draft_report`; graph state still contains only request
++  pointers, hypothesis IDs, critic statuses, draft statuses, finding IDs, and
++  selected step metadata, not report bodies or evidence text.
+ - `MvpResearchReadinessGate` reuses M6 projection and result-set readers,
+   persists stable wait conditions, updates durable workflow run state, and
+   drives LangGraph interrupt/resume without calling execution transports.
+diff --git a/src/api/application/di.py b/src/api/application/di.py
+index 86c35ef..8bff7ad 100644
+--- a/src/api/application/di.py
++++ b/src/api/application/di.py
+@@ -424,11 +424,13 @@ class OrchestrationProvider(Provider):
+         self,
+         research_workflow: MvpResearchWorkflow,
+         readiness_gate: MvpResearchReadinessGate,
++        context_tools: LangGraphContextTools,
+         checkpointer: AsyncPostgresSaver,
+     ) -> ResearchControlGraph:
+         return ResearchControlGraph(
+             research_workflow=research_workflow,
+             readiness_gate=readiness_gate,
++            hypothesis_selector=context_tools,
+             checkpointer=checkpointer,
+         )
+ 
+diff --git a/src/api/application/research_control_graph.py b/src/api/application/research_control_graph.py
+index 13fdb25..79d737d 100644
+--- a/src/api/application/research_control_graph.py
++++ b/src/api/application/research_control_graph.py
+@@ -20,6 +20,18 @@ class ResearchWorkflow(Protocol):
+     async def run(self, request: HypothesisBuildRequest) -> MvpResearchResult: ...
+ 
+ 
++class HypothesisStepSelector(Protocol):
++    async def select_hypotheses(
++        self,
++        *,
++        program_id: UUID,
++        status: str | tuple[str, ...] | None = ...,
++        hypothesis_type: str | None = ...,
++        min_priority_score: int = ...,
++        limit: int = ...,
++    ) -> dict[str, Any]: ...
++
++
+ class ResearchControlState(TypedDict, total=False):
+     program_id: str
+     result_key: str | None
+@@ -37,6 +49,8 @@ class ResearchControlState(TypedDict, total=False):
+     critic_statuses: list[str]
+     draft_statuses: list[str]
+     finding_ids: list[str]
++    selection_status: str
++    selected_hypothesis_steps: list[dict[str, Any]]
+ 
+ 
+ class ResearchControlGraph:
+@@ -46,11 +60,15 @@ class ResearchControlGraph:
+         research_workflow: ResearchWorkflow,
+         checkpointer: Any,
+         readiness_gate: MvpResearchReadinessGate | None = None,
++        hypothesis_selector: HypothesisStepSelector | None = None,
+     ) -> None:
+         self.research_workflow = research_workflow
+         self.readiness_gate = readiness_gate
++        self.hypothesis_selector = hypothesis_selector
+         builder = StateGraph(ResearchControlState)
+         builder.add_node("research", self._run_research)
++        if hypothesis_selector is not None:
++            builder.add_node("select_next_steps", self._select_next_steps)
+         if readiness_gate is None:
+             builder.add_edge(START, "research")
+         else:
+@@ -66,7 +84,11 @@ class ResearchControlGraph:
+                 },
+             )
+             builder.add_edge("wait_for_readiness", "check_readiness")
+-        builder.add_edge("research", END)
++        if hypothesis_selector is None:
++            builder.add_edge("research", END)
++        else:
++            builder.add_edge("research", "select_next_steps")
++            builder.add_edge("select_next_steps", END)
+         self.compiled = builder.compile(checkpointer=checkpointer)
+ 
+     async def ainvoke(
+@@ -135,6 +157,43 @@ class ResearchControlGraph:
+             "finding_ids": [str(value) for value in result.finding_ids],
+         }
+ 
++    async def _select_next_steps(
++        self,
++        state: ResearchControlState,
++    ) -> ResearchControlState:
++        if self.hypothesis_selector is None:
++            return {
++                "selection_status": "disabled",
++                "selected_hypothesis_steps": [],
++            }
++        result = await self.hypothesis_selector.select_hypotheses(
++            program_id=UUID(state["program_id"]),
++            status=("new", "needs_verification", "reviewing", "stale"),
++            min_priority_score=0,
++            limit=int(state.get("limit", 25)),
++        )
++        decisions = result.get("decisions") or []
++        return {
++            "selection_status": "selected",
++            "selected_hypothesis_steps": [
++                self._selection_step(item) for item in decisions
++            ],
++        }
++
++    @staticmethod
++    def _selection_step(item: dict[str, Any]) -> dict[str, Any]:
++        safe_context = item.get("safe_context") or {}
++        return {
++            "hypothesis_id": str(item.get("hypothesis_id") or ""),
++            "next_step": str(item.get("next_step") or "defer"),
++            "priority_band": str(item.get("priority_band") or "low"),
++            "requires_human_review": bool(item.get("requires_human_review")),
++            "reasons": [str(value) for value in item.get("reasons") or []],
++            "hypothesis_type": _optional_text(safe_context.get("hypothesis_type")),
++            "status": _optional_text(safe_context.get("status")),
++            "evidence_count": int(safe_context.get("evidence_count") or 0),
++        }
++
+     @staticmethod
+     def _input_state(
+         request: HypothesisBuildRequest,
+@@ -210,3 +269,10 @@ def _optional_uuid(value: UUID | None) -> str | None:
+ 
+ def _parse_optional_uuid(value: str | None) -> UUID | None:
+     return UUID(value) if value else None
++
++
++def _optional_text(value: Any) -> str | None:
++    if value is None:
++        return None
++    text = str(value).strip()
++    return text or None
+diff --git a/tests/application/test_research_control_graph.py b/tests/application/test_research_control_graph.py
+index 8232ffe..f85af4a 100644
+--- a/tests/application/test_research_control_graph.py
++++ b/tests/application/test_research_control_graph.py
+@@ -33,6 +33,16 @@ class SequencedReadinessGate:
+         return self.decisions.pop(0)
+ 
+ 
++class RecordingHypothesisSelector:
++    def __init__(self, decisions) -> None:
++        self.decisions = decisions
++        self.calls = []
++
++    async def select_hypotheses(self, **kwargs):
++        self.calls.append(kwargs)
++        return {"decisions": self.decisions}
++
++
+ async def test_compiled_research_graph_persists_pointer_only_state() -> None:
+     program_id = uuid4()
+     workflow_id = uuid4()
+@@ -171,3 +181,91 @@ async def test_research_graph_interrupts_until_projection_and_result_sets_are_re
+     assert research.requests == [request]
+     assert len(gate.calls) == 2
+     assert gate.calls[0][1] == required
++
++
++async def test_research_graph_records_selected_next_steps_without_text_context() -> None:
++    program_id = uuid4()
++    workflow_run_id = uuid4()
++    hypothesis_id = uuid4()
++    research = RecordingResearchWorkflow(
++        MvpResearchResult(
++            items=(
++                MvpResearchItem(
++                    hypothesis=StoredHypothesis(
++                        hypothesis_id=hypothesis_id,
++                        program_id=program_id,
++                        hypothesis_type="tenant_boundary",
++                        status="needs_verification",
++                        priority_score=90,
++                        confidence=0.8,
++                        evidence_count=3,
++                    ),
++                    critic=CriticDecision(
++                        status="accepted",
++                        checks=(),
++                        can_draft_report=True,
++                    ),
++                    report_draft=ReportDraft(
++                        status="draft",
++                        title="Pointer-only draft",
++                        body="must not enter graph state",
++                        evidence_chain=(),
++                        redactions=(),
++                    ),
++                ),
++            ),
++        )
++    )
++    selector = RecordingHypothesisSelector(
++        [
++            {
++                "hypothesis_id": str(hypothesis_id),
++                "next_step": "critic_review",
++                "priority_band": "critical",
++                "reasons": ["ready_for_critic"],
++                "requires_human_review": True,
++                "safe_context": {
++                    "hypothesis_type": "tenant_boundary",
++                    "status": "needs_verification",
++                    "evidence_count": 3,
++                    "safe_evidence_text": "safe text still must not enter control state",
++                },
++            }
++        ]
++    )
++    graph = ResearchControlGraph(
++        research_workflow=research,
++        hypothesis_selector=selector,
++        checkpointer=InMemorySaver(),
++    )
++    request = HypothesisBuildRequest(
++        program_id=program_id,
++        workflow_run_id=workflow_run_id,
++        limit=7,
++    )
++
++    result = await graph.ainvoke(request, thread_id=str(workflow_run_id))
++
++    assert selector.calls == [
++        {
++            "program_id": program_id,
++            "status": ("new", "needs_verification", "reviewing", "stale"),
++            "min_priority_score": 0,
++            "limit": 7,
++        }
++    ]
++    assert result["selection_status"] == "selected"
++    assert result["selected_hypothesis_steps"] == [
++        {
++            "hypothesis_id": str(hypothesis_id),
++            "next_step": "critic_review",
++            "priority_band": "critical",
++            "requires_human_review": True,
++            "reasons": ["ready_for_critic"],
++            "hypothesis_type": "tenant_boundary",
++            "status": "needs_verification",
++            "evidence_count": 3,
++        }
++    ]
++    assert "safe text still must not enter control state" not in repr(result)
++    assert "must not enter graph state" not in repr(result)

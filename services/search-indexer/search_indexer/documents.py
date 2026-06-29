@@ -14,6 +14,8 @@ from uuid import UUID
 MAX_BODY_PREVIEW_CHARS = 65_536
 MAX_HEADER_VALUE_CHARS = 8_192
 MAX_EVIDENCE_STRING_CHARS = 65_536
+SCHEMA_VERSION = "1"
+SANITIZER_VERSION = "1"
 
 SENSITIVE_HEADER_NAMES = {
     "authorization",
@@ -110,9 +112,26 @@ def headers_to_document(headers: Any) -> dict[str, list[str]]:
     return result
 
 
+def technology_names(value: Any) -> list[str]:
+    names: set[str] = set()
+    if isinstance(value, Mapping):
+        names.update(
+            str(key).strip().lower()
+            for key, enabled in value.items()
+            if enabled and str(key).strip()
+        )
+    elif isinstance(value, (list, tuple, set)):
+        names.update(str(item).strip().lower() for item in value if str(item).strip())
+    elif isinstance(value, str) and value.strip():
+        names.add(value.strip().lower())
+    return sorted(names)
+
+
 def build_http_observation_document(row: Mapping[str, Any]) -> dict[str, Any]:
     observed_at = stringify(row.get("observed_at"))
     doc = {
+        "schema_version": SCHEMA_VERSION,
+        "sanitizer_version": SANITIZER_VERSION,
         "id": stringify(row.get("id")),
         "program_id": stringify(row.get("program_id")),
         "job_id": stringify(row.get("job_id")),
@@ -121,6 +140,8 @@ def build_http_observation_document(row: Mapping[str, Any]) -> dict[str, Any]:
         "endpoint_id": stringify(row.get("endpoint_id")),
         "service_id": stringify(row.get("service_id")),
         "raw_artifact_id": stringify(row.get("raw_artifact_id")),
+        "artifact_id": stringify(row.get("raw_artifact_id")),
+        "tool_run_id": stringify(row.get("run_id")),
         "body_artifact_id": stringify(row.get("body_artifact_id")),
         "method": row.get("method"),
         "url": row.get("url"),
@@ -134,7 +155,6 @@ def build_http_observation_document(row: Mapping[str, Any]) -> dict[str, Any]:
         "headers": headers_to_document(row.get("headers")),
         "body_sha256": row.get("body_sha256"),
         "body_size_bytes": row.get("body_size_bytes"),
-        "body_preview": sanitize_text(row.get("body_preview"), limit=MAX_BODY_PREVIEW_CHARS),
         "source_tool": row.get("source_tool"),
         "metadata": bounded_json(row.get("metadata") or {}),
         "observed_at": observed_at,
@@ -143,21 +163,75 @@ def build_http_observation_document(row: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in doc.items() if value is not None}
 
 
+def build_endpoint_document(row: Mapping[str, Any]) -> dict[str, Any]:
+    doc = {
+        "schema_version": SCHEMA_VERSION,
+        "sanitizer_version": SANITIZER_VERSION,
+        "id": stringify(row.get("id")),
+        "program_id": stringify(row.get("program_id")),
+        "host_id": stringify(row.get("host_id")),
+        "service_id": stringify(row.get("service_id")),
+        "host": truncate_text(row.get("host"), limit=1_024),
+        "scheme": row.get("scheme"),
+        "port": row.get("port"),
+        "path": truncate_text(row.get("path"), limit=2_048),
+        "normalized_path": truncate_text(
+            row.get("normalized_path"),
+            limit=2_048,
+        ),
+        "methods": [
+            str(method).upper()
+            for method in (row.get("methods") or [])
+            if str(method).strip()
+        ][:16],
+        "status_code": row.get("status_code"),
+        "technology_names": technology_names(row.get("technologies")),
+    }
+    return {key: value for key, value in doc.items() if value is not None}
+
+
+def build_technology_document(row: Mapping[str, Any]) -> dict[str, Any]:
+    doc = {
+        "schema_version": SCHEMA_VERSION,
+        "sanitizer_version": SANITIZER_VERSION,
+        "id": stringify(row.get("service_id") or row.get("id")),
+        "program_id": stringify(row.get("program_id")),
+        "service_id": stringify(row.get("service_id") or row.get("id")),
+        "address": row.get("address"),
+        "scheme": row.get("scheme"),
+        "port": row.get("port"),
+        "technology_names": technology_names(row.get("technologies")),
+    }
+    return {key: value for key, value in doc.items() if value is not None}
+
+
 def build_artifact_preview_document(row: Mapping[str, Any]) -> dict[str, Any]:
     created_at = stringify(row.get("created_at"))
+    safe_preview = (
+        truncate_text(
+            row.get("sanitized_preview"),
+            limit=MAX_BODY_PREVIEW_CHARS,
+        )
+        if row.get("sanitized_safe_for_llm") is True
+        else None
+    )
     doc = {
+        "schema_version": SCHEMA_VERSION,
+        "sanitizer_version": row.get("sanitizer_version") or SANITIZER_VERSION,
         "id": stringify(row.get("id")),
+        "artifact_id": stringify(row.get("id")),
         "program_id": stringify(row.get("program_id")),
         "job_id": stringify(row.get("job_id")),
         "run_id": stringify(row.get("run_id")),
+        "tool_run_id": stringify(row.get("run_id")),
         "node_id": row.get("node_id"),
         "event_name": row.get("event_name"),
         "artifact_type": row.get("artifact_type"),
-        "storage_uri": row.get("storage_uri"),
         "sha256": row.get("sha256"),
         "size_bytes": row.get("size_bytes"),
         "metadata": bounded_json(row.get("artifact_metadata") or row.get("metadata") or {}),
-        "preview": sanitize_text(row.get("preview"), limit=MAX_BODY_PREVIEW_CHARS),
+        "preview": safe_preview,
+        "redaction_policy_version": row.get("redaction_policy_version"),
         "created_at": created_at,
         "@timestamp": created_at,
     }
@@ -166,6 +240,8 @@ def build_artifact_preview_document(row: Mapping[str, Any]) -> dict[str, Any]:
 
 def build_finding_document(row: Mapping[str, Any]) -> dict[str, Any]:
     doc = {
+        "schema_version": SCHEMA_VERSION,
+        "sanitizer_version": SANITIZER_VERSION,
         "id": stringify(row.get("id")),
         "program_id": stringify(row.get("program_id")),
         "vuln_type_id": stringify(row.get("vuln_type_id")),
@@ -185,9 +261,80 @@ def build_finding_document(row: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in doc.items() if value is not None}
 
 
+def _evidence_items(row: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    items = row.get("evidence") or []
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, Mapping)]
+
+
+def _unique_strings(values: Any, *, limit: int = 100) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _safe_evidence_text(evidence: list[Mapping[str, Any]]) -> list[str]:
+    snippets: list[str] = []
+    for item in evidence:
+        if item.get("safe_for_search") is not True:
+            continue
+        for key in ("claim", "safe_excerpt"):
+            text = sanitize_text(item.get(key), limit=MAX_EVIDENCE_STRING_CHARS)
+            if text:
+                snippets.append(text)
+    return _unique_strings(snippets, limit=50)
+
+
+def build_hypothesis_document(row: Mapping[str, Any]) -> dict[str, Any]:
+    first_seen = stringify(row.get("first_seen"))
+    last_seen = stringify(row.get("last_seen"))
+    updated_at = stringify(row.get("updated_at"))
+    evidence = _evidence_items(row)
+    doc = {
+        "schema_version": SCHEMA_VERSION,
+        "sanitizer_version": SANITIZER_VERSION,
+        "id": stringify(row.get("id")),
+        "hypothesis_id": stringify(row.get("id")),
+        "program_id": stringify(row.get("program_id")),
+        "hypothesis_type": row.get("hypothesis_type"),
+        "hypothesis_fingerprint": row.get("hypothesis_fingerprint"),
+        "status": row.get("status"),
+        "state_version": row.get("state_version"),
+        "priority_score": row.get("priority_score"),
+        "confidence": row.get("confidence"),
+        "severity_guess": row.get("severity_guess"),
+        "safety_level": row.get("safety_level"),
+        "score_version": row.get("score_version"),
+        "inputs_hash": row.get("inputs_hash"),
+        "source_signal_fingerprints": _unique_strings(row.get("source_signal_fingerprints")),
+        "duplicate_of_hypothesis_id": stringify(row.get("duplicate_of_hypothesis_id")),
+        "evidence_count": row.get("evidence_count"),
+        "evidence_ref_types": _unique_strings(item.get("ref_type") for item in evidence),
+        "evidence_roles": _unique_strings(item.get("role") for item in evidence),
+        "evidence_claim_types": _unique_strings(item.get("claim_type") for item in evidence),
+        "evidence_ref_ids": _unique_strings(item.get("ref_id") for item in evidence),
+        "safe_evidence_text": _safe_evidence_text(evidence),
+        "first_seen": first_seen,
+        "last_seen": last_seen,
+        "updated_at": updated_at,
+        "@timestamp": updated_at or last_seen or first_seen,
+    }
+    return {key: value for key, value in doc.items() if value not in (None, [], {})}
+
 def build_detection_signal_document(row: Mapping[str, Any]) -> dict[str, Any]:
     created_at = stringify(row.get("created_at"))
     doc = {
+        "schema_version": SCHEMA_VERSION,
+        "sanitizer_version": SANITIZER_VERSION,
         "id": stringify(row.get("event_id") or row.get("id")),
         "event_store_id": stringify(row.get("id")),
         "event_id": stringify(row.get("event_id")),
@@ -195,6 +342,7 @@ def build_detection_signal_document(row: Mapping[str, Any]) -> dict[str, Any]:
         "program_id": stringify(row.get("program_id")),
         "job_id": stringify(row.get("job_id")),
         "run_id": stringify(row.get("run_id")),
+        "tool_run_id": stringify(row.get("run_id")),
         "correlation_id": stringify(row.get("correlation_id")),
         "causation_id": stringify(row.get("causation_id")),
         "source": row.get("source"),
@@ -204,3 +352,53 @@ def build_detection_signal_document(row: Mapping[str, Any]) -> dict[str, Any]:
         "@timestamp": created_at,
     }
     return {key: value for key, value in doc.items() if value is not None}
+
+def build_surface_component_document(row: Mapping[str, Any]) -> dict[str, Any]:
+    created_at = stringify(row.get("created_at") or row.get("analysis_created_at"))
+    doc = {
+        "schema_version": SCHEMA_VERSION,
+        "sanitizer_version": SANITIZER_VERSION,
+        "id": stringify(row.get("id") or f"{row.get('analysis_run_id')}:{row.get('component_id')}"),
+        "analysis_run_id": stringify(row.get("analysis_run_id")),
+        "program_id": stringify(row.get("program_id")),
+        "snapshot_id": stringify(row.get("snapshot_id")),
+        "previous_snapshot_id": stringify(row.get("previous_snapshot_id")),
+        "algorithm": row.get("algorithm"),
+        "algorithm_version": row.get("algorithm_version"),
+        "report_fingerprint": row.get("report_fingerprint"),
+        "component_id": row.get("component_id"),
+        "node_count": row.get("node_count"),
+        "changed_node_count": row.get("changed_node_count"),
+        "structural_pressure_score": row.get("structural_pressure_score"),
+        "drift_score": row.get("drift_score"),
+        "bridge_pressure_score": row.get("bridge_pressure_score"),
+        "outlier_score": row.get("outlier_score"),
+        "coverage_score": row.get("coverage_score"),
+        "exploration_priority_score": row.get("exploration_priority_score"),
+        "action_candidate_count": row.get("action_candidate_count"),
+        "metrics": bounded_json(row.get("metrics_json") or {}),
+        "action_candidates": bounded_json(row.get("action_candidates_json") or [], string_limit=8_192),
+        "created_at": created_at,
+        "@timestamp": created_at,
+    }
+    return {key: value for key, value in doc.items() if value not in (None, [], {})}
+
+
+def build_surface_delta_document(row: Mapping[str, Any]) -> dict[str, Any]:
+    created_at = stringify(row.get("created_at"))
+    doc = {
+        "schema_version": SCHEMA_VERSION,
+        "sanitizer_version": SANITIZER_VERSION,
+        "id": stringify(row.get("id")),
+        "program_id": stringify(row.get("program_id")),
+        "from_snapshot_id": stringify(row.get("from_snapshot_id")),
+        "to_snapshot_id": stringify(row.get("to_snapshot_id")),
+        "delta_type": row.get("delta_type"),
+        "subject_type": row.get("subject_type"),
+        "subject_fingerprint": row.get("subject_fingerprint"),
+        "novelty_score": row.get("novelty_score"),
+        "details": bounded_json(row.get("details_json") or {}),
+        "created_at": created_at,
+        "@timestamp": created_at,
+    }
+    return {key: value for key, value in doc.items() if value not in (None, [], {})}

@@ -17,12 +17,20 @@ def _graph_symbols():
     from graph_projector.batch_store import GraphFactBatchStore, connect_postgres
     from graph_projector.ontology import default_graph_ontology
     from graph_projector.producers.http_observations import HttpObservationGraphFactEnqueuer
+    from graph_projector.producers.javascript_references import JavaScriptReferenceGraphFactEnqueuer
+    from graph_projector.producers.raw_artifacts import RawArtifactGraphFactEnqueuer
+    from graph_projector.projection_events import GraphProjectionEventWorker
+    from graph_projector.rebuild import GraphRebuildService
     from graph_projector.writer import GraphFactWriter, GraphOntologyRegistry
 
     return (
         GraphFactBatchApplicator,
         GraphFactBatchStore,
         HttpObservationGraphFactEnqueuer,
+        JavaScriptReferenceGraphFactEnqueuer,
+        RawArtifactGraphFactEnqueuer,
+        GraphProjectionEventWorker,
+        GraphRebuildService,
         GraphFactWriter,
         GraphOntologyRegistry,
         default_graph_ontology,
@@ -41,6 +49,10 @@ def test_fake_httpx_canonical_observation_projects_endpoint_graph(
         GraphFactBatchApplicator,
         GraphFactBatchStore,
         HttpObservationGraphFactEnqueuer,
+        _JavaScriptReferenceGraphFactEnqueuer,
+        _RawArtifactGraphFactEnqueuer,
+        _GraphProjectionEventWorker,
+        _GraphRebuildService,
         GraphFactWriter,
         GraphOntologyRegistry,
         default_graph_ontology,
@@ -114,6 +126,227 @@ def test_fake_httpx_canonical_observation_projects_endpoint_graph(
         pg_connection.close()
 
     with e2e_neo4j_driver.session(database=e2e_neo4j_database) as session:
+        counts = session.run(
+            """
+            MATCH (h:Host {hostname: 'api.example.com'})-[:RESOLVES_TO]->(ip:IP {address: '203.0.113.10'})
+            MATCH (ip)-[:EXPOSES_SERVICE]->(s:Service {service_key: 'api.example.com:443/https'})
+            MATCH (s)-[:HAS_ENDPOINT]->(e:Endpoint {service_method_normalized_path: 'api.example.com:443/https:GET:/v1/users/{id}'})
+            RETURN count(DISTINCT h) AS hosts,
+                   count(DISTINCT ip) AS ips,
+                   count(DISTINCT s) AS services,
+                   count(DISTINCT e) AS endpoints,
+                   count { (h)-[:RESOLVES_TO]->(ip) } AS resolves_to,
+                   count { (ip)-[:EXPOSES_SERVICE]->(s) } AS exposes_service,
+                   count { (s)-[:HAS_ENDPOINT]->(e) } AS has_endpoint
+            """
+        ).single(strict=True)
+
+    assert counts["hosts"] == 1
+    assert counts["ips"] == 1
+    assert counts["services"] == 1
+    assert counts["endpoints"] == 1
+    assert counts["resolves_to"] == 1
+    assert counts["exposes_service"] == 1
+    assert counts["has_endpoint"] == 1
+
+
+@pytest.mark.e2e
+def test_projection_event_worker_projects_http_observation_graph_without_dedicated_services(
+    e2e_postgres_engine,
+    e2e_postgres_url: str,
+    e2e_neo4j_driver,
+    e2e_neo4j_database: str,
+) -> None:
+    (
+        GraphFactBatchApplicator,
+        GraphFactBatchStore,
+        HttpObservationGraphFactEnqueuer,
+        JavaScriptReferenceGraphFactEnqueuer,
+        RawArtifactGraphFactEnqueuer,
+        GraphProjectionEventWorker,
+        _GraphRebuildService,
+        GraphFactWriter,
+        GraphOntologyRegistry,
+        default_graph_ontology,
+        connect_postgres,
+    ) = _graph_symbols()
+
+    program_id = uuid4()
+    action_id = uuid4()
+    job_id = uuid4()
+    run_id = uuid4()
+    raw_artifact_id = uuid4()
+    host_id = uuid4()
+    ip_id = uuid4()
+    host_ip_id = uuid4()
+    service_id = uuid4()
+    endpoint_id = uuid4()
+    observation_id = uuid4()
+    correlation_id = uuid4()
+
+    with e2e_postgres_engine.begin() as connection:
+        _clear_projection_tables(connection)
+        _insert_canonical_http_observation(
+            connection,
+            program_id=program_id,
+            action_id=action_id,
+            job_id=job_id,
+            run_id=run_id,
+            raw_artifact_id=raw_artifact_id,
+            host_id=host_id,
+            ip_id=ip_id,
+            host_ip_id=host_ip_id,
+            service_id=service_id,
+            endpoint_id=endpoint_id,
+            observation_id=observation_id,
+            correlation_id=correlation_id,
+            event_dedupe_key=f"worker-http-observations-ready:{raw_artifact_id}",
+        )
+
+    dbapi_url = e2e_postgres_url.replace("postgresql+psycopg2://", "postgresql://")
+    pg_connection = connect_postgres(dbapi_url)
+    try:
+        store = GraphFactBatchStore(pg_connection)
+        worker = GraphProjectionEventWorker(
+            raw_artifact_enqueuer=RawArtifactGraphFactEnqueuer(
+                connection=pg_connection,
+                store=store,
+                worker_id="e2e-worker-raw",
+            ),
+            http_observation_enqueuer=HttpObservationGraphFactEnqueuer(
+                connection=pg_connection,
+                store=store,
+                worker_id="e2e-worker-http",
+            ),
+            javascript_reference_enqueuer=JavaScriptReferenceGraphFactEnqueuer(
+                connection=pg_connection,
+                store=store,
+                worker_id="e2e-worker-js",
+            ),
+        )
+        worker_result = worker.process_once(limit=10, program_id=program_id)
+        assert worker_result.scanned == 1
+        assert worker_result.enqueued == 1
+        assert worker_result.skipped == 0
+        assert worker.process_once(limit=10, program_id=program_id).scanned == 0
+
+        applicator = GraphFactBatchApplicator(
+            store=store,
+            neo4j_driver=e2e_neo4j_driver,
+            writer=GraphFactWriter(GraphOntologyRegistry(default_graph_ontology())),
+            neo4j_database=e2e_neo4j_database,
+            worker_id="e2e-worker-applicator",
+            lock_seconds=300,
+            max_attempts=3,
+        )
+        apply_result = applicator.apply_one()
+        assert apply_result.status == "applied"
+        assert apply_result.write_result is not None
+        assert apply_result.write_result.edges_skipped == 0
+        assert applicator.apply_one().status == "empty"
+    finally:
+        pg_connection.close()
+
+    _assert_endpoint_graph_projected(e2e_neo4j_driver, e2e_neo4j_database)
+
+
+@pytest.mark.e2e
+def test_rebuild_projects_canonical_inventory_graph_without_artifact_lineage(
+    e2e_postgres_engine,
+    e2e_postgres_url: str,
+    e2e_neo4j_driver,
+    e2e_neo4j_database: str,
+) -> None:
+    (
+        GraphFactBatchApplicator,
+        GraphFactBatchStore,
+        _HttpObservationGraphFactEnqueuer,
+        _JavaScriptReferenceGraphFactEnqueuer,
+        _RawArtifactGraphFactEnqueuer,
+        _GraphProjectionEventWorker,
+        GraphRebuildService,
+        GraphFactWriter,
+        GraphOntologyRegistry,
+        default_graph_ontology,
+        connect_postgres,
+    ) = _graph_symbols()
+
+    program_id = uuid4()
+    host_id = uuid4()
+    ip_id = uuid4()
+    host_ip_id = uuid4()
+    service_id = uuid4()
+
+    with e2e_postgres_engine.begin() as connection:
+        _clear_projection_tables(connection)
+        _insert_canonical_inventory(
+            connection,
+            program_id=program_id,
+            host_id=host_id,
+            ip_id=ip_id,
+            host_ip_id=host_ip_id,
+            service_id=service_id,
+        )
+
+    dbapi_url = e2e_postgres_url.replace("postgresql+psycopg2://", "postgresql://")
+    pg_connection = connect_postgres(dbapi_url)
+    try:
+        store = GraphFactBatchStore(pg_connection)
+        rebuild_result = GraphRebuildService(connection=pg_connection, store=store).rebuild(
+            limit=10,
+            program_id=program_id,
+        )
+        assert rebuild_result.raw_artifacts_scanned == 0
+        assert rebuild_result.canonical_inventory_programs_scanned == 1
+        assert rebuild_result.enqueued == 1
+
+        applicator = GraphFactBatchApplicator(
+            store=store,
+            neo4j_driver=e2e_neo4j_driver,
+            writer=GraphFactWriter(GraphOntologyRegistry(default_graph_ontology())),
+            neo4j_database=e2e_neo4j_database,
+            worker_id="e2e-canonical-inventory-applicator",
+            lock_seconds=300,
+            max_attempts=3,
+        )
+        apply_result = applicator.apply_one()
+        assert apply_result.status == "applied"
+        assert apply_result.write_result is not None
+        assert apply_result.write_result.edges_skipped == 0
+        assert applicator.apply_one().status == "empty"
+    finally:
+        pg_connection.close()
+
+    with e2e_neo4j_driver.session(database=e2e_neo4j_database) as session:
+        counts = session.run(
+            """
+            MATCH (h:Host {hostname: 'api.example.com'})-[:RESOLVES_TO]->(ip:IP {address: '203.0.113.10'})
+            MATCH (ip)-[:EXPOSES_SERVICE]->(s:Service {service_key: '203.0.113.10:443/https'})
+            RETURN count(DISTINCT h) AS hosts,
+                   count(DISTINCT ip) AS ips,
+                   count(DISTINCT s) AS services,
+                   count { (h)-[:RESOLVES_TO]->(ip) } AS resolves_to,
+                   count { (ip)-[:EXPOSES_SERVICE]->(s) } AS exposes_service,
+                   h.source_artifact_ids AS host_artifacts,
+                   h.tool_run_ids AS host_runs
+            """
+        ).single(strict=True)
+        artifact_count = session.run("MATCH (a:Artifact) RETURN count(a) AS count").single(strict=True)
+        observation_count = session.run("MATCH (o:Observation) RETURN count(o) AS count").single(strict=True)
+
+    assert counts["hosts"] == 1
+    assert counts["ips"] == 1
+    assert counts["services"] == 1
+    assert counts["resolves_to"] == 1
+    assert counts["exposes_service"] == 1
+    assert counts["host_artifacts"] == []
+    assert counts["host_runs"] == []
+    assert artifact_count["count"] == 0
+    assert observation_count["count"] == 0
+
+
+def _assert_endpoint_graph_projected(neo4j_driver, neo4j_database: str) -> None:
+    with neo4j_driver.session(database=neo4j_database) as session:
         counts = session.run(
             """
             MATCH (h:Host {hostname: 'api.example.com'})-[:RESOLVES_TO]->(ip:IP {address: '203.0.113.10'})
@@ -246,6 +479,7 @@ def _insert_canonical_http_observation(
             "correlation_id": correlation_id,
         },
     )
+
     connection.execute(
         text(
             """
@@ -365,4 +599,49 @@ def _insert_canonical_http_observation(
             "source_id": raw_artifact_id,
             "dedupe_key": event_dedupe_key,
         },
+    )
+
+
+def _insert_canonical_inventory(
+    connection,
+    *,
+    program_id,
+    host_id,
+    ip_id,
+    host_ip_id,
+    service_id,
+) -> None:
+    connection.execute(
+        text("INSERT INTO programs (id, name) VALUES (:id, :name)"),
+        {"id": program_id, "name": f"e2e-inventory-graph-{program_id}"},
+    )
+    connection.execute(
+        text(
+            "INSERT INTO hosts (id, program_id, host, in_scope, cname) "
+            "VALUES (:id, :program_id, 'api.example.com', true, '[]'::jsonb)"
+        ),
+        {"id": host_id, "program_id": program_id},
+    )
+    connection.execute(
+        text(
+            "INSERT INTO ip_addresses (id, program_id, address, in_scope) "
+            "VALUES (:id, :program_id, '203.0.113.10', true)"
+        ),
+        {"id": ip_id, "program_id": program_id},
+    )
+    connection.execute(
+        text(
+            "INSERT INTO host_ips (id, host_id, ip_id, source) "
+            "VALUES (:id, :host_id, :ip_id, 'dnsx')"
+        ),
+        {"id": host_ip_id, "host_id": host_id, "ip_id": ip_id},
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO services (id, ip_id, scheme, port, technologies, websocket)
+            VALUES (:id, :ip_id, 'https', 443, '{"nginx": true}'::jsonb, false)
+            """
+        ),
+        {"id": service_id, "ip_id": ip_id},
     )

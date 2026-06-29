@@ -1,16 +1,20 @@
 """Generic scan node for CLI tools"""
 import asyncio
-from typing import Dict, Any, Set, Optional, Callable, List, Type
-from uuid import UUID, uuid4
+from typing import Dict, Any, Set, Optional, Callable, List
 import logging
 
 from api.application.pipeline.node import Node
 from api.application.pipeline.context import PipelineContext
 from api.infrastructure.events.event_types import EventType
+from api.infrastructure.runners.cli_tool import CliToolRunnerRef
 from api.application.pipeline.scope_policy import ScopePolicy
-from api.application.pipeline.ingestion import ingest_with_optional_context
-from api.application.pipeline.invocation import build_invocation, metadata, run_raw
-from api.application.contracts import ExecutionMode
+from api.application.pipeline.scan_execution import ScanRuntime, run_scan_execution
+from api.application.contracts import (
+    ExecutionMode,
+    RunnerInvocationContext,
+    SafetyLevel,
+    ToolInvocation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,19 +39,24 @@ class ScanNode(Node):
         node_id: str,
         event_in: Set[EventType],
         event_out: Dict[EventType, str],
-        runner_type: Type,
-        processor_type: Type,
-        parser_type: Optional[Type] = None,
-        ingestor_type: Optional[Type] = None,
+        runner_type: Any | CliToolRunnerRef,
+        processor_type: Any,
+        parser_type: Optional[Callable[[], Any]] = None,
+        ingestor_type: Any = None,
         target_extractor: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
         max_parallelism: int = 1,
         execution_delay: int = 0,
         execution_mode: ExecutionMode = ExecutionMode.INLINE,
         max_targets_per_run: int | None = None,
+        cooldown_seconds: int | float = 0,
+        max_fanout_per_event: int | None = None,
+        max_expansion_depth: int | None = None,
+        token_cost: int | float = 1,
         retry_policy: dict | None = None,
         scope_policy=ScopePolicy.NONE,
         runtime: Any | None = None,
         runtime_concurrency: int | None = None,
+        requires_execution_context: bool = False,
     ):
         """
         Initialize generic scan node.
@@ -71,10 +80,15 @@ class ScanNode(Node):
             execution_delay=execution_delay,
             execution_mode=execution_mode,
             max_targets_per_run=max_targets_per_run,
+            cooldown_seconds=cooldown_seconds,
+            max_fanout_per_event=max_fanout_per_event,
+            max_expansion_depth=max_expansion_depth,
+            token_cost=token_cost,
             retry_policy=retry_policy,
         )
         self.event_out_map = event_out
         self.runner_type = runner_type
+        self.runner_key = self._runner_name()
         self.parser_type = parser_type
         self.processor_type = processor_type
         self.ingestor_type = ingestor_type
@@ -83,149 +97,129 @@ class ScanNode(Node):
         self.runtime_mode = getattr(runtime, "mode", "batch") if runtime is not None else "batch"
         self.target_shape = getattr(runtime, "target_shape", "list") if runtime is not None else "list"
         self.artifact_mode = getattr(runtime, "artifact", "per_run") if runtime is not None else "per_run"
+        self.requires_execution_context = requires_execution_context
         self._scan_semaphore = asyncio.Semaphore(runtime_concurrency or max_parallelism)
 
     async def execute(self, event: Dict[str, Any], ctx: PipelineContext):
-        """
-        Execute scan: extract targets → get dependencies from DI → run → batch → ingest → emit.
+        """Execute scan: extract targets → run → parse → ingest → emit."""
+        await run_scan_execution(self._scan_runtime(), event, ctx)
 
-        Args:
-            event: Incoming event data
-            ctx: Pipeline context for emitting downstream events
-        """
-        program_id = UUID(event["program_id"])
-        job_id = UUID(event["job_id"]) if event.get("job_id") else None
-        run_id = UUID(event["run_id"]) if event.get("run_id") else None
-        targets = self.target_extractor(event)
-
-        if not targets:
-            self.logger.warning(f"No targets in event: {event.get('_event_type')}")
-            return
-
-        self.logger.info(
-            f"Starting scan: node={self.node_id} program={program_id} targets={len(targets)}"
+    def _scan_runtime(self) -> ScanRuntime:
+        return ScanRuntime(
+            node_id=self.node_id,
+            logger=self.logger,
+            event_out_map=self.event_out_map,
+            runner_type=self.runner_type,
+            processor_type=self.processor_type,
+            ingestor_type=self.ingestor_type,
+            parser_factory=self.parser_type,
+            target_extractor=self.target_extractor,
+            runner_name=self.runner_key,
+            semaphore=self._scan_semaphore,
+            enforce_execution_context=self._enforce_execution_context,
         )
 
-        runner = await ctx.get_service(self.runner_type)
-        processor = None
-        if self.processor_type is not None and self.processor_type is not type(None):
-            processor = await ctx.get_service(self.processor_type)
-        ingestor = None
-        if self.ingestor_type is not None and self.ingestor_type is not type(None):
-            ingestor = await ctx.get_service(self.ingestor_type)
+    def _runner_name(self) -> str:
+        if isinstance(self.runner_type, CliToolRunnerRef):
+            return str(self.runner_type)
+        return getattr(self.runner_type, "__name__", str(self.runner_type))
 
-        batch_count = 0
+    def _enforce_execution_context(
+        self,
+        event: Dict[str, Any],
+        invocation: ToolInvocation | None,
+        runner_context: RunnerInvocationContext | None,
+    ) -> None:
+        """Fail closed when a controlled scan would run without lineage.
 
+        Direct action events must carry a complete ToolInvocation payload.
+        Downstream events may use RunnerInvocationContext, but scoped or
+        explicitly context-required nodes still need root action lineage and
+        inherited hard ceilings before a runner is invoked.
+        """
+        if invocation is None and self._has_partial_action_context(event):
+            raise RuntimeError(
+                f"ScanNode '{self.node_id}' received incomplete action context; "
+                "refusing to run without a complete ToolInvocation"
+            )
+
+        if not self._requires_control_context(event, runner_context):
+            return
+
+        if invocation is not None:
+            return
+
+        if runner_context is None:
+            raise RuntimeError(
+                f"ScanNode '{self.node_id}' requires execution context but none was provided"
+            )
+
+        missing: list[str] = []
+        if runner_context.root_action_id is None:
+            missing.append("root_action_id")
+        if runner_context.execution_budget is None:
+            missing.append("execution_budget")
+        if runner_context.safety_level is None:
+            missing.append("safety_level")
+        if runner_context.policy_decision_id is None:
+            missing.append("policy_decision_id")
+        if self.scope_policy is not ScopePolicy.NONE and runner_context.scope_decision_id is None:
+            missing.append("scope_decision_id")
+
+        if missing:
+            raise RuntimeError(
+                f"ScanNode '{self.node_id}' requires complete runner context; "
+                f"missing: {', '.join(missing)}"
+            )
+
+    def _requires_control_context(
+        self,
+        event: Dict[str, Any],
+        runner_context: RunnerInvocationContext | None,
+    ) -> bool:
+        if self.requires_execution_context:
+            return True
+        if self.scope_policy is not ScopePolicy.NONE:
+            return True
+        safety_level = runner_context.safety_level if runner_context is not None else None
+        if safety_level is None:
+            safety_level = self._event_safety_level(event)
+        return safety_level in {
+            SafetyLevel.SAFE_ACTIVE,
+            SafetyLevel.ACTIVE,
+            SafetyLevel.SENSITIVE,
+        }
+
+    @staticmethod
+    def _event_safety_level(event: Dict[str, Any]) -> SafetyLevel | None:
+        payload = event.get("payload")
+        payload = payload if isinstance(payload, dict) else {}
+        lineage = payload.get("execution_lineage")
+        lineage = lineage if isinstance(lineage, dict) else {}
+        value = (
+            event.get("safety_level")
+            or payload.get("safety_level")
+            or lineage.get("root_safety_level")
+        )
+        if value is None:
+            return None
         try:
-            if self.parser_type is None:
-                raise RuntimeError(f"ScanNode '{self.node_id}' requires an explicit parser")
-            if not hasattr(runner, "run_raw"):
-                raise RuntimeError(
-                    f"Runner '{self.runner_type.__name__}' used by ScanNode '{self.node_id}' "
-                    "must expose run_raw()"
-            )
+            return SafetyLevel(str(value))
+        except ValueError:
+            return None
 
-            parser = self.parser_type()
-            invocation = build_invocation(event, targets)
-            stream = run_raw(runner, targets, invocation)
-            raw_artifact_id = uuid4()
-            if isinstance(ctx, PipelineContext):
-                raw_metadata = {"runner": self.runner_type.__name__, **metadata(invocation)}
-                stream = ctx.capture_raw_stream(
-                    stream,
-                    program_id=program_id,
-                    event_name=event.get("event", self.node_id),
-                    targets=targets,
-                    job_id=job_id,
-                    run_id=run_id,
-                    artifact_id=raw_artifact_id,
-                    metadata=raw_metadata,
-                )
-            stream = parser.parse_stream(stream)
-            ingest_context = ctx.ingest_context(raw_artifact_id) if isinstance(ctx, PipelineContext) else None
-
-            if processor:
-                async for batch in processor.batch_stream(stream):
-                    if not batch:
-                        continue
-
-                    batch_count += 1
-
-                    if ingestor:
-                        ingest_result = await ingest_with_optional_context(
-                            ingestor,
-                            program_id,
-                            batch,
-                            ingest_context,
-                        )
-
-                        for event_type, result_key in self.event_out_map.items():
-                            data = getattr(ingest_result, result_key, [])
-                            if data:
-                                event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
-                                await ctx.emit(
-                                    event=event_name,
-                                    targets=data,
-                                    program_id=program_id,
-                                    confidence=0.7
-                                )
-                                self.logger.debug(
-                                    f"Emitted {event_name}: {len(data)} items"
-                                )
-                    else:
-                        for event_type, result_key in self.event_out_map.items():
-                            if batch:
-                                event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
-                                await ctx.emit(
-                                    event=event_name,
-                                    targets=batch,
-                                    program_id=program_id,
-                                    confidence=0.9
-                                )
-                                self.logger.debug(
-                                    f"Emitted {event_name}: {len(batch)} items"
-                                )
-            else:
-                results = []
-                async for event in stream:
-                    if event.type == "result" and event.payload:
-                        results.append(event.payload)
-
-                if results:
-                    batch_count = 1
-
-                    if ingestor:
-                        ingest_result = await ingest_with_optional_context(
-                            ingestor,
-                            program_id,
-                            results,
-                            ingest_context,
-                        )
-
-                        for event_type, result_key in self.event_out_map.items():
-                            data = getattr(ingest_result, result_key, [])
-                            if data:
-                                event_name = event_type.value if hasattr(event_type, 'value') else str(event_type)
-                                await ctx.emit(
-                                    event=event_name,
-                                    targets=data,
-                                    program_id=program_id,
-                                    confidence=0.7
-                                )
-                                self.logger.debug(
-                                    f"Emitted {event_name}: {len(data)} items"
-                                )
-
-            self.logger.info(
-                f"Scan completed: node={self.node_id} program={program_id} batches={batch_count}"
-            )
-
-        except Exception as exc:
-            self.logger.error(
-                f"Scan failed: node={self.node_id} program={program_id} error={exc}",
-                exc_info=True
-            )
-            raise
+    @staticmethod
+    def _has_partial_action_context(event: Dict[str, Any]) -> bool:
+        action_fields = {
+            "action_id",
+            "capability_id",
+            "profile_id",
+            "safety_level",
+            "policy_decision_id",
+            "scope_decision_id",
+            "execution_budget",
+        }
+        return any(event.get(field) is not None for field in action_fields)
 
     def set_context_factory(self, bus, container, settings):
         """

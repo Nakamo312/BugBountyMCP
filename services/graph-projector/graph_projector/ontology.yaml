@@ -333,6 +333,101 @@ nodes:
     - method
     - normalized_path
     key_policy: service_method_normalized_path
+- description: Input parameter observed on a web endpoint.
+  label: Parameter
+  layer: surface
+  identity_properties:
+  - program_id
+  - endpoint_location_name
+  - endpoint_key
+  - location
+  - name
+  required_properties:
+  - program_id
+  - endpoint_location_name
+  - endpoint_key
+  - location
+  - name
+  optional_properties:
+  - param_type
+  - is_array
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - endpoint_neighborhood
+  - evidence_path
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - httpx
+  - katana
+  - ffuf
+  - playwright
+  parser_outputs:
+  - http_observations
+  query_templates:
+  - endpoint_neighborhood
+  - hypothesis_evidence_paths
+  property_vs_node_rationale: Parameter is a node because endpoint behavior and future
+    invariant tests reason over parameter identity without storing raw values.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: endpoint_location_name
+    source_properties:
+    - endpoint_key
+    - location
+    - name
+    key_policy: endpoint_key_location_name
+- description: JavaScript file that references web/API endpoints.
+  label: JSFile
+  layer: surface
+  identity_properties:
+  - program_id
+  - url
+  required_properties:
+  - program_id
+  - url
+  optional_properties:
+  - hostname
+  - path
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - endpoint_neighborhood
+  - evidence_path
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - katana
+  - linkfinder
+  - playwright
+  parser_outputs:
+  - javascript_references
+  query_templates:
+  - hidden_endpoints_from_js
+  - endpoint_neighborhood
+  - evidence_path
+  property_vs_node_rationale: JSFile is a node because JavaScript references create
+    source-backed endpoint hypotheses and evidence paths without storing raw script
+    bodies in the graph.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the fact.
+  identity:
+    graph_key: url
+    source_properties:
+    - url
+    key_policy: canonical_url_without_query
 - description: Tool definition that produced execution data.
   label: Tool
   layer: lineage
@@ -405,6 +500,159 @@ nodes:
     source_properties:
     - tool_run_id
     key_policy: tool_run_id
+- description: Measured result of one approved action execution.
+  label: ActionOutcome
+  layer: lineage
+  identity_properties:
+  - program_id
+  - outcome_id
+  required_properties:
+  - program_id
+  - outcome_id
+  optional_properties:
+  - action_id
+  - job_id
+  - run_id
+  - campaign_id
+  - capability_id
+  - profile_id
+  - status
+  - terminal_outcome
+  - information_gain_score
+  - before_surface_snapshot_id
+  - after_surface_snapshot_id
+  - duration_ms
+  - error_count
+  - raw_artifact_count
+  - observation_count
+  - manual_interest
+  - manual_stop
+  source_references:
+  - tool_run_id
+  projections:
+  - evidence_path
+  - action_outcome_utility
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - action_outcome_memory
+  parser_outputs:
+  - action_outcomes
+  query_templates:
+  - action_outcome_experience_neighborhood
+  property_vs_node_rationale: ActionOutcome is a node because experience must connect actions, tool runs, generic features, and human feedback for graph algorithms.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic action-outcome memory confidence; keep max confidence across repeated projection.
+  stale_policy: Refresh last_seen from repeated outcome updates and feedback events.
+  identity:
+    graph_key: outcome_id
+    source_properties:
+    - outcome_id
+    key_policy: outcome_id
+- description: Capability/profile pair used by an approved action.
+  label: CapabilityProfile
+  layer: lineage
+  identity_properties:
+  - program_id
+  - profile_key
+  required_properties:
+  - program_id
+  - profile_key
+  - capability_id
+  - profile_id
+  optional_properties: []
+  source_references:
+  - tool_run_id
+  projections:
+  - action_outcome_utility
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - action_catalog
+  - action_outcome_memory
+  parser_outputs:
+  - action_outcomes
+  query_templates:
+  - action_outcome_experience_neighborhood
+  property_vs_node_rationale: CapabilityProfile is a node because future action selection compares past usefulness by capability/profile without hard-coded rules.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic action-outcome memory confidence; keep max confidence across repeated projection.
+  stale_policy: Refresh last_seen when outcomes using the capability/profile arrive.
+  identity:
+    graph_key: profile_key
+    source_properties:
+    - capability_id
+    - profile_id
+    key_policy: capability_id_profile_id
+- description: Generic action-outcome feature used for graph similarity.
+  label: OutcomeFeature
+  layer: lineage
+  identity_properties:
+  - program_id
+  - feature_key
+  required_properties:
+  - program_id
+  - feature_key
+  - feature_type
+  - feature_value
+  optional_properties: []
+  source_references:
+  - tool_run_id
+  projections:
+  - action_outcome_utility
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - action_outcome_memory
+  parser_outputs:
+  - action_outcomes
+  query_templates:
+  - action_outcome_experience_neighborhood
+  property_vs_node_rationale: OutcomeFeature is a node because GDS similarity algorithms need shared feature neighborhoods instead of SQL cohorts or vulnerability labels.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic action-outcome memory confidence; keep max confidence across repeated projection.
+  stale_policy: Refresh last_seen when matching outcome features reappear.
+  identity:
+    graph_key: feature_key
+    source_properties:
+    - feature_type
+    - feature_value
+    key_policy: feature_type_value
+- description: Deprecated legacy probe node kept for old migrations; current candidate scoring is read-only and does not write probes.
+  label: ActionExperienceProbe
+  layer: lineage
+  identity_properties:
+  - program_id
+  - probe_id
+  required_properties:
+  - program_id
+  - probe_id
+  optional_properties:
+  - feature_count
+  - created_at
+  source_references: []
+  projections: []
+  level: L0_CORE
+  maturity: deprecated
+  sources:
+  - action_experience_probe
+  parser_outputs:
+  - action_experience_probes
+  query_templates:
+  - action_outcome_experience_neighborhood
+  property_vs_node_rationale: Deprecated; read-only Jaccard scoring now compares feature-key sets directly without graph-native probe nodes.
+  retention: legacy_migration_only
+  sensitivity: normal
+  confidence_policy: Use caller-provided current-state features only; never treat the probe as evidence.
+  stale_policy: Do not create new probes; legacy rows can be ignored or cleaned by maintenance.
+  identity:
+    graph_key: probe_id
+    source_properties:
+    - probe_id
+    key_policy: request_probe_id
 - description: Raw or derived artifact linked to a tool run.
   label: Artifact
   layer: lineage
@@ -521,7 +769,291 @@ nodes:
     source_properties:
     - evidence_id
     key_policy: evidence_id
+- description: Surface map snapshot for graph-math analysis.
+  label: SurfaceSnapshot
+  layer: surface
+  identity_properties:
+  - program_id
+  - snapshot_id
+  required_properties:
+  - program_id
+  - snapshot_id
+  optional_properties:
+  - snapshot_fingerprint
+  - algorithm_version
+  - input_watermark
+  source_references: []
+  projections:
+  - surface_graph_math
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - surface_map
+  parser_outputs:
+  - surface_snapshots
+  query_templates:
+  - surface_graph_math
+  property_vs_node_rationale: SurfaceSnapshot is a node because graph algorithms need a snapshot-bounded analysis root.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic surface-engine confidence.
+  stale_policy: Surface snapshots are immutable; newer snapshots supersede older snapshots.
+  identity:
+    graph_key: snapshot_id
+    source_properties:
+    - snapshot_id
+    key_policy: snapshot_id
+- description: Snapshot-local shape vertex derived from canonical surface fingerprints.
+  label: SurfaceNode
+  layer: surface
+  identity_properties:
+  - program_id
+  - surface_node_key
+  required_properties:
+  - program_id
+  - surface_node_key
+  optional_properties:
+  - snapshot_id
+  - node_fingerprint
+  - node_type
+  - feature_fingerprint
+  - method
+  - status_code
+  - content_type
+  source_references: []
+  projections:
+  - surface_graph_math
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - surface_map
+  parser_outputs:
+  - surface_nodes
+  query_templates:
+  - surface_graph_math
+  property_vs_node_rationale: SurfaceNode is a node because structural algorithms operate over shape vertices, not raw observations.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic surface-engine confidence.
+  stale_policy: Snapshot-local nodes are immutable within a snapshot.
+  identity:
+    graph_key: surface_node_key
+    source_properties:
+    - surface_node_key
+    key_policy: snapshot_id_node_fingerprint
+- description: Stable surface-node fingerprint shared across snapshots for graph similarity.
+  label: SurfaceFingerprint
+  layer: surface
+  identity_properties:
+  - program_id
+  - fingerprint
+  required_properties:
+  - program_id
+  - fingerprint
+  optional_properties:
+  - fingerprint_type
+  source_references: []
+  projections:
+  - surface_graph_math
+  - action_outcome_utility
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - surface_map
+  parser_outputs:
+  - surface_nodes
+  query_templates:
+  - surface_graph_math
+  property_vs_node_rationale: SurfaceFingerprint is a node because graph algorithms need stable cross-snapshot feature anchors instead of snapshot-local SurfaceNode identities.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic surface-engine fingerprints.
+  stale_policy: Fingerprint nodes are stable; snapshot membership changes through SurfaceNode and SurfaceDelta edges.
+  identity:
+    graph_key: fingerprint
+    source_properties:
+    - fingerprint
+    key_policy: stable_surface_node_fingerprint
+- description: Snapshot-local structural delta produced by comparing surface snapshots.
+  label: SurfaceDelta
+  layer: surface
+  identity_properties:
+  - program_id
+  - surface_delta_key
+  required_properties:
+  - program_id
+  - surface_delta_key
+  optional_properties:
+  - snapshot_id
+  - from_snapshot_id
+  - delta_type
+  - subject_type
+  - subject_fingerprint
+  - novelty_score
+  source_references: []
+  projections:
+  - surface_graph_math
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - surface_map
+  parser_outputs:
+  - surface_deltas
+  query_templates:
+  - surface_graph_math
+  property_vs_node_rationale: SurfaceDelta is a node because graph algorithms can attach novelty density to components without domain labels.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic surface-engine confidence.
+  stale_policy: Deltas are immutable for a to_snapshot_id.
+  identity:
+    graph_key: surface_delta_key
+    source_properties:
+    - surface_delta_key
+    key_policy: snapshot_id_delta_type_subject_fingerprint
+- description: Deprecated legacy surface-component probe kept for old migrations; current component scoring is read-only.
+  label: SurfaceComponentProbe
+  layer: lineage
+  identity_properties:
+  - program_id
+  - key
+  required_properties:
+  - program_id
+  - key
+  optional_properties:
+  - probe_id
+  - snapshot_id
+  - component_id
+  - node_count
+  - changed_node_count
+  - max_novelty_score
+  - created_at
+  source_references: []
+  projections: []
+  level: L0_CORE
+  maturity: deprecated
+  sources:
+  - surface_graph_math
+  parser_outputs:
+  - surface_component_probes
+  query_templates:
+  - surface_graph_math
+  property_vs_node_rationale: Deprecated; read-only Jaccard scoring now compares component fingerprint sets to historical outcome fingerprints directly.
+  retention: legacy_migration_only
+  sensitivity: normal
+  confidence_policy: Use only current snapshot component membership; never persist probe facts as evidence.
+  stale_policy: Do not create new probes; legacy rows can be ignored or cleaned by maintenance.
+  identity:
+    graph_key: key
+    source_properties:
+    - key
+    key_policy: transient_probe_key
 relationships:
+- description: Surface snapshot contains a snapshot-local shape vertex.
+  relationship_type: HAS_SURFACE_NODE
+  source_labels:
+  - SurfaceSnapshot
+  target_labels:
+  - SurfaceNode
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references: []
+  projections:
+  - surface_graph_math
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - surface_map
+  parser_outputs:
+  - surface_nodes
+  query_templates:
+  - surface_graph_math
+  property_vs_node_rationale: Snapshot membership is a relationship because SurfaceNode identities are snapshot-local.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic surface-engine confidence.
+  stale_policy: Snapshot membership is immutable.
+- description: Snapshot-local surface node resolves to a stable cross-snapshot fingerprint.
+  relationship_type: HAS_SURFACE_FINGERPRINT
+  source_labels:
+  - SurfaceNode
+  target_labels:
+  - SurfaceFingerprint
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references: []
+  projections:
+  - surface_graph_math
+  - action_outcome_utility
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - surface_map
+  parser_outputs:
+  - surface_nodes
+  query_templates:
+  - surface_graph_math
+  property_vs_node_rationale: Stable fingerprint edges let graph algorithms compare components across snapshots without using snapshot-local node identities.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic surface-engine fingerprints.
+  stale_policy: Refresh when the surface node is reprojected.
+- description: Deterministic structural relation between two surface shape vertices.
+  relationship_type: SURFACE_EDGE
+  source_labels:
+  - SurfaceNode
+  target_labels:
+  - SurfaceNode
+  required_properties:
+  - program_id
+  optional_properties:
+  - edge_type
+  - edge_fingerprint
+  - weight
+  - algorithm_version
+  source_references: []
+  projections:
+  - surface_graph_math
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - surface_map
+  parser_outputs:
+  - surface_edges
+  query_templates:
+  - surface_graph_math
+  property_vs_node_rationale: Surface edges are relationships because graph algorithms consume topology and weights directly.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic surface-engine confidence.
+  stale_policy: Snapshot-local edges are immutable.
+- description: Surface snapshot has one structural delta from the previous snapshot.
+  relationship_type: HAS_SURFACE_DELTA
+  source_labels:
+  - SurfaceSnapshot
+  target_labels:
+  - SurfaceDelta
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references: []
+  projections:
+  - surface_graph_math
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - surface_map
+  parser_outputs:
+  - surface_deltas
+  query_templates:
+  - surface_graph_math
+  property_vs_node_rationale: Deltas are attached to snapshots so graph math can aggregate novelty over components.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic surface-engine confidence.
+  stale_policy: Delta membership is immutable.
 - description: Program includes a declared scope item.
   relationship_type: HAS_SCOPE
   source_labels:
@@ -760,6 +1292,78 @@ relationships:
     repeated observations.
   stale_policy: Refresh last_seen from repeated observations; mark stale when source
     evidence stops reproducing the relationship.
+- description: Endpoint accepts or exposes an input parameter.
+  relationship_type: HAS_PARAM
+  source_labels:
+  - Endpoint
+  target_labels:
+  - Parameter
+  required_properties:
+  - program_id
+  optional_properties:
+  - location
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - endpoint_neighborhood
+  - evidence_path
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - httpx
+  - katana
+  - ffuf
+  - playwright
+  parser_outputs:
+  - http_observations
+  query_templates:
+  - endpoint_neighborhood
+  - hypothesis_evidence_paths
+  property_vs_node_rationale: Parameter membership is a relationship because endpoints
+    and parameters have separate identities and lifecycles.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
+- description: JavaScript file references a web/API endpoint.
+  relationship_type: REFERENCES
+  source_labels:
+  - JSFile
+  target_labels:
+  - Endpoint
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - endpoint_neighborhood
+  - evidence_path
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - katana
+  - linkfinder
+  - playwright
+  parser_outputs:
+  - javascript_references
+  query_templates:
+  - hidden_endpoints_from_js
+  - endpoint_neighborhood
+  - evidence_path
+  property_vs_node_rationale: JavaScript references are relationships because the
+    same script can point to multiple endpoints and each endpoint keeps a separate
+    canonical identity.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
+    repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source
+    evidence stops reproducing the relationship.
 - description: Program has a concrete tool run.
   relationship_type: HAS_TOOL_RUN
   source_labels:
@@ -788,6 +1392,191 @@ relationships:
     repeated observations.
   stale_policy: Refresh last_seen from repeated observations; mark stale when source
     evidence stops reproducing the relationship.
+- description: Program has a measured action outcome.
+  relationship_type: HAS_ACTION_OUTCOME
+  source_labels:
+  - Program
+  target_labels:
+  - ActionOutcome
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references:
+  - tool_run_id
+  projections:
+  - action_outcome_utility
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - action_outcome_memory
+  parser_outputs:
+  - action_outcomes
+  query_templates:
+  - action_outcome_experience_neighborhood
+  property_vs_node_rationale: Outcome ownership is a relationship because programs aggregate experience over many action runs.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic action-outcome memory confidence.
+  stale_policy: Refresh last_seen when the outcome row is updated.
+- description: Action outcome was produced by a concrete tool run.
+  relationship_type: OUTCOME_OF_RUN
+  source_labels:
+  - ActionOutcome
+  target_labels:
+  - ToolRun
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references:
+  - tool_run_id
+  projections:
+  - evidence_path
+  - action_outcome_utility
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - action_outcome_memory
+  parser_outputs:
+  - action_outcomes
+  query_templates:
+  - action_outcome_experience_neighborhood
+  property_vs_node_rationale: Run linkage keeps action utility tied to execution lineage and artifacts.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic action-outcome memory confidence.
+  stale_policy: Refresh last_seen when the outcome row is updated.
+- description: Action outcome used a capability/profile pair.
+  relationship_type: USED_CAPABILITY_PROFILE
+  source_labels:
+  - ActionOutcome
+  target_labels:
+  - CapabilityProfile
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references:
+  - tool_run_id
+  projections:
+  - action_outcome_utility
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - action_outcome_memory
+  parser_outputs:
+  - action_outcomes
+  query_templates:
+  - action_outcome_experience_neighborhood
+  property_vs_node_rationale: Capability/profile linkage lets the planner compare learned utility without hand-written bug rules.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic action-outcome memory confidence.
+  stale_policy: Refresh last_seen when outcomes using this capability/profile arrive.
+- description: Deprecated legacy edge from surface-component probes to stable surface fingerprints.
+  relationship_type: HAS_SURFACE_FINGERPRINT_FEATURE
+  source_labels:
+  - SurfaceComponentProbe
+  target_labels:
+  - SurfaceFingerprint
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references: []
+  projections: []
+  level: L0_CORE
+  maturity: deprecated
+  sources:
+  - surface_graph_math
+  parser_outputs:
+  - surface_component_probes
+  query_templates:
+  - surface_graph_math
+  property_vs_node_rationale: Deprecated with SurfaceComponentProbe; read-only scoring compares fingerprint sets without writing probe-feature edges.
+  retention: legacy_migration_only
+  sensitivity: normal
+  confidence_policy: Use current snapshot component membership only.
+  stale_policy: Do not create new probe-feature edges; legacy edges can be ignored or cleaned by maintenance.
+- description: Action outcome has a generic feature for graph similarity.
+  relationship_type: HAS_OUTCOME_FEATURE
+  source_labels:
+  - ActionOutcome
+  target_labels:
+  - OutcomeFeature
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references:
+  - tool_run_id
+  projections:
+  - action_outcome_utility
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - action_outcome_memory
+  parser_outputs:
+  - action_outcomes
+  query_templates:
+  - action_outcome_experience_neighborhood
+  property_vs_node_rationale: Feature edges create the bipartite graph consumed by GDS similarity algorithms.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic action-outcome memory confidence.
+  stale_policy: Refresh last_seen when matching outcome features reappear.
+- description: Action outcome references the surface snapshot that existed before execution.
+  relationship_type: BEFORE_SURFACE_SNAPSHOT
+  source_labels:
+  - ActionOutcome
+  target_labels:
+  - SurfaceSnapshot
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references:
+  - tool_run_id
+  projections:
+  - action_outcome_utility
+  - surface_graph_math
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - action_outcome_memory
+  parser_outputs:
+  - action_outcomes
+  query_templates:
+  - action_outcome_experience_neighborhood
+  - surface_graph_math
+  property_vs_node_rationale: Before-snapshot linkage is a relationship because temporal utility compares execution against a bounded surface state.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic action-outcome memory confidence.
+  stale_policy: Refresh when the outcome row is updated.
+- description: Action outcome references the surface snapshot produced after execution.
+  relationship_type: AFTER_SURFACE_SNAPSHOT
+  source_labels:
+  - ActionOutcome
+  target_labels:
+  - SurfaceSnapshot
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references:
+  - tool_run_id
+  projections:
+  - action_outcome_utility
+  - surface_graph_math
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - action_outcome_memory
+  parser_outputs:
+  - action_outcomes
+  query_templates:
+  - action_outcome_experience_neighborhood
+  - surface_graph_math
+  property_vs_node_rationale: After-snapshot linkage lets graph math attach measured action experience to changed surface components without semantic labels.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic action-outcome memory confidence.
+  stale_policy: Refresh when the outcome row is updated.
 - description: Tool run used a tool definition.
   relationship_type: USED_TOOL
   source_labels:
@@ -887,6 +1676,8 @@ relationships:
   - IP
   - Service
   - Endpoint
+  - Parameter
+  - JSFile
   required_properties:
   - program_id
   optional_properties:
@@ -973,6 +1764,27 @@ relationships:
   stale_policy: Refresh last_seen from repeated observations; mark stale when source
     evidence stops reproducing the relationship.
 projections:
+- description: Snapshot-bounded Surface Map graph for mathematical analysis.
+  name: surface_graph_math
+  node_labels:
+  - SurfaceSnapshot
+  - SurfaceNode
+  - SurfaceFingerprint
+  - SurfaceDelta
+  - ActionOutcome
+  relationship_types:
+  - HAS_SURFACE_NODE
+  - HAS_SURFACE_FINGERPRINT
+  - SURFACE_EDGE
+  - HAS_SURFACE_DELTA
+  - BEFORE_SURFACE_SNAPSHOT
+  - AFTER_SURFACE_SNAPSHOT
+  use_case: Run graph algorithms over surface-shape topology, structural deltas, and measured action coverage.
+  version: 1
+  level: L2_WEB_API
+  query_templates:
+  - surface_graph_math
+  expected_output: Snapshot-local shape graph with component and novelty-density signals.
 - description: Attack-surface slice for exposure analysis and clustering.
   name: asset_exposure
   node_labels:
@@ -1006,10 +1818,14 @@ projections:
   - IP
   - Service
   - Endpoint
+  - Parameter
+  - JSFile
   relationship_types:
   - RESOLVES_TO
   - EXPOSES_SERVICE
   - HAS_ENDPOINT
+  - HAS_PARAM
+  - REFERENCES
   use_case: Inspect the neighborhood around web endpoints.
   version: 1
   level: L2_WEB_API
@@ -1017,6 +1833,32 @@ projections:
   - endpoint_neighborhood
   - hidden_endpoints_from_js
   expected_output: Bounded endpoint-adjacent graph for local traversal and agent reasoning.
+- description: Program-bounded experience graph for action utility and similarity algorithms.
+  name: action_outcome_utility
+  node_labels:
+  - Program
+  - Tool
+  - ToolRun
+  - ActionOutcome
+  - CapabilityProfile
+  - SurfaceSnapshot
+  - SurfaceFingerprint
+  - OutcomeFeature
+  relationship_types:
+  - HAS_TOOL_RUN
+  - USED_TOOL
+  - HAS_ACTION_OUTCOME
+  - OUTCOME_OF_RUN
+  - USED_CAPABILITY_PROFILE
+  - HAS_OUTCOME_FEATURE
+  - BEFORE_SURFACE_SNAPSHOT
+  - AFTER_SURFACE_SNAPSHOT
+  use_case: Compare past action outcomes through shared generic feature keys and learned human feedback.
+  version: 1
+  level: L0_CORE
+  query_templates:
+  - action_outcome_experience_neighborhood
+  expected_output: Outcome-feature graph with execution lineage and capability/profile utility paths.
 - description: Lineage-aware slice for explaining graph facts and evidence chains.
   name: evidence_path
   node_labels:
@@ -1024,17 +1866,26 @@ projections:
   - Host
   - Service
   - Endpoint
+  - Parameter
+  - JSFile
   - Tool
   - ToolRun
+  - ActionOutcome
+  - CapabilityProfile
   - Artifact
   - Observation
   - Evidence
   relationship_types:
   - EXPOSES_SERVICE
   - HAS_ENDPOINT
+  - HAS_PARAM
+  - REFERENCES
   - HAS_TOOL_RUN
   - USED_TOOL
   - PRODUCED_ARTIFACT
+  - HAS_ACTION_OUTCOME
+  - OUTCOME_OF_RUN
+  - USED_CAPABILITY_PROFILE
   - PRODUCED_OBSERVATION
   - DESCRIBES
   - SUPPORTS_EVIDENCE

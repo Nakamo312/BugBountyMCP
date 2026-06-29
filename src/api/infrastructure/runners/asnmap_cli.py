@@ -3,6 +3,7 @@
 import logging
 from typing import AsyncIterator
 
+from api.infrastructure.commands.command_boundary import command_invocation
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.parsers.process_event_parsers import JSONStdoutProcessEventParser
 from api.infrastructure.schemas.models.process_event import ProcessEvent
@@ -15,10 +16,10 @@ class ASNMapCliRunner:
     Runs asnmap CLI tool for ASN enumeration and CIDR discovery.
 
     Supports multiple input modes:
-    - Domain: example.com → ASN → CIDR
-    - ASN: AS12345 → CIDR
-    - Organization: "Company Name" → ASN → CIDR
-    - IP: 8.8.8.8 → ASN → CIDR
+    - Domain: example.com в†’ ASN в†’ CIDR
+    - ASN: AS12345 в†’ CIDR
+    - Organization: "Company Name" в†’ ASN в†’ CIDR
+    - IP: 8.8.8.8 в†’ ASN в†’ CIDR
     """
 
     def __init__(self, asnmap_path: str, timeout: int = 300):
@@ -87,7 +88,7 @@ class ASNMapCliRunner:
 
         logger.info("Starting asnmap domain enumeration: domains=%d", len(domains))
 
-        executor = CommandExecutor(command, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, timeout=self.timeout))
 
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
@@ -126,7 +127,7 @@ class ASNMapCliRunner:
 
         logger.info("Starting asnmap ASN enumeration: asns=%d", len(asns))
 
-        executor = CommandExecutor(command, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, timeout=self.timeout))
 
         async for event in executor.run():
             if event.type == "stderr" and event.payload:
@@ -165,7 +166,7 @@ class ASNMapCliRunner:
 
         logger.info("Starting asnmap organization enumeration: orgs=%d", len(organizations))
 
-        executor = CommandExecutor(command, timeout=self.timeout)
+        executor = CommandExecutor(command_invocation(command, timeout=self.timeout))
 
         async for event in executor.run():
             if event.type == "stderr" and event.payload:

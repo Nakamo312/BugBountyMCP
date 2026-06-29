@@ -1,0 +1,876 @@
+diff --git a/BugBountyDashBoard/src/components/actions/catalog/actionCatalog.js b/BugBountyDashBoard/src/components/actions/catalog/actionCatalog.js
+new file mode 100644
+index 0000000..9898355
+--- /dev/null
++++ b/BugBountyDashBoard/src/components/actions/catalog/actionCatalog.js
+@@ -0,0 +1,250 @@
++import {
++  Bug,
++  Database,
++  FileCode,
++  Globe,
++  Network,
++  Search,
++  Shield,
++} from 'lucide-react'
++
++const CAPABILITY_UI = {
++  subfinder: {
++    icon: Search,
++    color: 'blue',
++    description: 'Passive subdomain discovery',
++  },
++  httpx: {
++    icon: Globe,
++    color: 'green',
++    description: 'Safe HTTP probing',
++  },
++  gau: {
++    icon: Database,
++    color: 'purple',
++    description: 'Archived URL discovery',
++  },
++  katana: {
++    icon: Network,
++    color: 'red',
++    description: 'Web crawling',
++  },
++  playwright: {
++    icon: Globe,
++    color: 'pink',
++    description: 'Browser crawl with network capture',
++  },
++  linkfinder: {
++    icon: FileCode,
++    color: 'yellow',
++    description: 'JavaScript endpoint extraction',
++  },
++  mantra: {
++    icon: Shield,
++    color: 'orange',
++    description: 'JavaScript secret analysis',
++  },
++  ffuf: {
++    icon: Bug,
++    color: 'cyan',
++    description: 'Light content discovery',
++  },
++  amass: {
++    icon: Search,
++    color: 'indigo',
++    description: 'Infrastructure enumeration',
++  },
++  dnsx: {
++    icon: Network,
++    color: 'teal',
++    description: 'DNS validation',
++  },
++  'dnsx-ptr': {
++    icon: Network,
++    color: 'teal',
++    description: 'Reverse DNS lookup',
++  },
++  subjack: {
++    icon: Shield,
++    color: 'rose',
++    description: 'Subdomain takeover check',
++  },
++  asnmap: {
++    icon: Network,
++    color: 'violet',
++    description: 'ASN and CIDR discovery',
++  },
++  mapcidr: {
++    icon: Database,
++    color: 'slate',
++    description: 'CIDR expansion',
++  },
++  naabu: {
++    icon: Network,
++    color: 'amber',
++    description: 'Port discovery',
++  },
++}
++
++const OPTION_UI = {
++  active: { label: 'Active enumeration', type: 'checkbox' },
++  count: { label: 'Count', type: 'number', min: 1 },
++  depth: { label: 'Depth', type: 'number', min: 1, max: 10 },
++  exclude_cdn: { label: 'Exclude CDN/WAF', type: 'checkbox' },
++  headless: { label: 'Headless browser', type: 'checkbox' },
++  host_count: { label: 'Host count', type: 'number', min: 1 },
++  include_subs: { label: 'Include subdomains', type: 'checkbox' },
++  js_crawl: { label: 'JavaScript crawl', type: 'checkbox' },
++  mode: { label: 'Mode', type: 'text' },
++  ports: { label: 'Ports', type: 'text', placeholder: '80,443,8080' },
++  probe: { label: 'Probe discovered hosts', type: 'checkbox' },
++  rate: { label: 'Rate', type: 'number', min: 1 },
++  scan_mode: { label: 'Scan mode', type: 'text' },
++  scan_type: { label: 'Scan type', type: 'text' },
++  shuffle: { label: 'Shuffle IPs', type: 'checkbox' },
++  skip_base: { label: 'Skip base IPs', type: 'checkbox' },
++  skip_broadcast: { label: 'Skip broadcast IPs', type: 'checkbox' },
++  timeout: { label: 'Timeout (seconds)', type: 'number', min: 1 },
++  top_ports: { label: 'Top ports', type: 'text' },
++}
++
++const PROFILE_OPTION_DEFAULTS = {
++  'amass/passive-enum': { active: false, timeout: 1800 },
++  'amass/active-enum': { active: true, timeout: 1800 },
++  'dnsx/dns-validate': { mode: 'basic', timeout: 600 },
++  'dnsx-ptr/reverse-dns': { mode: 'ptr', timeout: 600 },
++  'subfinder/passive-recon': { probe: true, timeout: 600 },
++  'gau/archive-url-discovery': { include_subs: true, timeout: 600 },
++}
++
++const PROFILE_OPTION_FIELDS = {
++  'dnsx/dns-validate': {
++    mode: { type: 'select', options: ['basic', 'deep'] },
++  },
++  'dnsx-ptr/reverse-dns': {
++    mode: { type: 'select', options: ['ptr'] },
++  },
++}
++
++function titleize(value) {
++  return String(value || '')
++    .replace(/[-_]+/g, ' ')
++    .replace(/\b\w/g, char => char.toUpperCase())
++}
++
++function numericDefault(spec) {
++  if (spec.default !== undefined && spec.default !== null) return spec.default
++  return ''
++}
++
++function fieldFromOptionSpec(name, spec = {}, overrides = {}) {
++  const staticUi = OPTION_UI[name] || {}
++  const enumValues = Array.isArray(spec.enum) ? spec.enum : []
++  const type = enumValues.length
++    ? 'select'
++    : spec.type === 'boolean'
++      ? 'checkbox'
++      : spec.type === 'integer' || spec.type === 'number'
++        ? 'number'
++        : 'text'
++
++  return {
++    ...staticUi,
++    name,
++    label: staticUi.label || titleize(name),
++    type,
++    options: enumValues.length ? enumValues : staticUi.options,
++    min: spec.minimum ?? staticUi.min,
++    max: spec.maximum ?? staticUi.max,
++    placeholder: staticUi.placeholder,
++    required: Boolean(spec.required),
++    defaultValue:
++      spec.default !== undefined && spec.default !== null
++        ? spec.default
++        : staticUi.defaultValue,
++    ...overrides,
++  }
++}
++
++function fieldFromAllowedOption(name, detail) {
++  const profileKey = `${detail.capability}/${detail.profile}`
++  const overrides = PROFILE_OPTION_FIELDS[profileKey]?.[name] || {}
++  const staticUi = OPTION_UI[name] || {}
++  return {
++    name,
++    label: staticUi.label || titleize(name),
++    type: staticUi.type || 'text',
++    placeholder: staticUi.placeholder,
++    min: staticUi.min,
++    max: staticUi.max,
++    options: staticUi.options,
++    ...overrides,
++  }
++}
++
++function defaultForField(field, detail) {
++  const profileKey = `${detail.capability}/${detail.profile}`
++  const profileDefaults = PROFILE_OPTION_DEFAULTS[profileKey] || {}
++  if (field.name in profileDefaults) return profileDefaults[field.name]
++  if (field.defaultValue !== undefined) return field.defaultValue
++  if (field.type === 'checkbox') return false
++  if (field.type === 'select') return field.options?.[0] ?? ''
++  return ''
++}
++
++function optionFields(detail) {
++  const schema = detail.option_schema || {}
++  const schemaNames = Object.keys(schema)
++  if (schemaNames.length > 0) {
++    return schemaNames.map(name => fieldFromOptionSpec(name, schema[name]))
++  }
++
++  return (detail.allowed_options || []).map(name => fieldFromAllowedOption(name, detail))
++}
++
++function targetField(detail) {
++  const frontend = detail.frontend || {}
++  return {
++    name: 'targets',
++    label: frontend.target_label || 'Targets',
++    type: 'textarea',
++    placeholder: frontend.target_placeholder || 'one per line',
++    required: true,
++    asArray: true,
++  }
++}
++
++export function buildActionFromCatalogDetail(detail) {
++  const frontend = detail.frontend || {}
++  const ui = CAPABILITY_UI[detail.capability] || {
++    icon: Search,
++    color: 'blue',
++    description: detail.profile_label || detail.capability_label,
++  }
++  const fields = [targetField(detail), ...optionFields(detail)]
++  const initialValues = fields.reduce((values, field) => {
++    values[field.name] = field.name === 'targets' ? '' : defaultForField(field, detail)
++    return values
++  }, {})
++
++  return {
++    id: detail.id,
++    catalogId: detail.id,
++    capability: detail.capability,
++    profile: detail.profile,
++    name: frontend.name || detail.capability_label || titleize(detail.capability),
++    description:
++      frontend.description ||
++      ui.description ||
++      detail.profile_label ||
++      titleize(detail.profile),
++    badge: detail.profile_label || titleize(detail.profile),
++    icon: ui.icon,
++    color: frontend.color || ui.color,
++    fields,
++    initialValues,
++    requiresApproval: detail.requires_approval,
++    safetyLevel: detail.safety_level,
++    scopePolicy: detail.scope_policy,
++  }
++}
+diff --git a/BugBountyDashBoard/src/components/actions/forms/BaseActionForm.jsx b/BugBountyDashBoard/src/components/actions/forms/BaseActionForm.jsx
+index d15916c..e0afd8e 100644
+--- a/BugBountyDashBoard/src/components/actions/forms/BaseActionForm.jsx
++++ b/BugBountyDashBoard/src/components/actions/forms/BaseActionForm.jsx
+@@ -1,4 +1,4 @@
+-import { useState } from 'react'
++import { useEffect, useState } from 'react'
+ import { Play, Loader, CheckCircle, XCircle } from 'lucide-react'
+ import clsx from 'clsx'
+ 
+@@ -14,12 +14,25 @@ export default function BaseActionForm({
+   const [localLoading, setLocalLoading] = useState(false)
+   const [actionResult, setActionResult] = useState(null)
+ 
++  useEffect(() => {
++    setForm(initialValues)
++  }, [initialValues])
++
+   const colorMap = {
+     blue: { bg: 'bg-blue-100', text: 'text-blue-600', btn: 'bg-blue-600 hover:bg-blue-700', resBg: 'bg-blue-50', resBorder: 'border-blue-200', resText: 'text-blue-900' },
+     green: { bg: 'bg-green-100', text: 'text-green-600', btn: 'bg-green-600 hover:bg-green-700', resBg: 'bg-green-50', resBorder: 'border-green-200', resText: 'text-green-900' },
+     red: { bg: 'bg-red-100', text: 'text-red-600', btn: 'bg-red-600 hover:bg-red-700', resBg: 'bg-red-50', resBorder: 'border-red-200', resText: 'text-red-900' },
+     purple: { bg: 'bg-purple-100', text: 'text-purple-600', btn: 'bg-purple-600 hover:bg-purple-700', resBg: 'bg-purple-50', resBorder: 'border-purple-200', resText: 'text-purple-900' },
+-    // можно добавить другие цвета по необходимости
++    indigo: { btn: 'bg-indigo-600 hover:bg-indigo-700' },
++    pink: { btn: 'bg-pink-600 hover:bg-pink-700' },
++    yellow: { btn: 'bg-yellow-600 hover:bg-yellow-700' },
++    orange: { btn: 'bg-orange-600 hover:bg-orange-700' },
++    cyan: { btn: 'bg-cyan-600 hover:bg-cyan-700' },
++    teal: { btn: 'bg-teal-600 hover:bg-teal-700' },
++    rose: { btn: 'bg-rose-600 hover:bg-rose-700' },
++    violet: { btn: 'bg-violet-600 hover:bg-violet-700' },
++    slate: { btn: 'bg-slate-600 hover:bg-slate-700' },
++    amber: { btn: 'bg-amber-600 hover:bg-amber-700' },
+   }
+ 
+   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
+@@ -27,12 +40,14 @@ export default function BaseActionForm({
+   const handleSubmit = async e => {
+     e.preventDefault()
+     const preparedData = { ...form }
+-    if (preparedData.targets && !Array.isArray(preparedData.targets)) {
+-      preparedData.targets = preparedData.targets
+-        .split('\n')
+-        .map(t => t.trim())
+-        .filter(Boolean)
+-    }
++    fields.forEach(field => {
++      if (field.asArray && preparedData[field.name] && !Array.isArray(preparedData[field.name])) {
++        preparedData[field.name] = preparedData[field.name]
++          .split('\n')
++          .map(t => t.trim())
++          .filter(Boolean)
++      }
++    })
+ 
+     try {
+       setLocalLoading(true)
+@@ -76,6 +91,8 @@ export default function BaseActionForm({
+ 
+       <form onSubmit={handleSubmit} className="space-y-4">
+         {fields.map(field => {
++          if (field.dependsOn && form[field.dependsOn.field] !== field.dependsOn.value) return null
++
+           const value = form[field.name] ?? ''
+           switch (field.type) {
+             case 'textarea':
+@@ -87,6 +104,7 @@ export default function BaseActionForm({
+                     onChange={e => update(field.name, e.target.value)}
+                     rows={field.rows || 3}
+                     placeholder={field.placeholder || ''}
++                    required={field.required}
+                     className="w-full border p-2 rounded"
+                   />
+                 </div>
+@@ -110,12 +128,31 @@ export default function BaseActionForm({
+                   <input
+                     type="number"
+                     value={value}
+-                    onChange={e => update(field.name, +e.target.value)}
++                    min={field.min}
++                    max={field.max}
++                    required={field.required}
++                    onChange={e => update(field.name, e.target.value === '' ? '' : Number(e.target.value))}
+                     placeholder={field.placeholder || ''}
+                     className="w-full border p-2 rounded"
+                   />
+                 </div>
+               )
++            case 'select':
++              return (
++                <div key={field.name}>
++                  <label className="block mb-1">{field.label}</label>
++                  <select
++                    value={value}
++                    required={field.required}
++                    onChange={e => update(field.name, e.target.value)}
++                    className="w-full border p-2 rounded bg-white"
++                  >
++                    {(field.options || []).map(option => (
++                      <option key={option} value={option}>{option}</option>
++                    ))}
++                  </select>
++                </div>
++              )
+             default:
+               return (
+                 <div key={field.name}>
+@@ -123,6 +160,7 @@ export default function BaseActionForm({
+                   <input
+                     type="text"
+                     value={value}
++                    required={field.required}
+                     onChange={e => update(field.name, e.target.value)}
+                     placeholder={field.placeholder || ''}
+                     className="w-full border p-2 rounded"
+@@ -134,14 +172,14 @@ export default function BaseActionForm({
+ 
+         <button
+           type="submit"
+-          disabled={localLoading}
++          disabled={localLoading || loading}
+           className={clsx(
+             'w-full flex items-center justify-center space-x-2 px-4 py-2 rounded text-white',
+-            colorMap[actionColor]?.btn,
+-            localLoading && 'opacity-50 cursor-not-allowed'
++            colorMap[actionColor]?.btn || 'bg-blue-600 hover:bg-blue-700',
++            (localLoading || loading) && 'opacity-50 cursor-not-allowed'
+           )}
+         >
+-          {localLoading ? <Loader className="animate-spin" size={16} /> : <Play size={16} />}
++          {localLoading || loading ? <Loader className="animate-spin" size={16} /> : <Play size={16} />}
+           <span>{submitLabel}</span>
+         </button>
+       </form>
+diff --git a/BugBountyDashBoard/src/components/actions/hooks/useActionCatalog.js b/BugBountyDashBoard/src/components/actions/hooks/useActionCatalog.js
+new file mode 100644
+index 0000000..5d96711
+--- /dev/null
++++ b/BugBountyDashBoard/src/components/actions/hooks/useActionCatalog.js
+@@ -0,0 +1,45 @@
++import { useEffect, useState } from 'react'
++import { getActionCatalogItem, listActionCatalog } from '@/services/api'
++import { buildActionFromCatalogDetail } from '../catalog/actionCatalog'
++
++export function useActionCatalog() {
++  const [actions, setActions] = useState([])
++  const [loading, setLoading] = useState(true)
++  const [error, setError] = useState(null)
++
++  useEffect(() => {
++    let cancelled = false
++
++    async function loadCatalog() {
++      setLoading(true)
++      setError(null)
++      try {
++        const response = await listActionCatalog()
++        const items = response.data?.items || []
++        const details = await Promise.all(
++          items.map(item => getActionCatalogItem(item.id).then(detail => detail.data))
++        )
++        if (!cancelled) {
++          setActions(details.map(buildActionFromCatalogDetail))
++        }
++      } catch (err) {
++        if (!cancelled) {
++          setError(err.response?.data?.detail || err.message || 'Action catalog failed to load')
++          setActions([])
++        }
++      } finally {
++        if (!cancelled) setLoading(false)
++      }
++    }
++
++    loadCatalog()
++
++    return () => {
++      cancelled = true
++    }
++  }, [])
++
++  return { actions, loading, error }
++}
++
++export default useActionCatalog
+diff --git a/BugBountyDashBoard/src/components/actions/hooks/useActionRunner.js b/BugBountyDashBoard/src/components/actions/hooks/useActionRunner.js
+index 7b4c3a6..aed528a 100644
+--- a/BugBountyDashBoard/src/components/actions/hooks/useActionRunner.js
++++ b/BugBountyDashBoard/src/components/actions/hooks/useActionRunner.js
+@@ -1,4 +1,11 @@
+ import { useState } from 'react'
++import { createCatalogAction } from '@/services/api'
++
++function compactOptions(values) {
++  return Object.fromEntries(
++    Object.entries(values).filter(([, value]) => value !== '' && value !== undefined && value !== null)
++  )
++}
+ 
+ export function useActionRunner(selectedProgram) {
+   const [activeAction, setActiveAction] = useState(null)
+@@ -13,10 +20,10 @@ export function useActionRunner(selectedProgram) {
+       }
+     }
+ 
+-    if (!action.api || typeof action.api !== 'function') {
++    if (!action.catalogId && (!action.api || typeof action.api !== 'function')) {
+       return {
+         status: 'error',
+-        message: `API function not defined for action ${action.id}`,
++        message: `Action ${action.id} is missing catalog metadata`,
+         results: null,
+       }
+     }
+@@ -25,10 +32,21 @@ export function useActionRunner(selectedProgram) {
+     setActiveAction(action.id)
+ 
+     try {
+-      const response = await action.api({
+-        program_id: selectedProgram.id,
+-        ...formData,
+-      })
++      let response
++      if (action.catalogId) {
++        const { targets, ...rawOptions } = formData
++        response = await createCatalogAction({
++          catalog_id: action.catalogId,
++          program_id: selectedProgram.id,
++          targets: Array.isArray(targets) ? targets : [],
++          options: compactOptions(rawOptions),
++        })
++      } else {
++        response = await action.api({
++          program_id: selectedProgram.id,
++          ...formData,
++        })
++      }
+ 
+       return {
+         status: response.data.status,
+diff --git a/BugBountyDashBoard/src/components/actions/index.js b/BugBountyDashBoard/src/components/actions/index.js
+index ac50660..a84cb63 100644
+--- a/BugBountyDashBoard/src/components/actions/index.js
++++ b/BugBountyDashBoard/src/components/actions/index.js
+@@ -3,3 +3,4 @@ export { default as useActionRunner } from './hooks/useActionRunner'
+ export { default as ActionFormFactory } from './ui/ActionFormFactory'
+ export { default as ActionCard } from './ui/ActionCard'
+ export { default as ActionGrid } from './ui/ActionGrid'
++export { default as useActionCatalog } from './hooks/useActionCatalog'
+diff --git a/BugBountyDashBoard/src/components/actions/ui/ActionCard.jsx b/BugBountyDashBoard/src/components/actions/ui/ActionCard.jsx
+index 6fc240a..e3b93b4 100644
+--- a/BugBountyDashBoard/src/components/actions/ui/ActionCard.jsx
++++ b/BugBountyDashBoard/src/components/actions/ui/ActionCard.jsx
+@@ -50,6 +50,9 @@ function ActionCard({ action, actionRunner }) {
+           <div>
+             <h3 className="font-semibold text-gray-900">{action.name}</h3>
+             <p className="text-sm text-gray-600">{action.description}</p>
++            {action.requiresApproval && (
++              <p className="mt-1 text-xs font-medium text-amber-600">Requires approval</p>
++            )}
+           </div>
+         </header>
+       </div>
+@@ -64,9 +67,12 @@ function ActionCard({ action, actionRunner }) {
+             >
+               ✕
+             </button>
+-            <h2 className="text-xl font-bold mb-4">{action.name}</h2>
++            <h2 className="text-xl font-bold mb-1">{action.name}</h2>
++            {action.badge && (
++              <p className="mb-4 text-sm text-gray-500">{action.badge}</p>
++            )}
+             <ActionFormFactory
+-              type={action.form}
++              action={action}
+               onRun={handleRunAction}
+               loading={actionRunner.loading}
+               actionColor={action.color}
+diff --git a/BugBountyDashBoard/src/components/actions/ui/ActionFormFactory.jsx b/BugBountyDashBoard/src/components/actions/ui/ActionFormFactory.jsx
+index 38806cf..82e4417 100644
+--- a/BugBountyDashBoard/src/components/actions/ui/ActionFormFactory.jsx
++++ b/BugBountyDashBoard/src/components/actions/ui/ActionFormFactory.jsx
+@@ -2,11 +2,11 @@ import { useState } from 'react'
+ import BaseActionForm from '../forms/BaseActionForm'
+ import { ACTIONS } from '@/components/actions/configs/actions.config'
+ 
+-export default function ActionFormFactory({ type, onRun, actionColor }) {
+-  const action = ACTIONS.find(s => s.form === type)
++export default function ActionFormFactory({ action, type, onRun, actionColor, loading: parentLoading = false }) {
++  const resolvedAction = action || ACTIONS.find(s => s.form === type)
+   const [loading, setLoading] = useState(false)
+ 
+-  if (!action) {
++  if (!resolvedAction) {
+     return (
+       <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+         Unknown action form: <b>{type}</b>
+@@ -26,12 +26,12 @@ export default function ActionFormFactory({ type, onRun, actionColor }) {
+ 
+   return (
+     <BaseActionForm
+-      fields={action.fields}
+-      initialValues={action.initialValues}
++      fields={resolvedAction.fields}
++      initialValues={resolvedAction.initialValues}
+       onRun={handleAction}
+-      loading={loading}
+-      submitLabel={action.label || 'Run Action'}
+-      actionColor={actionColor || 'blue'}
++      loading={loading || parentLoading}
++      submitLabel={resolvedAction.label || 'Run Action'}
++      actionColor={actionColor || resolvedAction.color || 'blue'}
+     />
+   )
+ }
+diff --git a/BugBountyDashBoard/src/pages/Actions/ActionPage.jsx b/BugBountyDashBoard/src/pages/Actions/ActionPage.jsx
+index 63c0933..d374fa7 100644
+--- a/BugBountyDashBoard/src/pages/Actions/ActionPage.jsx
++++ b/BugBountyDashBoard/src/pages/Actions/ActionPage.jsx
+@@ -1,16 +1,13 @@
+-import { useState } from 'react'
+ import { useProgram } from '@/context/ProgramContext'
+ import { useActionRunner } from '@/components/actions/hooks/useActionRunner'
+-import { ACTIONS } from '@/components/actions'
++import { useActionCatalog } from '@/components/actions/hooks/useActionCatalog'
+ import ActionCard from '@/components/actions/ui/ActionCard'
+ import ActionGrid from '@/components/actions/ui/ActionGrid'
+-import ActionFormFactory from '@/components/actions/ui/ActionFormFactory'
+-import ActionToast from '@/components/actions/ui/ActionToast'
+ 
+ export default function ActionsPage() {
+   const { selectedProgram } = useProgram()
+   const actionRunner = useActionRunner(selectedProgram)
+-  const [toastResult, setToastResult] = useState(null)
++  const { actions, loading, error } = useActionCatalog()
+ 
+   if (!selectedProgram) {
+     return (
+@@ -20,31 +17,32 @@ export default function ActionsPage() {
+     )
+   }
+ 
+-  const handleRunAction = async (action, data) => {
+-    const result = await actionRunner.runAction(action, data)
+-    if (result) setToastResult(result)
++  if (loading) {
++    return (
++      <div className="text-center py-10 text-gray-500">
++        Loading action catalog...
++      </div>
++    )
+   }
+ 
+-  return (
+-    <>
+-      <ActionGrid>
+-        {ACTIONS.map(action => (
+-          <ActionCard
+-            key={action.id}
+-            action={action}
+-            actionRunner={actionRunner}
+-            active={actionRunner?.activeAction === action.id}
+-          >
+-            <ActionFormFactory
+-              type={action.form}
+-              onRun={data => handleRunAction(action, data)}
+-              loading={actionRunner?.loading || false}
+-            />
+-          </ActionCard>
+-        ))}
+-      </ActionGrid>
++  if (error) {
++    return (
++      <div className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-700">
++        Action catalog failed to load: {error}
++      </div>
++    )
++  }
+ 
+-      <ActionToast actionResult={toastResult} onClose={() => setToastResult(null)} />
+-    </>
++  return (
++    <ActionGrid>
++      {actions.map(action => (
++        <ActionCard
++          key={action.id}
++          action={action}
++          actionRunner={actionRunner}
++          active={actionRunner?.activeAction === action.id}
++        />
++      ))}
++    </ActionGrid>
+   )
+ }
+diff --git a/BugBountyDashBoard/src/services/api.js b/BugBountyDashBoard/src/services/api.js
+index 51c39bd..9c39249 100644
+--- a/BugBountyDashBoard/src/services/api.js
++++ b/BugBountyDashBoard/src/services/api.js
+@@ -68,15 +68,15 @@ export const getProgramStats = (programId) =>
+ export const getEndpointsWithBody = (programId, params = {}) => 
+   api.get(`/hosts/program/${programId}/endpoints-with-body`, { params })
+ 
+-// Actions
+-export const listActionCatalog = () =>
+-  api.get('/actions/catalog')
+-
+-export const getActionCatalogItem = (catalogId) =>
+-  api.get(`/actions/catalog/${catalogId}`)
+-
+-export const listActions = (params = {}) =>
+-  api.get('/actions', { params })
++// Actions
++export const listActionCatalog = () =>
++  api.get('/actions/catalog')
++
++export const getActionCatalogItem = (catalogId) =>
++  api.get(`/actions/catalog/${catalogId}`)
++
++export const listActions = (params = {}) =>
++  api.get('/actions', { params })
+ 
+ export const listPendingApprovalActions = (params = {}) =>
+   api.get('/actions/pending-approval', { params })
+@@ -84,96 +84,105 @@ export const listPendingApprovalActions = (params = {}) =>
+ export const approveAction = (actionId, data = {}) =>
+   api.post(`/actions/${actionId}/approve`, data)
+ 
+-export const rejectAction = (actionId, data = {}) =>
+-  api.post(`/actions/${actionId}/reject`, data)
+-
+-let actionCatalogCache = null
+-
+-const resolveCatalogId = async (capability, profile) => {
+-  if (!actionCatalogCache) {
+-    const response = await listActionCatalog()
+-    actionCatalogCache = response.data?.items || []
+-  }
+-  const item = actionCatalogCache.find(
+-    (entry) => entry.capability === capability && entry.profile === profile,
+-  )
+-  if (!item) {
+-    throw new Error(`Action catalog entry not found: ${capability}/${profile}`)
+-  }
+-  return item.id
+-}
+-
+-export const createAction = ({ catalog_id, program_id, targets, options = {}, requested_by = 'ui' }) =>
+-  api.post('/actions', {
+-    program_id,
+-    catalog_id,
+-    targets,
+-    options,
+-    requested_by,
+-  })
+-
+-const asAction = async (capability, profile, data, { targetField = 'targets' } = {}) => {
+-  const { program_id, [targetField]: targetValue, targets: ignoredTargets, ...options } = data
+-  const catalog_id = await resolveCatalogId(capability, profile)
+-  return createAction({
+-    catalog_id,
+-    program_id,
+-    targets: targetValue,
+-    options,
+-  })
+-}
+-
+-export const runSubfinder = (data) =>
+-  asAction('subfinder', 'passive-enumeration', data)
+-
+-export const runHTTPX = (data) =>
+-  asAction('httpx', 'safe-web-probe', data)
+-
+-export const runGAU = (data) =>
+-  asAction('gau', 'archive-url-discovery', data)
+-
+-export const runWaymore = (data) =>
+-  asAction('waymore', 'archive-url-discovery', data)
+-
+-export const runKatana = (data) =>
+-  asAction('katana', 'safe-crawl', data)
+-
+-export const runPlaywright = (data) =>
+-  asAction('playwright', 'browser-crawl', data)
+-
+-export const runLinkFinder = (data) =>
+-  asAction('linkfinder', 'js-link-analysis', data)
+-
+-export const runMantra = (data) =>
+-  asAction('mantra', 'js-secret-scan', data)
+-
+-export const runFFUF = (data) =>
+-  asAction('ffuf', 'content-discovery-light', data)
+-
+-export const runAmass = (data) =>
+-  asAction('amass', data.active ? 'active-enumeration' : 'passive-enumeration', data)
+-
+-export const runDNSx = (data) =>
+-  asAction('dnsx', data.mode === 'ptr' ? 'reverse-dns' : 'forward-dns', data)
+-
+-export const runSubjack = (data) =>
+-  asAction('subjack', 'takeover-check', data)
+-
+-export const runASNMap = (data) =>
+-  asAction('asnmap', 'asn-discovery', data)
+-
+-export const runMapCIDR = async ({ program_id, cidrs, skip_base, skip_broadcast, shuffle, timeout }) => {
+-  const catalog_id = await resolveCatalogId('mapcidr', 'cidr-expand')
+-  return createAction({
+-    catalog_id,
+-    program_id,
+-    targets: cidrs,
+-    options: { skip_base, skip_broadcast, shuffle, timeout },
+-  })
+-}
+-
+-export const runNaabu = (data) =>
+-  asAction('naabu', data.scan_mode === 'active' ? 'connect-top-100' : 'passive-ports', data)
++export const rejectAction = (actionId, data = {}) =>
++  api.post(`/actions/${actionId}/reject`, data)
++
++let actionCatalogCache = null
++
++const resolveCatalogId = async (capability, profile) => {
++  if (!actionCatalogCache) {
++    const response = await listActionCatalog()
++    actionCatalogCache = response.data?.items || []
++  }
++  const item = actionCatalogCache.find(
++    (entry) => entry.capability === capability && entry.profile === profile,
++  )
++  if (!item) {
++    throw new Error(`Action catalog entry not found: ${capability}/${profile}`)
++  }
++  return item.id
++}
++
++export const createAction = ({ catalog_id, program_id, targets, options = {}, requested_by = 'ui' }) =>
++  api.post('/actions', {
++    program_id,
++    catalog_id,
++    targets,
++    options,
++    requested_by,
++  })
++
++export const createCatalogAction = ({ catalog_id, program_id, targets, options = {}, requested_by = 'ui' }) =>
++  createAction({
++    catalog_id,
++    program_id,
++    targets,
++    options,
++    requested_by,
++  })
++
++const asAction = async (capability, profile, data, { targetField = 'targets' } = {}) => {
++  const { program_id, [targetField]: targetValue, targets: ignoredTargets, ...options } = data
++  const catalog_id = await resolveCatalogId(capability, profile)
++  return createAction({
++    catalog_id,
++    program_id,
++    targets: targetValue,
++    options,
++  })
++}
++
++export const runSubfinder = (data) =>
++  asAction('subfinder', 'passive-recon', data)
++
++export const runHTTPX = (data) =>
++  asAction('httpx', 'safe-web-probe', data)
++
++export const runGAU = (data) =>
++  asAction('gau', 'archive-url-discovery', data)
++
++export const runWaymore = (data) =>
++  asAction('gau', 'archive-url-discovery', data)
++
++export const runKatana = (data) =>
++  asAction('katana', 'safe-crawl', data)
++
++export const runPlaywright = (data) =>
++  asAction('playwright', 'browser-crawl', data)
++
++export const runLinkFinder = (data) =>
++  asAction('linkfinder', 'js-endpoint-extraction', data)
++
++export const runMantra = (data) =>
++  asAction('mantra', 'js-secret-analysis', data)
++
++export const runFFUF = (data) =>
++  asAction('ffuf', 'content-discovery-light', data)
++
++export const runAmass = (data) =>
++  asAction('amass', data.active ? 'active-enum' : 'passive-enum', data)
++
++export const runDNSx = (data) =>
++  asAction(data.mode === 'ptr' ? 'dnsx-ptr' : 'dnsx', data.mode === 'ptr' ? 'reverse-dns' : 'dns-validate', data)
++
++export const runSubjack = (data) =>
++  asAction('subjack', 'takeover-check', data)
++
++export const runASNMap = (data) =>
++  asAction('asnmap', 'asn-discovery', data)
++
++export const runMapCIDR = async ({ program_id, cidrs, skip_base, skip_broadcast, shuffle, timeout }) => {
++  const catalog_id = await resolveCatalogId('mapcidr', 'cidr-expand')
++  return createAction({
++    catalog_id,
++    program_id,
++    targets: cidrs,
++    options: { skip_base, skip_broadcast, shuffle, timeout },
++  })
++}
++
++export const runNaabu = (data) =>
++  asAction('naabu', data.scan_mode === 'active' ? 'connect-top-100' : 'passive-ports', data)
+ 
+ export const getInjectionCandidates = (programId, params = {}) => 
+   api.get(`/analysis/program/${programId}/injection-candidates`, { params })

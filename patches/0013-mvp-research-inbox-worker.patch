@@ -1,0 +1,504 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index a2f6aee..fde5520 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -618,6 +618,10 @@ Evidence:
+   existing workflow runs resume by `workflow_run_id`, while new messages use the
+   stable `agent-inbox:<message_id>` thread key. Ack happens only after the graph
+   checkpoint already exists or the start/resume call succeeds.
++- `MvpResearchInboxProcessor` wires this boundary as an optional background
++  worker. It claims only its configured subscription `inbox_key`, opens a
++  request-scoped `MvpResearchStateGraph`, and leaves retry/checkpoint lifecycle
++  to LangGraph instead of adding a second inbox retry runtime.
+ - REST routes under `/api/v1/agent` expose the M6 agent protocol without raw
+   execution shortcuts.
+ 
+diff --git a/src/api/application/di.py b/src/api/application/di.py
+index 7e132a2..4b43bfd 100644
+--- a/src/api/application/di.py
++++ b/src/api/application/di.py
+@@ -26,6 +26,7 @@ from api.application.hypothesis_critic import (
+ )
+ from api.application.hypotheses import HypothesisBuilderWorkflow
+ from api.application.langgraph_approval import LangGraphApprovalNode
++from api.application.langgraph_inbox_handoff import MvpResearchInboxProcessor
+ from api.application.langgraph_context_tools import LangGraphContextTools
+ from api.application.langgraph_tool_action import LangGraphToolActionTool
+ from api.application.langgraph_workflows import LangGraphWorkflowRuntime
+@@ -279,6 +280,23 @@ class OrchestrationProvider(Provider):
+             sweep_interval_seconds=settings.AGENT_WAIT_SWEEP_INTERVAL_SECONDS,
+         )
+ 
++    @provide(scope=Scope.APP)
++    def get_mvp_research_inbox_processor(
++        self,
++        settings: Settings,
++        container: AsyncContainer,
++        protocol_store: AgentProtocolStore,
++    ) -> MvpResearchInboxProcessor:
++        return MvpResearchInboxProcessor(
++            container=container,
++            inbox_store=protocol_store,
++            consumer_id=settings.AGENT_INBOX_CONSUMER_ID,
++            inbox_key=settings.AGENT_INBOX_KEY,
++            claim_limit=settings.AGENT_INBOX_CLAIM_LIMIT,
++            lease_seconds=settings.AGENT_INBOX_LEASE_SECONDS,
++            sweep_interval_seconds=settings.AGENT_INBOX_SWEEP_INTERVAL_SECONDS,
++        )
++
+     @provide(scope=Scope.REQUEST)
+     def get_mvp_research_readiness_gate(
+         self,
+diff --git a/src/api/application/langgraph_inbox_handoff.py b/src/api/application/langgraph_inbox_handoff.py
+index c474e03..a3f1183 100644
+--- a/src/api/application/langgraph_inbox_handoff.py
++++ b/src/api/application/langgraph_inbox_handoff.py
+@@ -8,6 +8,8 @@ message.
+ """
+ from __future__ import annotations
+ 
++import asyncio
++import logging
+ from dataclasses import dataclass
+ from typing import Any, Protocol
+ from uuid import UUID
+@@ -16,6 +18,9 @@ from api.application.hypotheses import HypothesisBuildRequest
+ from api.application.projections import ProjectionKey
+ 
+ 
++logger = logging.getLogger(__name__)
++
++
+ class MvpResearchGraph(Protocol):
+     async def ainvoke(
+         self,
+@@ -43,6 +48,144 @@ class InboxLangGraphHandoffResult:
+     graph_result: dict[str, Any] | None = None
+ 
+ 
++
++
++class AgentInboxClaimStore(AgentInboxAckStore, Protocol):
++    async def claim_inbox(
++        self,
++        *,
++        program_id: Any | None = None,
++        consumer_id: str,
++        lease_seconds: int = 300,
++        campaign_id: Any | None = None,
++        correlation_id: Any | None = None,
++        inbox_key: str | None = None,
++        limit: int = 100,
++    ) -> list[dict[str, Any]]: ...
++
++
++class MvpResearchInboxProcessor:
++    """Claim MVP research inbox messages and hand them off to LangGraph.
++
++    The processor owns only the delivery boundary: claim available messages, open
++    a request-scoped graph, perform an idempotent handoff, then ack only after
++    the graph has persisted or resumed. LangGraph remains the retry/checkpoint
++    runtime after handoff.
++    """
++
++    def __init__(
++        self,
++        *,
++        container: Any,
++        inbox_store: AgentInboxClaimStore,
++        consumer_id: str = "mvp-research-inbox-worker",
++        inbox_key: str = "mvp-hypothesis-builder",
++        claim_limit: int = 20,
++        lease_seconds: int = 300,
++        sweep_interval_seconds: float = 2.0,
++        program_id: Any | None = None,
++        campaign_id: Any | None = None,
++        correlation_id: Any | None = None,
++        required_projections: tuple[ProjectionKey, ...] = (),
++        graph_dependency: Any | None = None,
++    ) -> None:
++        if not consumer_id.strip():
++            raise ValueError("consumer_id must not be empty")
++        if not inbox_key.strip():
++            raise ValueError("inbox_key must not be empty")
++        self.container = container
++        self.inbox_store = inbox_store
++        self.consumer_id = consumer_id
++        self.inbox_key = inbox_key
++        self.claim_limit = max(1, min(int(claim_limit), 500))
++        self.lease_seconds = max(1, int(lease_seconds))
++        self.sweep_interval_seconds = max(0.05, float(sweep_interval_seconds))
++        self.program_id = program_id
++        self.campaign_id = campaign_id
++        self.correlation_id = correlation_id
++        self.required_projections = required_projections
++        self.graph_dependency = graph_dependency
++        self._stop_event = asyncio.Event()
++        self._run_task: asyncio.Task | None = None
++
++    @property
++    def running(self) -> bool:
++        return self._run_task is not None and not self._run_task.done()
++
++    async def start(self) -> None:
++        if self.running:
++            return
++        self._stop_event.clear()
++        self._run_task = asyncio.create_task(
++            self.run(),
++            name="mvp-research-inbox-processor",
++        )
++
++    async def stop(self) -> None:
++        self._stop_event.set()
++        if self._run_task is not None:
++            self._run_task.cancel()
++            await asyncio.gather(self._run_task, return_exceptions=True)
++        self._run_task = None
++
++    async def run(self) -> None:
++        while not self._stop_event.is_set():
++            try:
++                await self.process_once()
++            except asyncio.CancelledError:
++                raise
++            except Exception:
++                logger.exception("MVP research inbox sweep failed")
++            try:
++                await asyncio.wait_for(
++                    self._stop_event.wait(),
++                    timeout=self.sweep_interval_seconds,
++                )
++            except TimeoutError:
++                pass
++
++    async def process_once(self) -> int:
++        messages = await self.inbox_store.claim_inbox(
++            program_id=self.program_id,
++            campaign_id=self.campaign_id,
++            correlation_id=self.correlation_id,
++            inbox_key=self.inbox_key,
++            consumer_id=self.consumer_id,
++            lease_seconds=self.lease_seconds,
++            limit=self.claim_limit,
++        )
++        handed_off = 0
++        for message in messages:
++            try:
++                await self._handoff_message(message)
++                handed_off += 1
++            except asyncio.CancelledError:
++                raise
++            except Exception:
++                logger.exception(
++                    "MVP research inbox handoff failed for message %s",
++                    message.get("id"),
++                )
++        return handed_off
++
++    def _graph_dependency(self) -> Any:
++        if self.graph_dependency is not None:
++            return self.graph_dependency
++        from api.application.mvp_research_state_graph import MvpResearchStateGraph
++
++        return MvpResearchStateGraph
++
++    async def _handoff_message(self, message: dict[str, Any]) -> InboxLangGraphHandoffResult:
++        async with self.container() as request_container:
++            graph = await request_container.get(self._graph_dependency())
++            handoff = MvpResearchInboxHandoff(
++                graph=graph,
++                inbox_store=self.inbox_store,
++                required_projections=self.required_projections,
++            )
++            return await handoff.handoff(message)
++
++
+ class MvpResearchInboxHandoff:
+     """Hand a claimed inbox message to the MVP research graph exactly once.
+ 
+diff --git a/src/api/config.py b/src/api/config.py
+index d0d9c00..bcee806 100644
+--- a/src/api/config.py
++++ b/src/api/config.py
+@@ -50,6 +50,12 @@ class Settings(BaseSettings):
+     EVENT_DISPATCH_NOTIFY_CHANNEL: str = "event_dispatches_changed"
+     USE_AGENT_WAIT_PROCESSOR: bool = True
+     AGENT_WAIT_SWEEP_INTERVAL_SECONDS: float = 5.0
++    USE_AGENT_INBOX_PROCESSOR: bool = False
++    AGENT_INBOX_CONSUMER_ID: str = "mvp-research-inbox-worker"
++    AGENT_INBOX_KEY: str = "mvp-hypothesis-builder"
++    AGENT_INBOX_CLAIM_LIMIT: int = 20
++    AGENT_INBOX_LEASE_SECONDS: int = 300
++    AGENT_INBOX_SWEEP_INTERVAL_SECONDS: float = 2.0
+ 
+     LOG_LEVEL: str = "INFO"
+     TOOLS_PATH_PREFIX: str = "/usr/local"
+diff --git a/src/api/infrastructure/agent_coordination.py b/src/api/infrastructure/agent_coordination.py
+index 7ecd92e..deefff8 100644
+--- a/src/api/infrastructure/agent_coordination.py
++++ b/src/api/infrastructure/agent_coordination.py
+@@ -364,11 +364,12 @@ class AgentProtocolStore:
+     async def claim_inbox(
+         self,
+         *,
+-        program_id: Any,
++        program_id: Any | None = None,
+         consumer_id: str,
+         lease_seconds: int = 300,
+         campaign_id: Any | None = None,
+         correlation_id: Any | None = None,
++        inbox_key: str | None = None,
+         limit: int = 100,
+         now: datetime | None = None,
+     ) -> list[dict[str, Any]]:
+@@ -389,8 +390,7 @@ class AgentProtocolStore:
+         lease_deadline = now + timedelta(seconds=lease_seconds)
+         bounded_limit = max(1, min(limit, 500))
+ 
+-        claimable_query = select(agent_inbox.c.id).where(
+-            agent_inbox.c.program_id == program_id,
++        claimable_query = select(agent_inbox.c.id).select_from(agent_inbox).where(
+             agent_inbox.c.available_at <= now,
+             or_(
+                 agent_inbox.c.status.in_(["pending", "failed"]),
+@@ -401,6 +401,17 @@ class AgentProtocolStore:
+                 ),
+             ),
+         )
++        if program_id is not None:
++            claimable_query = claimable_query.where(
++                agent_inbox.c.program_id == program_id
++            )
++        if inbox_key is not None:
++            if not inbox_key.strip():
++                raise ValueError("inbox_key must not be empty")
++            claimable_query = claimable_query.join(
++                agent_subscriptions,
++                agent_subscriptions.c.id == agent_inbox.c.subscription_id,
++            ).where(agent_subscriptions.c.inbox_key == inbox_key)
+         if campaign_id is not None:
+             claimable_query = claimable_query.where(
+                 agent_inbox.c.campaign_id == campaign_id
+diff --git a/src/api/presentation/rest/app.py b/src/api/presentation/rest/app.py
+index 550c237..9da09ec 100644
+--- a/src/api/presentation/rest/app.py
++++ b/src/api/presentation/rest/app.py
+@@ -70,6 +70,15 @@ async def lifespan(app: FastAPI):
+             await wait_condition_processor.start()
+             app.state.wait_condition_processor = wait_condition_processor
+ 
++        if settings.USE_AGENT_INBOX_PROCESSOR:
++            from api.application.langgraph_inbox_handoff import MvpResearchInboxProcessor
++
++            inbox_processor: MvpResearchInboxProcessor = await container.get(
++                MvpResearchInboxProcessor
++            )
++            await inbox_processor.start()
++            app.state.agent_inbox_processor = inbox_processor
++
+         if settings.USE_SCHEDULER:
+             from api.application.scheduler import ActionScheduler, load_scheduler_config
+             from api.application.services.action import ActionService
+@@ -117,6 +126,10 @@ async def lifespan(app: FastAPI):
+     if wait_condition_processor is not None:
+         await wait_condition_processor.stop()
+ 
++    inbox_processor = getattr(app.state, "agent_inbox_processor", None)
++    if inbox_processor is not None:
++        await inbox_processor.stop()
++
+     scheduler = getattr(app.state, "action_scheduler", None)
+     if scheduler is not None:
+         await scheduler.stop()
+diff --git a/tests/application/test_langgraph_inbox_processor.py b/tests/application/test_langgraph_inbox_processor.py
+new file mode 100644
+index 0000000..781a567
+--- /dev/null
++++ b/tests/application/test_langgraph_inbox_processor.py
+@@ -0,0 +1,155 @@
++from __future__ import annotations
++
++from dataclasses import dataclass
++from uuid import uuid4
++
++from api.application.langgraph_inbox_handoff import MvpResearchInboxProcessor
++
++
++class GraphDependency: ...
++
++
++@dataclass
++class Snapshot:
++    values: dict
++
++
++class RecordingGraph:
++    def __init__(self, *, fail: bool = False) -> None:
++        self.fail = fail
++        self.invoked = []
++        self.state_lookups = []
++
++    async def ainvoke(self, request, *, thread_id, required_projections=()):
++        if self.fail:
++            raise RuntimeError("graph unavailable")
++        self.invoked.append((request, thread_id, required_projections))
++        return {"status": "started"}
++
++    async def aresume(self, *, thread_id):
++        return {"status": "resumed"}
++
++    async def aget_state(self, *, thread_id):
++        self.state_lookups.append(thread_id)
++        return Snapshot(values={})
++
++
++class RecordingRequestContainer:
++    def __init__(self, graph) -> None:
++        self.graph = graph
++        self.requested = []
++
++    async def __aenter__(self):
++        return self
++
++    async def __aexit__(self, exc_type, exc, traceback):
++        return False
++
++    async def get(self, dependency):
++        self.requested.append(dependency)
++        assert dependency is GraphDependency
++        return self.graph
++
++
++class RecordingContainerFactory:
++    def __init__(self, graph) -> None:
++        self.graph = graph
++        self.opened = []
++
++    def __call__(self):
++        container = RecordingRequestContainer(self.graph)
++        self.opened.append(container)
++        return container
++
++
++class RecordingInboxStore:
++    def __init__(self, messages) -> None:
++        self.messages = list(messages)
++        self.claims = []
++        self.acked = []
++
++    async def claim_inbox(self, **kwargs):
++        self.claims.append(kwargs)
++        return list(self.messages)
++
++    async def ack_inbox_message(self, *, message_id):
++        self.acked.append(message_id)
++
++
++def _message(**overrides):
++    message = {
++        "id": uuid4(),
++        "program_id": uuid4(),
++        "campaign_id": uuid4(),
++        "workflow_id": None,
++        "workflow_run_id": None,
++        "payload": {
++            "hypothesis_build_request": {
++                "result_key": "surface:admin",
++            }
++        },
++    }
++    message.update(overrides)
++    return message
++
++
++async def test_inbox_processor_claims_by_inbox_key_and_handoffs_messages() -> None:
++    message = _message()
++    graph = RecordingGraph()
++    store = RecordingInboxStore([message])
++    processor = MvpResearchInboxProcessor(
++        container=RecordingContainerFactory(graph),
++        inbox_store=store,
++        consumer_id="worker-1",
++        inbox_key="mvp-hypothesis-builder",
++        claim_limit=10,
++        lease_seconds=120,
++        graph_dependency=GraphDependency,
++    )
++
++    processed = await processor.process_once()
++
++    assert processed == 1
++    assert store.claims == [
++        {
++            "program_id": None,
++            "campaign_id": None,
++            "correlation_id": None,
++            "inbox_key": "mvp-hypothesis-builder",
++            "consumer_id": "worker-1",
++            "lease_seconds": 120,
++            "limit": 10,
++        }
++    ]
++    assert store.acked == [message["id"]]
++    assert graph.invoked[0][1] == f"agent-inbox:{message['id']}"
++
++
++async def test_inbox_processor_leaves_message_claimed_when_graph_handoff_fails() -> None:
++    message = _message()
++    graph = RecordingGraph(fail=True)
++    store = RecordingInboxStore([message])
++    processor = MvpResearchInboxProcessor(
++        container=RecordingContainerFactory(graph),
++        inbox_store=store,
++        consumer_id="worker-1",
++        inbox_key="mvp-hypothesis-builder",
++        graph_dependency=GraphDependency,
++    )
++
++    processed = await processor.process_once()
++
++    assert processed == 0
++    assert store.acked == []
++    assert len(store.claims) == 1
++
++
++def test_inbox_processor_is_wired_as_lifespan_worker_but_disabled_by_default() -> None:
++    app_source = open("src/api/presentation/rest/app.py", encoding="utf-8").read()
++    di_source = open("src/api/application/di.py", encoding="utf-8").read()
++    config_source = open("src/api/config.py", encoding="utf-8").read()
++
++    assert "MvpResearchInboxProcessor" in di_source
++    assert "USE_AGENT_INBOX_PROCESSOR: bool = False" in config_source
++    assert "inbox_processor.start()" in app_source
++    assert "inbox_processor.stop()" in app_source
+diff --git a/tests/infrastructure/test_agent_protocol_store.py b/tests/infrastructure/test_agent_protocol_store.py
+index b83bad1..39c00a2 100644
+--- a/tests/infrastructure/test_agent_protocol_store.py
++++ b/tests/infrastructure/test_agent_protocol_store.py
+@@ -103,6 +103,25 @@ async def test_agent_protocol_store_claims_inbox_with_lease_and_skip_locked() ->
+     assert compiled_statement.params["locked_by"] == "agent-worker-1"
+ 
+ 
++async def test_agent_protocol_store_claims_inbox_by_subscription_inbox_key() -> None:
++    message_id = uuid4()
++    session = FakeSession(rows=[{"id": message_id, "status": "claimed"}])
++    store = AgentProtocolStore(FakeSessionFactory(session))
++
++    claimed = await store.claim_inbox(
++        program_id=None,
++        consumer_id="mvp-research-worker",
++        inbox_key="mvp-hypothesis-builder",
++        limit=5,
++    )
++
++    assert claimed == [{"id": message_id, "status": "claimed"}]
++    compiled = str(session.statements[0].compile(dialect=postgresql.dialect()))
++    assert "JOIN agent_subscriptions" in compiled
++    assert "agent_subscriptions.inbox_key" in compiled
++    assert "FOR UPDATE SKIP LOCKED" in compiled
++
++
+ async def test_agent_protocol_store_rejects_empty_inbox_consumer_id() -> None:
+     store = AgentProtocolStore(FakeSessionFactory(FakeSession()))
+ 

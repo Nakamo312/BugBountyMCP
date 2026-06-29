@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-bugbounty_integration_test}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bugbounty_integration_test}
     ports:
-      - "${POSTGRES_PORT:-55432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bugbounty_integration_test} -d ${POSTGRES_DB:-bugbounty_integration_test}"]
       interval: 5s
@@ -20,8 +20,8 @@ services:
     image: rabbitmq:3.13-management-alpine
     container_name: bb-test-rabbitmq
     ports:
-      - "${RABBITMQ_PORT:-55672}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT:-55673}:15672"
+      - "127.0.0.1:${RABBITMQ_PORT:-55672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-55673}:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
@@ -35,8 +35,8 @@ services:
       NEO4J_AUTH: "${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-bugbounty-integration-test}"
       NEO4J_dbms_security_auth__minimum__password__length: "8"
     ports:
-      - "${NEO4J_HTTP_PORT:-57474}:7474"
-      - "${NEO4J_BOLT_PORT:-57687}:7687"
+      - "127.0.0.1:${NEO4J_HTTP_PORT:-57474}:7474"
+      - "127.0.0.1:${NEO4J_BOLT_PORT:-57687}:7687"
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
       interval: 10s
@@ -63,7 +63,7 @@ services:
         soft: 65536
         hard: 65536
     ports:
-      - "${OPENSEARCH_PORT:-59200}:9200"
+      - "127.0.0.1:${OPENSEARCH_PORT:-59200}:9200"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:9200 >/dev/null || exit 1"]
       start_period: 60s

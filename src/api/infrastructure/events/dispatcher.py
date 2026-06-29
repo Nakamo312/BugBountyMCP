@@ -7,6 +7,7 @@ import uuid
 from typing import Any
 
 from api.application.contracts import EventDispatchRecord
+from api.infrastructure.events.notify_channels import validate_postgres_notify_channel
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class EventDispatcher:
         *,
         store: Any,
         event_bus: Any,
+        agent_router: Any | None = None,
         destination: str = "rabbitmq",
         dispatcher_id: str | None = None,
         batch_size: int = 100,
@@ -36,6 +38,7 @@ class EventDispatcher:
     ) -> None:
         self.store = store
         self.event_bus = event_bus
+        self.agent_router = agent_router
         self.destination = destination
         self.dispatcher_id = dispatcher_id or f"event-dispatcher-{uuid.uuid4()}"
         self.batch_size = max(1, int(batch_size))
@@ -43,7 +46,7 @@ class EventDispatcher:
         self.max_attempts = max(1, int(max_attempts))
         self.retry_delay_seconds = max(0.1, float(retry_delay_seconds))
         self.sweep_interval_seconds = max(0.1, float(sweep_interval_seconds))
-        self.notify_channel = notify_channel
+        self.notify_channel = validate_postgres_notify_channel(notify_channel)
         self.listen_dsn = listen_dsn
         self._wake_event = asyncio.Event()
         self._stop_event = asyncio.Event()
@@ -110,6 +113,8 @@ class EventDispatcher:
 
     async def _send_record(self, record: EventDispatchRecord) -> None:
         try:
+            if self.agent_router is not None:
+                await self.agent_router.route_event(record.envelope)
             await self.event_bus.publish(
                 record.envelope,
                 record_event=False,

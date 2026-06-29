@@ -4,8 +4,6 @@ import logging
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 
-from sqlalchemy import text
-
 from api.application.dto.host import (
     HostResponseDTO,
     EndpointResponseDTO,
@@ -24,8 +22,24 @@ from api.application.dto.host import (
     HostsWithStatsListDTO,
 )
 from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
+from api.application.services.view_queries import (
+    ReadOnlyView,
+    view_count_query,
+    view_data_query,
+)
 
 logger = logging.getLogger(__name__)
+
+_PROGRAM_VIEW_FILTERS = frozenset({"program_id"})
+_PROGRAM_HOST_VIEW_FILTERS = frozenset({"program_id", "host_id"})
+_HOST_ID_VIEW_FILTERS = frozenset({"host_id"})
+_ENDPOINT_ID_VIEW_FILTERS = frozenset({"endpoint_id"})
+
+_HOST_FULL_STATS_VIEW = ReadOnlyView("host_full_stats", _PROGRAM_VIEW_FILTERS | frozenset({"in_scope"}))
+_HOST_SERVICES_VIEW = ReadOnlyView("host_services_view", _HOST_ID_VIEW_FILTERS)
+_ENDPOINT_FULL_DETAILS_VIEW = ReadOnlyView("endpoint_full_details", _ENDPOINT_ID_VIEW_FILTERS)
+_ENDPOINTS_WITH_BODY_VIEW = ReadOnlyView("endpoints_with_body", _PROGRAM_HOST_VIEW_FILTERS)
+_PROGRAM_STATS_VIEW = ReadOnlyView("program_stats", _PROGRAM_VIEW_FILTERS)
 
 
 class HostService:
@@ -241,23 +255,15 @@ class HostService:
     ) -> HostsWithStatsListDTO:
         """Get hosts with statistics from host_full_stats view"""
         async with self.uow as uow:
-            where_clauses = ["program_id = :program_id"]
-            params: Dict[str, Any] = {"program_id": program_id, "limit": limit, "offset": offset}
-
+            filters: Dict[str, Any] = {"program_id": program_id}
             if in_scope is not None:
-                where_clauses.append("in_scope = :in_scope")
-                params["in_scope"] = in_scope
+                filters["in_scope"] = in_scope
+            params: Dict[str, Any] = {**filters, "limit": limit, "offset": offset}
 
-            where_sql = " AND ".join(where_clauses)
-
-            count_query = text(f"SELECT COUNT(*) FROM host_full_stats WHERE {where_sql}")
-            count_result = await uow._session.execute(count_query, params)
+            count_result = await uow._session.execute(view_count_query(_HOST_FULL_STATS_VIEW, filters), params)
             total = count_result.scalar() or 0
 
-            data_query = text(
-                f"SELECT * FROM host_full_stats WHERE {where_sql} LIMIT :limit OFFSET :offset"
-            )
-            result = await uow._session.execute(data_query, params)
+            result = await uow._session.execute(view_data_query(_HOST_FULL_STATS_VIEW, filters), params)
             rows = result.mappings().all()
 
             return HostsWithStatsListDTO(
@@ -270,8 +276,11 @@ class HostService:
     async def get_host_with_services(self, host_id: UUID) -> Optional[HostWithServicesDTO]:
         """Get host with all services from host_services_view"""
         async with self.uow as uow:
-            query = text("SELECT * FROM host_services_view WHERE host_id = :host_id")
-            result = await uow._session.execute(query, {"host_id": host_id})
+            filters = {"host_id": host_id}
+            result = await uow._session.execute(
+                view_data_query(_HOST_SERVICES_VIEW, filters),
+                {**filters, "limit": 1000, "offset": 0},
+            )
             rows = result.mappings().all()
 
             if not rows:
@@ -304,8 +313,11 @@ class HostService:
     ) -> Optional[EndpointFullDetailsDTO]:
         """Get full endpoint details from endpoint_full_details view"""
         async with self.uow as uow:
-            query = text("SELECT * FROM endpoint_full_details WHERE endpoint_id = :endpoint_id")
-            result = await uow._session.execute(query, {"endpoint_id": endpoint_id})
+            filters = {"endpoint_id": endpoint_id}
+            result = await uow._session.execute(
+                view_data_query(_ENDPOINT_FULL_DETAILS_VIEW, filters),
+                {**filters, "limit": 1, "offset": 0},
+            )
             row = result.mappings().first()
 
             if not row:
@@ -322,23 +334,15 @@ class HostService:
     ) -> tuple[List[EndpointWithBodyDTO], int]:
         """Get endpoints with request body from endpoints_with_body view"""
         async with self.uow as uow:
-            where_clauses = ["program_id = :program_id"]
-            params: Dict[str, Any] = {"program_id": program_id, "limit": limit, "offset": offset}
-
+            filters: Dict[str, Any] = {"program_id": program_id}
             if host_id:
-                where_clauses.append("host_id = :host_id")
-                params["host_id"] = host_id
+                filters["host_id"] = host_id
+            params: Dict[str, Any] = {**filters, "limit": limit, "offset": offset}
 
-            where_sql = " AND ".join(where_clauses)
-
-            count_query = text(f"SELECT COUNT(*) FROM endpoints_with_body WHERE {where_sql}")
-            count_result = await uow._session.execute(count_query, params)
+            count_result = await uow._session.execute(view_count_query(_ENDPOINTS_WITH_BODY_VIEW, filters), params)
             total = count_result.scalar() or 0
 
-            data_query = text(
-                f"SELECT * FROM endpoints_with_body WHERE {where_sql} LIMIT :limit OFFSET :offset"
-            )
-            result = await uow._session.execute(data_query, params)
+            result = await uow._session.execute(view_data_query(_ENDPOINTS_WITH_BODY_VIEW, filters), params)
             rows = result.mappings().all()
 
             return [EndpointWithBodyDTO(**dict(row)) for row in rows], total
@@ -346,8 +350,11 @@ class HostService:
     async def get_program_stats(self, program_id: UUID) -> Optional[ProgramStatsDTO]:
         """Get program statistics from program_stats view"""
         async with self.uow as uow:
-            query = text("SELECT * FROM program_stats WHERE program_id = :program_id")
-            result = await uow._session.execute(query, {"program_id": program_id})
+            filters = {"program_id": program_id}
+            result = await uow._session.execute(
+                view_data_query(_PROGRAM_STATS_VIEW, filters),
+                {**filters, "limit": 1, "offset": 0},
+            )
             row = result.mappings().first()
 
             if not row:

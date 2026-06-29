@@ -1,0 +1,235 @@
+diff --git a/docs/architecture/mvp-gap-audit.md b/docs/architecture/mvp-gap-audit.md
+index fde5520..822c485 100644
+--- a/docs/architecture/mvp-gap-audit.md
++++ b/docs/architecture/mvp-gap-audit.md
+@@ -620,8 +620,10 @@ Evidence:
+   checkpoint already exists or the start/resume call succeeds.
+ - `MvpResearchInboxProcessor` wires this boundary as an optional background
+   worker. It claims only its configured subscription `inbox_key`, opens a
+-  request-scoped `MvpResearchStateGraph`, and leaves retry/checkpoint lifecycle
+-  to LangGraph instead of adding a second inbox retry runtime.
++  request-scoped `MvpResearchStateGraph`, records handoff failures in
++  `agent_inbox.last_error` without releasing the active lease, and leaves
++  retry/checkpoint lifecycle to LangGraph instead of adding a second inbox retry
++  runtime.
+ - REST routes under `/api/v1/agent` expose the M6 agent protocol without raw
+   execution shortcuts.
+ 
+diff --git a/src/api/application/langgraph_inbox_handoff.py b/src/api/application/langgraph_inbox_handoff.py
+index a3f1183..8ace062 100644
+--- a/src/api/application/langgraph_inbox_handoff.py
++++ b/src/api/application/langgraph_inbox_handoff.py
+@@ -39,6 +39,15 @@ class AgentInboxAckStore(Protocol):
+     async def ack_inbox_message(self, *, message_id: Any) -> None: ...
+ 
+ 
++class AgentInboxFailureStore(Protocol):
++    async def record_inbox_handoff_error(
++        self,
++        *,
++        message_id: Any,
++        error: str,
++    ) -> None: ...
++
++
+ @dataclass(frozen=True, slots=True)
+ class InboxLangGraphHandoffResult:
+     message_id: UUID
+@@ -50,7 +59,7 @@ class InboxLangGraphHandoffResult:
+ 
+ 
+ 
+-class AgentInboxClaimStore(AgentInboxAckStore, Protocol):
++class AgentInboxClaimStore(AgentInboxAckStore, AgentInboxFailureStore, Protocol):
+     async def claim_inbox(
+         self,
+         *,
+@@ -161,13 +170,33 @@ class MvpResearchInboxProcessor:
+                 handed_off += 1
+             except asyncio.CancelledError:
+                 raise
+-            except Exception:
++            except Exception as exc:
+                 logger.exception(
+                     "MVP research inbox handoff failed for message %s",
+                     message.get("id"),
+                 )
++                await self._record_handoff_error(message, exc)
+         return handed_off
+ 
++    async def _record_handoff_error(
++        self,
++        message: dict[str, Any],
++        exc: Exception,
++    ) -> None:
++        message_id = message.get("id")
++        if message_id is None:
++            return
++        try:
++            await self.inbox_store.record_inbox_handoff_error(
++                message_id=message_id,
++                error=_error_summary(exc),
++            )
++        except Exception:
++            logger.exception(
++                "Failed to record MVP research inbox handoff error for message %s",
++                message_id,
++            )
++
+     def _graph_dependency(self) -> Any:
+         if self.graph_dependency is not None:
+             return self.graph_dependency
+@@ -339,3 +368,10 @@ def _bounded_limit(value: Any, *, default_limit: int) -> int:
+     if value is None or value == "":
+         return default_limit
+     return max(1, min(int(value), 100))
++
++
++def _error_summary(exc: Exception, *, max_length: int = 4000) -> str:
++    message = f"{type(exc).__name__}: {exc}".strip()
++    if not message:
++        message = type(exc).__name__
++    return message[:max_length]
+diff --git a/src/api/infrastructure/agent_coordination.py b/src/api/infrastructure/agent_coordination.py
+index deefff8..f1c88bf 100644
+--- a/src/api/infrastructure/agent_coordination.py
++++ b/src/api/infrastructure/agent_coordination.py
+@@ -471,6 +471,37 @@ class AgentProtocolStore:
+             await session.execute(statement)
+             await session.commit()
+ 
++
++    async def record_inbox_handoff_error(
++        self,
++        *,
++        message_id: Any,
++        error: str,
++        now: datetime | None = None,
++    ) -> None:
++        """Record handoff failure diagnostics without changing lease state.
++
++        Inbox retry remains lease-driven: the message stays claimed until
++        ``locked_until`` expires. This method only makes the failure visible.
++        """
++
++        bounded_error = (error or "handoff failed")[:4000]
++        now = now or datetime.now(timezone.utc)
++        statement = (
++            update(agent_inbox)
++            .where(
++                agent_inbox.c.id == message_id,
++                agent_inbox.c.status == "claimed",
++            )
++            .values(
++                last_error=bounded_error,
++                updated_at=now,
++            )
++        )
++        async with self.session_factory() as session:
++            await session.execute(statement)
++            await session.commit()
++
+     async def create_wait_condition(
+         self,
+         *,
+diff --git a/tests/application/test_langgraph_inbox_processor.py b/tests/application/test_langgraph_inbox_processor.py
+index 781a567..4b7def1 100644
+--- a/tests/application/test_langgraph_inbox_processor.py
++++ b/tests/application/test_langgraph_inbox_processor.py
+@@ -67,6 +67,7 @@ class RecordingInboxStore:
+         self.messages = list(messages)
+         self.claims = []
+         self.acked = []
++        self.errors = []
+ 
+     async def claim_inbox(self, **kwargs):
+         self.claims.append(kwargs)
+@@ -75,6 +76,9 @@ class RecordingInboxStore:
+     async def ack_inbox_message(self, *, message_id):
+         self.acked.append(message_id)
+ 
++    async def record_inbox_handoff_error(self, *, message_id, error):
++        self.errors.append((message_id, error))
++
+ 
+ def _message(**overrides):
+     message = {
+@@ -141,6 +145,7 @@ async def test_inbox_processor_leaves_message_claimed_when_graph_handoff_fails()
+ 
+     assert processed == 0
+     assert store.acked == []
++    assert store.errors == [(message["id"], "RuntimeError: graph unavailable")]
+     assert len(store.claims) == 1
+ 
+ 
+@@ -153,3 +158,25 @@ def test_inbox_processor_is_wired_as_lifespan_worker_but_disabled_by_default() -
+     assert "USE_AGENT_INBOX_PROCESSOR: bool = False" in config_source
+     assert "inbox_processor.start()" in app_source
+     assert "inbox_processor.stop()" in app_source
++
++async def test_inbox_processor_keeps_processing_after_recording_failure_error_fails() -> None:
++    message = _message()
++    graph = RecordingGraph(fail=True)
++    store = RecordingInboxStore([message])
++
++    async def fail_to_record(*, message_id, error):
++        raise RuntimeError("store unavailable")
++
++    store.record_inbox_handoff_error = fail_to_record
++    processor = MvpResearchInboxProcessor(
++        container=RecordingContainerFactory(graph),
++        inbox_store=store,
++        consumer_id="worker-1",
++        inbox_key="mvp-hypothesis-builder",
++        graph_dependency=GraphDependency,
++    )
++
++    processed = await processor.process_once()
++
++    assert processed == 0
++    assert store.acked == []
+diff --git a/tests/infrastructure/test_agent_protocol_store.py b/tests/infrastructure/test_agent_protocol_store.py
+index 39c00a2..4c7970a 100644
+--- a/tests/infrastructure/test_agent_protocol_store.py
++++ b/tests/infrastructure/test_agent_protocol_store.py
+@@ -148,6 +148,40 @@ async def test_agent_protocol_store_acks_inbox_only_from_claimable_statuses() ->
+     assert "processed_at" in compiled
+ 
+ 
++async def test_agent_protocol_store_records_inbox_handoff_error_without_releasing_lease() -> None:
++    message_id = uuid4()
++    session = FakeSession()
++    store = AgentProtocolStore(FakeSessionFactory(session))
++
++    await store.record_inbox_handoff_error(
++        message_id=message_id,
++        error="RuntimeError: graph unavailable",
++    )
++
++    assert session.committed is True
++    compiled_statement = session.statements[0].compile(dialect=postgresql.dialect())
++    compiled = str(compiled_statement)
++    assert "UPDATE agent_inbox" in compiled
++    assert "agent_inbox.status =" in compiled
++    assert "locked_by" not in compiled
++    assert "locked_until" not in compiled
++    assert compiled_statement.params["status_1"] == "claimed"
++    assert compiled_statement.params["last_error"] == "RuntimeError: graph unavailable"
++
++
++async def test_agent_protocol_store_truncates_inbox_handoff_error() -> None:
++    session = FakeSession()
++    store = AgentProtocolStore(FakeSessionFactory(session))
++
++    await store.record_inbox_handoff_error(
++        message_id=uuid4(),
++        error="x" * 5000,
++    )
++
++    compiled_statement = session.statements[0].compile(dialect=postgresql.dialect())
++    assert len(compiled_statement.params["last_error"]) == 4000
++
++
+ async def test_agent_protocol_store_upserts_result_sets_by_program_key() -> None:
+     result_set_id = uuid4()
+     session = FakeSession(scalar=result_set_id)

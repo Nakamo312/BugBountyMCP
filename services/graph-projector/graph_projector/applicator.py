@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import select
 from dataclasses import dataclass
 from time import sleep as default_sleep
@@ -8,6 +7,7 @@ from typing import Any, Callable, Protocol
 from uuid import UUID
 
 from .batch_store import GraphFactBatchStore
+from .notify_channels import listen_statement, validate_postgres_notify_channel
 from .writer import GraphFactWriteResult, GraphFactWriter
 
 
@@ -24,7 +24,7 @@ class GraphFactBatchNotificationWaiter:
 
     def __init__(self, connection: Any, *, channel: str = "graph_fact_batches_changed") -> None:
         self._connection = connection
-        self._channel = _safe_postgres_identifier(channel)
+        self._channel = validate_postgres_notify_channel(channel)
         self._listening = False
 
     def wait(self, timeout_seconds: float) -> None:
@@ -44,7 +44,7 @@ class GraphFactBatchNotificationWaiter:
         if hasattr(self._connection, "autocommit"):
             self._connection.autocommit = True
         cursor = self._connection.cursor()
-        cursor.execute(f"LISTEN {self._channel};")
+        cursor.execute(listen_statement(self._channel))
         if hasattr(self._connection, "commit"):
             self._connection.commit()
         self._listening = True
@@ -79,6 +79,7 @@ class GraphFactBatchApplicator:
         worker_id: str,
         lock_seconds: int,
         max_attempts: int,
+        after_apply: Callable[[Any], object] | None = None,
     ) -> None:
         self._store = store
         self._neo4j_driver = neo4j_driver
@@ -87,6 +88,7 @@ class GraphFactBatchApplicator:
         self._worker_id = worker_id
         self._lock_seconds = lock_seconds
         self._max_attempts = max_attempts
+        self._after_apply = after_apply
 
     def apply_one(self) -> GraphFactBatchApplyResult:
         claimed = self._store.claim_next(
@@ -104,14 +106,14 @@ class GraphFactBatchApplicator:
             dead = claimed.attempts >= self._max_attempts
             status = "dead" if dead else "failed"
             error = str(exc)
-            self._store.mark_failed(claimed.batch_id, error=error, dead=dead)
+            self._store.mark_failed(claimed.batch_id, error=error, dead=dead, worker_id=self._worker_id)
             return GraphFactBatchApplyResult(status=status, batch_id=claimed.batch_id, error=error)
 
         if write_result.edges_skipped > 0:
             dead = claimed.attempts >= self._max_attempts
             status = "dead" if dead else "failed"
             error = _skipped_edges_error(write_result.edges_skipped)
-            self._store.mark_failed(claimed.batch_id, error=error, dead=dead)
+            self._store.mark_failed(claimed.batch_id, error=error, dead=dead, worker_id=self._worker_id)
             return GraphFactBatchApplyResult(
                 status=status,
                 batch_id=claimed.batch_id,
@@ -119,7 +121,22 @@ class GraphFactBatchApplicator:
                 error=error,
             )
 
-        self._store.mark_applied(claimed.batch_id)
+        if self._after_apply is not None:
+            try:
+                self._after_apply(claimed.batch)
+            except Exception as exc:
+                dead = claimed.attempts >= self._max_attempts
+                status = "dead" if dead else "failed"
+                error = str(exc)
+                self._store.mark_failed(claimed.batch_id, error=error, dead=dead, worker_id=self._worker_id)
+                return GraphFactBatchApplyResult(
+                    status=status,
+                    batch_id=claimed.batch_id,
+                    write_result=write_result,
+                    error=error,
+                )
+
+        self._store.mark_applied(claimed.batch_id, worker_id=self._worker_id)
         return GraphFactBatchApplyResult(
             status="applied",
             batch_id=claimed.batch_id,

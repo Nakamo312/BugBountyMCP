@@ -31,3 +31,22 @@ def test_surface_writes_snapshots_and_nodes_with_idempotent_conflicts():
     assert "ON CONFLICT (program_id, snapshot_id, node_fingerprint)" in UPSERT_SURFACE_NODE_SQL
     assert "features_json = EXCLUDED.features_json" in UPSERT_SURFACE_NODE_SQL
     assert "updated_at = now()" in UPSERT_SURFACE_NODE_SQL
+
+from surface_engine.postgres import (  # noqa: E402
+    FETCH_PREVIOUS_SURFACE_SNAPSHOT_SQL,
+    FETCH_SURFACE_EDGES_SQL,
+    FETCH_SURFACE_NODES_SQL,
+    UPSERT_SURFACE_DELTA_SQL,
+    UPSERT_SURFACE_EDGE_SQL,
+)
+
+
+def test_surface_writes_edges_and_deltas_with_idempotent_conflicts():
+    assert "INSERT INTO surface_edges" in UPSERT_SURFACE_EDGE_SQL
+    assert "JOIN surface_nodes dst" in UPSERT_SURFACE_EDGE_SQL
+    assert "ON CONFLICT (program_id, snapshot_id, edge_fingerprint)" in UPSERT_SURFACE_EDGE_SQL
+    assert "INSERT INTO surface_deltas" in UPSERT_SURFACE_DELTA_SQL
+    assert "ON CONFLICT (program_id, to_snapshot_id, delta_type, subject_fingerprint)" in UPSERT_SURFACE_DELTA_SQL
+    assert "FROM surface_snapshots" in FETCH_PREVIOUS_SURFACE_SNAPSHOT_SQL
+    assert "FROM surface_nodes" in FETCH_SURFACE_NODES_SQL
+    assert "FROM surface_edges" in FETCH_SURFACE_EDGES_SQL

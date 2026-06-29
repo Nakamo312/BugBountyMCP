@@ -1,126 +1,90 @@
-"""Control-plane action service for scan requests."""
+"""Control-plane action service façade."""
 from __future__ import annotations
 
-from typing import Protocol
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from api.application.action_catalog import CatalogDetail
 from api.application.contracts import (
     ActionEventRecord,
-    ActionKind,
+    ActionOutcomeFeedback,
+    ActionOutcomeFeedbackRecord,
     ActionRecord,
     ActionRequest,
     ActionResultRecord,
     ActionStatus,
-    ExecutionStatus,
     ActionSubmission,
-    EventEnvelope,
-    PolicyDecisionStatus,
+)
+from api.application.execution_limits import DEFAULT_SYSTEM_EXECUTION_BUDGET, ExecutionBudget
+from api.application.ports.action import (
+    ActionApprovalPort,
+    ActionCommandPort,
+    ActionOutcomeFeedbackWriter,
+    ActionQueryPort,
+    ActionResultPort,
+    ActionStorePort,
+    ScopeRuleProvider,
 )
 from api.application.services.action_catalog import ActionCatalogService
-from api.application.services.policy import PolicyService
-from api.application.execution_limits import (
-    DEFAULT_SYSTEM_EXECUTION_BUDGET,
-    ActionInputValidationError,
-    ExecutionBudget,
-    normalize_options,
-    resolve_execution_budget,
+from api.application.services.action_errors import (
+    ActionApprovalStateError,
+    ActionNotFoundError,
+    ActionOutcomeFeedbackUnavailable,
+    ActionOutcomeNotFoundError,
 )
-from api.infrastructure.events.event_bus import EventBus
-from api.infrastructure.orchestration.store import OrchestrationStore
-from api.domain.models import ScopeRuleModel
-
-
-class ScopeRuleProvider(Protocol):
-    async def find_by_program(self, program_id: UUID) -> list[ScopeRuleModel]:
-        ...
+from api.application.services.action_outcome_feedback import ActionOutcomeFeedbackService
+from api.application.services.action_read import (
+    ActionReadService,
+    policy_decision_status_for_action_status as _policy_decision_status_for_action_status,
+)
+from api.application.services.action_submission import ActionSubmissionWorkflow
+from api.application.services.policy import PolicyService
 
 
 class ActionService:
-    """Validate, policy-check, persist, and enqueue scan actions."""
+    """Thin façade over action read and command use cases."""
 
     def __init__(
         self,
-        event_bus: EventBus,
-        store: OrchestrationStore,
-        policy: PolicyService,
-        catalog: ActionCatalogService,
+        store: ActionStorePort | None = None,
+        policy: PolicyService | None = None,
+        catalog: ActionCatalogService | None = None,
         scope_rules: ScopeRuleProvider | None = None,
+        outcome_feedback: ActionOutcomeFeedbackWriter | None = None,
         system_budget: ExecutionBudget | None = None,
-    ):
-        self.event_bus = event_bus
-        self.store = store
+        commands: ActionCommandPort | None = None,
+        queries: ActionQueryPort | None = None,
+        results: ActionResultPort | None = None,
+        approvals: ActionApprovalPort | None = None,
+    ) -> None:
+        self.commands = commands or store
+        self.queries = queries or store
+        self.results = results or store
+        self.approvals = approvals or store
+        if self.commands is None or self.queries is None or self.results is None or self.approvals is None:
+            raise TypeError("ActionService requires command, query, result, and approval ports")
+        if policy is None or catalog is None:
+            raise TypeError("ActionService requires policy and catalog services")
         self.policy = policy
         self.catalog = catalog
         self.scope_rules = scope_rules
+        self.outcome_feedback = outcome_feedback
         self.system_budget = system_budget or DEFAULT_SYSTEM_EXECUTION_BUDGET
-
-    async def _resolve(self, action: ActionRequest) -> CatalogDetail:
-        detail = await self.catalog.get_detail(action.catalog_id)
-        options = (
-            normalize_options(detail.option_schema, action.options)
-            if detail.option_schema
-            else dict(action.options)
+        self._reads = ActionReadService(
+            queries=self.queries,
+            results=self.results,
         )
-        budget = resolve_execution_budget(
-            system=self.system_budget,
-            profile=detail.execution_budget,
-            requested=action.budget,
+        self._feedback = ActionOutcomeFeedbackService(
+            queries=self.queries,
+            outcome_feedback=outcome_feedback,
         )
-        if budget.max_targets is not None and len(action.targets) > budget.max_targets:
-            raise ActionInputValidationError(
-                f"target count {len(action.targets)} exceeds "
-                f"max_targets {budget.max_targets}"
-            )
-        action.bind_profile(
-            capability_id=detail.capability,
-            profile_id=detail.profile,
-            options=options,
-            execution_budget=budget,
+        self._submissions = ActionSubmissionWorkflow(
+            commands=self.commands,
+            approvals=self.approvals,
+            policy=policy,
+            catalog=catalog,
+            scope_rules=scope_rules,
+            system_budget=self.system_budget,
+            submission_lookup=self._reads.get_action_submission,
         )
-        action.metadata = {
-            **action.metadata,
-            "catalog_entry_id": str(detail.id),
-            "catalog_snapshot_id": str(detail.snapshot_id),
-            "effective_budget": budget.model_dump(mode="json"),
-        }
-        return detail
-
-    async def _scope_rules_for(self, action: ActionRequest) -> list[ScopeRuleModel]:
-        if self.scope_rules is None:
-            return []
-        return await self.scope_rules.find_by_program(action.program_id)
-
-    @staticmethod
-    def _attach_catalog(action: ActionRequest, decision) -> None:
-        decision.metadata = {
-            **decision.metadata,
-            "catalog_entry_id": str(action.catalog_id),
-            "catalog_snapshot_id": action.metadata.get("catalog_snapshot_id"),
-        }
-
-    @staticmethod
-    def _payload(
-        action: ActionRequest,
-        decision,
-        *,
-        scope_id: UUID | None,
-    ) -> dict:
-        options = dict(action.profile.options)
-        payload = {
-            **options,
-            "options": options,
-            "action_id": str(action.action_id),
-            "capability_id": action.profile.capability_id,
-            "profile_id": action.profile.profile_id,
-            "policy_decision_id": str(decision.decision_id),
-            "scope_decision_id": str(scope_id) if scope_id is not None else None,
-            "campaign_id": str(action.campaign_id),
-            "requested_by": action.requested_by,
-        }
-        if decision.safety_level is not None:
-            payload["safety_level"] = decision.safety_level.value
-        return {key: value for key, value in payload.items() if value is not None}
 
     async def list_actions(
         self,
@@ -130,18 +94,18 @@ class ActionService:
         limit: int = 100,
         offset: int = 0,
     ) -> list[ActionRecord]:
-        return await self.store.list_actions(
-            status=status.value if status else None,
+        return await self._reads.list_actions(
+            status=status,
             program_id=program_id,
             limit=limit,
             offset=offset,
         )
 
     async def get_action(self, action_id: UUID) -> ActionRecord:
-        action = await self.store.get_action(action_id)
-        if action is None:
-            raise ActionNotFoundError(f"Action not found: {action_id}")
-        return action
+        return await self._reads.get_action(action_id)
+
+    async def get_action_submission(self, action_id: UUID) -> ActionSubmission | None:
+        return await self._reads.get_action_submission(action_id)
 
     async def list_action_events(
         self,
@@ -150,33 +114,18 @@ class ActionService:
         limit: int = 100,
         offset: int = 0,
     ) -> list[ActionEventRecord]:
-        await self.get_action(action_id)
-        return await self.store.list_action_events(
-            action_id,
-            limit=limit,
-            offset=offset,
-        )
+        return await self._reads.list_action_events(action_id, limit=limit, offset=offset)
 
     async def get_action_result(self, action_id: UUID) -> ActionResultRecord:
-        action = await self.get_action(action_id)
-        runs = await self.store.list_action_runs(action_id)
-        artifacts = await self.store.list_action_artifacts(action_id)
-        terminal_statuses = {
-            ExecutionStatus.COMPLETED,
-            ExecutionStatus.FAILED,
-            ExecutionStatus.DEAD,
-            ExecutionStatus.CANCELLED,
-        }
-        ready = action.status in {ActionStatus.BLOCKED, ActionStatus.REJECTED} or (
-            bool(runs) and all(run.status in terminal_statuses for run in runs)
-        )
-        return ActionResultRecord(
-            action_id=action.action_id,
-            action_status=action.status,
-            ready=ready,
-            runs=runs,
-            artifacts=artifacts,
-        )
+        return await self._reads.get_action_result(action_id)
+
+    async def record_outcome_feedback(
+        self,
+        *,
+        action_id: UUID,
+        feedback: ActionOutcomeFeedback,
+    ) -> ActionOutcomeFeedbackRecord:
+        return await self._feedback.record_outcome_feedback(action_id=action_id, feedback=feedback)
 
     async def approve_action(
         self,
@@ -186,53 +135,11 @@ class ActionService:
         reason: str | None = None,
         confidence: float = 0.5,
     ) -> ActionSubmission:
-        action, current_status = await self.store.get_action_for_approval(action_id)
-        if action is None:
-            raise ActionNotFoundError(f"Action not found: {action_id}")
-        detail = await self._resolve(action)
-        if current_status != ActionStatus.REQUIRES_APPROVAL.value:
-            raise ActionApprovalStateError(
-                f"Action {action_id} is not awaiting approval: {current_status}"
-            )
-
-        decision = self.policy.approve(
-            action,
-            detail,
+        return await self._submissions.approve_action(
+            action_id=action_id,
             approved_by=approved_by,
             reason=reason,
-        )
-        self._attach_catalog(action, decision)
-        scope_id = await self.store.get_scope_id(action.action_id)
-        envelope = EventEnvelope(
-            event=detail.request_event,
-            program_id=action.program_id,
-            targets=decision.allowed_targets,
-            source=approved_by,
             confidence=confidence,
-            correlation_id=action.correlation_id,
-            profile=action.profile.profile_id,
-            payload=self._payload(action, decision, scope_id=scope_id),
-        )
-        approved = await self.store.approve_and_create_queued_job(action, decision, envelope)
-        if not approved:
-            raise ActionApprovalStateError(
-                f"Action {action_id} is no longer awaiting approval"
-            )
-
-        return ActionSubmission(
-            action_id=action.action_id,
-            status=ActionStatus.QUEUED,
-            message=(
-                f"{detail.request_event.replace('_', ' ').title()} approved "
-                f"and queued for {len(envelope.targets)} targets"
-            ),
-            job_id=envelope.job_id,
-            run_id=envelope.run_id,
-            event_id=envelope.event_id,
-            campaign_id=action.campaign_id,
-            correlation_id=action.correlation_id,
-            workflow_id=action.workflow_id,
-            policy_decision=decision,
         )
 
     async def reject_action(
@@ -242,35 +149,10 @@ class ActionService:
         rejected_by: str = "api",
         reason: str | None = None,
     ) -> ActionSubmission:
-        action, current_status = await self.store.get_action_for_approval(action_id)
-        if action is None:
-            raise ActionNotFoundError(f"Action not found: {action_id}")
-        await self._resolve(action)
-        if current_status != ActionStatus.REQUIRES_APPROVAL.value:
-            raise ActionApprovalStateError(
-                f"Action {action_id} is not awaiting approval: {current_status}"
-            )
-
-        decision = self.policy.reject(
-            action,
+        return await self._submissions.reject_action(
+            action_id=action_id,
             rejected_by=rejected_by,
             reason=reason,
-        )
-        self._attach_catalog(action, decision)
-        rejected = await self.store.reject_action(action, decision)
-        if not rejected:
-            raise ActionApprovalStateError(
-                f"Action {action_id} is no longer awaiting approval"
-            )
-
-        return ActionSubmission(
-            action_id=action.action_id,
-            status=ActionStatus.REJECTED,
-            message=f"Action rejected for {len(action.profile.targets)} targets",
-            campaign_id=action.campaign_id,
-            correlation_id=action.correlation_id,
-            workflow_id=action.workflow_id,
-            policy_decision=decision,
         )
 
     async def request_action(
@@ -279,66 +161,7 @@ class ActionService:
         *,
         confidence: float = 0.5,
     ) -> ActionSubmission:
-        detail = await self._resolve(action)
-        event = detail.request_event
-
-        scope_rules = await self._scope_rules_for(action)
-        decision = self.policy.evaluate(action, detail, scope_rules=scope_rules)
-        self._attach_catalog(action, decision)
-        if decision.status == PolicyDecisionStatus.BLOCKED:
-            await self.store.record_policy_result(action, decision)
-            return ActionSubmission(
-                action_id=action.action_id,
-                status=ActionStatus.BLOCKED,
-                message="Action blocked by policy",
-                campaign_id=action.campaign_id,
-                correlation_id=action.correlation_id,
-                workflow_id=action.workflow_id,
-                policy_decision=decision,
-            )
-
-        if decision.status == PolicyDecisionStatus.REQUIRES_APPROVAL:
-            await self.store.record_policy_result(action, decision)
-            return ActionSubmission(
-                action_id=action.action_id,
-                status=ActionStatus.REQUIRES_APPROVAL,
-                message="Action requires approval before enqueue",
-                campaign_id=action.campaign_id,
-                correlation_id=action.correlation_id,
-                workflow_id=action.workflow_id,
-                policy_decision=decision,
-            )
-
-        scope_id = uuid4()
-        envelope = EventEnvelope(
-            event=event,
-            program_id=action.program_id,
-            targets=decision.allowed_targets,
-            source=action.requested_by,
-            confidence=confidence,
-            correlation_id=action.correlation_id,
-            profile=action.profile.profile_id,
-            payload=self._payload(action, decision, scope_id=scope_id),
-        )
-        await self.store.create_allowed_action(
-            action,
-            decision,
-            envelope,
-            scope_id=scope_id,
-        )
-
-        return ActionSubmission(
-            action_id=action.action_id,
-            status=ActionStatus.QUEUED,
-            message=f"{event.replace('_', ' ').title()} queued for {len(envelope.targets)} targets",
-            job_id=envelope.job_id,
-            run_id=envelope.run_id,
-            event_id=envelope.event_id,
-            campaign_id=action.campaign_id,
-            correlation_id=action.correlation_id,
-            workflow_id=action.workflow_id,
-            policy_decision=decision,
-        )
+        return await self._submissions.request_action(action, confidence=confidence)
 
     async def request_scan(
         self,
@@ -351,21 +174,12 @@ class ActionService:
         profile_id: str | None = None,
         confidence: float = 0.5,
     ) -> ActionSubmission:
-        detail = await self.catalog.find_detail_by_event(event=event, profile=profile_id)
-        action = ActionRequest(
-            kind=ActionKind.SCAN,
+        return await self._submissions.request_scan(
+            event=event,
             program_id=program_id,
-            catalog_id=detail.id,
             targets=targets,
-            options=options or {},
+            options=options,
             requested_by=requested_by,
+            profile_id=profile_id,
+            confidence=confidence,
         )
-        return await self.request_action(action, confidence=confidence)
-
-
-class ActionNotFoundError(Exception):
-    """Raised when an action transition targets an unknown action."""
-
-
-class ActionApprovalStateError(Exception):
-    """Raised when an action cannot be approved from its current state."""

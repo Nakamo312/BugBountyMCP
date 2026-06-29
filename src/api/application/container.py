@@ -1,23 +1,30 @@
-
 from dishka import make_async_container
 
 from api.application.di import (
-    DatabaseProvider,
-    OrchestrationProvider,
-    ServiceProvider,
-    UnitOfWorkProvider,
-    CLIRunnerProvider,
+    ActionProvider,
+    AgentProvider,
     BatchProcessorProvider,
+    CLIRunnerProvider,
+    CredentialProvider,
+    DatabaseProvider,
     IngestorProvider,
     PipelineProvider,
+    ProjectionReadModelProvider,
+    ResearchProvider,
+    ServiceProvider,
+    UnitOfWorkProvider,
 )
 
 
 def create_container(context: dict):
     return make_async_container(
         DatabaseProvider(),
-        OrchestrationProvider(),
         UnitOfWorkProvider(),
+        ActionProvider(),
+        AgentProvider(),
+        ProjectionReadModelProvider(),
+        ResearchProvider(),
+        CredentialProvider(),
         CLIRunnerProvider(),
         BatchProcessorProvider(),
         IngestorProvider(),

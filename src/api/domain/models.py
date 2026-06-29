@@ -189,6 +189,25 @@ class HTTPObservationHeaderModel(AbstractModel):
 
 
 @dataclass
+class JavaScriptReferenceModel(AbstractModel):
+    """Endpoint reference extracted from a JavaScript source."""
+    program_id: UUID
+    endpoint_id: UUID
+    service_id: UUID
+    source_url: str
+    referenced_url: str
+    source_tool: str
+    reference_type: str = "endpoint"
+    job_id: Optional[UUID] = None
+    run_id: Optional[UUID] = None
+    correlation_id: Optional[UUID] = None
+    raw_artifact_id: Optional[UUID] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    observed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass
 class VulnTypeModel(AbstractModel):
     """Vulnerability type definition"""
     code: str
