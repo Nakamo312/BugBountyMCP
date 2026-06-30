@@ -63,7 +63,6 @@ class PipelineContext:
         self.correlation_id: UUID | None = None
         self.expansion_depth: int = 0
         self.execution_lineage: dict[str, Any] = {}
-        self.upstream_runner_context: dict[str, Any] = {}
         self.current_runner_context: dict[str, Any] = {}
         self.downstream_parent_artifact_id: UUID | None = None
         self.retry_policy: dict[str, Any] = {
@@ -81,7 +80,6 @@ class PipelineContext:
         self.correlation_id = self._optional_uuid(event.get("correlation_id"))
         self.expansion_depth = max(0, int(event.get("expansion_depth", 0) or 0))
         self.execution_lineage = self._extract_execution_lineage(event)
-        self.upstream_runner_context = self._extract_runner_context(event)
         self.downstream_parent_artifact_id = self._optional_uuid(
             event.get("parent_artifact_id")
             or self._payload_mapping(event).get("parent_artifact_id")
@@ -199,20 +197,6 @@ class PipelineContext:
             lineage.setdefault("correlation_id", str(event["correlation_id"]))
         return {key: value for key, value in lineage.items() if value is not None}
 
-
-    @classmethod
-    def _extract_runner_context(cls, event: Mapping[str, Any]) -> dict[str, Any]:
-        payload = cls._payload_mapping(event)
-        context = event.get(RUNNER_CONTEXT_PAYLOAD_KEY) or payload.get(
-            RUNNER_CONTEXT_PAYLOAD_KEY
-        )
-        if not isinstance(context, Mapping):
-            return {}
-        return {
-            str(key): cls._json_safe(value)
-            for key, value in context.items()
-            if value is not None
-        }
 
     @staticmethod
     def _payload_mapping(event: Mapping[str, Any]) -> Mapping[str, Any]:

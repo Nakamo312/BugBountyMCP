@@ -181,7 +181,7 @@ async def test_pipeline_context_emits_current_runner_context_separately() -> Non
 
     emitted = bus.events[0]
     runner_context = emitted.payload[RUNNER_CONTEXT_PAYLOAD_KEY]
-    assert context.upstream_runner_context["node_id"] == "subfinder"
+    assert not hasattr(context, "upstream_runner_context")
     assert runner_context["node_id"] == "httpx"
     assert runner_context["target_count"] == 1
     assert "action_id" not in emitted.to_legacy_dict()
