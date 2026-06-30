@@ -226,14 +226,12 @@ export default function AgentTaskDetailPage() {
         await acceptAgentActionProposal(proposal.proposal_id, {
           accepted_by: 'human',
           reason: 'Accepted from agent task detail UI',
-          confidence: 0.6,
           metadata: { ui_surface: 'agent_task_detail_page' },
         })
       } else if (decision === 'reject') {
         await rejectAgentActionProposal(proposal.proposal_id, {
           reviewed_by: 'human',
           reason: 'Rejected from agent task detail UI',
-          confidence: 0.7,
           feedback_tags: ['ui-reject'],
           metadata: { ui_surface: 'agent_task_detail_page' },
         })
@@ -241,7 +239,6 @@ export default function AgentTaskDetailPage() {
         await suppressAgentActionProposal(proposal.proposal_id, {
           reviewed_by: 'human',
           reason: 'Suppressed from agent task detail UI',
-          confidence: 0.8,
           feedback_tags: ['ui-suppress'],
           metadata: { ui_surface: 'agent_task_detail_page' },
         })

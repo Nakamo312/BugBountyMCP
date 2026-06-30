@@ -234,7 +234,6 @@ export function useAgentWorkspace() {
       await acceptCommand(proposal.proposal_id, {
         accepted_by: 'human',
         reason: retrying ? 'Retried failed acceptance from campaign workspace UI' : 'Accepted from campaign workspace UI',
-        confidence: 0.6,
         targets,
         metadata: { ui_surface: 'campaign_workspace', boundary: 'experience_proposal_accept_to_action_service' },
       })
@@ -244,7 +243,6 @@ export function useAgentWorkspace() {
       await rejectActionExperienceProposal(proposal.proposal_id, {
         reviewed_by: 'human',
         reason: 'Rejected from campaign workspace UI',
-        confidence: 0.7,
         metadata: { ui_surface: 'campaign_workspace', feedback_tags: ['ui-reject'] },
       })
       return true
@@ -252,7 +250,6 @@ export function useAgentWorkspace() {
     await suppressActionExperienceProposal(proposal.proposal_id, {
       reviewed_by: 'human',
       reason: 'Suppressed from campaign workspace UI',
-      confidence: 0.8,
       metadata: { ui_surface: 'campaign_workspace', feedback_tags: ['ui-suppress'] },
     })
     return true
@@ -263,7 +260,6 @@ export function useAgentWorkspace() {
       await acceptAgentActionProposal(proposal.proposal_id, {
         accepted_by: 'human',
         reason: 'Accepted from campaign workspace UI',
-        confidence: 0.6,
         metadata: { ui_surface: 'campaign_workspace' },
       })
       return
@@ -272,7 +268,6 @@ export function useAgentWorkspace() {
       await rejectAgentActionProposal(proposal.proposal_id, {
         reviewed_by: 'human',
         reason: 'Rejected from campaign workspace UI',
-        confidence: 0.7,
         feedback_tags: ['ui-reject'],
         metadata: { ui_surface: 'campaign_workspace' },
       })
@@ -281,7 +276,6 @@ export function useAgentWorkspace() {
     await suppressAgentActionProposal(proposal.proposal_id, {
       reviewed_by: 'human',
       reason: 'Suppressed from campaign workspace UI',
-      confidence: 0.8,
       feedback_tags: ['ui-suppress'],
       metadata: { ui_surface: 'campaign_workspace' },
     })
