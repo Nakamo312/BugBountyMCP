@@ -19,12 +19,23 @@ from tests.infrastructure.action_experience_support import (
 )
 
 
+class ProposalStoreContractDefaults:
+    def load_review_priors(self, *, program_id, campaign_id=None, proposal_source=None):
+        return {}
+
+    def record_decision_shift(self, *, proposal_run_id, source):
+        return None
+
+    def append_component_action_candidates(self, **kwargs):  # pragma: no cover
+        raise AssertionError("surface component candidates were not expected")
+
+
 def test_proposal_worker_uses_graph_ranker_and_does_not_create_actions() -> None:
     _, _, _, _, Worker, _, _ = _symbols()
     source = _source_row()
     ranking = _ranking(candidate_count=1)
 
-    class Store:
+    class Store(ProposalStoreContractDefaults):
         def __init__(self):
             self.recorded = []
 
@@ -61,12 +72,62 @@ def test_proposal_worker_uses_graph_ranker_and_does_not_create_actions() -> None
     assert store.recorded[0][1] is ranking
 
 
+def test_proposal_worker_requires_review_prior_store_contract() -> None:
+    _, _, _, _, Worker, _, _ = _symbols()
+    source = _source_row()
+    ranking = _ranking(candidate_count=1)
+
+    class Store:
+        def list_sources_without_proposal_run(self, *, limit, program_id=None):
+            return [source]
+
+        def record_ranking(self, *, source, ranking):
+            return uuid4(), len(ranking.candidates)
+
+        def record_decision_shift(self, *, proposal_run_id, source):
+            return None
+
+        def append_component_action_candidates(self, **kwargs):  # pragma: no cover
+            raise AssertionError("surface component candidates were not expected")
+
+        def record_failed_generation(self, *, source, error):  # pragma: no cover
+            raise AssertionError(error)
+
+    with pytest.raises(TypeError, match="ActionExperienceProposalStorePort"):
+        Worker(store=Store(), neo4j_driver=FakeDriver(), ranker=FakeRanker(ranking))
+
+
+def test_proposal_worker_requires_decision_shift_store_contract() -> None:
+    _, _, _, _, Worker, _, _ = _symbols()
+    source = _source_row()
+    ranking = _ranking(candidate_count=1)
+
+    class Store:
+        def list_sources_without_proposal_run(self, *, limit, program_id=None):
+            return [source]
+
+        def load_review_priors(self, *, program_id, campaign_id=None, proposal_source=None):
+            return {}
+
+        def append_component_action_candidates(self, **kwargs):  # pragma: no cover
+            raise AssertionError("surface component candidates were not expected")
+
+        def record_ranking(self, *, source, ranking):
+            return uuid4(), len(ranking.candidates)
+
+        def record_failed_generation(self, *, source, error):  # pragma: no cover
+            raise AssertionError(error)
+
+    with pytest.raises(TypeError, match="ActionExperienceProposalStorePort"):
+        Worker(store=Store(), neo4j_driver=FakeDriver(), ranker=FakeRanker(ranking))
+
+
 def test_proposal_worker_records_no_candidates_once() -> None:
     _, _, _, _, Worker, _, _ = _symbols()
     source = _source_row()
     ranking = _ranking(candidate_count=0)
 
-    class Store:
+    class Store(ProposalStoreContractDefaults):
         def list_sources_without_proposal_run(self, *, limit, program_id=None):
             return [source]
 
@@ -110,7 +171,7 @@ def test_proposal_worker_appends_surface_component_candidates_when_snapshot_exis
         candidate_score=61,
     )
 
-    class Store:
+    class Store(ProposalStoreContractDefaults):
         def __init__(self):
             self.appended = []
 
@@ -184,7 +245,7 @@ def test_proposal_worker_applies_review_priors_before_materialization() -> None:
     source = _source_row()
     ranking = _ranking(candidate_count=1)
 
-    class Store:
+    class Store(ProposalStoreContractDefaults):
         def __init__(self):
             self.recorded = []
 
@@ -245,7 +306,7 @@ def test_surface_component_candidates_apply_review_priors() -> None:
         candidate_score=80,
     )
 
-    class Store:
+    class Store(ProposalStoreContractDefaults):
         def __init__(self):
             self.appended = []
 
@@ -299,7 +360,7 @@ def test_proposal_worker_records_decision_shift_after_materialization() -> None:
     ranking = _ranking(candidate_count=1)
     proposal_run_id = uuid4()
 
-    class Store:
+    class Store(ProposalStoreContractDefaults):
         def __init__(self):
             self.decision_shift_calls = []
 

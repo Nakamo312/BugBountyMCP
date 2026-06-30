@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol, runtime_checkable
 from uuid import UUID, uuid4
 
 from .action_experience_probe import ActionExperienceProbeRanker, ActionExperienceProbeRanking
@@ -83,6 +83,58 @@ class Neo4jDriver(Protocol):
     def session(self, **kwargs: object) -> Any: ...
 
 
+@runtime_checkable
+class ActionExperienceProposalStorePort(Protocol):
+    def list_sources_without_proposal_run(
+        self,
+        *,
+        limit: int = 100,
+        program_id: UUID | str | None = None,
+    ) -> list[Mapping[str, Any]]: ...
+
+    def load_review_priors(
+        self,
+        *,
+        program_id: UUID | str,
+        campaign_id: UUID | str | None = None,
+        proposal_source: str | None = None,
+    ) -> dict[tuple[str, str], ActionExperienceProposalReviewPrior]: ...
+
+    def record_ranking(
+        self,
+        *,
+        source: Mapping[str, Any],
+        ranking: ActionExperienceProbeRanking,
+        review_priors: Mapping[tuple[str, str], ActionExperienceProposalReviewPrior] | None = None,
+    ) -> tuple[UUID, int]: ...
+
+    def append_component_action_candidates(
+        self,
+        *,
+        proposal_run_id: UUID,
+        source: Mapping[str, Any],
+        snapshot_id: UUID | str,
+        candidates: tuple[SurfaceComponentActionCandidate, ...],
+        start_rank: int = 1,
+        feature_builder_version: str = "surface-component-action-candidates.v1",
+        review_priors: Mapping[tuple[str, str], ActionExperienceProposalReviewPrior] | None = None,
+    ) -> int: ...
+
+    def record_decision_shift(
+        self,
+        *,
+        proposal_run_id: UUID | str,
+        source: Mapping[str, Any],
+        top_k: int = 10,
+    ) -> ActionExperienceDecisionShiftResult: ...
+
+    def record_failed_generation(
+        self,
+        *,
+        source: Mapping[str, Any],
+        error: str,
+        feature_builder_version: str = "action-experience-probe-features.v1",
+    ) -> UUID: ...
 
 
 _ACTION_EXPERIENCE_PROPOSAL_UPSERT_SQL = ACTION_EXPERIENCE_PROPOSAL_UPSERT_SQL
@@ -530,7 +582,7 @@ class ActionExperienceProposalWorker:
     def __init__(
         self,
         *,
-        store: ActionExperienceProposalStore,
+        store: ActionExperienceProposalStorePort,
         neo4j_driver: Neo4jDriver,
         neo4j_database: str = "neo4j",
         ranker: ActionExperienceProbeRanker | None = None,
@@ -554,6 +606,11 @@ class ActionExperienceProposalWorker:
             raise ValueError("surface_component_limit must be positive")
         if not 0 <= surface_similarity_cutoff <= 1:
             raise ValueError("surface_similarity_cutoff must be between 0 and 1")
+        if not isinstance(store, ActionExperienceProposalStorePort):
+            raise TypeError(
+                "ActionExperienceProposalWorker store must implement "
+                "ActionExperienceProposalStorePort"
+            )
         self._store = store
         self._neo4j_driver = neo4j_driver
         self._neo4j_database = neo4j_database
@@ -613,10 +670,7 @@ class ActionExperienceProposalWorker:
         source: Mapping[str, Any],
         proposal_run_id: UUID,
     ) -> None:
-        recorder = getattr(self._store, "record_decision_shift", None)
-        if recorder is None:
-            return
-        recorder(proposal_run_id=proposal_run_id, source=source)
+        self._store.record_decision_shift(proposal_run_id=proposal_run_id, source=source)
 
     def _load_review_priors(
         self,
@@ -624,10 +678,7 @@ class ActionExperienceProposalWorker:
         source: Mapping[str, Any],
         proposal_source: str,
     ) -> dict[tuple[str, str], ActionExperienceProposalReviewPrior]:
-        loader = getattr(self._store, "load_review_priors", None)
-        if loader is None:
-            return {}
-        return loader(
+        return self._store.load_review_priors(
             program_id=_required_uuid(source, "program_id"),
             campaign_id=source.get("campaign_id"),
             proposal_source=proposal_source,
