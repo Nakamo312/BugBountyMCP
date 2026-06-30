@@ -240,7 +240,10 @@ async def test_request_action_queues_capability_from_action_contract() -> None:
     assert len(store.policy_results) == 1
     assert len(store.queued) == 1
     queued_action, envelope = store.queued[0]
-    assert queued_action is action
+    assert queued_action.action_id == action.action_id
+    assert queued_action is not action
+    with pytest.raises(RuntimeError, match="has not been resolved"):
+        _ = action.profile
     assert envelope.event == "httpx_scan_requested"
     assert envelope.payload["options"] == {"timeout": 10}
     assert envelope.payload["options"]["timeout"] == 10
@@ -270,7 +273,8 @@ async def test_request_action_replaces_legacy_tool_routes() -> None:
 
     assert submission.status is ActionStatus.QUEUED
     queued_action, envelope = store.queued[0]
-    assert queued_action is action
+    assert queued_action.action_id == action.action_id
+    assert queued_action is not action
     assert queued_action.profile.capability_id == "httpx"
     assert queued_action.profile.profile_id == "safe-web-probe"
     assert envelope.event == "httpx_scan_requested"

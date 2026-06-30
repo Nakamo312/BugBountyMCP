@@ -117,7 +117,11 @@ async def test_action_service_accepts_separate_narrow_ports() -> None:
     assert submission.status is ActionStatus.QUEUED
     assert len(commands.created) == 1
     queued_action, _, envelope, _ = commands.created[0]
-    assert queued_action is request
+    assert queued_action.action_id == request.action_id
+    assert queued_action is not request
+    assert queued_action.profile.profile_id == "safe-web-probe"
+    with pytest.raises(RuntimeError, match="has not been resolved"):
+        _ = request.profile
     assert envelope.payload["options"]["timeout"] == 10
 
     now = datetime.now(timezone.utc)

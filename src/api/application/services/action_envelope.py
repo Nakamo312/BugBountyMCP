@@ -4,7 +4,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from api.application.contracts import (
-    ActionRequest,
+    ResolvedActionCommand,
     ActionStatus,
     ActionSubmission,
     EventEnvelope,
@@ -17,7 +17,7 @@ class ActionEnvelopeBuilder:
 
     def event_envelope(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         *,
         request_event: str,
@@ -40,7 +40,7 @@ class ActionEnvelopeBuilder:
 
     @staticmethod
     def payload(
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         *,
         scope_id: UUID | None,
@@ -63,7 +63,7 @@ class ActionEnvelopeBuilder:
 
     @staticmethod
     def terminal_submission(
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         *,
         status: ActionStatus,
@@ -81,7 +81,7 @@ class ActionEnvelopeBuilder:
 
     @staticmethod
     def queued_submission(
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         envelope: EventEnvelope,
         *,
@@ -94,23 +94,23 @@ class ActionEnvelopeBuilder:
             job_id=envelope.job_id,
             run_id=envelope.run_id,
             event_id=envelope.event_id,
-            campaign_id=getattr(action, "campaign_id", None),
-            correlation_id=getattr(action, "correlation_id", None),
-            workflow_id=getattr(action, "workflow_id", None),
+            campaign_id=action.campaign_id,
+            correlation_id=action.correlation_id,
+            workflow_id=action.workflow_id,
             policy_decision=decision,
         )
 
     @staticmethod
     def rejected_submission(
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
     ) -> ActionSubmission:
         return ActionSubmission(
             action_id=action.action_id,
             status=ActionStatus.REJECTED,
             message=f"Action rejected for {len(action.profile.targets)} targets",
-            campaign_id=getattr(action, "campaign_id", None),
-            correlation_id=getattr(action, "correlation_id", None),
-            workflow_id=getattr(action, "workflow_id", None),
+            campaign_id=action.campaign_id,
+            correlation_id=action.correlation_id,
+            workflow_id=action.workflow_id,
             policy_decision=decision,
         )

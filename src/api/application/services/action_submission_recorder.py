@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 from uuid import UUID
 
 from api.application.contracts import (
-    ActionRequest,
+    ResolvedActionCommand,
     ActionSubmission,
     EventEnvelope,
     PolicyDecision,
@@ -29,7 +29,7 @@ class ActionSubmissionRecorder:
 
     async def record_policy_result_or_recover(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
     ) -> ActionSubmission | None:
         try:
@@ -45,7 +45,7 @@ class ActionSubmissionRecorder:
 
     async def create_allowed_action_or_recover(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         envelope: EventEnvelope,
         *,

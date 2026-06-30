@@ -209,7 +209,10 @@ async def test_allowed_action_uses_one_atomic_store_operation() -> None:
     assert submission.status is ActionStatus.QUEUED
     assert len(store.allowed_queued) == 1
     queued_action, decision, envelope = store.allowed_queued[0]
-    assert queued_action is action
+    assert queued_action.action_id == action.action_id
+    assert queued_action is not action
+    with pytest.raises(RuntimeError, match="has not been resolved"):
+        _ = action.profile
     assert decision.status is PolicyDecisionStatus.ALLOWED
     assert envelope.event_id == submission.event_id
     assert envelope.payload["scope_decision_id"] is not None

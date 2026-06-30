@@ -5,7 +5,7 @@ from uuid import UUID
 
 from api.application.action_catalog import CatalogDetail
 from api.application.contracts import (
-    ActionRequest,
+    ResolvedActionCommand,
     PolicyDecision,
     PolicyDecisionStatus,
 )
@@ -29,7 +29,7 @@ class ActionPolicyEvaluator:
 
     async def evaluate(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         detail: CatalogDetail,
     ) -> PolicyDecision:
         decision = self.policy.evaluate(
@@ -42,7 +42,7 @@ class ActionPolicyEvaluator:
 
     async def approve(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         detail: CatalogDetail,
         *,
         approved_by: str,
@@ -64,7 +64,7 @@ class ActionPolicyEvaluator:
 
     def reject(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         *,
         rejected_by: str,
         reason: str | None,
@@ -79,7 +79,7 @@ class ActionPolicyEvaluator:
         return await self.scope_rules.find_by_program(program_id)
 
     @staticmethod
-    def attach_catalog(action: ActionRequest, decision: PolicyDecision) -> None:
+    def attach_catalog(action: ResolvedActionCommand, decision: PolicyDecision) -> None:
         decision.metadata = {
             **decision.metadata,
             "catalog_entry_id": str(action.catalog_id),

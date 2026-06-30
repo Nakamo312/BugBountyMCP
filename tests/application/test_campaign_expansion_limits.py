@@ -50,6 +50,30 @@ def test_event_envelope_roundtrips_campaign_expansion_context() -> None:
     assert restored.expansion_depth == 3
 
 
+def test_event_envelope_payload_cannot_override_typed_legacy_fields() -> None:
+    program_id = uuid4()
+    payload_program_id = uuid4()
+    envelope = EventEnvelope(
+        event="host_discovered",
+        program_id=program_id,
+        targets=["https://example.com"],
+        payload={
+            "event": "forged_event",
+            "program_id": str(payload_program_id),
+            "targets": ["https://evil.example"],
+            "timeout": 10,
+        },
+    )
+
+    legacy = envelope.to_legacy_dict()
+
+    assert legacy["event"] == "host_discovered"
+    assert legacy["program_id"] == str(program_id)
+    assert legacy["targets"] == ["https://example.com"]
+    assert legacy["timeout"] == 10
+    assert legacy["payload"]["event"] == "forged_event"
+
+
 @pytest.mark.asyncio
 async def test_pipeline_context_inherits_campaign_and_increments_depth() -> None:
     bus = RecordingBus()

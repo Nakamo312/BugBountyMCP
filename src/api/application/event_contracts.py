@@ -8,6 +8,26 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+_ENVELOPE_FIELDS = {
+    "event",
+    "event_id",
+    "program_id",
+    "targets",
+    "target",
+    "source",
+    "confidence",
+    "job_id",
+    "run_id",
+    "campaign_id",
+    "correlation_id",
+    "causation_id",
+    "expansion_depth",
+    "profile",
+    "payload",
+    "created_at",
+}
+
+
 class EventEnvelope(BaseModel):
     """Stable event envelope for RabbitMQ and future event-store replay."""
 
@@ -38,34 +58,26 @@ class EventEnvelope(BaseModel):
     def from_legacy(cls, event: dict[str, Any]) -> "EventEnvelope":
         """Normalize the current loose event dict into a typed envelope."""
         payload = dict(event)
-        known = {
-            "event",
-            "program_id",
-            "targets",
-            "source",
-            "confidence",
-            "job_id",
-            "run_id",
-            "campaign_id",
-            "correlation_id",
-            "causation_id",
-            "expansion_depth",
-            "profile",
-            "payload",
-            "created_at",
-            "event_id",
+        extra_payload = {
+            key: payload.pop(key)
+            for key in list(payload)
+            if key not in _ENVELOPE_FIELDS
         }
-        extra_payload = {key: payload.pop(key) for key in list(payload) if key not in known}
         if "target" in extra_payload and "targets" not in event:
             payload["targets"] = [extra_payload["target"]]
         payload["payload"] = {**extra_payload, **payload.get("payload", {})}
         return cls(**payload)
 
     def to_legacy_dict(self) -> dict[str, Any]:
-        """Return a dict compatible with existing consumers during migration."""
+        """Return a legacy dict without letting payload overwrite envelope fields."""
         data = self.model_dump(mode="json")
         data["target"] = self.targets[0] if self.targets else None
-        data.update(self.payload)
+        legacy_payload = {
+            str(key): value
+            for key, value in self.payload.items()
+            if key not in _ENVELOPE_FIELDS
+        }
+        data.update(legacy_payload)
         return data
 
 

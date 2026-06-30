@@ -77,6 +77,7 @@ class ActionRequest(BaseModel):
         options: dict[str, Any] | None = None,
         execution_budget: ExecutionBudget | None = None,
     ) -> "ActionRequest":
+        """Legacy mutating resolver hook. New submission code uses ResolvedActionCommand."""
         if options is not None:
             self.options = dict(options)
         self._profile = ScanProfile(
@@ -88,6 +89,67 @@ class ActionRequest(BaseModel):
         if execution_budget is not None:
             self._effective_budget = execution_budget
         return self
+
+
+class ResolvedActionCommand(BaseModel):
+    """Action command after catalog/profile/budget resolution.
+
+    This is the runtime command shape used by action submission. It preserves
+    the public ActionRequest values without mutating the request DTO.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action_id: UUID
+    kind: ActionKind
+    program_id: UUID
+    catalog_id: UUID
+    targets: list[str]
+    options: dict[str, Any] = Field(default_factory=dict)
+    budget: ExecutionBudgetRequest | None = None
+    requested_by: str = "api"
+    workflow_id: UUID | None = None
+    campaign_id: UUID
+    correlation_id: UUID
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    profile: ScanProfile
+    effective_budget: ExecutionBudget
+
+    @classmethod
+    def from_request(
+        cls,
+        request: ActionRequest,
+        *,
+        capability_id: str,
+        profile_id: str,
+        options: dict[str, Any],
+        execution_budget: ExecutionBudget,
+        metadata: dict[str, Any] | None = None,
+    ) -> "ResolvedActionCommand":
+        profile = ScanProfile(
+            capability_id=capability_id,
+            profile_id=profile_id,
+            targets=list(request.targets),
+            options=dict(options),
+        )
+        return cls(
+            action_id=request.action_id,
+            kind=request.kind,
+            program_id=request.program_id,
+            catalog_id=request.catalog_id,
+            targets=list(request.targets),
+            options=dict(options),
+            budget=request.budget,
+            requested_by=request.requested_by,
+            workflow_id=request.workflow_id,
+            campaign_id=request.campaign_id,
+            correlation_id=request.correlation_id,
+            metadata=dict(metadata or request.metadata),
+            created_at=request.created_at,
+            profile=profile,
+            effective_budget=execution_budget,
+        )
 
 
 class PolicyDecision(BaseModel):

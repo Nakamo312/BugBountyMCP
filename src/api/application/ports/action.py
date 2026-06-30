@@ -11,6 +11,7 @@ from api.application.contracts import (
     ActionOutcomeFeedbackRecord,
     ActionRecord,
     ActionRequest,
+    ResolvedActionCommand,
     ActionRunResult,
     EventEnvelope,
     PolicyDecision,
@@ -36,14 +37,14 @@ class ActionOutcomeFeedbackWriter(Protocol):
 class ActionCommandPort(Protocol):
     async def record_policy_result(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
     ) -> UUID:
         ...
 
     async def create_allowed_action(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         envelope: EventEnvelope,
         *,
@@ -93,7 +94,7 @@ class ActionApprovalPort(Protocol):
 
     async def approve_and_create_queued_job(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         envelope: EventEnvelope,
     ) -> bool:
@@ -101,7 +102,7 @@ class ActionApprovalPort(Protocol):
 
     async def reject_action(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
     ) -> bool:
         ...

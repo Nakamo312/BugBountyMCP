@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from api.application.contracts import (
     ActionKind,
     ActionRequest,
+    ResolvedActionCommand,
     ActionStatus,
     ActionSubmission,
     PolicyDecision,
@@ -76,27 +77,27 @@ class ActionSubmissionWorkflow:
         existing = await self.submission_lookup(action.action_id)
         if existing is not None:
             return existing
-        detail = await self.resolver.resolve(action)
-        decision = await self.policy_evaluator.evaluate(action, detail)
+        command, detail = await self.resolver.resolve_command(action)
+        decision = await self.policy_evaluator.evaluate(command, detail)
         if decision.status == PolicyDecisionStatus.BLOCKED:
             return await self._record_terminal_submission(
-                action,
+                command,
                 decision,
                 status=ActionStatus.BLOCKED,
                 message="Action blocked by policy",
             )
         if decision.status == PolicyDecisionStatus.REQUIRES_APPROVAL:
             return await self._record_terminal_submission(
-                action,
+                command,
                 decision,
                 status=ActionStatus.REQUIRES_APPROVAL,
                 message="Action requires approval before enqueue",
             )
         return await self._queue_allowed_action(
-            action,
+            command,
             decision,
             request_event=detail.request_event,
-            source=action.requested_by,
+            source=command.requested_by,
             confidence=confidence,
         )
 
@@ -131,30 +132,30 @@ class ActionSubmissionWorkflow:
         confidence: float = 0.5,
     ) -> ActionSubmission:
         action, current_status = await self._action_for_approval(action_id)
-        detail = await self.resolver.resolve(action)
+        command, detail = await self.resolver.resolve_command(action)
         self._require_approval_status(action_id, current_status)
         decision = await self.policy_evaluator.approve(
-            action,
+            command,
             detail,
             approved_by=approved_by,
             reason=reason,
         )
-        scope_id = await self.approvals.get_scope_id(action.action_id)
+        scope_id = await self.approvals.get_scope_id(command.action_id)
         envelope = self.envelopes.event_envelope(
-            action,
+            command,
             decision,
             request_event=detail.request_event,
             source=approved_by,
             confidence=confidence,
             scope_id=scope_id,
         )
-        approved = await self.approvals.approve_and_create_queued_job(action, decision, envelope)
+        approved = await self.approvals.approve_and_create_queued_job(command, decision, envelope)
         if not approved:
             raise ActionApprovalStateError(
                 f"Action {action_id} is no longer awaiting approval"
             )
         return self.envelopes.queued_submission(
-            action,
+            command,
             decision,
             envelope,
             message=self._queued_message(detail.request_event, len(envelope.targets), approved=True),
@@ -168,19 +169,19 @@ class ActionSubmissionWorkflow:
         reason: str | None = None,
     ) -> ActionSubmission:
         action, current_status = await self._action_for_approval(action_id)
-        await self.resolver.resolve(action)
+        command, _detail = await self.resolver.resolve_command(action)
         self._require_approval_status(action_id, current_status)
         decision = self.policy_evaluator.reject(
-            action,
+            command,
             rejected_by=rejected_by,
             reason=reason,
         )
-        rejected = await self.approvals.reject_action(action, decision)
+        rejected = await self.approvals.reject_action(command, decision)
         if not rejected:
             raise ActionApprovalStateError(
                 f"Action {action_id} is no longer awaiting approval"
             )
-        return self.envelopes.rejected_submission(action, decision)
+        return self.envelopes.rejected_submission(command, decision)
 
     async def _action_for_approval(self, action_id: UUID):
         action, current_status = await self.approvals.get_action_for_approval(action_id)
@@ -197,7 +198,7 @@ class ActionSubmissionWorkflow:
 
     async def _record_terminal_submission(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         *,
         status: ActionStatus,
@@ -215,7 +216,7 @@ class ActionSubmissionWorkflow:
 
     async def _queue_allowed_action(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         *,
         request_event: str,
