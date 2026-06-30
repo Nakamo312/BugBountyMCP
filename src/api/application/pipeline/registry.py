@@ -1,17 +1,21 @@
 """Node registry for event routing"""
-from typing import Any, Dict, Set
+from __future__ import annotations
+from typing import TYPE_CHECKING, Any, Dict, Set
 import asyncio
 import logging
 from uuid import uuid4
 
 from api.application.contracts import ExecutionMode
 from api.application.ports.orchestration import PipelineOrchestrationStorePort
-from api.infrastructure.events.event_bus import EventBus
 from api.infrastructure.events.queue_config import QueueConfig
 from api.application.pipeline.node import Node
 from api.application.pipeline.registry_claiming import NodeRegistryClaimingMixin
 from api.application.pipeline.registry_scheduling import NodeRegistrySchedulingMixin
+from api.application.pipeline.context_factory import PipelineContextFactory
 from api.config import Settings
+
+if TYPE_CHECKING:
+    from api.infrastructure.events.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +35,7 @@ class NodeRegistry(NodeRegistryClaimingMixin, NodeRegistrySchedulingMixin):
         settings: Settings,
         container=None,
         orchestration_store: PipelineOrchestrationStorePort | None = None,
+        context_factory: PipelineContextFactory | None = None,
     ):
         """
         Initialize node registry.
@@ -44,6 +49,7 @@ class NodeRegistry(NodeRegistryClaimingMixin, NodeRegistrySchedulingMixin):
         self.settings = settings
         self.container = container
         self._orchestration_store = orchestration_store
+        self.context_factory = context_factory
         self._nodes: Dict[str, Node] = {}
         self._event_to_nodes: Dict[str, Set[str]] = {}
         self._subscription_tasks: Set[asyncio.Task] = set()
@@ -66,7 +72,7 @@ class NodeRegistry(NodeRegistryClaimingMixin, NodeRegistrySchedulingMixin):
             raise ValueError(f"Node already registered: {node.node_id}")
 
         if hasattr(node, 'set_context_factory'):
-            node.set_context_factory(self.bus, self.container, self.settings)
+            node.set_context_factory(self.bus, self.container, self.settings, self.context_factory)
 
         self._nodes[node.node_id] = node
 

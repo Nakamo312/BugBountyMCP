@@ -5,7 +5,7 @@ from typing import AsyncIterator
 import grpc
 
 from api.infrastructure.parsers.process_event_parsers import JSONStdoutProcessEventParser
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 logger = logging.getLogger(__name__)
 

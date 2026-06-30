@@ -37,6 +37,10 @@ class EventBus:
         self.event_recorder = event_recorder
         self._declared_queues: Set[str] = set()
 
+    @property
+    def requires_bound_job_id_for_recording(self) -> bool:
+        return self.event_recorder is not None
+
     async def connect(self):
         """Establish connection, channel, and topic exchange"""
         if not self.connection:

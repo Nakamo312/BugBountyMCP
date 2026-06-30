@@ -3,7 +3,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Dict, List, Set, Tuple, Optional
 
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 from uuid import UUID, uuid4
 
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 from api.application.research.sanitizer import (
     REDACTION_POLICY_VERSION,
     SANITIZER_VERSION,

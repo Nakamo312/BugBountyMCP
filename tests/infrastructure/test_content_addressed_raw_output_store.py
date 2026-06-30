@@ -11,7 +11,7 @@ import pytest
 from api.application.services.raw_artifact_parser import RawArtifactParserService
 from api.infrastructure.artifacts.raw_output_store import FileRawOutputStore
 from api.infrastructure.parsers.raw_artifact_parser import ProcessEventArtifactParser
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 
 async def _stream(*events: ProcessEvent):

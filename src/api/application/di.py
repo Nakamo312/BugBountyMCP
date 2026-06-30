@@ -1,8 +1,9 @@
 # api/application/di.py
 """Dependency injection compatibility façade.
 
-Real provider wiring now lives in api.application.providers.*.  This file keeps
-legacy imports stable while the REST app uses the split provider classes.
+Most provider wiring still lives in split provider modules. Pipeline wiring
+lives under api.infrastructure.providers because it constructs infrastructure
+adapters for application ports. This file keeps legacy imports stable.
 """
 
 from api.application.providers.action_runtime import ActionRuntimeProvider
@@ -12,7 +13,7 @@ from api.application.providers.credentials import CredentialProvider as _Credent
 from api.application.providers.database import DatabaseProvider as _DatabaseProvider
 from api.application.providers.database import UnitOfWorkProvider as _UnitOfWorkProvider
 from api.application.providers.ingestors import IngestorProvider as _IngestorProvider
-from api.application.providers.pipeline import PipelineProvider as _PipelineProvider
+from api.infrastructure.providers.pipeline import PipelineProvider as _PipelineProvider
 from api.application.providers.read_models import ReadModelProvider
 from api.application.providers.research_runtime import ResearchRuntimeProvider
 from api.application.providers.runners import CLIRunnerProvider as _CLIRunnerProvider
@@ -93,7 +94,4 @@ class ServiceProvider(_ServiceProvider):
 
 
 class PipelineProvider(_PipelineProvider):
-    """Compatibility alias for api.application.providers.pipeline.
-
-    return NodeRegistry(bus, settings, container)
-    """
+    """Compatibility alias for api.infrastructure.providers.pipeline."""

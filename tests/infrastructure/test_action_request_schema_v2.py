@@ -11,6 +11,7 @@ from api.application.contracts import (
     ActionKind,
     ActionRequest,
     ActionRunResult,
+    ResolvedActionCommand,
     ActionStatus,
     EventEnvelope,
     ExecutionStatus,
@@ -31,6 +32,7 @@ from api.infrastructure.adapters.orm import (
     policy_decisions,
     scope_decisions,
 )
+from api.infrastructure.orchestration.action_write_helpers import action_request_payload
 from api.infrastructure.orchestration.store import OrchestrationStore
 
 
@@ -96,6 +98,37 @@ def test_policy_decisions_persist_safety_metadata_and_catalog_hash() -> None:
     assert "catalog_hash" in policy_decisions.c
 
 
+def test_resolved_action_command_persists_public_request_shape_for_approval_lookup() -> None:
+    request = ActionRequest(
+        kind=ActionKind.SCAN,
+        program_id=uuid4(),
+        catalog_id=uuid4(),
+        targets=["https://example.com"],
+        options={"timeout": 10},
+    )
+    command = ResolvedActionCommand.from_request(
+        request,
+        capability_id="httpx",
+        profile_id="safe-web-probe",
+        options={"timeout": 10},
+        execution_budget=ExecutionBudget(
+            max_duration_seconds=120,
+            max_targets=100,
+            rate_per_second=50,
+            concurrency=20,
+        ),
+    )
+
+    public_request = command.to_public_request()
+    payload = action_request_payload(command)
+
+    assert public_request.action_id == request.action_id
+    assert public_request.options == {"timeout": 10}
+    assert "profile" not in payload
+    assert "effective_budget" not in payload
+    assert ActionRequest.model_validate(payload).action_id == request.action_id
+
+
 def test_orchestration_store_derives_scope_status_and_target_status() -> None:
     action = ActionRequest(
         kind=ActionKind.SCAN,
@@ -124,15 +157,18 @@ def test_orchestration_store_derives_scope_status_and_target_status() -> None:
 async def test_allowed_action_rolls_back_when_outbox_enqueue_fails(monkeypatch) -> None:
     session = RecordingAsyncSession()
     store = OrchestrationStore(lambda: session)
-    action = ActionRequest(
+    request = ActionRequest(
         kind=ActionKind.SCAN,
         program_id=uuid4(),
         catalog_id=uuid4(),
         targets=["https://example.com"],
         options={"timeout": 10},
-    ).bind_profile(
+    )
+    action = ResolvedActionCommand.from_request(
+        request,
         capability_id="httpx",
         profile_id="safe-web-probe",
+        options={"timeout": 10},
         execution_budget=ExecutionBudget(
             max_duration_seconds=120,
             max_targets=100,

@@ -1,20 +1,30 @@
-"""Pipeline execution context"""
+"""Pipeline execution context.
+
+PipelineContext is an execution facade kept for node ergonomics. It may bind
+events, expose runner context, and delegate to explicit ports/hooks. Do not add
+new persistence, storage, scheduling, or outcome side effects here; add a port or
+terminal hook and inject it through PipelineContextFactory instead.
+"""
+from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Mapping
-from typing import Dict, Any, Optional, Type, TypeVar, List, Tuple
+from typing import TYPE_CHECKING, Dict, Any, Optional, Type, TypeVar, List, Tuple
 from uuid import UUID, uuid4
-from dishka import AsyncContainer
 
-from api.infrastructure.events.event_bus import EventBus
-from api.infrastructure.events.event_types import EventType
-from api.infrastructure.schemas.models.process_event import ProcessEvent
-from api.infrastructure.artifacts.raw_output_store import FileRawOutputStore
-from api.infrastructure.artifacts.raw_artifact_repository import RawArtifactRepository
+from api.application.process_event_contracts import ProcessEvent
 from api.config import Settings
-from api.application.contracts import EventEnvelope, ExecutionStatus, IngestContext, TerminalOutcome
+from api.application.contracts import EventEnvelope, IngestContext
 from api.application.pipeline.scope_policy import ScopePolicy
 from api.application.pipeline.invocation import RUNNER_CONTEXT_PAYLOAD_KEY
+from api.application.action_outcomes import ActionOutcomeRecorder
+from api.application.ports.artifacts import RawArtifactMetadataWriter, RawOutputCapturePort
 from api.application.ports.orchestration import PipelineRunStatePort
+from api.application.ports.scope import ScopeFilterPort
+from api.application.pipeline.raw_artifact_capture import RawArtifactCapture
+from api.application.pipeline.run_completion_reporter import RunCompletionReporter
+
+if TYPE_CHECKING:
+    from api.infrastructure.events.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -36,18 +46,27 @@ _LINEAGE_FIELD_MAP = {
 
 class PipelineContext:
     """
-    Short-lived execution context providing emit, DI, and settings access.
-    Created per execution, destroyed after completion.
+    Short-lived execution facade for node execution.
+
+    This class intentionally delegates raw capture, run completion, and scope
+    filtering to injected collaborators. New side effects must not be added here.
     """
+
+    execution_facade_only = True
 
     def __init__(
         self,
         node_id: str,
         bus: Optional[EventBus] = None,
-        container: Optional[AsyncContainer] = None,
+        container: Any | None = None,
         settings: Optional[Settings] = None,
         scope_policy: ScopePolicy = ScopePolicy.NONE,
         confidence_threshold: float = 0.6,
+        raw_outputs: RawOutputCapturePort | None = None,
+        raw_artifact_metadata: RawArtifactMetadataWriter | None = None,
+        run_states: PipelineRunStatePort | None = None,
+        action_outcomes: ActionOutcomeRecorder | None = None,
+        scope_filter: ScopeFilterPort | None = None,
     ):
         self.node_id = node_id
         self._bus = bus
@@ -70,6 +89,22 @@ class PipelineContext:
             "backoff_seconds": 0,
             "terminal_outcomes": [],
         }
+        self._run_completion_reporter = RunCompletionReporter(
+            run_states=run_states,
+            outcomes=action_outcomes,
+            node_id=node_id,
+        )
+        self._scope_filter = scope_filter
+        self._raw_artifact_capture = (
+            RawArtifactCapture(
+                node_id=node_id,
+                raw_outputs=raw_outputs,
+                metadata_writer=raw_artifact_metadata,
+                mark_run_needs_reconcile=self._mark_run_needs_reconcile,
+            )
+            if raw_outputs is not None and raw_artifact_metadata is not None
+            else None
+        )
 
     def bind_event(self, event: Dict[str, Any]) -> None:
         self.event_name = event.get("event")
@@ -83,6 +118,11 @@ class PipelineContext:
         self.downstream_parent_artifact_id = self._optional_uuid(
             event.get("parent_artifact_id")
             or self._payload_mapping(event).get("parent_artifact_id")
+        )
+        self._run_completion_reporter.bind_event(
+            event_name=self.event_name,
+            event_id=self.event_id,
+            run_id=self.run_id,
         )
 
     async def emit(
@@ -127,6 +167,9 @@ class PipelineContext:
             logger.info(f"No targets to emit after scope filter: node={self.node_id}")
             return
 
+        if self.job_id is None and getattr(self._bus, "requires_bound_job_id_for_recording", False):
+            raise RuntimeError("Cannot durably emit pipeline event without bound job_id")
+
         envelope_kwargs: dict[str, Any] = {
             "event": event,
             "targets": targets,
@@ -134,11 +177,12 @@ class PipelineContext:
             "confidence": confidence,
             "program_id": program_id,
             "causation_id": self.event_id,
-            "job_id": self.job_id or uuid4(),
             "run_id": uuid4(),
             "campaign_id": self.campaign_id,
             "expansion_depth": self.expansion_depth + 1,
         }
+        if self.job_id is not None:
+            envelope_kwargs["job_id"] = self.job_id
         if self.correlation_id is not None:
             envelope_kwargs["correlation_id"] = self.correlation_id
 
@@ -244,17 +288,11 @@ class PipelineContext:
         scope_decision_id: UUID | None = None,
         parent_artifact_id: UUID | None = None,
     ) -> AsyncIterator[ProcessEvent]:
-        store = FileRawOutputStore(
-            self.settings.RAW_OUTPUT_DIR,
-            compression_threshold_bytes=(
-                self.settings.RAW_OUTPUT_COMPRESSION_THRESHOLD_BYTES
-            ),
-            preview_limit_bytes=self.settings.RAW_OUTPUT_PREVIEW_LIMIT_BYTES,
-        )
-        return store.capture_stream(
+        if self._raw_artifact_capture is None:
+            raise RuntimeError("Raw artifact capture not available in context")
+        return self._raw_artifact_capture.capture_stream(
             stream,
             program_id=program_id,
-            node_id=self.node_id,
             event_name=event_name,
             targets=targets,
             job_id=job_id,
@@ -265,7 +303,6 @@ class PipelineContext:
             parser_version=parser_version,
             scope_decision_id=scope_decision_id,
             parent_artifact_id=parent_artifact_id,
-            recorder=self._record_raw_artifact,
         )
 
     def ingest_context(self, raw_artifact_id: UUID | None = None) -> IngestContext:
@@ -276,142 +313,34 @@ class PipelineContext:
             raw_artifact_id=raw_artifact_id,
         )
 
-    async def _record_raw_artifact(self, metadata: dict[str, Any]) -> None:
-        if not self._container:
-            raise RuntimeError("DI container not available in context")
-        async with self._container() as request_container:
-            repository = await request_container.get(RawArtifactRepository)
-            try:
-                await repository.record(metadata)
-            except Exception:
-                await self._mark_run_needs_reconcile(
-                    "raw_artifact_metadata_record_failed"
-                )
-                raise
-
-    async def _run_state_store(self) -> PipelineRunStatePort | None:
-        if not self._container:
-            return None
-        async with self._container() as request_container:
-            return await request_container.get(PipelineRunStatePort)
-
     async def _mark_run_needs_reconcile(self, reason: str) -> None:
-        if self.run_id is None:
-            return
-
-        try:
-            store = await self._run_state_store()
-            if store is None:
-                return
-            await store.mark_run_needs_reconcile(
-                run_id=self.run_id,
-                reason=reason,
-            )
-        except Exception:
-            logger.warning("Failed to mark run as needing reconcile", exc_info=True)
+        await self._run_completion_reporter.mark_run_needs_reconcile(reason)
 
     async def mark_run_started(self) -> bool:
-        if self.run_id is None:
-            return True
-
-        store = await self._run_state_store()
-        if store is None:
-            return True
-        return await store.mark_run_started(
-            run_id=self.run_id,
-            node_id=self.node_id,
-            event_name=self.event_name,
-            trigger_event_id=self.event_id,
-        )
+        return await self._run_completion_reporter.mark_run_started()
 
     async def mark_run_completed(self) -> bool:
-        return await self._mark_run_finished(
-            ExecutionStatus.COMPLETED,
-            terminal_outcome=TerminalOutcome.COMPLETED,
-        )
-
-    async def mark_run_flushing(self) -> bool:
-        if self.run_id is None:
-            return True
-
-        store = await self._run_state_store()
-        if store is None:
-            return True
-        return await store.mark_run_flushing(run_id=self.run_id)
-
-    async def mark_run_failed(self, error: Exception) -> bool:
-        return await self._mark_run_finished(
-            ExecutionStatus.FAILED,
-            error=str(error),
-            terminal_outcome=TerminalOutcome.TOOL_FAILED,
-        )
-
-    async def _mark_run_finished(
-        self,
-        status: ExecutionStatus,
-        error: str | None = None,
-        terminal_outcome: TerminalOutcome | None = None,
-    ) -> bool:
-        if self.run_id is None:
-            return True
-
-        store = await self._run_state_store()
-        if store is None:
-            return True
-        recorded = await store.mark_run_finished(
-            run_id=self.run_id,
-            status=status,
-            error=error,
-            terminal_outcome=terminal_outcome,
+        return await self._run_completion_reporter.mark_run_completed(
             retry_policy=self.retry_policy,
         )
 
-        if recorded:
-            await self._record_action_outcome()
-        return recorded
+    async def mark_run_flushing(self) -> bool:
+        return await self._run_completion_reporter.mark_run_flushing()
 
-    async def _record_action_outcome(self) -> None:
-        if not self._container or self.run_id is None:
-            return
-        from api.application.action_outcomes import ActionOutcomeRecorder
-
-        try:
-            async with self._container() as request_container:
-                recorder = await request_container.get(ActionOutcomeRecorder)
-                await recorder.record_finished_run(run_id=self.run_id)
-        except Exception:
-            logger.warning(
-                "Failed to record action outcome memory: run_id=%s",
-                self.run_id,
-                exc_info=True,
-            )
+    async def mark_run_failed(self, error: Exception) -> bool:
+        return await self._run_completion_reporter.mark_run_failed(
+            error,
+            retry_policy=self.retry_policy,
+        )
 
     async def filter_by_scope(self, program_id: UUID, targets: List[str]) -> Tuple[List[str], List[str]]:
-        from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
-        from api.application.utils.scope_checker import ScopeChecker
-
-        if not self._container:
-            raise RuntimeError("DI container not available in context")
-
-        async with self._container() as request_container:
-            program_uow = await request_container.get(ProgramUnitOfWork)
-            async with program_uow:
-                scope_rules = await program_uow.scope_rules.find_by_program(program_id)
-
-                if not scope_rules:
-                    if self.scope_policy == ScopePolicy.NONE:
-                        logger.warning(
-                            f"No scope rules for program={program_id}, all targets pass through"
-                        )
-                        return targets, []
-
-                    logger.warning(
-                        f"No scope rules for program={program_id}, "
-                        f"blocking targets for policy={self.scope_policy.value}"
-                    )
-                    return [], targets
-
-                return ScopeChecker.filter_in_scope(targets, scope_rules)
+        if self._scope_filter is None:
+            raise RuntimeError("Scope filter not available in context")
+        return await self._scope_filter.filter_by_scope(
+            program_id=program_id,
+            targets=targets,
+            policy=self.scope_policy,
+        )
 
     @staticmethod
     def _optional_uuid(value: Any) -> UUID | None:

@@ -23,7 +23,7 @@ from api.infrastructure.parsers.line_process_event_parsers import (
     LinkFinderStdoutParser,
     WaymoreStdoutParser,
 )
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 
 class SettingsStub:

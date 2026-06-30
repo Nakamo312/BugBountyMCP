@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from api.application.contracts import (
     ActionRequest,
     EventEnvelope,
+    ResolvedActionCommand,
     PolicyDecision,
 )
 from api.infrastructure.adapters.orm import action_requests, approval_decisions, approval_requests
@@ -24,7 +25,7 @@ from api.infrastructure.orchestration.dispatch_store import DispatchStore
 async def record_approval_decision(
     session,
     *,
-    action: ActionRequest,
+    action: ResolvedActionCommand,
     decision: PolicyDecision,
     status: str,
     decided_by: str,
@@ -107,7 +108,7 @@ class ApprovalStore:
 
     async def approve_and_create_queued_job(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         envelope: EventEnvelope,
     ) -> bool:
@@ -158,7 +159,7 @@ class ApprovalStore:
 
     async def reject_action(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
     ) -> bool:
         now = datetime.now(timezone.utc)

@@ -7,6 +7,7 @@ import pytest
 from api.application.contracts import EventEnvelope
 from api.application.pipeline.context import PipelineContext
 from api.application.pipeline.scope_policy import ScopePolicy
+from api.application.utils.scope_checker import ScopeChecker
 from api.domain.enums import RuleType, ScopeAction
 from api.domain.models import ScopeRuleModel
 
@@ -19,45 +20,23 @@ class RecordingBus:
         self.events.append(event)
 
 
-class ScopeRuleRepository:
+class ScopeFilterStub:
     def __init__(self, rules: list[ScopeRuleModel]) -> None:
         self._rules = rules
 
-    async def find_by_program(self, program_id: UUID) -> list[ScopeRuleModel]:
-        return [rule for rule in self._rules if rule.program_id == program_id]
-
-
-class ProgramUnitOfWorkStub:
-    def __init__(self, rules: list[ScopeRuleModel]) -> None:
-        self.scope_rules = ScopeRuleRepository(rules)
-
-    async def __aenter__(self) -> "ProgramUnitOfWorkStub":
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb) -> None:
-        return None
-
-
-class RequestContainerStub:
-    def __init__(self, rules: list[ScopeRuleModel]) -> None:
-        self._uow = ProgramUnitOfWorkStub(rules)
-
-    async def __aenter__(self) -> "RequestContainerStub":
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb) -> None:
-        return None
-
-    async def get(self, service_type):
-        return self._uow
-
-
-class ContainerFactoryStub:
-    def __init__(self, rules: list[ScopeRuleModel]) -> None:
-        self._rules = rules
-
-    def __call__(self) -> RequestContainerStub:
-        return RequestContainerStub(self._rules)
+    async def filter_by_scope(
+        self,
+        *,
+        program_id: UUID,
+        targets: list[str],
+        policy: ScopePolicy,
+    ) -> tuple[list[str], list[str]]:
+        scope_rules = [rule for rule in self._rules if rule.program_id == program_id]
+        if not scope_rules:
+            if policy == ScopePolicy.NONE:
+                return targets, []
+            return [], targets
+        return ScopeChecker.filter_in_scope(targets, scope_rules)
 
 
 @pytest.mark.asyncio
@@ -66,8 +45,8 @@ async def test_strict_pipeline_scope_blocks_targets_when_program_has_no_scope_ru
     context = PipelineContext(
         node_id="httpx",
         bus=bus,
-        container=ContainerFactoryStub([]),
         scope_policy=ScopePolicy.STRICT,
+        scope_filter=ScopeFilterStub([]),
     )
 
     await context.emit(
@@ -85,8 +64,8 @@ async def test_confidence_pipeline_scope_blocks_targets_when_program_has_no_scop
     context = PipelineContext(
         node_id="katana",
         bus=bus,
-        container=ContainerFactoryStub([]),
         scope_policy=ScopePolicy.CONFIDENCE,
+        scope_filter=ScopeFilterStub([]),
     )
 
     await context.emit(
@@ -104,8 +83,8 @@ async def test_approval_required_pipeline_scope_blocks_targets_when_program_has_
     context = PipelineContext(
         node_id="manual-review-node",
         bus=bus,
-        container=ContainerFactoryStub([]),
         scope_policy=ScopePolicy.APPROVAL_REQUIRED,
+        scope_filter=ScopeFilterStub([]),
     )
 
     await context.emit(
@@ -132,8 +111,8 @@ async def test_strict_pipeline_scope_keeps_only_matching_targets() -> None:
     context = PipelineContext(
         node_id="httpx",
         bus=bus,
-        container=ContainerFactoryStub(rules),
         scope_policy=ScopePolicy.STRICT,
+        scope_filter=ScopeFilterStub(rules),
     )
 
     await context.emit(

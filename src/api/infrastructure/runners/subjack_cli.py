@@ -8,7 +8,7 @@ from api.infrastructure.commands.command_boundary import format_command_for_log,
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.parsers.line_process_event_parsers import SubjackStdoutParser
 from api.infrastructure.runners.cli_command import as_list, run_cli_command, stdin_lines
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 logger = logging.getLogger(__name__)
 

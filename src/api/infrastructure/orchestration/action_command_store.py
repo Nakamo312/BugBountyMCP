@@ -9,14 +9,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from api.application.contracts import (
-    ActionRequest,
     EventEnvelope,
+    ResolvedActionCommand,
     PolicyDecision,
     PolicyDecisionStatus,
 )
 from api.application.services.action_errors import ActionSubmissionConflict
 from api.infrastructure.adapters.orm import action_requests, scope_decisions
 from api.infrastructure.orchestration.action_write_helpers import (
+    action_request_payload,
     catalog_hash,
     insert_job_run_and_dispatch,
     insert_policy_decision_row,
@@ -61,7 +62,7 @@ class ActionCommandStore:
 
     async def record_policy_result(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
     ) -> uuid.UUID:
         now = datetime.now(timezone.utc)
@@ -104,7 +105,7 @@ class ActionCommandStore:
 
     async def create_allowed_action(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         envelope: EventEnvelope,
         *,
@@ -160,7 +161,7 @@ class ActionCommandStore:
 
     async def create_queued_job(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         envelope: EventEnvelope,
     ) -> None:
         now = datetime.now(timezone.utc)
@@ -200,7 +201,7 @@ class ActionCommandStore:
     async def _insert_action_request(
         session,
         *,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         status: str,
         now: datetime,
@@ -220,7 +221,7 @@ class ActionCommandStore:
                 catalog_hash=catalog_hash(decision),
                 metadata=action.metadata,
                 status=status,
-                request=action.model_dump(mode="json"),
+                request=action_request_payload(action),
                 created_at=now,
                 updated_at=now,
             )

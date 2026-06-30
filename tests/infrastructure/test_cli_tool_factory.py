@@ -16,7 +16,7 @@ from api.infrastructure.runners.cli_tool import (
     ToolErrorPolicy,
 )
 from api.infrastructure.runners.cli_tool_factory import CliToolRunnerFactory
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 
 class SettingsStub:

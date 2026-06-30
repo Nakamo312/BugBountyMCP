@@ -1,19 +1,12 @@
-from dishka import AsyncContainer, Provider, Scope, from_context, provide
+"""Deprecated compatibility import for pipeline wiring.
 
-from api.application.pipeline.registry import NodeRegistry
-from api.config import Settings
-from api.infrastructure.events.event_bus import EventBus
+Real pipeline wiring lives in :mod:`api.infrastructure.providers.pipeline`
+because it constructs infrastructure adapters for application ports. Do not add
+new imports of this module; migrate call sites to the infrastructure provider
+path and remove this alias once legacy wiring is gone.
+"""
+from api.infrastructure.providers.pipeline import PipelineProvider
 
+deprecated_compatibility_import = True
 
-class PipelineProvider(Provider):
-    scope = Scope.APP
-    settings = from_context(provides=Settings)
-
-    @provide(scope=Scope.APP)
-    def get_node_registry(
-        self,
-        bus: EventBus,
-        settings: Settings,
-        container: AsyncContainer,
-    ) -> NodeRegistry:
-        return NodeRegistry(bus, settings, container)
+__all__ = ["PipelineProvider"]

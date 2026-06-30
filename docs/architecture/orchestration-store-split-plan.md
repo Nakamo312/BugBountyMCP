@@ -272,7 +272,16 @@ application layer must not see SQL details and the invariant must be reviewable.
    old `OrchestrationStore` methods as compatibility facades. Also move the
    approval request creation helper to a neutral session-bound write helper and
    narrow `EventStore.record_event` idempotency to duplicate event id conflicts.
-7. Return to graph backlog and typed projection contracts once orchestration
+7. `0048_orchestration_facade_deprecation_and_context_split` — mark
+   `OrchestrationStore` as a deprecated compatibility facade, make action write
+   stores consume `ResolvedActionCommand` explicitly, keep persisted request JSON
+   in the public `ActionRequest` shape, and split raw artifact capture/run-state
+   reporting out of `PipelineContext`.
+8. `0049_pipeline_boundary_guardrails` — no new behavior; document
+   `PipelineContext` as an execution facade that must not gain new side effects,
+   mark temporary compatibility imports, and make the `ScanNode` no-factory path
+   explicit legacy fallback.
+9. Return to graph backlog and typed projection contracts once orchestration
    write boundaries are small enough to review.
 
 The next patch should not add LangGraph behavior, new scanner chains, credential
@@ -313,3 +322,29 @@ After 0047, `OrchestrationStore` is expected to remain a compatibility facade
 with legacy static helpers only. Do not add new orchestration scenarios to it.
 Return to graph backlog and typed projection contracts unless a concrete
 regression appears in the split stores.
+
+Patch 0048 keeps `OrchestrationStore` only as a deprecated compatibility facade.
+New callers should request scenario-owned ports/stores directly. Action write
+stores now advertise `ResolvedActionCommand` at the command boundary while
+serializing the stored `request` column back to the public `ActionRequest` shape
+so approval lookup does not reconstruct a request from resolved-command internals.
+
+`PipelineContext` no longer constructs `FileRawOutputStore` or talks directly to
+`PipelineRunStatePort`. Raw stream capture lives in `RawArtifactCapture`; terminal run transitions and action-outcome recording live in `RunCompletionReporter`. Durable event
+emission also refuses to invent a job id when an event recorder is attached; the
+job identity must come from the bound upstream run.
+
+
+Patch 0049 does not introduce a new orchestration split. It records guardrails
+from review: `PipelineContext` remains an execution facade and must not gain new
+side effects; new persistence/storage/scheduling/outcome behavior must enter via
+explicit ports or terminal hooks wired by `PipelineContextFactory`.
+`RunCompletionReporter` may keep the current terminal transition plus
+action-outcome-memory hook while it stays small, but outcome-memory branching
+should move to a separate terminal hook before it grows. The compatibility import
+paths `api.application.providers.pipeline`,
+`api.infrastructure.schemas.models.process_event`, and
+`api.application.pipeline.run_state_reporter` are temporary migration aliases, not
+new stable APIs. Direct `ScanNode` construction without a context factory is a
+legacy-only fallback and intentionally has no raw-capture, run-state, outcome, or
+scope-filter ports.

@@ -15,6 +15,7 @@ from api.application.contracts import (
     ActionRecord,
     ActionRequest,
     ActionRunResult,
+    ResolvedActionCommand,
     EventDispatchRecord,
     EventEnvelope,
     ExecutionMode,
@@ -38,7 +39,13 @@ from api.infrastructure.orchestration.scheduled_work_store import ScheduledWorkS
 
 
 class OrchestrationStore:
-    """Backward-compatible facade for orchestration persistence scenarios."""
+    """Deprecated compatibility facade for orchestration persistence scenarios.
+
+    New application code must depend on scenario-owned stores/ports directly.
+    Adding methods here keeps the old one-object-knows-everything model alive.
+    """
+
+    deprecated_compatibility_facade = True
 
     def __init__(
         self,
@@ -268,14 +275,14 @@ class OrchestrationStore:
 
     async def record_policy_result(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
     ) -> uuid.UUID:
         return await self.action_commands.record_policy_result(action, decision)
 
     async def create_allowed_action(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         envelope: EventEnvelope,
         *,
@@ -291,12 +298,12 @@ class OrchestrationStore:
     async def get_scope_id(self, action_id: uuid.UUID) -> uuid.UUID | None:
         return await self.action_commands.get_scope_id(action_id)
 
-    async def create_queued_job(self, action: ActionRequest, envelope: EventEnvelope) -> None:
+    async def create_queued_job(self, action: ResolvedActionCommand, envelope: EventEnvelope) -> None:
         await self.action_commands.create_queued_job(action, envelope)
 
     async def approve_and_create_queued_job(
         self,
-        action: ActionRequest,
+        action: ResolvedActionCommand,
         decision: PolicyDecision,
         envelope: EventEnvelope,
     ) -> bool:
@@ -435,7 +442,7 @@ class OrchestrationStore:
     async def clear_run_reconcile(self, *, run_id: uuid.UUID) -> None:
         await self.run_states.clear_run_reconcile(run_id=run_id)
 
-    async def reject_action(self, action: ActionRequest, decision: PolicyDecision) -> bool:
+    async def reject_action(self, action: ResolvedActionCommand, decision: PolicyDecision) -> bool:
         return await self.approvals.reject_action(action, decision)
 
     async def record_event(self, envelope: EventEnvelope) -> None:

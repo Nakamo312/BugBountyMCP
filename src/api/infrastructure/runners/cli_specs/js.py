@@ -11,7 +11,7 @@ from api.infrastructure.parsers.line_process_event_parsers import (
 )
 from api.infrastructure.runners.cli_command import as_list, stdin_lines
 from api.infrastructure.runners.cli_tool import CliCommandPlan, CliToolSpec, ToolErrorPolicy
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 
 def _katana_commands(

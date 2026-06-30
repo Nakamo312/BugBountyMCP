@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 class ScanNode(Node):
+    legacy_context_fallback = True
+
     """
     Generic node for CLI scan tools.
     Gets dependencies from DI container on each execution.
@@ -221,7 +223,7 @@ class ScanNode(Node):
         }
         return any(event.get(field) is not None for field in action_fields)
 
-    def set_context_factory(self, bus, container, settings):
+    def set_context_factory(self, bus, container, settings, context_factory=None):
         """
         Set dependencies for context creation.
         Called by NodeRegistry after node creation.
@@ -230,10 +232,12 @@ class ScanNode(Node):
             bus: EventBus instance
             container: DI container
             settings: Application settings
+            context_factory: Optional PipelineContextFactory with explicit ports.
         """
         self._bus = bus
         self._container = container
         self._settings = settings
+        self._context_factory = context_factory
 
     async def _create_context(self) -> PipelineContext:
         """
@@ -242,6 +246,20 @@ class ScanNode(Node):
         Returns:
             Pipeline context with all dependencies
         """
+        context_factory = getattr(self, '_context_factory', None)
+        if context_factory is not None:
+            return context_factory.create(
+                node_id=self.node_id,
+                bus=getattr(self, '_bus', None),
+                container=getattr(self, '_container', None),
+                settings=getattr(self, '_settings', None),
+                scope_policy=self.scope_policy,
+            )
+
+        # Legacy-only path for direct ScanNode/NodeRegistry construction in old
+        # tests and adapters. Production wiring must pass PipelineContextFactory;
+        # this fallback intentionally has no raw capture, run-state, outcome, or
+        # scope-filter ports.
         return PipelineContext(
             node_id=self.node_id,
             bus=getattr(self, '_bus', None),

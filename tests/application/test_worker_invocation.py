@@ -62,7 +62,7 @@ from api.application.pipeline.scope_policy import ScopePolicy
 from api.application.pipeline.scan_node import ScanNode
 from api.application.contracts import ExecutionMode
 from api.infrastructure.events.event_types import EventType
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 
 def _event(**overrides):

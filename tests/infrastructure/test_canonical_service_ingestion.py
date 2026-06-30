@@ -16,7 +16,7 @@ from api.infrastructure.ingestors.naabu_ingestor import NaabuResultIngestor
 from api.infrastructure.ingestors.service_finding_ingestor import ServiceFindingIngestor
 from api.infrastructure.ingestors.url_finding_ingestor import UrlFindingIngestor
 from api.infrastructure.parsers.line_process_event_parsers import NaabuStdoutParser
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 
 class FakeIPAddresses:

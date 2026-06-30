@@ -116,6 +116,24 @@ class ResolvedActionCommand(BaseModel):
     profile: ScanProfile
     effective_budget: ExecutionBudget
 
+    def to_public_request(self) -> ActionRequest:
+        """Return the unresolved public request shape for durable storage."""
+        return ActionRequest(
+            action_id=self.action_id,
+            kind=self.kind,
+            program_id=self.program_id,
+            catalog_id=self.catalog_id,
+            targets=list(self.targets),
+            options=dict(self.options),
+            budget=self.budget,
+            requested_by=self.requested_by,
+            workflow_id=self.workflow_id,
+            campaign_id=self.campaign_id,
+            correlation_id=self.correlation_id,
+            metadata=dict(self.metadata),
+            created_at=self.created_at,
+        )
+
     @classmethod
     def from_request(
         cls,

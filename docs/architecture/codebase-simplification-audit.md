@@ -43,10 +43,11 @@
    Weighted sums без backtest по approve/reject/outcome нельзя продавать как
    ранжирование. Хранить raw features, логировать решения, потом калибровать.
 
-6. Разрезать `AgentTaskDetail.jsx` и сразу чинить compile hygiene.
+6. Разрезать `AgentTaskDetail.jsx`.
    Страница держит polling, detail loading, activity cursor, follow-up composer,
-   review actions и render branches. Первый конкретный дефект: используется
-   `Inbox`, но импорт отсутствует.
+   review actions и render branches. Ранее отмеченный compile-дефект с
+   отсутствующим импортом `Inbox` в текущем снимке уже не актуален; проблема
+   остаётся в размере и смешении ролей страницы.
 
 7. Пройтись по `except Exception`.
    В routes нужен централизованный exception mapping. В recorder/recovery нужны

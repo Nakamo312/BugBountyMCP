@@ -12,7 +12,7 @@ from api.infrastructure.commands.command_boundary import (
     summarize_env_for_log,
 )
 from api.infrastructure.schemas.enums.process_state import ProcessState
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 logger = logging.getLogger(__name__)
 

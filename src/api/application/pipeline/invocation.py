@@ -12,7 +12,7 @@ from api.application.contracts import (
     ToolInvocation,
 )
 from api.application.execution_limits import ExecutionBudget
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 LINEAGE_PAYLOAD_KEY = "execution_lineage"
 RUNNER_CONTEXT_PAYLOAD_KEY = "runner_invocation_context"

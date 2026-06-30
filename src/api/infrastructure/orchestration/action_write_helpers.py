@@ -8,8 +8,8 @@ from typing import Any
 from sqlalchemy import insert
 
 from api.application.contracts import (
-    ActionRequest,
     EventEnvelope,
+    ResolvedActionCommand,
     ExecutionStatus,
     PolicyDecision,
     PolicyDecisionStatus,
@@ -50,7 +50,12 @@ def catalog_hash(decision: PolicyDecision) -> str | None:
     return str(value) if value else None
 
 
-def run_payload_for_action(action: ActionRequest) -> dict[str, Any]:
+def action_request_payload(action: ResolvedActionCommand) -> dict[str, Any]:
+    """Persist the public request shape, not the resolved command internals."""
+    return action.to_public_request().model_dump(mode="json")
+
+
+def run_payload_for_action(action: ResolvedActionCommand) -> dict[str, Any]:
     return {
         "options": dict(action.profile.options),
         "execution_budget": action.effective_budget.model_dump(mode="json"),
@@ -60,7 +65,7 @@ def run_payload_for_action(action: ActionRequest) -> dict[str, Any]:
 async def record_approval_request_if_needed(
     session,
     *,
-    action: ActionRequest,
+    action: ResolvedActionCommand,
     decision: PolicyDecision,
     now: datetime,
 ) -> None:
@@ -83,7 +88,7 @@ async def record_approval_request_if_needed(
 async def insert_policy_decision_row(
     session,
     *,
-    action: ActionRequest,
+    action: ResolvedActionCommand,
     decision: PolicyDecision,
     now: datetime,
 ) -> None:
@@ -108,7 +113,7 @@ async def insert_policy_decision_row(
 async def record_action_detail_rows(
     session,
     *,
-    action: ActionRequest,
+    action: ResolvedActionCommand,
     decision: PolicyDecision,
     now: datetime,
     scope_decision_id: uuid.UUID | None = None,
@@ -154,7 +159,7 @@ async def record_action_detail_rows(
 async def insert_job_run_and_dispatch(
     session,
     *,
-    action: ActionRequest,
+    action: ResolvedActionCommand,
     envelope: EventEnvelope,
     dispatches: DispatchStore,
     now: datetime,

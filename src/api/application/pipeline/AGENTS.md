@@ -27,3 +27,9 @@ Generic scan workers should follow this order:
   runner/raw/parser/ingestor boundary even when they cannot use `ScanNode`.
 - Compatibility with old `nodes:` YAML exists only for migration. Prefer
   `workers:`.
+- `PipelineContext` is an execution facade, not a place for new side effects.
+  Add storage, persistence, scheduling, or outcome behavior behind explicit ports
+  and wire them through `PipelineContextFactory`.
+- Production `ScanNode` wiring must use `PipelineContextFactory`. The no-factory
+  path is legacy-only and does not provide raw capture, run-state, outcome, or
+  scope-filter collaborators.

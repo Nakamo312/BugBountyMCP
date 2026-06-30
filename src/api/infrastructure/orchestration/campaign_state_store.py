@@ -16,7 +16,7 @@ from api.application.campaign_lifecycle import (
     TERMINAL_CAMPAIGN_STATUSES,
     evaluate_campaign_lifecycle,
 )
-from api.application.contracts import ActionRequest, ExecutionStatus
+from api.application.contracts import ExecutionStatus, ResolvedActionCommand
 from api.config import Settings
 from api.infrastructure.adapters.orm import (
     campaigns,
@@ -320,7 +320,7 @@ class CampaignStateStore:
             await session.commit()
         return int(getattr(result, "rowcount", 0) or 0) == 1
 
-    async def upsert_campaign(self, session, action: ActionRequest, now: datetime) -> None:
+    async def upsert_campaign(self, session, action: ResolvedActionCommand, now: datetime) -> None:
         stmt = pg_insert(campaigns).values(
             id=action.campaign_id,
             program_id=action.program_id,

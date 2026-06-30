@@ -16,7 +16,7 @@ from api.infrastructure.runners.cli_command import (
     effective_timeout,
     run_cli_command,
 )
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 
 class ProcessEventParser(Protocol):

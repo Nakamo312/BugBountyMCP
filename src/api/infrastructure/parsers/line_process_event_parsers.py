@@ -13,7 +13,7 @@ from api.application.pipeline.records import (
     ServiceFinding,
     UrlFinding,
 )
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 
 def _json_or_text(line: str) -> object:

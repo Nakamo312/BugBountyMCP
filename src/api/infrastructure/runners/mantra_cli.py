@@ -3,7 +3,7 @@ from typing import AsyncIterator, List
 from api.infrastructure.commands.command_boundary import command_invocation
 from api.infrastructure.commands.command_executor import CommandExecutor
 from api.infrastructure.parsers.line_process_event_parsers import MantraStdoutParser
-from api.infrastructure.schemas.models.process_event import ProcessEvent
+from api.application.process_event_contracts import ProcessEvent
 
 logger = logging.getLogger(__name__)
 

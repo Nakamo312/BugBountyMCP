@@ -193,7 +193,7 @@ async def test_scan_node_sets_raw_artifact_as_downstream_parent() -> None:
     from api.application.contracts import ExecutionMode, SafetyLevel
     from api.application.pipeline.scan_node import ScanNode
     from api.infrastructure.events.event_types import EventType
-    from api.infrastructure.schemas.models.process_event import ProcessEvent
+    from api.application.process_event_contracts import ProcessEvent
 
     class Runner:
         def run_raw(self, targets):
@@ -264,3 +264,152 @@ async def test_scan_node_sets_raw_artifact_as_downstream_parent() -> None:
     await node.execute(event, ctx)  # type: ignore[arg-type]
 
     assert ctx.downstream_parent_artifact_id == ctx.captured[0]["artifact_id"]
+
+
+class DurableRecordingBus(RecordingBus):
+    @property
+    def requires_bound_job_id_for_recording(self) -> bool:
+        return True
+
+
+@pytest.mark.asyncio
+async def test_pipeline_context_allows_non_durable_emit_without_bound_job_id() -> None:
+    bus = RecordingBus()
+    context = PipelineContext(node_id="httpx", bus=bus)
+    context.bind_event(
+        {
+            "event": "subdomain_discovered",
+            "event_id": str(uuid4()),
+            "program_id": str(uuid4()),
+            "targets": ["api.example.com"],
+        }
+    )
+
+    await context.emit(
+        event="url_discovered",
+        targets=["https://api.example.com"],
+        program_id=uuid4(),
+    )
+
+    assert len(bus.events) == 1
+
+
+@pytest.mark.asyncio
+async def test_pipeline_context_rejects_durable_emit_without_bound_job_id() -> None:
+    bus = DurableRecordingBus()
+    context = PipelineContext(node_id="httpx", bus=bus)
+    context.bind_event(
+        {
+            "event": "subdomain_discovered",
+            "event_id": str(uuid4()),
+            "program_id": str(uuid4()),
+            "targets": ["api.example.com"],
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="without bound job_id"):
+        await context.emit(
+            event="url_discovered",
+            targets=["https://api.example.com"],
+            program_id=uuid4(),
+        )
+
+    assert bus.events == []
+
+
+@pytest.mark.asyncio
+async def test_pipeline_context_durable_emit_uses_bound_job_id() -> None:
+    bus = DurableRecordingBus()
+    job_id = uuid4()
+    context = PipelineContext(node_id="httpx", bus=bus)
+    context.bind_event(
+        {
+            "event": "subdomain_discovered",
+            "event_id": str(uuid4()),
+            "job_id": str(job_id),
+            "program_id": str(uuid4()),
+            "targets": ["api.example.com"],
+        }
+    )
+
+    await context.emit(
+        event="url_discovered",
+        targets=["https://api.example.com"],
+        program_id=uuid4(),
+    )
+
+    assert bus.events[0].job_id == job_id
+
+
+@pytest.mark.asyncio
+async def test_raw_artifact_capture_marks_run_reconcile_when_metadata_write_fails() -> None:
+    from api.application.contracts import ExecutionStatus
+    from api.application.process_event_contracts import ProcessEvent
+
+    class RawOutputs:
+        def capture_stream(self, stream, **kwargs):
+            async def captured():
+                async for event in stream:
+                    yield event
+                await kwargs["recorder"]({"id": uuid4(), "program_id": uuid4()})
+
+            return captured()
+
+    class FailingMetadataWriter:
+        async def record(self, metadata):
+            raise RuntimeError("db down")
+
+    class RunStates:
+        def __init__(self) -> None:
+            self.reconcile_reasons = []
+
+        async def mark_run_started(self, **kwargs):
+            return True
+
+        async def mark_run_flushing(self, **kwargs):
+            return True
+
+        async def mark_run_finished(self, **kwargs):
+            return True
+
+        async def mark_run_needs_reconcile(self, *, run_id, reason):
+            self.reconcile_reasons.append((run_id, reason))
+
+        async def clear_run_reconcile(self, **kwargs):
+            return None
+
+    async def source_stream():
+        yield ProcessEvent(type="stdout", payload="value")
+
+    run_id = uuid4()
+    run_states = RunStates()
+    context = PipelineContext(
+        node_id="httpx",
+        raw_outputs=RawOutputs(),
+        raw_artifact_metadata=FailingMetadataWriter(),
+        run_states=run_states,
+    )
+    context.bind_event(
+        {
+            "event": "httpx_scan_requested",
+            "event_id": str(uuid4()),
+            "run_id": str(run_id),
+            "program_id": str(uuid4()),
+            "targets": ["https://example.com"],
+        }
+    )
+
+    captured = context.capture_raw_stream(
+        source_stream(),
+        program_id=uuid4(),
+        event_name="httpx_scan_requested",
+        targets=["https://example.com"],
+        run_id=run_id,
+    )
+
+    with pytest.raises(RuntimeError, match="db down"):
+        _ = [event async for event in captured]
+
+    assert run_states.reconcile_reasons == [
+        (run_id, "raw_artifact_metadata_record_failed")
+    ]

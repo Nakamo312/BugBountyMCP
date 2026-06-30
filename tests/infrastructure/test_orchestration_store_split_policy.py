@@ -16,6 +16,12 @@ CAMPAIGN_STATE_STORE = ROOT / "src/api/infrastructure/orchestration/campaign_sta
 EVENT_STORE = ROOT / "src/api/infrastructure/orchestration/event_store.py"
 ACTION_READ_STORE = ROOT / "src/api/infrastructure/orchestration/action_read_store.py"
 RUN_STATE_STORE = ROOT / "src/api/infrastructure/orchestration/run_state_store.py"
+PIPELINE_CONTEXT = ROOT / "src/api/application/pipeline/context.py"
+RAW_ARTIFACT_CAPTURE = ROOT / "src/api/application/pipeline/raw_artifact_capture.py"
+RUN_COMPLETION_REPORTER = ROOT / "src/api/application/pipeline/run_completion_reporter.py"
+SCOPE_PORT = ROOT / "src/api/application/ports/scope.py"
+ARTIFACT_PORTS = ROOT / "src/api/application/ports/artifacts.py"
+CONTEXT_FACTORY = ROOT / "src/api/application/pipeline/context_factory.py"
 ACTION_WRITE_HELPERS = ROOT / "src/api/infrastructure/orchestration/action_write_helpers.py"
 AGENTS = ROOT / "AGENTS.md"
 DOCS_INDEX = ROOT / "docs/README.md"
@@ -405,3 +411,85 @@ def test_patch_order_records_action_read_and_run_state_extraction() -> None:
     assert "RunStateStore" in text
     assert "approval request creation helper" in text
     assert "duplicate event id" in text
+
+
+def test_action_write_stores_accept_resolved_commands_without_persisting_command_internals() -> None:
+    action_source = _read(ACTION_COMMAND_STORE)
+    helper_source = _read(ACTION_WRITE_HELPERS)
+    approval_source = _read(APPROVAL_STORE)
+    campaign_source = _read(CAMPAIGN_STATE_STORE)
+
+    assert "action: ResolvedActionCommand" in action_source
+    assert "action: ResolvedActionCommand" in helper_source
+    assert "action: ResolvedActionCommand" in approval_source
+    assert "action: ResolvedActionCommand" in campaign_source
+    assert "action: ActionRequest" not in action_source
+    assert "action: ActionRequest" not in helper_source
+    assert "action: ActionRequest" not in approval_source
+    assert "action: ActionRequest" not in campaign_source
+    assert "action_request_payload(action)" in action_source
+    assert "Persist the public request shape" in helper_source
+
+
+def test_orchestration_store_is_deprecated_compatibility_facade_only() -> None:
+    store_source = _read(STORE)
+
+    assert "deprecated_compatibility_facade = True" in store_source
+    assert "DeprecationWarning" not in store_source
+    assert "Adding methods here keeps the old one-object-knows-everything model alive" in store_source
+
+
+def test_pipeline_context_delegates_raw_capture_run_completion_and_scope_filtering() -> None:
+    context_source = _read(PIPELINE_CONTEXT)
+    raw_capture_source = _read(RAW_ARTIFACT_CAPTURE)
+    run_completion_source = _read(RUN_COMPLETION_REPORTER)
+    artifact_ports_source = _read(ARTIFACT_PORTS)
+    scope_port_source = _read(SCOPE_PORT)
+    context_factory_source = _read(CONTEXT_FACTORY)
+
+    assert "class RawArtifactCapture" in raw_capture_source
+    assert "RawOutputCapturePort" in raw_capture_source
+    assert "RawArtifactMetadataWriter" in raw_capture_source
+    assert "FileRawOutputStore" not in raw_capture_source
+    assert "RawArtifactRepository" not in raw_capture_source
+
+    assert "class RunCompletionReporter" in run_completion_source
+    assert "PipelineRunStatePort" in run_completion_source
+    assert "ActionOutcomeRecorder" in run_completion_source
+    assert "AsyncContainer" not in run_completion_source
+    assert "request_container" not in run_completion_source
+
+    assert "class RawOutputCapturePort" in artifact_ports_source
+    assert "class RawArtifactMetadataWriter" in artifact_ports_source
+    assert "ProcessEvent" in artifact_ports_source
+    assert "infrastructure.schemas.models.process_event" not in artifact_ports_source
+    assert "class ScopeFilterPort" in scope_port_source
+    assert "PipelineContextFactory" in context_factory_source
+    assert "scope_filter" in context_factory_source
+    assert "RawArtifactCapture(" in context_source
+    assert "RunCompletionReporter(" in context_source
+    assert "ProgramUnitOfWork" not in context_source
+    assert "requires_bound_job_id_for_recording" in context_source
+    assert "FileRawOutputStore" not in context_source
+    assert "RawArtifactRepository" not in context_source
+    assert "Cannot durably emit pipeline event without bound job_id" in context_source
+    assert "execution_facade_only = True" in context_source
+
+
+def test_patch_order_records_facade_deprecation_and_context_split() -> None:
+    text = _read(SPLIT_PLAN)
+
+    assert "0048_orchestration_facade_deprecation_and_context_split" in text
+    assert "deprecated compatibility facade" in text
+    assert "ResolvedActionCommand" in text
+    assert "RawArtifactCapture" in text
+    assert "RunCompletionReporter" in text
+
+
+def test_pipeline_boundary_guardrails_are_documented() -> None:
+    text = _read(SPLIT_PLAN)
+
+    assert "0049_pipeline_boundary_guardrails" in text
+    assert "must not gain new side effects" in text
+    assert "temporary migration aliases" in text
+    assert "legacy-only fallback" in text
