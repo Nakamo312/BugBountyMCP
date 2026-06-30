@@ -155,7 +155,7 @@ services:
       - "127.0.0.1:15672:15672"
       - "127.0.0.1:15692:15692"
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       start_period: 240s
       interval: 10s
       timeout: 10s
@@ -202,7 +202,7 @@ services:
       PDCP_API_KEY: ${PDCP_API_KEY}
       RAW_OUTPUT_DIR: /app/data/raw_outputs
     ports:
-      - "127.0.0.1:${API_PORT}:8000"
+      - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
     volumes:
       - ./data/raw_outputs:/app/data/raw_outputs
       - ${HOST_GO_BIN:-/usr/go/bin/bin/}:/host_root/go_bin:ro
@@ -260,7 +260,7 @@ services:
       - api
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      test: ["CMD", "wget", "-q", "--spider", "-T", "5", "http://127.0.0.1/"]
       interval: 30s
       timeout: 10s
       retries: 3
