@@ -17,35 +17,6 @@ from api.infrastructure.schemas.models.process_event import ProcessEvent
 LINEAGE_PAYLOAD_KEY = "execution_lineage"
 RUNNER_CONTEXT_PAYLOAD_KEY = "runner_invocation_context"
 
-_CONTEXT_KEYS = {
-    "action_id",
-    "capability_id",
-    "profile_id",
-    "safety_level",
-    "policy_decision_id",
-    "scope_decision_id",
-    "parent_artifact_id",
-    "campaign_id",
-    "requested_by",
-    "options",
-    "execution_budget",
-}
-_EVENT_KEYS = {
-    "event",
-    "event_id",
-    "program_id",
-    "targets",
-    "target",
-    "source",
-    "confidence",
-    "job_id",
-    "run_id",
-    "correlation_id",
-    "causation_id",
-    "profile",
-    "payload",
-    "created_at",
-}
 _TARGET_PARAM_NAMES = {
     "targets",
     "target",
@@ -75,17 +46,7 @@ def option_map(event: Mapping[str, Any]) -> dict[str, Any]:
         nested = payload.get("options")
         if isinstance(nested, Mapping):
             return dict(nested)
-        return {
-            str(key): value
-            for key, value in payload.items()
-            if key not in _CONTEXT_KEYS and key not in _EVENT_KEYS
-        }
-
-    return {
-        str(key): value
-        for key, value in event.items()
-        if key not in _CONTEXT_KEYS and key not in _EVENT_KEYS
-    }
+    return {}
 
 
 def build_invocation(
