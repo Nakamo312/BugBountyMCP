@@ -74,7 +74,7 @@ async def lifespan(app: FastAPI):
         start_mappers()
 
         from api.application.capability_catalog import load_tool_catalog_snapshot
-        from api.application.pipeline.builder import register_manifest_nodes
+        from api.infrastructure.pipeline.builder import register_manifest_nodes
         from api.application.pipeline.registry import NodeRegistry
         from api.infrastructure.runtime_manifest import ManifestActivator
 

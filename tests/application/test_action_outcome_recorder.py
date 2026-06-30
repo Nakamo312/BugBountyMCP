@@ -6,12 +6,12 @@ import pytest
 
 from api.application.action_outcomes import ActionOutcomeRecorder
 from api.application.contracts import (
+    ActionOutcomeDraft,
     ActionOutcomeMeasures,
     ActionOutcomeScore,
     ExecutionStatus,
     TerminalOutcome,
 )
-from api.infrastructure.action_outcomes import ActionOutcomeDraft
 
 
 class FakeScoreCalculator:

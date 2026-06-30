@@ -5,7 +5,7 @@ import uuid
 
 from api.application.contracts import ActionOutcomeFeedback, ActionOutcomeFeedbackRecord, ActionOutcomeRecord
 from api.application.action_outcome_scoring import ActionOutcomeScoreCalculator
-from api.infrastructure.action_outcomes import ActionOutcomeStore
+from api.application.ports.action_outcomes import ActionOutcomeMemoryPort
 
 
 class ActionOutcomeRecorder:
@@ -13,7 +13,7 @@ class ActionOutcomeRecorder:
 
     def __init__(
         self,
-        store: ActionOutcomeStore,
+        store: ActionOutcomeMemoryPort,
         score_calculator: type[ActionOutcomeScoreCalculator] = ActionOutcomeScoreCalculator,
     ) -> None:
         self.store = store

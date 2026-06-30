@@ -2,20 +2,20 @@ from __future__ import annotations
 
 import pytest
 
-from api.application.pipeline.catalog import (
+from api.infrastructure.pipeline.catalog import (
     resolve_parser_ref,
     resolve_runner_ref,
     validate_component_refs,
 )
 from api.application.pipeline.yaml_config import PipelineNodeSpec, load_pipeline_config
 from api.infrastructure.parsers.httpx_parser import HTTPXProcessEventParser
-from api.infrastructure.runners.cli_tool import CliToolRunnerRef
+from api.application.ports.runners import ToolRunnerRef
 
 
 def test_resolve_cli_tool_runner_ref_from_pipeline_name() -> None:
     ref = resolve_runner_ref("cli_tool:dnsx:ptr", "dnsx_ptr")
 
-    assert isinstance(ref, CliToolRunnerRef)
+    assert isinstance(ref, ToolRunnerRef)
     assert ref.tool_name == "dnsx"
     assert dict(ref.default_options) == {"mode": "ptr"}
     assert str(ref) == "cli_tool:dnsx:ptr"
@@ -24,7 +24,7 @@ def test_resolve_cli_tool_runner_ref_from_pipeline_name() -> None:
 def test_legacy_runner_name_resolves_to_cli_tool_ref() -> None:
     ref = resolve_runner_ref("HTTPXCliRunner", "httpx")
 
-    assert isinstance(ref, CliToolRunnerRef)
+    assert isinstance(ref, ToolRunnerRef)
     assert ref.tool_name == "httpx"
 
 
@@ -63,7 +63,7 @@ def test_validate_component_refs_requires_parser_for_custom_runner() -> None:
 def test_cli_tool_variants_live_on_specs() -> None:
     ref = resolve_runner_ref("cli_tool:mapcidr:aggregate", "mapcidr_aggregate")
 
-    assert isinstance(ref, CliToolRunnerRef)
+    assert isinstance(ref, ToolRunnerRef)
     assert ref.tool_name == "mapcidr"
     assert dict(ref.default_options) == {"mode": "aggregate"}
 

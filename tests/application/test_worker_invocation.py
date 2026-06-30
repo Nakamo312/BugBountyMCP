@@ -61,7 +61,7 @@ from api.application.pipeline.context import PipelineContext
 from api.application.pipeline.scope_policy import ScopePolicy
 from api.application.pipeline.scan_node import ScanNode
 from api.application.contracts import ExecutionMode
-from api.infrastructure.events.event_types import EventType
+from api.application.event_contracts import EventType
 from api.application.process_event_contracts import ProcessEvent
 
 

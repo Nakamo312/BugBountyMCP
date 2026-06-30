@@ -17,6 +17,7 @@ from api.application.action_contracts import (
 )
 from api.application.action_outcome_contracts import (
     ActionArtifactReference,
+    ActionOutcomeDraft,
     ActionOutcomeFeedback,
     ActionOutcomeFeedbackRecord,
     ActionOutcomeMeasures,
@@ -50,6 +51,7 @@ __all__ = [
     "ActionArtifactReference",
     "ActionEventRecord",
     "ActionKind",
+    "ActionOutcomeDraft",
     "ActionOutcomeFeedback",
     "ActionOutcomeFeedbackRecord",
     "ActionOutcomeMeasures",

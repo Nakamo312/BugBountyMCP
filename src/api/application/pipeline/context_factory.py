@@ -1,18 +1,16 @@
 """Factory wiring explicit PipelineContext dependencies."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from api.application.action_outcomes import ActionOutcomeRecorder
 from api.application.ports.artifacts import RawArtifactMetadataWriter, RawOutputCapturePort
+from api.application.ports.events import EventBusPort
 from api.application.ports.orchestration import PipelineRunStatePort
 from api.application.ports.scope import ScopeFilterPort
 from api.application.pipeline.context import PipelineContext
 from api.application.pipeline.scope_policy import ScopePolicy
 from api.config import Settings
-
-if TYPE_CHECKING:
-    from api.infrastructure.events.event_bus import EventBus
 
 
 class PipelineContextFactory:
@@ -37,7 +35,7 @@ class PipelineContextFactory:
         self,
         *,
         node_id: str,
-        bus: EventBus | None,
+        bus: EventBusPort | None,
         container: Any | None,
         settings: Settings | None,
         scope_policy: ScopePolicy,

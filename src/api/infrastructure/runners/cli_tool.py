@@ -17,6 +17,7 @@ from api.infrastructure.runners.cli_command import (
     run_cli_command,
 )
 from api.application.process_event_contracts import ProcessEvent
+from api.application.ports.runners import ToolRunnerRef
 
 
 class ProcessEventParser(Protocol):
@@ -91,10 +92,13 @@ def _build_command_option_names(build_commands: Callable[..., object]) -> frozen
 
 
 @dataclass(frozen=True)
-class CliToolRunnerRef:
-    tool_name: str
-    default_options: Mapping[str, Any] = field(default_factory=dict)
-    label: str | None = None
+class CliToolRunnerRef(ToolRunnerRef):
+    """Deprecated CLI-specific runner reference.
+
+    New code should use ``api.application.ports.runners.ToolRunnerRef``.
+    This subclass keeps the legacy default string form for old callers while
+    remaining an instance of the application-level runner reference.
+    """
 
     def __str__(self) -> str:
         return self.label or f"cli_tool:{self.tool_name}"

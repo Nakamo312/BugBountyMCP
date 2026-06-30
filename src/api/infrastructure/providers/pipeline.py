@@ -12,6 +12,7 @@ from api.config import Settings
 from api.infrastructure.artifacts.raw_artifact_repository import RawArtifactRepository
 from api.infrastructure.artifacts.raw_output_store import FileRawOutputStore
 from api.infrastructure.events.event_bus import EventBus
+from api.infrastructure.events.queue_config import QueueConfig
 from api.infrastructure.scope.program_scope_filter import ProgramScopeFilter
 
 
@@ -67,4 +68,10 @@ class PipelineProvider(Provider):
         container: AsyncContainer,
         context_factory: PipelineContextFactory,
     ) -> NodeRegistry:
-        return NodeRegistry(bus, settings, container, context_factory=context_factory)
+        return NodeRegistry(
+            bus,
+            settings,
+            container,
+            context_factory=context_factory,
+            subscription_queues=QueueConfig.get_all_queues(),
+        )

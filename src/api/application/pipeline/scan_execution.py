@@ -15,9 +15,8 @@ from api.application.pipeline.invocation import (
     metadata,
     run_raw,
 )
-from api.infrastructure.events.event_types import EventType
-from api.infrastructure.runners.cli_tool import CliToolRunnerRef
-from api.infrastructure.runners.cli_tool_factory import CliToolRunnerFactory
+from api.application.event_contracts import EventType
+from api.application.ports.runners import ToolRunnerFactoryPort, ToolRunnerRef
 
 
 @dataclass(slots=True)
@@ -32,7 +31,7 @@ class ScanRuntime:
     node_id: str
     logger: Any
     event_out_map: Mapping[EventType, str]
-    runner_type: Any | CliToolRunnerRef
+    runner_type: Any | ToolRunnerRef
     processor_type: Any
     ingestor_type: Any
     parser_factory: Callable[[], Any] | None
@@ -320,8 +319,8 @@ async def emit_event(
 
 
 async def resolve_runner(runtime: ScanRuntime, ctx: PipelineContext) -> Any:
-    if isinstance(runtime.runner_type, CliToolRunnerRef):
-        factory = await ctx.get_service(CliToolRunnerFactory)
+    if isinstance(runtime.runner_type, ToolRunnerRef):
+        factory = await ctx.get_service(ToolRunnerFactoryPort)
         return factory.create(
             runtime.runner_type.tool_name,
             **dict(runtime.runner_type.default_options),

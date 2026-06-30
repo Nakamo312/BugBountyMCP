@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from api.application.contracts import EventEnvelope, NodeRunClaim, ExecutionStatus
-from api.application.pipeline.builder import build_node
+from api.infrastructure.pipeline.builder import build_node
 from api.application.pipeline.context import PipelineContext
 from api.application.pipeline.fingerprints import build_node_work_key
 from api.application.pipeline.registry import NodeRegistry

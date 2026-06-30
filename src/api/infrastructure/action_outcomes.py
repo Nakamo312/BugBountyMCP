@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -12,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from api.application.contracts import (
+    ActionOutcomeDraft,
     ActionOutcomeFeedback,
     ActionOutcomeFeedbackRecord,
     ActionOutcomeMeasures,
@@ -30,17 +30,6 @@ from api.infrastructure.adapters.orm import (
     raw_artifacts,
     runs,
 )
-
-
-@dataclass(frozen=True)
-class ActionOutcomeDraft:
-    """Measured run outcome ready for an external scoring policy."""
-
-    row: Mapping[str, Any]
-    outcome_id: uuid.UUID
-    measures: ActionOutcomeMeasures
-    status: ExecutionStatus
-    terminal_outcome: TerminalOutcome | None
 
 
 class ActionOutcomeStore:

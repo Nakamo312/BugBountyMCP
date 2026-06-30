@@ -1,8 +1,8 @@
 from pathlib import Path
 
 
-ACTION_RUNTIME_PROVIDER = Path("src/api/application/providers/action_runtime.py")
-RESEARCH_RUNTIME_PROVIDER = Path("src/api/application/providers/research_runtime.py")
+ACTION_RUNTIME_PROVIDER = Path("src/api/infrastructure/providers/action_runtime.py")
+RESEARCH_RUNTIME_PROVIDER = Path("src/api/infrastructure/providers/research_runtime.py")
 PIPELINE_STORE = Path("src/api/infrastructure/orchestration/pipeline_store.py")
 
 

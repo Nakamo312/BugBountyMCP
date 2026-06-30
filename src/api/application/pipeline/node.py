@@ -5,7 +5,7 @@ import asyncio
 import logging
 import time
 
-from api.infrastructure.events.event_types import EventType
+from api.application.event_contracts import EventType
 from api.application.contracts import ExecutionMode
 
 

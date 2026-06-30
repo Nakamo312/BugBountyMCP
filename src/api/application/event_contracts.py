@@ -1,11 +1,65 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class EventType(str, Enum):
+    """Application event type constants for EventBus messaging."""
+
+    SERVICE_EVENTS = "service_events"
+
+    # Scan request events (published from REST API to initiate scans)
+    HTTPX_SCAN_REQUESTED = "httpx_scan_requested"
+    SUBFINDER_SCAN_REQUESTED = "subfinder_scan_requested"
+    GAU_SCAN_REQUESTED = "gau_scan_requested"
+    KATANA_SCAN_REQUESTED = "katana_scan_requested"
+    LINKFINDER_SCAN_REQUESTED = "linkfinder_scan_requested"
+    MANTRA_SCAN_REQUESTED = "mantra_scan_requested"
+    FFUF_SCAN_REQUESTED = "ffuf_scan_requested"
+    SUBJACK_SCAN_REQUESTED = "subjack_scan_requested"
+    ASNMAP_SCAN_REQUESTED = "asnmap_scan_requested"
+    MAPCIDR_SCAN_REQUESTED = "mapcidr_scan_requested"
+    NAABU_SCAN_REQUESTED = "naabu_scan_requested"
+    TLSX_SCAN_REQUESTED = "tlsx_scan_requested"
+    DNSX_SCAN_REQUESTED = "dnsx_scan_requested"
+    DNSX_PTR_SCAN_REQUESTED = "dnsx_ptr_scan_requested"
+    SMAP_SCAN_REQUESTED = "smap_scan_requested"
+    HAKIP2HOST_SCAN_REQUESTED = "hakip2host_scan_requested"
+    PLAYWRIGHT_SCAN_REQUESTED = "playwright_scan_requested"
+    AMASS_SCAN_REQUESTED = "amass_scan_requested"
+
+    RAW_DOMAINS_DISCOVERED = "raw_domains_discovered"
+    SUBDOMAIN_DISCOVERED = "subdomain_discovered"
+    DNSX_FILTERED_HOSTS = "dnsx_filtered_hosts"
+    SCAN_RESULTS_BATCH = "scan_results_batch"
+    GAU_DISCOVERED = "gau_discovered"
+    KATANA_RESULTS_BATCH = "katana_results_batch"
+    HOST_DISCOVERED = "host_discovered"
+    JS_FILES_DISCOVERED = "js_files_discovered"
+    MANTRA_RESULTS_BATCH = "mantra_results_batch"
+    FFUF_RESULTS_BATCH = "ffuf_results_batch"
+    DNSX_BASIC_RESULTS_BATCH = "dnsx_basic_results_batch"
+    DNSX_DEEP_RESULTS_BATCH = "dnsx_deep_results_batch"
+    DNSX_PTR_RESULTS_BATCH = "dnsx_ptr_results_batch"
+    CNAME_DISCOVERED = "cname_discovered"
+    SUBJACK_RESULTS_BATCH = "subjack_results_batch"
+    ASNMAP_RESULTS_BATCH = "asnmap_results_batch"
+    ASN_DISCOVERED = "asn_discovered"
+    CIDR_DISCOVERED = "cidr_discovered"
+    IPS_EXPANDED = "ips_expanded"
+    CIDR_SLICED = "cidr_sliced"
+    IPS_AGGREGATED = "ips_aggregated"
+    NAABU_RESULTS_BATCH = "naabu_results_batch"
+    TLSX_RESULTS_BATCH = "tlsx_results_batch"
+    CERT_SAN_DISCOVERED = "cert_san_discovered"
+    SMAP_RESULTS = "smap_results"
+    PORTS_DISCOVERED = "ports_discovered"
 
 
 _ENVELOPE_FIELDS = {

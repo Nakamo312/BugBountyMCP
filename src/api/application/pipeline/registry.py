@@ -1,21 +1,19 @@
 """Node registry for event routing"""
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Dict, Set
+from collections.abc import Sequence
+from typing import Any, Dict, Set
 import asyncio
 import logging
 from uuid import uuid4
 
 from api.application.contracts import ExecutionMode
 from api.application.ports.orchestration import PipelineOrchestrationStorePort
-from api.infrastructure.events.queue_config import QueueConfig
 from api.application.pipeline.node import Node
 from api.application.pipeline.registry_claiming import NodeRegistryClaimingMixin
 from api.application.pipeline.registry_scheduling import NodeRegistrySchedulingMixin
 from api.application.pipeline.context_factory import PipelineContextFactory
+from api.application.ports.events import EventBusPort
 from api.config import Settings
-
-if TYPE_CHECKING:
-    from api.infrastructure.events.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -31,17 +29,18 @@ class NodeRegistry(NodeRegistryClaimingMixin, NodeRegistrySchedulingMixin):
 
     def __init__(
         self,
-        bus: EventBus,
+        bus: EventBusPort,
         settings: Settings,
         container=None,
         orchestration_store: PipelineOrchestrationStorePort | None = None,
         context_factory: PipelineContextFactory | None = None,
+        subscription_queues: Sequence[str] | None = None,
     ):
         """
         Initialize node registry.
 
         Args:
-            bus: EventBus for pub/sub
+            bus: EventBusPort for pub/sub
             settings: Application settings
             container: Optional DI container for node context
         """
@@ -50,6 +49,7 @@ class NodeRegistry(NodeRegistryClaimingMixin, NodeRegistrySchedulingMixin):
         self.container = container
         self._orchestration_store = orchestration_store
         self.context_factory = context_factory
+        self.subscription_queues = tuple(subscription_queues or ())
         self._nodes: Dict[str, Node] = {}
         self._event_to_nodes: Dict[str, Set[str]] = {}
         self._subscription_tasks: Set[asyncio.Task] = set()
@@ -91,10 +91,15 @@ class NodeRegistry(NodeRegistryClaimingMixin, NodeRegistrySchedulingMixin):
         )
 
     async def start(self):
-        """Start EventBus subscriptions for all fixed queues"""
+        """Start EventBus subscriptions for infrastructure-provided queues."""
+        if not self.subscription_queues:
+            raise RuntimeError(
+                "NodeRegistry requires subscription queues from infrastructure wiring"
+            )
+
         await self.bus.connect()
 
-        for queue_name in QueueConfig.get_all_queues():
+        for queue_name in self.subscription_queues:
             task = asyncio.create_task(self.bus.subscribe(queue_name, self._dispatch_event))
             self._subscription_tasks.add(task)
             task.add_done_callback(self._subscription_tasks.discard)
@@ -140,7 +145,7 @@ class NodeRegistry(NodeRegistryClaimingMixin, NodeRegistrySchedulingMixin):
         logger.info(
             f"NodeRegistry started: {len(self._nodes)} nodes, "
             f"{len(self._event_to_nodes)} event types, "
-            f"{len(QueueConfig.get_all_queues())} queues"
+            f"{len(self.subscription_queues)} queues"
         )
         logger.info(f"Registered nodes: {list(self._nodes.keys())}")
         logger.info(f"Event mappings: {dict(self._event_to_nodes)}")

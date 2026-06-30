@@ -192,7 +192,7 @@ async def test_pipeline_context_emits_current_runner_context_separately() -> Non
 async def test_scan_node_sets_raw_artifact_as_downstream_parent() -> None:
     from api.application.contracts import ExecutionMode, SafetyLevel
     from api.application.pipeline.scan_node import ScanNode
-    from api.infrastructure.events.event_types import EventType
+    from api.application.event_contracts import EventType
     from api.application.process_event_contracts import ProcessEvent
 
     class Runner:

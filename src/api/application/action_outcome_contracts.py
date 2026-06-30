@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -56,6 +58,17 @@ class ActionOutcomeScore(BaseModel):
     information_gain_score: float = Field(ge=0.0)
     score_version: str
     score_breakdown: dict[str, Any] = Field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ActionOutcomeDraft:
+    """Measured run outcome ready for an external scoring policy."""
+
+    row: Mapping[str, Any]
+    outcome_id: UUID
+    measures: ActionOutcomeMeasures
+    status: ExecutionStatus
+    terminal_outcome: TerminalOutcome | None
 
 
 class ActionOutcomeRecord(BaseModel):

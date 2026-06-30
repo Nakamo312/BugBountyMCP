@@ -1,23 +1,23 @@
 # api/application/di.py
 """Dependency injection compatibility façade.
 
-Most provider wiring still lives in split provider modules. Pipeline wiring
-lives under api.infrastructure.providers because it constructs infrastructure
-adapters for application ports. This file keeps legacy imports stable.
+Provider wiring lives under api.infrastructure.providers because it constructs
+infrastructure adapters for application ports. This file keeps legacy imports
+stable for old application-level DI imports.
 """
 
-from api.application.providers.action_runtime import ActionRuntimeProvider
-from api.application.providers.agent_runtime import AgentRuntimeProvider
-from api.application.providers.batch_processors import BatchProcessorProvider as _BatchProcessorProvider
-from api.application.providers.credentials import CredentialProvider as _CredentialProvider
-from api.application.providers.database import DatabaseProvider as _DatabaseProvider
-from api.application.providers.database import UnitOfWorkProvider as _UnitOfWorkProvider
-from api.application.providers.ingestors import IngestorProvider as _IngestorProvider
+from api.infrastructure.providers.action_runtime import ActionRuntimeProvider
+from api.infrastructure.providers.agent_runtime import AgentRuntimeProvider
+from api.infrastructure.providers.batch_processors import BatchProcessorProvider as _BatchProcessorProvider
+from api.infrastructure.providers.credentials import CredentialProvider as _CredentialProvider
+from api.infrastructure.providers.database import DatabaseProvider as _DatabaseProvider
+from api.infrastructure.providers.database import UnitOfWorkProvider as _UnitOfWorkProvider
+from api.infrastructure.providers.ingestors import IngestorProvider as _IngestorProvider
 from api.infrastructure.providers.pipeline import PipelineProvider as _PipelineProvider
-from api.application.providers.read_models import ReadModelProvider
-from api.application.providers.research_runtime import ResearchRuntimeProvider
-from api.application.providers.runners import CLIRunnerProvider as _CLIRunnerProvider
-from api.application.providers.services import ServiceProvider as _ServiceProvider
+from api.infrastructure.providers.read_models import ReadModelProvider
+from api.infrastructure.providers.research_runtime import ResearchRuntimeProvider
+from api.infrastructure.providers.runners import CLIRunnerProvider as _CLIRunnerProvider
+from api.infrastructure.providers.services import ServiceProvider as _ServiceProvider
 
 
 class DatabaseProvider(_DatabaseProvider):
@@ -50,28 +50,11 @@ class OrchestrationProvider(
     ReadModelProvider,
     ResearchRuntimeProvider,
 ):
-    """Deprecated aggregate provider kept for old imports.
-
-    Contract tokens retained here because older boundary tests inspect this
-    compatibility file as text: AgentProtocolStore, AgentInboxStore,
-    AgentEventRouter, EventDispatcher, agent_router=agent_router,
-    LangGraphContextTools, PostgresArtifactReader, OpenSearchSanitizedSearchReader,
-    SafeGraphTemplateRenderer, LangGraphToolActionTool,
-    get_langgraph_tool_action_tool, LangGraphWorkflowStore,
-    LangGraphWorkflowRuntime, get_langgraph_workflow_runtime,
-    get_research_pass, ResearchInboxProcessor, AgentWaitConditionProcessor,
-    ResearchWaitResumer, get_projection_state_store, get_agent_wait_condition_engine,
-    get_research_readiness_gate, readiness_gate=readiness_gate,
-    get_mvp_research_readiness_gate, get_research_control_graph,
-    get_mvp_research_state_graph, get_mvp_research_workflow,
-    MvpResearchAutoResumer,
-    AsyncPostgresSaver.from_conn_string, yield checkpointer,
-    get_cypher_gateway, CypherGateway, ManifestActivator.
-    """
+    """Deprecated aggregate provider kept only for old imports."""
 
 
 class CredentialProvider(_CredentialProvider):
-    """Compatibility alias for api.application.providers.credentials.
+    """Compatibility alias for api.infrastructure.providers.credentials.
 
     class CredentialProvider; build_postgres_credential_store.
     """

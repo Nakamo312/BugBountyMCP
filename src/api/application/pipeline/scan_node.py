@@ -5,8 +5,8 @@ import logging
 
 from api.application.pipeline.node import Node
 from api.application.pipeline.context import PipelineContext
-from api.infrastructure.events.event_types import EventType
-from api.infrastructure.runners.cli_tool import CliToolRunnerRef
+from api.application.event_contracts import EventType
+from api.application.ports.runners import ToolRunnerRef
 from api.application.pipeline.scope_policy import ScopePolicy
 from api.application.pipeline.scan_execution import ScanRuntime, run_scan_execution
 from api.application.contracts import (
@@ -41,7 +41,7 @@ class ScanNode(Node):
         node_id: str,
         event_in: Set[EventType],
         event_out: Dict[EventType, str],
-        runner_type: Any | CliToolRunnerRef,
+        runner_type: Any | ToolRunnerRef,
         processor_type: Any,
         parser_type: Optional[Callable[[], Any]] = None,
         ingestor_type: Any = None,
@@ -122,7 +122,7 @@ class ScanNode(Node):
         )
 
     def _runner_name(self) -> str:
-        if isinstance(self.runner_type, CliToolRunnerRef):
+        if isinstance(self.runner_type, ToolRunnerRef):
             return str(self.runner_type)
         return getattr(self.runner_type, "__name__", str(self.runner_type))
 

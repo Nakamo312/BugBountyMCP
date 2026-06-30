@@ -3,7 +3,7 @@ from typing import Set, Dict, Optional, Callable, List, Any
 
 from api.application.pipeline.scan_node import ScanNode
 from api.application.pipeline.extractors import default_target_extractor
-from api.infrastructure.events.event_types import EventType
+from api.application.event_contracts import EventType
 from api.application.pipeline.scope_policy import ScopePolicy
 from api.application.contracts import ExecutionMode
 

@@ -2,15 +2,12 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from api.application.dto.scan_dto import MapCIDRScanOutputDTO
-from api.infrastructure.events.event_types import EventType
-from api.infrastructure.runners.cli_tool_factory import CliToolRunnerFactory
-
-if TYPE_CHECKING:
-    from api.infrastructure.events.event_bus import EventBus
+from api.application.event_contracts import EventEnvelope, EventType
+from api.application.ports.events import EventBusPort
+from api.application.ports.runners import ToolRunnerFactoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +23,7 @@ class MapCIDRService:
     - Host counting
     """
 
-    def __init__(self, runner_factory: CliToolRunnerFactory, bus: EventBus):
+    def __init__(self, runner_factory: ToolRunnerFactoryPort, bus: EventBusPort):
         self.runner_factory = runner_factory
         self.bus = bus
 
@@ -37,6 +34,22 @@ class MapCIDRService:
             if event.type == "result" and event.payload:
                 results.append(str(event.payload))
         return results
+
+    @staticmethod
+    def _event_envelope(
+        event_type: EventType,
+        *,
+        program_id: UUID,
+        targets: list[str],
+        payload: dict[str, object],
+    ) -> EventEnvelope:
+        return EventEnvelope(
+            event=event_type.value,
+            program_id=program_id,
+            targets=targets,
+            source="mapcidr",
+            payload=payload,
+        )
 
     async def expand(
         self,
@@ -73,14 +86,14 @@ class MapCIDRService:
         )
 
         if ips:
-            await self.bus.publish({
-                "event": EventType.IPS_EXPANDED.value,
-                "program_id": str(program_id),
-                "targets": ips,
-                "source": "mapcidr",
-                "ips": ips,
-                "source_cidrs": cidrs,
-            })
+            await self.bus.publish(
+                self._event_envelope(
+                    EventType.IPS_EXPANDED,
+                    program_id=program_id,
+                    targets=ips,
+                    payload={"ips": ips, "source_cidrs": cidrs},
+                )
+            )
 
         logger.info(
             f"MapCIDR expand completed: program={program_id} "
@@ -121,14 +134,14 @@ class MapCIDRService:
         sliced_cidrs = await self._collect(cidrs, mode="slice_by_count", count=count)
 
         if sliced_cidrs:
-            await self.bus.publish({
-                "event": EventType.CIDR_SLICED.value,
-                "program_id": str(program_id),
-                "targets": sliced_cidrs,
-                "source": "mapcidr",
-                "cidrs": sliced_cidrs,
-                "source_cidrs": cidrs,
-            })
+            await self.bus.publish(
+                self._event_envelope(
+                    EventType.CIDR_SLICED,
+                    program_id=program_id,
+                    targets=sliced_cidrs,
+                    payload={"cidrs": sliced_cidrs, "source_cidrs": cidrs},
+                )
+            )
 
         logger.info(
             f"MapCIDR slice by count completed: program={program_id} "
@@ -173,14 +186,14 @@ class MapCIDRService:
         )
 
         if sliced_cidrs:
-            await self.bus.publish({
-                "event": EventType.CIDR_SLICED.value,
-                "program_id": str(program_id),
-                "targets": sliced_cidrs,
-                "source": "mapcidr",
-                "cidrs": sliced_cidrs,
-                "source_cidrs": cidrs,
-            })
+            await self.bus.publish(
+                self._event_envelope(
+                    EventType.CIDR_SLICED,
+                    program_id=program_id,
+                    targets=sliced_cidrs,
+                    payload={"cidrs": sliced_cidrs, "source_cidrs": cidrs},
+                )
+            )
 
         logger.info(
             f"MapCIDR slice by host count completed: program={program_id} "
@@ -218,14 +231,14 @@ class MapCIDRService:
         aggregated_cidrs = await self._collect(ips, mode="aggregate")
 
         if aggregated_cidrs:
-            await self.bus.publish({
-                "event": EventType.IPS_AGGREGATED.value,
-                "program_id": str(program_id),
-                "targets": aggregated_cidrs,
-                "source": "mapcidr",
-                "cidrs": aggregated_cidrs,
-                "source_ips": ips,
-            })
+            await self.bus.publish(
+                self._event_envelope(
+                    EventType.IPS_AGGREGATED,
+                    program_id=program_id,
+                    targets=aggregated_cidrs,
+                    payload={"cidrs": aggregated_cidrs, "source_ips": ips},
+                )
+            )
 
         logger.info(
             f"MapCIDR aggregate completed: program={program_id} "

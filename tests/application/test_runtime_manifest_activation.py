@@ -11,7 +11,7 @@ from api.application.process_event_contracts import ProcessEvent
 from api.application.pipeline.context_factory import PipelineContextFactory
 from api.application.pipeline.scan_node import ScanNode
 from api.application.pipeline.scope_policy import ScopePolicy
-from api.infrastructure.events.event_types import EventType
+from api.application.event_contracts import EventType
 
 
 def _read(path: str) -> str:
@@ -36,7 +36,6 @@ def test_pipeline_provider_does_not_read_yaml_for_registry() -> None:
 
     assert "register_yaml_nodes" not in provider_block
     assert "PIPELINE_CONFIG_PATH" not in provider_block
-    assert "return NodeRegistry(bus, settings, container, context_factory=context_factory)" in provider_block
 
 
 def _pipeline_provider():
@@ -65,7 +64,10 @@ def test_pipeline_provider_wires_registry_with_context_factory() -> None:
         context_factory=context_factory,
     )
 
+    from api.infrastructure.events.queue_config import QueueConfig
+
     assert registry.context_factory is context_factory
+    assert registry.subscription_queues == tuple(QueueConfig.get_all_queues())
 
 
 class RawOutputsStub:
@@ -162,7 +164,7 @@ async def test_scan_node_context_factory_fallback_is_legacy_without_raw_capture(
 
 
 def test_builder_can_register_nodes_from_manifest_json() -> None:
-    source = _read("src/api/application/pipeline/builder.py")
+    source = _read("src/api/infrastructure/pipeline/builder.py")
 
     assert "def register_manifest_nodes" in source
     assert "PipelineConfig.model_validate(manifest_json)" in source

@@ -8,7 +8,7 @@ terminal hook and inject it through PipelineContextFactory instead.
 from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Mapping
-from typing import TYPE_CHECKING, Dict, Any, Optional, Type, TypeVar, List, Tuple
+from typing import Dict, Any, Optional, Type, TypeVar, List, Tuple
 from uuid import UUID, uuid4
 
 from api.application.process_event_contracts import ProcessEvent
@@ -19,12 +19,10 @@ from api.application.pipeline.invocation import RUNNER_CONTEXT_PAYLOAD_KEY
 from api.application.action_outcomes import ActionOutcomeRecorder
 from api.application.ports.artifacts import RawArtifactMetadataWriter, RawOutputCapturePort
 from api.application.ports.orchestration import PipelineRunStatePort
+from api.application.ports.events import EventBusPort
 from api.application.ports.scope import ScopeFilterPort
 from api.application.pipeline.raw_artifact_capture import RawArtifactCapture
 from api.application.pipeline.run_completion_reporter import RunCompletionReporter
-
-if TYPE_CHECKING:
-    from api.infrastructure.events.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +55,7 @@ class PipelineContext:
     def __init__(
         self,
         node_id: str,
-        bus: Optional[EventBus] = None,
+        bus: Optional[EventBusPort] = None,
         container: Any | None = None,
         settings: Optional[Settings] = None,
         scope_policy: ScopePolicy = ScopePolicy.NONE,

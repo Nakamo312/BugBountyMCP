@@ -13,9 +13,13 @@ Read first when changing this layer:
 - Use application contracts from `contracts.py` for actions, policy decisions,
   event envelopes, scan profiles, and tool results.
 - New scan execution paths must go through `ActionService` and `PolicyService`.
-- Do not import concrete runner, ingestor, database, repository, or parser
-  implementations from application services except in composition/catalog
-  boundaries already covered by architecture tests.
+- Do not import concrete runner, ingestor, database, repository, parser, or
+  provider implementations from application services. Infrastructure wiring
+  belongs under `api.infrastructure.*`; `api.application.providers.*` is only
+  a deprecated compatibility alias package.
+- `tests/application/test_application_import_boundary.py` is the AST boundary gate.
+  New `api.application` -> `api.infrastructure` imports must not be added; shrink
+  its temporary allowlist when compatibility aliases or legacy seams are removed.
 - Do not add LLM execution authority here. LLM output should become typed
   advisory intent, not direct scanner execution.
 - Prefer narrow services that preserve rollback paths over broad orchestration
@@ -44,3 +48,9 @@ Read first when changing this layer:
 - Agent replies may point to proposals, actions, artifacts, facts, or graph refs, but real tool execution still goes through `ActionService`, policy, scope, approval, and budget.
 - Keep agent task runtime behind an internal worker boundary. Do not expose LangGraph/GDS/runtime execution as public REST controls, and do not duplicate LangGraph thread/checkpoint/stream semantics in application code.
 - Agent runtimes must pass through the budget policy wrapper. Default to deterministic/no-model mode, trim context before runtime execution, and require explicit configuration before deep/expensive reasoning.
+
+Event type contracts live in `api.application.event_contracts`. Do not import `EventType` from `api.infrastructure.events.event_types` in application code.
+
+`api.application.providers.*` is a deprecated compatibility package. New code must import provider wiring from `api.infrastructure.providers.*` or from the real composition root. The AST boundary tests reject new imports of the compatibility provider package.
+
+Event bus transport adapters live in infrastructure. Application code must depend on `api.application.ports.events.EventBusPort` and must not import `api.infrastructure.events.event_bus` or `api.infrastructure.events.queue_config`. Queue topology belongs to infrastructure provider wiring.

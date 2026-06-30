@@ -8,7 +8,7 @@ capabilities, events, profiles, and parser stages.
 Generic scan workers should follow this order:
 
 1. Extract targets from the incoming event.
-2. Resolve runner, parser, processor, and ingestor from the whitelisted catalog.
+2. Resolve runner, parser, processor, and ingestor from the infrastructure-owned whitelisted catalog.
 3. Call `runner.run_raw()` when a parser is configured.
 4. Capture the raw stream through `PipelineContext.capture_raw_stream`.
 5. Normalize through the configured parser.
@@ -20,8 +20,9 @@ Generic scan workers should follow this order:
 
 - Do not parse CLI output inside `ScanNode`.
 - Do not bypass raw artifact capture for CLI-backed workers.
-- Do not add unregistered component names to YAML. Add them to the catalog and
-  tests.
+- Do not add unregistered component names to YAML. Add concrete registrations to
+  `api.infrastructure.pipeline.catalog` and tests; `api.application.pipeline.catalog`
+  is a deprecated compatibility alias only.
 - Keep event names stable. New event names need routing and contract tests.
 - Custom nodes such as FFUF, Amass, and Hakip2Host must preserve the same
   runner/raw/parser/ingestor boundary even when they cannot use `ScanNode`.
