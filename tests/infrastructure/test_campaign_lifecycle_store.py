@@ -6,6 +6,7 @@ from uuid import uuid4
 from sqlalchemy.dialects import postgresql
 
 from api.application.campaign_lifecycle import CampaignActivityState
+from api.infrastructure.orchestration.campaign_state_store import CampaignStateStore
 from api.infrastructure.orchestration.store import OrchestrationStore
 
 
@@ -66,7 +67,7 @@ def test_campaign_activity_row_maps_to_application_state() -> None:
     )
 
 
-class RecordingLifecycleStore(OrchestrationStore):
+class RecordingLifecycleStore(CampaignStateStore):
     def __init__(self, state: CampaignActivityState) -> None:
         super().__init__(lambda: None)
         self.state = state
@@ -75,7 +76,7 @@ class RecordingLifecycleStore(OrchestrationStore):
     async def get_campaign_activity(self, **kwargs):
         return self.state
 
-    async def _persist_campaign_lifecycle(self, **kwargs):
+    async def persist_campaign_lifecycle(self, **kwargs):
         self.persisted.append(kwargs)
         return True
 

@@ -141,6 +141,10 @@ async def test_campaign_methods_remain_compatibility_facades(monkeypatch) -> Non
         calls.append(("get_campaign_activity", kwargs))
         return "activity"
 
+    async def reconcile_campaign_lifecycle(**kwargs):
+        calls.append(("reconcile_campaign_lifecycle", kwargs))
+        return "decision"
+
     async def reconcile_active_campaigns(**kwargs):
         calls.append(("reconcile_active_campaigns", kwargs))
         return 7
@@ -154,11 +158,21 @@ async def test_campaign_methods_remain_compatibility_facades(monkeypatch) -> Non
         return False
 
     monkeypatch.setattr(store.campaigns, "get_campaign_activity", get_campaign_activity)
+    monkeypatch.setattr(store.campaigns, "reconcile_campaign_lifecycle", reconcile_campaign_lifecycle)
     monkeypatch.setattr(store.campaigns, "reconcile_active_campaigns", reconcile_active_campaigns)
     monkeypatch.setattr(store.campaigns, "persist_campaign_lifecycle", persist_campaign_lifecycle)
     monkeypatch.setattr(store.campaigns, "mark_campaign_terminal", mark_campaign_terminal)
 
     assert await store.get_campaign_activity(program_id=program_id, campaign_id=campaign_id) == "activity"
+    assert (
+        await store.reconcile_campaign_lifecycle(
+            program_id=program_id,
+            campaign_id=campaign_id,
+            now=now,
+            quiet_window_seconds=30,
+        )
+        == "decision"
+    )
     assert await store.reconcile_active_campaigns(now=now, quiet_window_seconds=30, limit=5) == 7
     assert await store._persist_campaign_lifecycle(
         campaign_id=campaign_id,
@@ -170,6 +184,15 @@ async def test_campaign_methods_remain_compatibility_facades(monkeypatch) -> Non
 
     assert calls == [
         ("get_campaign_activity", {"program_id": program_id, "campaign_id": campaign_id}),
+        (
+            "reconcile_campaign_lifecycle",
+            {
+                "program_id": program_id,
+                "campaign_id": campaign_id,
+                "now": now,
+                "quiet_window_seconds": 30,
+            },
+        ),
         ("reconcile_active_campaigns", {"now": now, "quiet_window_seconds": 30, "limit": 5}),
         (
             "persist_campaign_lifecycle",

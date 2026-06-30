@@ -11,6 +11,19 @@ from api.application.contracts import ExecutionMode, ExecutionStatus, TerminalOu
 from api.infrastructure.adapters.orm import runs
 
 
+_TERMINAL_SOURCE_STATUSES = {
+    ExecutionStatus.COMPLETED: (ExecutionStatus.FLUSHING,),
+    ExecutionStatus.FAILED: (ExecutionStatus.RUNNING, ExecutionStatus.FLUSHING),
+    ExecutionStatus.DEAD: (ExecutionStatus.FAILED,),
+    ExecutionStatus.CANCELLED: (
+        ExecutionStatus.QUEUED,
+        ExecutionStatus.LEASED,
+        ExecutionStatus.RUNNING,
+        ExecutionStatus.FLUSHING,
+    ),
+}
+
+
 class RunStateStore:
     """Durable runner state transitions for already-created runs."""
 
@@ -125,30 +138,12 @@ class RunStateStore:
 
     @staticmethod
     def _validate_terminal_status(status: ExecutionStatus) -> None:
-        if status not in {
-            ExecutionStatus.COMPLETED,
-            ExecutionStatus.FAILED,
-            ExecutionStatus.DEAD,
-            ExecutionStatus.CANCELLED,
-        }:
+        if status not in _TERMINAL_SOURCE_STATUSES:
             raise ValueError(f"Invalid terminal run status: {status}")
 
     @staticmethod
     def _allowed_source_statuses(status: ExecutionStatus) -> list[ExecutionStatus]:
-        if status == ExecutionStatus.COMPLETED:
-            return [ExecutionStatus.FLUSHING]
-        if status == ExecutionStatus.FAILED:
-            return [ExecutionStatus.RUNNING, ExecutionStatus.FLUSHING]
-        if status == ExecutionStatus.DEAD:
-            return [ExecutionStatus.FAILED]
-        if status == ExecutionStatus.CANCELLED:
-            return [
-                ExecutionStatus.QUEUED,
-                ExecutionStatus.LEASED,
-                ExecutionStatus.RUNNING,
-                ExecutionStatus.FLUSHING,
-            ]
-        return []
+        return list(_TERMINAL_SOURCE_STATUSES.get(status, ()))
 
     @staticmethod
     def _scheduled_guard(*allowed_statuses: ExecutionStatus):

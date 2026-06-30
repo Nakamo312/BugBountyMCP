@@ -9,7 +9,6 @@ from typing import Any
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from api.application.campaign_lifecycle import CampaignActivityState, CampaignLifecycleDecision
-from api.application.campaign_lifecycle import evaluate_campaign_lifecycle
 from api.application.contracts import (
     ActionArtifactReference,
     ActionEventRecord,
@@ -31,8 +30,8 @@ from api.infrastructure.orchestration.action_read_store import ActionReadStore
 from api.infrastructure.orchestration.action_write_helpers import catalog_hash, scope_status, target_status
 from api.infrastructure.orchestration.approval_store import ApprovalStore
 from api.infrastructure.orchestration.campaign_state_store import CampaignStateStore
-from api.infrastructure.orchestration.dispatch_store import DispatchStore, event_envelope_from_event_store_row
-from api.infrastructure.orchestration.event_store import EventStore, ensure_run_for_event, event_store_payload, insert_event_store_row
+from api.infrastructure.orchestration.dispatch_store import DispatchStore
+from api.infrastructure.orchestration.event_store import EventStore
 from api.infrastructure.orchestration.run_claim_store import RunClaimStore
 from api.infrastructure.orchestration.run_state_store import RunStateStore, retry_values_for_terminal_status
 from api.infrastructure.orchestration.scheduled_work_store import ScheduledWorkStore
@@ -96,22 +95,12 @@ class OrchestrationStore:
         now: datetime,
         quiet_window_seconds: float,
     ) -> CampaignLifecycleDecision | None:
-        state = await self.get_campaign_activity(program_id=program_id, campaign_id=campaign_id)
-        if state is None:
-            return None
-        decision = evaluate_campaign_lifecycle(
-            state,
+        return await self.campaigns.reconcile_campaign_lifecycle(
+            program_id=program_id,
+            campaign_id=campaign_id,
             now=now,
             quiet_window_seconds=quiet_window_seconds,
         )
-        if decision.status != state.current_status:
-            await self._persist_campaign_lifecycle(
-                campaign_id=campaign_id,
-                status=decision.status,
-                active_runs=state.active_runs,
-                now=now,
-            )
-        return decision
 
     async def reconcile_active_campaigns(
         self,
@@ -164,14 +153,6 @@ class OrchestrationStore:
         return catalog_hash(decision)
 
     @staticmethod
-    def _event_store_payload(envelope: EventEnvelope) -> dict[str, Any]:
-        return event_store_payload(envelope)
-
-    @staticmethod
-    async def _insert_event_store_row(session, envelope: EventEnvelope) -> None:
-        await insert_event_store_row(session, envelope)
-
-    @staticmethod
     def _event_dispatch_notify_statement(*, channel: str, payload: str):
         return DispatchStore.notify_statement(channel=channel, payload=payload)
 
@@ -189,10 +170,6 @@ class OrchestrationStore:
             destination=destination,
             now=now,
         )
-
-    @staticmethod
-    def _event_envelope_from_event_store_row(row: Mapping[str, Any]) -> EventEnvelope:
-        return event_envelope_from_event_store_row(row)
 
     @staticmethod
     def _action_event_record_from_row(row: Mapping[str, Any]) -> ActionEventRecord:
@@ -465,10 +442,6 @@ class OrchestrationStore:
         await self.events.record_event(envelope)
 
     @staticmethod
-    async def _ensure_run_for_event(session, envelope: EventEnvelope) -> None:
-        await ensure_run_for_event(session, envelope)
-
-    @staticmethod
     def _retry_values(
         *,
         now: datetime,
@@ -483,6 +456,3 @@ class OrchestrationStore:
             retry_policy=retry_policy,
         )
 
-    @staticmethod
-    def _scheduled_node_run_from_row(row) -> ScheduledNodeRun:
-        return ScheduledWorkStore._scheduled_node_run_from_row(row)
