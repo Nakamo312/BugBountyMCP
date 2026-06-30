@@ -35,8 +35,12 @@ _FORBIDDEN_INLINE_SECRET_PATTERN = re.compile(
 )
 
 
+def _read_text(path: str | Path) -> str:
+    return Path(path).read_text(encoding="utf-8")
+
+
 def _string_literals(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(_read_text(path))
     return [
         node.value
         for node in ast.walk(tree)
@@ -46,7 +50,7 @@ def _string_literals(path: Path) -> list[str]:
 
 def test_credential_ref_boundary_is_documented_in_current_handoff_and_runner_policy() -> None:
     for path in _DOC_PATHS:
-        text = path.read_text()
+        text = _read_text(path)
         assert "credential_ref" in text or "credential_refs" in text, path
         assert "argv" in text, path
         assert "stdin" in text, path
@@ -67,7 +71,7 @@ def test_runner_command_literals_do_not_embed_direct_secret_options() -> None:
 
 
 def test_runner_policy_points_to_lease_injection_instead_of_direct_secret_args() -> None:
-    text = Path("src/api/infrastructure/runners/AGENTS.md").read_text()
+    text = _read_text("src/api/infrastructure/runners/AGENTS.md")
 
     assert "credential_refs" in text
     assert "lease injector" in text
@@ -75,7 +79,7 @@ def test_runner_policy_points_to_lease_injection_instead_of_direct_secret_args()
 
 
 def test_credential_ref_action_option_contract_is_documented() -> None:
-    text = Path("docs/architecture/credential-ref-boundary.md").read_text()
+    text = _read_text("docs/architecture/credential-ref-boundary.md")
 
     assert "auth_injection" in text
     assert "header" in text
@@ -89,7 +93,7 @@ def test_credential_ref_action_option_contract_is_documented() -> None:
 
 
 def test_application_option_boundary_exposes_typed_credential_options() -> None:
-    text = Path("src/api/application/execution_limits.py").read_text()
+    text = _read_text("src/api/application/execution_limits.py")
 
     assert "credential_ref" in text
     assert "auth_injection" in text
@@ -97,7 +101,7 @@ def test_application_option_boundary_exposes_typed_credential_options() -> None:
 
 
 def test_auth_injection_profile_policy_exposes_cli_flag_boundaries() -> None:
-    text = Path("src/api/application/execution_limits.py").read_text()
+    text = _read_text("src/api/application/execution_limits.py")
 
     assert "allowed_modes" in text
     assert "allowed_cli_flags" in text
@@ -106,9 +110,9 @@ def test_auth_injection_profile_policy_exposes_cli_flag_boundaries() -> None:
 
 
 def test_credential_lease_service_is_documented_as_secret_resolution_boundary() -> None:
-    service_text = Path("src/api/application/credential_leases.py").read_text()
-    doc_text = Path("docs/architecture/credential-ref-boundary.md").read_text()
-    runner_policy = Path("src/api/infrastructure/runners/AGENTS.md").read_text()
+    service_text = _read_text("src/api/application/credential_leases.py")
+    doc_text = _read_text("docs/architecture/credential-ref-boundary.md")
+    runner_policy = _read_text("src/api/infrastructure/runners/AGENTS.md")
 
     assert "class CredentialLeaseService" in service_text
     assert "resolve_secret_for_runner" in service_text
@@ -118,9 +122,9 @@ def test_credential_lease_service_is_documented_as_secret_resolution_boundary() 
 
 
 def test_runner_side_materialization_contract_is_documented_and_redacted() -> None:
-    service_text = Path("src/api/infrastructure/credentials/materialization.py").read_text()
-    doc_text = Path("docs/architecture/credential-ref-boundary.md").read_text()
-    runner_policy = Path("src/api/infrastructure/runners/AGENTS.md").read_text()
+    service_text = _read_text("src/api/infrastructure/credentials/materialization.py")
+    doc_text = _read_text("docs/architecture/credential-ref-boundary.md")
+    runner_policy = _read_text("src/api/infrastructure/runners/AGENTS.md")
 
     assert "class CredentialMaterializationPlan" in service_text
     assert "redacted_command_for_log" in service_text
@@ -131,10 +135,10 @@ def test_runner_side_materialization_contract_is_documented_and_redacted() -> No
 
 
 def test_command_invocation_env_overlay_boundary_is_documented() -> None:
-    boundary_text = Path("src/api/infrastructure/commands/command_boundary.py").read_text()
-    executor_text = Path("src/api/infrastructure/commands/command_executor.py").read_text()
-    doc_text = Path("docs/architecture/credential-ref-boundary.md").read_text()
-    runner_policy = Path("src/api/infrastructure/runners/AGENTS.md").read_text()
+    boundary_text = _read_text("src/api/infrastructure/commands/command_boundary.py")
+    executor_text = _read_text("src/api/infrastructure/commands/command_executor.py")
+    doc_text = _read_text("docs/architecture/credential-ref-boundary.md")
+    runner_policy = _read_text("src/api/infrastructure/runners/AGENTS.md")
 
     assert "env: Mapping" in boundary_text
     assert "redact_command_env" in boundary_text
@@ -145,10 +149,10 @@ def test_command_invocation_env_overlay_boundary_is_documented() -> None:
 
 
 def test_secret_version_lifecycle_boundary_is_documented() -> None:
-    service_text = Path("src/api/application/credential_secret_versions.py").read_text()
-    storage_text = Path("src/api/application/credential_storage.py").read_text()
-    doc_text = Path("docs/architecture/credential-ref-boundary.md").read_text()
-    handoff_text = Path("HANDOFF_FOR_NEW_CHAT.md").read_text()
+    service_text = _read_text("src/api/application/credential_secret_versions.py")
+    storage_text = _read_text("src/api/application/credential_storage.py")
+    doc_text = _read_text("docs/architecture/credential-ref-boundary.md")
+    handoff_text = _read_text("HANDOFF_FOR_NEW_CHAT.md")
 
     assert "class CredentialSecretVersionService" in service_text
     assert "rotate_secret" in service_text
@@ -162,10 +166,10 @@ def test_secret_version_lifecycle_boundary_is_documented() -> None:
 
 
 def test_postgres_credential_store_and_secret_codec_boundary_are_documented() -> None:
-    store_text = Path("src/api/infrastructure/credential_store.py").read_text()
-    codec_text = Path("src/api/infrastructure/credentials/secret_codec.py").read_text()
-    doc_text = Path("docs/architecture/credential-ref-boundary.md").read_text()
-    handoff_text = Path("HANDOFF_FOR_NEW_CHAT.md").read_text()
+    store_text = _read_text("src/api/infrastructure/credential_store.py")
+    codec_text = _read_text("src/api/infrastructure/credentials/secret_codec.py")
+    doc_text = _read_text("docs/architecture/credential-ref-boundary.md")
+    handoff_text = _read_text("HANDOFF_FOR_NEW_CHAT.md")
 
     assert "class PostgresCredentialStore" in store_text
     assert "secret_codec" in store_text
@@ -182,11 +186,11 @@ def test_postgres_credential_store_and_secret_codec_boundary_are_documented() ->
 
 
 def test_credential_backend_composition_boundary_is_documented_and_configured() -> None:
-    settings_text = Path("src/api/config.py").read_text()
-    factory_text = Path("src/api/infrastructure/credentials/factory.py").read_text()
-    doc_text = Path("docs/architecture/credential-ref-boundary.md").read_text()
-    handoff_text = Path("HANDOFF_FOR_NEW_CHAT.md").read_text()
-    runner_policy = Path("src/api/infrastructure/runners/AGENTS.md").read_text()
+    settings_text = _read_text("src/api/config.py")
+    factory_text = _read_text("src/api/infrastructure/credentials/factory.py")
+    doc_text = _read_text("docs/architecture/credential-ref-boundary.md")
+    handoff_text = _read_text("HANDOFF_FOR_NEW_CHAT.md")
+    runner_policy = _read_text("src/api/infrastructure/runners/AGENTS.md")
 
     assert "CREDENTIAL_SECRET_BACKEND" in settings_text
     assert 'CREDENTIAL_SECRET_BACKEND: str = "postgres_encrypted"' in settings_text
@@ -200,12 +204,12 @@ def test_credential_backend_composition_boundary_is_documented_and_configured() 
 
 
 def test_credential_management_api_boundary_is_documented_and_registered() -> None:
-    service_text = Path("src/api/application/credential_management.py").read_text()
-    route_text = Path("src/api/presentation/rest/routes/credentials.py").read_text()
-    router_text = Path("src/api/presentation/rest/routes/__init__.py").read_text()
-    di_text = Path("src/api/application/di.py").read_text()
-    doc_text = Path("docs/architecture/credential-ref-boundary.md").read_text()
-    handoff_text = Path("HANDOFF_FOR_NEW_CHAT.md").read_text()
+    service_text = _read_text("src/api/application/credential_management.py")
+    route_text = _read_text("src/api/presentation/rest/routes/credentials.py")
+    router_text = _read_text("src/api/presentation/rest/routes/__init__.py")
+    di_text = _read_text("src/api/application/di.py")
+    doc_text = _read_text("docs/architecture/credential-ref-boundary.md")
+    handoff_text = _read_text("HANDOFF_FOR_NEW_CHAT.md")
 
     assert "class CredentialManagementService" in service_text
     assert "SecretStr" in service_text

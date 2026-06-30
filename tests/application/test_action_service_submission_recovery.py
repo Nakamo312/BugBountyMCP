@@ -9,6 +9,7 @@ from uuid import uuid4
 import pytest
 
 from api.application.contracts import ActionKind, ActionRecord, ActionStatus, PolicyDecisionStatus
+from api.application.services.action_read import policy_decision_status_for_action_status
 
 
 class _Store:
@@ -77,6 +78,12 @@ async def test_action_service_get_action_submission_builds_recovery_submission(m
     assert submission.policy_decision.status is PolicyDecisionStatus.ALLOWED
     assert submission.correlation_id is None
     assert submission.workflow_id is None
+
+
+def test_policy_decision_recovery_rejects_unknown_action_status() -> None:
+    with pytest.raises(ValueError, match="unsupported action status"):
+        policy_decision_status_for_action_status(object())  # type: ignore[arg-type]
+
 
 class _WriteOnlyStore:
     pass

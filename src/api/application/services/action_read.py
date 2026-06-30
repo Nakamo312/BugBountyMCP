@@ -118,4 +118,4 @@ def policy_decision_status_for_action_status(status: ActionStatus) -> PolicyDeci
         return PolicyDecisionStatus.REQUIRES_APPROVAL
     if status is ActionStatus.REJECTED:
         return PolicyDecisionStatus.REJECTED
-    return PolicyDecisionStatus.ALLOWED
+    raise ValueError(f"unsupported action status for policy decision recovery: {status!r}")
