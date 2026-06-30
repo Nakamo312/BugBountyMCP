@@ -1,6 +1,5 @@
 """Service for working with hosts, endpoints, parameters and headers"""
 
-import logging
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 
@@ -9,7 +8,6 @@ from api.application.dto.host import (
     EndpointResponseDTO,
     InputParameterResponseDTO,
     HeaderResponseDTO,
-    RawBodyResponseDTO,
     HostWithEndpointsDTO,
     EndpointWithDetailsDTO,
     HostsListResponseDTO,
@@ -28,12 +26,11 @@ from api.application.services.view_queries import (
     view_data_query,
 )
 
-logger = logging.getLogger(__name__)
-
 _PROGRAM_VIEW_FILTERS = frozenset({"program_id"})
 _PROGRAM_HOST_VIEW_FILTERS = frozenset({"program_id", "host_id"})
 _HOST_ID_VIEW_FILTERS = frozenset({"host_id"})
 _ENDPOINT_ID_VIEW_FILTERS = frozenset({"endpoint_id"})
+RELATED_ROWS_LIMIT = 1000
 
 _HOST_FULL_STATS_VIEW = ReadOnlyView("host_full_stats", _PROGRAM_VIEW_FILTERS | frozenset({"in_scope"}))
 _HOST_SERVICES_VIEW = ReadOnlyView("host_services_view", _HOST_ID_VIEW_FILTERS)
@@ -70,15 +67,7 @@ class HostService:
             total = await uow.hosts.count(filters=filters)
             
             return HostsListResponseDTO(
-                hosts=[
-                    HostResponseDTO(
-                        id=host.id,
-                        program_id=host.program_id,
-                        host=host.host,
-                        in_scope=host.in_scope,
-                        cname=host.cname
-                    ) for host in hosts
-                ],
+                hosts=[HostResponseDTO.model_validate(host) for host in hosts],
                 total=total,
                 limit=limit,
                 offset=offset
@@ -94,27 +83,11 @@ class HostService:
             if not host:
                 return None
             
-            endpoints = await uow.endpoints.find_by_host(host_id, limit=1000)
+            endpoints = await uow.endpoints.find_by_host(host_id, limit=RELATED_ROWS_LIMIT)
             
             return HostWithEndpointsDTO(
-                host=HostResponseDTO(
-                    id=host.id,
-                    program_id=host.program_id,
-                    host=host.host,
-                    in_scope=host.in_scope,
-                    cname=host.cname
-                ),
-                endpoints=[
-                    EndpointResponseDTO(
-                        id=ep.id,
-                        host_id=ep.host_id,
-                        service_id=ep.service_id,
-                        path=ep.path,
-                        normalized_path=ep.normalized_path,
-                        methods=ep.methods,
-                        status_code=ep.status_code
-                    ) for ep in endpoints
-                ]
+                host=HostResponseDTO.model_validate(host),
+                endpoints=[EndpointResponseDTO.model_validate(ep) for ep in endpoints]
             )
     
     async def get_endpoints_by_host(
@@ -131,17 +104,7 @@ class HostService:
                 offset=offset
             )
             
-            return [
-                EndpointResponseDTO(
-                    id=ep.id,
-                    host_id=ep.host_id,
-                    service_id=ep.service_id,
-                    path=ep.path,
-                    normalized_path=ep.normalized_path,
-                    methods=ep.methods,
-                    status_code=ep.status_code
-                ) for ep in endpoints
-            ]
+            return [EndpointResponseDTO.model_validate(ep) for ep in endpoints]
     
     async def get_endpoint_with_details(
         self,
@@ -155,44 +118,17 @@ class HostService:
             
             parameters = await uow.input_parameters.find_by_endpoint(
                 endpoint_id=endpoint_id,
-                limit=1000
+                limit=RELATED_ROWS_LIMIT
             )
             headers = await uow.headers.find_by_endpoint(
                 endpoint_id=endpoint_id,
-                limit=1000
+                limit=RELATED_ROWS_LIMIT
             )
             
             return EndpointWithDetailsDTO(
-                endpoint=EndpointResponseDTO(
-                    id=endpoint.id,
-                    host_id=endpoint.host_id,
-                    service_id=endpoint.service_id,
-                    path=endpoint.path,
-                    normalized_path=endpoint.normalized_path,
-                    methods=endpoint.methods,
-                    status_code=endpoint.status_code
-                ),
-                parameters=[
-                    InputParameterResponseDTO(
-                        id=param.id,
-                        endpoint_id=param.endpoint_id,
-                        service_id=param.service_id,
-                        name=param.name,
-                        location=param.location,
-                        param_type=param.param_type,
-                        reflected=param.reflected,
-                        is_array=param.is_array,
-                        example_value=param.example_value
-                    ) for param in parameters
-                ],
-                headers=[
-                    HeaderResponseDTO(
-                        id=header.id,
-                        endpoint_id=header.endpoint_id,
-                        name=header.name,
-                        value=header.value
-                    ) for header in headers
-                ]
+                endpoint=EndpointResponseDTO.model_validate(endpoint),
+                parameters=[InputParameterResponseDTO.model_validate(param) for param in parameters],
+                headers=[HeaderResponseDTO.model_validate(header) for header in headers],
             )
     
     async def get_parameters_by_endpoint(
@@ -209,19 +145,7 @@ class HostService:
                 offset=offset
             )
             
-            return [
-                InputParameterResponseDTO(
-                    id=param.id,
-                    endpoint_id=param.endpoint_id,
-                    service_id=param.service_id,
-                    name=param.name,
-                    location=param.location,
-                    param_type=param.param_type,
-                    reflected=param.reflected,
-                    is_array=param.is_array,
-                    example_value=param.example_value
-                ) for param in parameters
-            ]
+            return [InputParameterResponseDTO.model_validate(param) for param in parameters]
     
     async def get_headers_by_endpoint(
         self,
@@ -237,14 +161,7 @@ class HostService:
                 offset=offset
             )
             
-            return [
-                HeaderResponseDTO(
-                    id=header.id,
-                    endpoint_id=header.endpoint_id,
-                    name=header.name,
-                    value=header.value
-                ) for header in headers
-            ]
+            return [HeaderResponseDTO.model_validate(header) for header in headers]
 
     async def get_hosts_with_stats(
         self,
@@ -279,7 +196,7 @@ class HostService:
             filters = {"host_id": host_id}
             result = await uow._session.execute(
                 view_data_query(_HOST_SERVICES_VIEW, filters),
-                {**filters, "limit": 1000, "offset": 0},
+                {**filters, "limit": RELATED_ROWS_LIMIT, "offset": 0},
             )
             rows = result.mappings().all()
 
