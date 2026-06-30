@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import ast
 from datetime import datetime, timezone
+import inspect
 from uuid import uuid4
 
 import pytest
 
+from api.application import program_projection_overview
 from api.application.program_projection_overview import (
     bb_cli_command,
     graph_projector_command,
@@ -102,6 +105,13 @@ def test_operator_plan_commands_are_built_from_argv_parts() -> None:
     assert all("{program_arg}" not in command for command in commands)
     assert graph_projector_command("surface-components-materialize", "--program-id", program_id, "--snapshot-id", snapshot_id) in commands
     assert search_indexer_command("reindex", "--target", "surface-components", "--program-id", program_id, "--analysis-run-id", analysis_run_id) in commands
+
+
+def test_operator_plan_builder_is_a_rules_evaluator() -> None:
+    source = inspect.getsource(program_projection_overview.build_program_projection_operator_plan)
+    tree = ast.parse(source)
+
+    assert len([node for node in ast.walk(tree) if isinstance(node, ast.If)]) <= 1
 
 
 @pytest.mark.asyncio
