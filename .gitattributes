@@ -1,0 +1,15 @@
+# Keep repository text files stable across Windows/Linux checkouts.
+* text=auto eol=lf
+
+# Binary/artifact formats must not be newline-normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.db0 binary
+*.xlsx binary
+*.pptx binary
