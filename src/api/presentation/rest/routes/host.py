@@ -24,6 +24,12 @@ from api.application.services.host import HostService
 router = APIRouter(tags=["Hosts"], route_class=DishkaRoute)
 
 
+def _require_found(result, detail: str):
+    if result:
+        return result
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+
+
 @router.get(
     "/program/{program_id}",
     response_model=HostsListResponseDTO,
@@ -80,12 +86,7 @@ async def get_program_stats(
 ) -> ProgramStatsDTO:
     """Get program statistics"""
     result = await host_service.get_program_stats(program_id)
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Program {program_id} not found"
-        )
-    return result
+    return _require_found(result, f"Program {program_id} not found")
 
 
 @router.get(
@@ -123,12 +124,7 @@ async def get_host_with_endpoints(
 ) -> HostWithEndpointsDTO:
     """Get host with all endpoints"""
     result = await host_service.get_host_with_endpoints(host_id)
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Host {host_id} not found"
-        )
-    return result
+    return _require_found(result, f"Host {host_id} not found")
 
 
 @router.get(
@@ -143,12 +139,7 @@ async def get_host_with_services(
 ) -> HostWithServicesDTO:
     """Get host with all services"""
     result = await host_service.get_host_with_services(host_id)
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Host {host_id} not found"
-        )
-    return result
+    return _require_found(result, f"Host {host_id} not found")
 
 
 @router.get(
@@ -183,12 +174,7 @@ async def get_endpoint_with_details(
 ) -> EndpointWithDetailsDTO:
     """Get endpoint with parameters and headers"""
     result = await host_service.get_endpoint_with_details(endpoint_id)
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Endpoint {endpoint_id} not found"
-        )
-    return result
+    return _require_found(result, f"Endpoint {endpoint_id} not found")
 
 
 @router.get(
@@ -203,12 +189,7 @@ async def get_endpoint_full_details(
 ) -> EndpointFullDetailsDTO:
     """Get full endpoint details from view"""
     result = await host_service.get_endpoint_full_details(endpoint_id)
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Endpoint {endpoint_id} not found"
-        )
-    return result
+    return _require_found(result, f"Endpoint {endpoint_id} not found")
 
 
 @router.get(
