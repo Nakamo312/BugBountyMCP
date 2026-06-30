@@ -10,6 +10,10 @@ class ActionApprovalStateError(Exception):
     """Raised when an action cannot be approved from its current state."""
 
 
+class ActionSubmissionConflict(Exception):
+    """Raised when an action submission already exists and can be recovered."""
+
+
 class ActionOutcomeNotFoundError(Exception):
     """Raised when feedback targets no recorded action outcome."""
 

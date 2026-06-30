@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import insert, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from api.application.contracts import (
@@ -13,6 +14,7 @@ from api.application.contracts import (
     PolicyDecision,
     PolicyDecisionStatus,
 )
+from api.application.services.action_errors import ActionSubmissionConflict
 from api.infrastructure.adapters.orm import action_requests, scope_decisions
 from api.infrastructure.orchestration.action_write_helpers import (
     catalog_hash,
@@ -23,6 +25,24 @@ from api.infrastructure.orchestration.action_write_helpers import (
 )
 from api.infrastructure.orchestration.campaign_state_store import CampaignStateStore
 from api.infrastructure.orchestration.dispatch_store import DispatchStore
+
+
+def is_duplicate_action_request_integrity_error(exc: IntegrityError) -> bool:
+    """Return true only for duplicate action_requests primary-key conflicts."""
+    orig = getattr(exc, "orig", None)
+    diag = getattr(orig, "diag", None)
+    constraint_name = getattr(diag, "constraint_name", None)
+    message = str(orig).lower() if orig is not None else ""
+    return constraint_name == "action_requests_pkey" or (
+        getattr(orig, "pgcode", None) == "23505"
+        and "action_requests" in message
+        and "action_requests_pkey" in message
+    )
+
+
+def raise_submission_conflict_for_duplicate_action(action_id: uuid.UUID, exc: IntegrityError) -> None:
+    if is_duplicate_action_request_integrity_error(exc):
+        raise ActionSubmissionConflict(str(action_id)) from exc
 
 
 class ActionCommandStore:
@@ -48,33 +68,38 @@ class ActionCommandStore:
         status = "queued" if decision.status == PolicyDecisionStatus.ALLOWED else decision.status.value
 
         async with self.session_factory() as session:
-            await self.campaigns.upsert_campaign(session, action, now)
-            await self._insert_action_request(
-                session,
-                action=action,
-                decision=decision,
-                status=status,
-                now=now,
-            )
-            await insert_policy_decision_row(
-                session,
-                action=action,
-                decision=decision,
-                now=now,
-            )
-            scope_id = await record_action_detail_rows(
-                session,
-                action=action,
-                decision=decision,
-                now=now,
-            )
-            await record_approval_request_if_needed(
-                session,
-                action=action,
-                decision=decision,
-                now=now,
-            )
-            await session.commit()
+            try:
+                await self.campaigns.upsert_campaign(session, action, now)
+                await self._insert_action_request(
+                    session,
+                    action=action,
+                    decision=decision,
+                    status=status,
+                    now=now,
+                )
+                await insert_policy_decision_row(
+                    session,
+                    action=action,
+                    decision=decision,
+                    now=now,
+                )
+                scope_id = await record_action_detail_rows(
+                    session,
+                    action=action,
+                    decision=decision,
+                    now=now,
+                )
+                await record_approval_request_if_needed(
+                    session,
+                    action=action,
+                    decision=decision,
+                    now=now,
+                )
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                raise_submission_conflict_for_duplicate_action(action.action_id, exc)
+                raise
         return scope_id
 
     async def create_allowed_action(
@@ -125,6 +150,10 @@ class ActionCommandStore:
                     now=now,
                 )
                 await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                raise_submission_conflict_for_duplicate_action(action.action_id, exc)
+                raise
             except Exception:
                 await session.rollback()
                 raise

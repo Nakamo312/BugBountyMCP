@@ -11,6 +11,7 @@ from api.application.contracts import (
     PolicyDecision,
 )
 from api.application.ports.action import ActionCommandPort
+from api.application.services.action_errors import ActionSubmissionConflict
 
 SubmissionLookup = Callable[[UUID], Awaitable[ActionSubmission | None]]
 
@@ -34,9 +35,7 @@ class ActionSubmissionRecorder:
     ) -> ActionSubmission | None:
         try:
             await self.commands.record_policy_result(action, decision)
-        except Exception:
-            # Idempotency recovery intentionally catches persistence conflicts broadly:
-            # duplicate records may surface through different DB/adapter exception types.
+        except ActionSubmissionConflict:
             recovered = await self.submission_lookup(action.action_id)
             if recovered is not None:
                 return recovered
@@ -58,9 +57,7 @@ class ActionSubmissionRecorder:
                 envelope,
                 scope_id=scope_id,
             )
-        except Exception:
-            # Idempotency recovery intentionally catches persistence conflicts broadly:
-            # duplicate records may surface through different DB/adapter exception types.
+        except ActionSubmissionConflict:
             recovered = await self.submission_lookup(action.action_id)
             if recovered is not None:
                 return recovered
