@@ -310,6 +310,14 @@ const displayValue = (value) => {
   return String(value)
 }
 
+const graphProjectorCapabilitySummary = (capabilities) => {
+  if (!capabilities || typeof capabilities !== 'object') return null
+  const enabled = Object.entries(capabilities)
+    .filter(([, value]) => Boolean(value))
+    .map(([key]) => key.replaceAll('_', ' '))
+  return enabled.length ? enabled.join(', ') : 'none materialized'
+}
+
 const profileRows = (profile, properties, selectedNode) => {
   const merged = { ...(selectedNode?.properties || {}), ...(properties || {}), ...(profile || {}) }
   const preferred = [
@@ -326,11 +334,31 @@ const profileRows = (profile, properties, selectedNode) => {
     ['Candidates', merged.action_candidate_count],
     ['Projection source', merged.projection_source || merged.source_projection],
     ['GDS status', merged.gds_execution || merged.source_quality],
+    ['Graph projector signals', graphProjectorCapabilitySummary(merged.graph_projector_capabilities)],
     ['Algorithm', merged.algorithm_version || merged.algorithm],
     ['Snapshot', merged.snapshot_id],
     ['Source', merged.source_projection],
   ]
   return preferred.filter(([, value]) => value != null && value !== '')
+}
+
+const GraphProjectorPayloads = ({ profile, properties }) => {
+  const payloads = profile?.graph_projector_payloads || properties?.graph_projector_payloads || {}
+  const entries = Object.entries(payloads).filter(([, value]) => value && typeof value === 'object' && Object.keys(value).length > 0)
+  if (!entries.length) return null
+  return (
+    <details className="rounded-lg border border-purple-100 bg-purple-50 p-3">
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-purple-800">Graph-projector / Neo4j GDS payloads</summary>
+      <div className="mt-3 space-y-3">
+        {entries.map(([name, value]) => (
+          <div key={name} className="rounded-lg border border-purple-100 bg-white p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-purple-700">{name}</div>
+            <JsonBlock value={value} />
+          </div>
+        ))}
+      </div>
+    </details>
+  )
 }
 
 const KeyValueGrid = ({ profile, properties, selectedNode }) => {
@@ -537,7 +565,7 @@ export const Inspector = ({ entity, actions, memory, loading, selectedNode }) =>
 
   if (!selectedNode) {
     return (
-      <aside className="relative z-20 h-full border-l border-gray-200 bg-white p-5 pointer-events-auto">
+      <aside className="relative z-30 h-full border-l border-gray-200 bg-white p-5 pointer-events-auto" onMouseDownCapture={(event) => event.stopPropagation()} onClickCapture={(event) => event.stopPropagation()}>
         <div className="text-sm font-semibold text-gray-900">Inspector</div>
         <p className="mt-2 text-sm text-gray-500">Select a graph node to read profile, evidence, memory pointers, and backend action affordances.</p>
       </aside>
@@ -546,14 +574,14 @@ export const Inspector = ({ entity, actions, memory, loading, selectedNode }) =>
 
   if (loading) {
     return (
-      <aside className="relative z-20 flex h-full items-center justify-center border-l border-gray-200 bg-white pointer-events-auto">
+      <aside className="relative z-30 flex h-full items-center justify-center border-l border-gray-200 bg-white pointer-events-auto" onMouseDownCapture={(event) => event.stopPropagation()} onClickCapture={(event) => event.stopPropagation()}>
         <Loader className="animate-spin text-primary-500" size={28} />
       </aside>
     )
   }
 
   return (
-    <aside className="relative z-20 h-full overflow-y-auto border-l border-gray-200 bg-white p-5 pointer-events-auto">
+    <aside className="relative z-30 h-full overflow-y-auto border-l border-gray-200 bg-white p-5 pointer-events-auto" onMouseDownCapture={(event) => event.stopPropagation()} onClickCapture={(event) => event.stopPropagation()}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Inspector</div>
@@ -576,6 +604,7 @@ export const Inspector = ({ entity, actions, memory, loading, selectedNode }) =>
         <section className="mt-5 space-y-3">
           <div className="text-sm font-semibold text-gray-900">Profile</div>
           <KeyValueGrid profile={entity?.profile} properties={entity?.properties} selectedNode={selectedNode} />
+          <GraphProjectorPayloads profile={entity?.profile} properties={entity?.properties} />
           {entity?.profile && Object.keys(entity.profile).length > 0 && (
             <details className="rounded-lg border border-gray-200 bg-white p-3">
               <summary className="cursor-pointer text-xs font-semibold text-gray-600">Raw profile DTO</summary>

@@ -101,6 +101,8 @@ async def component_entity_profile(
             "component_id": component_id,
             "algorithm": run.get("algorithm"),
             "algorithm_version": run.get("algorithm_version"),
+            "graph_projector_capabilities": _graph_projector_capabilities(item),
+            "graph_projector_payloads": _graph_projector_payloads(item),
             **_component_projection_source(run, item),
         },
         properties=node.properties,
@@ -224,15 +226,20 @@ def _component_graph_from_rows(
     component_nodes = [_component_node_from_row(run, row) for row in items]
     candidate_nodes: list[WorkbenchNode] = []
     edges: list[WorkbenchEdge] = []
+    signal_nodes: list[WorkbenchNode] = []
     for row in items:
         component_id = int(row["component_id"])
         component_node_id = _component_node_id(run, component_id)
         edges.append(_component_edge(_analysis_node_id(run), component_node_id, "HAS_COMPONENT", "has component"))
+        for signal_name, payload in _graph_projector_payloads(row).items():
+            signal_node = _component_signal_node_from_payload(run, component_id, signal_name, payload)
+            signal_nodes.append(signal_node)
+            edges.append(_component_edge(component_node_id, signal_node.id, "HAS_GRAPH_SIGNAL", "has graph signal"))
         for index, candidate in enumerate(_candidates(row)):
             candidate_node = _candidate_node_from_payload(run, component_id, index, candidate)
             candidate_nodes.append(candidate_node)
             edges.append(_component_edge(component_node_id, candidate_node.id, "SUGGESTS_ACTION", "suggests action"))
-    nodes = [analysis_node, *component_nodes, *candidate_nodes]
+    nodes = [analysis_node, *component_nodes, *signal_nodes, *candidate_nodes]
     if seed:
         selected_ids = _component_seed_ids(nodes, edges, seed)
         nodes = [node for node in nodes if node.id in selected_ids or node.entity_key in selected_ids]
@@ -284,6 +291,30 @@ def _component_projection_source(run: Mapping[str, Any], row: Mapping[str, Any])
     }
 
 
+def _graph_projector_capabilities(row: Mapping[str, Any]) -> dict[str, bool]:
+    metrics = _dict(row.get("metrics_json"))
+    return {
+        "component_profile": bool(_dict(metrics.get("profile"))),
+        "drift": bool(_dict(metrics.get("drift"))),
+        "bridge_pressure": bool(_dict(metrics.get("bridge"))),
+        "outliers": bool(_dict(metrics.get("outlier"))),
+        "coverage": bool(_dict(metrics.get("coverage"))),
+        "action_candidates": bool(_candidates(row)),
+    }
+
+
+def _graph_projector_payloads(row: Mapping[str, Any]) -> dict[str, Any]:
+    metrics = _dict(row.get("metrics_json"))
+    payloads = {
+        "profile": _dict(metrics.get("profile")),
+        "drift": _dict(metrics.get("drift")),
+        "bridge": _dict(metrics.get("bridge")),
+        "outlier": _dict(metrics.get("outlier")),
+        "coverage": _dict(metrics.get("coverage")),
+    }
+    return {name: payload for name, payload in payloads.items() if payload}
+
+
 def _component_node_from_row(run: Mapping[str, Any], row: Mapping[str, Any]) -> WorkbenchNode:
     component_id = int(row["component_id"])
     signals = _component_signals(row)
@@ -303,9 +334,18 @@ def _component_node_from_row(run: Mapping[str, Any], row: Mapping[str, Any]) -> 
             "action_candidate_count": int(row["action_candidate_count"]),
             "algorithm": run.get("algorithm"),
             "algorithm_version": run.get("algorithm_version"),
+            "graph_projector_capabilities": _graph_projector_capabilities(row),
+            "graph_projector_payloads": _graph_projector_payloads(row),
             **_component_projection_source(run, row),
         },
-        metadata={"signals": signals, "metrics": _dict(row.get("metrics_json")), "signal_contract": _component_signal_contract(), "projection_source": _component_projection_source(run, row)},
+        metadata={
+            "signals": signals,
+            "metrics": _dict(row.get("metrics_json")),
+            "graph_projector_capabilities": _graph_projector_capabilities(row),
+            "graph_projector_payloads": _graph_projector_payloads(row),
+            "signal_contract": _component_signal_contract(),
+            "projection_source": _component_projection_source(run, row),
+        },
         badges=_component_badges(row),
         metrics={"signals": signals, "node_count": int(row["node_count"]), "changed_node_count": int(row["changed_node_count"])},
         evidence_refs=[_component_ref(run, component_id)],
@@ -314,6 +354,60 @@ def _component_node_from_row(run: Mapping[str, Any], row: Mapping[str, Any]) -> 
         confidence=max_signal / 100 if max_signal else 0.5,
         source_refs=[_component_ref(run, component_id)],
     )
+
+
+def _component_signal_node_from_payload(
+    run: Mapping[str, Any],
+    component_id: int,
+    signal_name: str,
+    payload: Mapping[str, Any],
+) -> WorkbenchNode:
+    score = _signal_payload_score(signal_name, payload)
+    label = {
+        "profile": "Component profile",
+        "drift": "Drift",
+        "bridge": "Bridge pressure",
+        "outlier": "Outliers",
+        "coverage": "Coverage",
+    }.get(signal_name, signal_name.replace("_", " ").title())
+    return WorkbenchNode(
+        id=_component_signal_node_id(run, component_id, signal_name),
+        entity_key=f"surface-component-signal:{run['id']}:{component_id}:{signal_name}",
+        node_type="surface_component_graph_signal",
+        label=label,
+        caption="Neo4j/GDS graph-projector signal",
+        properties={
+            "analysis_run_id": str(run["id"]),
+            "component_id": component_id,
+            "signal_name": signal_name,
+            "signal_score": score,
+            "graph_projector_payload": dict(payload),
+            "projection_source": "neo4j_gds_materialized",
+            "source_quality": "graph_projector_gds",
+        },
+        metadata={"payload": dict(payload), "source": "graph_projector_surface_gds", "signal_name": signal_name},
+        badges=["gds", signal_name],
+        metrics={"signal_score": score} if score is not None else {},
+        evidence_refs=[_component_ref(run, component_id)],
+        staleness="fresh",
+        confidence=float(score or 0) / 100 if score is not None else 0.5,
+        source_refs=[_component_ref(run, component_id)],
+    )
+
+
+def _signal_payload_score(signal_name: str, payload: Mapping[str, Any]) -> int | None:
+    keys = {
+        "profile": ("structural_pressure_score",),
+        "drift": ("drift_score",),
+        "bridge": ("bridge_pressure_score",),
+        "outlier": ("outlier_score",),
+        "coverage": ("coverage_score", "exploration_priority_score"),
+    }.get(signal_name, ("score",))
+    for key in keys:
+        value = payload.get(key)
+        if value is not None:
+            return _optional_int(value)
+    return None
 
 
 def _candidate_node_from_payload(
@@ -508,6 +602,10 @@ def _component_node_id(run: Mapping[str, Any], component_id: int) -> str:
 
 def _candidate_node_id(run: Mapping[str, Any], component_id: int, index: int) -> str:
     return f"candidate:{run['id']}:{component_id}:{index}"
+
+
+def _component_signal_node_id(run: Mapping[str, Any], component_id: int, signal_name: str) -> str:
+    return f"component-signal:{run['id']}:{component_id}:{signal_name}"
 
 
 def _component_entity_key(run: Mapping[str, Any], component_id: int) -> str:

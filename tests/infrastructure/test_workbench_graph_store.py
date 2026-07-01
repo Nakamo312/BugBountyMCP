@@ -167,16 +167,22 @@ def test_workbench_component_mapper_builds_analysis_component_candidate_graph_wi
     assert [node.node_type for node in nodes] == [
         "surface_component_analysis_run",
         "surface_component",
+        "surface_component_graph_signal",
         "surface_component_action_candidate",
     ]
     component = nodes[1]
-    candidate = nodes[2]
+    graph_signal = nodes[2]
+    candidate = nodes[3]
     assert component.entity_key == f"surface-component:{run['id']}:7"
     assert component.metadata["signals"]["exploration_pressure"] == 70
+    assert component.metadata["graph_projector_capabilities"]["component_profile"] is True
     assert component.metadata["signal_contract"]["calibration_status"] == "uncalibrated"
+    assert graph_signal.node_type == "surface_component_graph_signal"
+    assert graph_signal.properties["projection_source"] == "neo4j_gds_materialized"
+    assert graph_signal.metadata["source"] == "graph_projector_surface_gds"
     assert candidate.label == "katana / safe-crawl"
     assert candidate.confidence == 0.61
-    assert {edge.relationship_type for edge in edges} == {"HAS_COMPONENT", "SUGGESTS_ACTION"}
+    assert {edge.relationship_type for edge in edges} == {"HAS_COMPONENT", "HAS_GRAPH_SIGNAL", "SUGGESTS_ACTION"}
     assert all(edge.source_projection == "surface_component_analysis" for edge in edges)
 
 

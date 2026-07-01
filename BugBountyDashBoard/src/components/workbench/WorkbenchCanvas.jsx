@@ -11,6 +11,8 @@ const colorByType = {
   service: '#334155',
   route_family: '#2563eb',
   surface_component: '#7c3aed',
+  surface_component_graph_signal: '#9333ea',
+  surface_component_action_candidate: '#ea580c',
   endpoint: '#059669',
   route_template: '#0891b2',
   param: '#d97706',
@@ -28,6 +30,8 @@ const radiusByType = {
   service: 6,
   route_family: 5.5,
   surface_component: 7,
+  surface_component_graph_signal: 4.2,
+  surface_component_action_candidate: 4,
   endpoint: 3.6,
   route_template: 4,
   param: 3,
@@ -228,6 +232,7 @@ const GraphLegend = memo(({ hiddenNodeCount, mode, totalNodes }) => (
       <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-slate-900" /> host</span>
       <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-blue-600" /> route family</span>
       <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-green-600" /> endpoint 2xx</span>
+      <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-purple-600" /> GDS signal</span>
       <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-orange-500" /> 4xx/redirect</span>
     </div>
   </div>
@@ -261,6 +266,14 @@ const EmptyCanvas = () => (
       <div className="mt-1 text-sm text-gray-500">Use Workbench data setup to build the read model.</div>
     </div>
   </div>
+)
+
+const CanvasBoundsStyle = () => (
+  <style>{`
+    .workbench-canvas-bounds { contain: layout paint size; }
+    .workbench-canvas-bounds > div { max-width: 100% !important; max-height: 100% !important; overflow: hidden !important; }
+    .workbench-canvas-bounds canvas { display: block !important; max-width: 100% !important; max-height: 100% !important; }
+  `}</style>
 )
 
 const GraphContextMenu = ({ menu, onClose, onInspect, onFocus, onCopyKey, onFilterType }) => {
@@ -427,7 +440,14 @@ const WorkbenchCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode, onCop
   }, [hoverNode, selectedId])
 
   return (
-    <div ref={containerRef} className="workbench-canvas-bounds relative isolate h-full w-full overflow-hidden bg-gray-50" data-testid="workbench-canvas-bounds">
+    <div
+      ref={containerRef}
+      className="workbench-canvas-bounds relative isolate z-0 h-full w-full min-w-0 overflow-hidden bg-gray-50"
+      data-testid="workbench-canvas-bounds"
+      onMouseDownCapture={(event) => event.stopPropagation()}
+      onClickCapture={(event) => event.stopPropagation()}
+    >
+      <CanvasBoundsStyle />
       {!canvasGraph.nodes.length ? (
         <EmptyCanvas />
       ) : (

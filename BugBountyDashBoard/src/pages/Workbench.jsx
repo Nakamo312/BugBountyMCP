@@ -163,7 +163,7 @@ const Workbench = () => {
           savedViews={savedViews}
           onApplyView={applySavedView}
         />
-        <div className="relative z-0 h-full min-w-0 overflow-hidden bg-gray-50">
+        <div className="relative z-0 isolate h-full min-w-0 overflow-hidden bg-gray-50" style={{ contain: 'layout paint size' }}>
           {loading && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70">
               <Loader className="animate-spin text-primary-500" size={32} />

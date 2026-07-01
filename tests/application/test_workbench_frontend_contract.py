@@ -203,6 +203,12 @@ def test_surface_components_page_can_materialize_latest_without_manual_snapshot_
     assert "Neo4j/GDS materialized" in page
     assert "degraded fallback" in page
     assert "Why inspect this component" in page
+    assert "Graph-projector lanes" in page
+    assert "Bridge-heavy" in page
+    assert "Outliers" in page
+    assert "Low coverage" in page
+    assert "Action candidates" in page
+    assert "Materialized graph-projector data" in page
 
 
 def test_workbench_canvas_uses_progressive_investigation_controls_for_dense_graphs() -> None:
@@ -238,7 +244,10 @@ def test_workbench_deep_links_component_lens_and_keeps_canvas_inside_bounds() ->
     assert "workbench-canvas-bounds" in canvas
     assert "overflow-hidden bg-gray-50" in canvas
     assert "pointer-events-auto" in panels
-    assert "relative z-20" in panels
+    assert "relative z-30" in panels
+    assert "onMouseDownCapture={(event) => event.stopPropagation()}" in panels
+    assert "contain: layout paint size" in canvas
+    assert "max-width: 100% !important" in canvas
 
 
 def test_surface_components_exposes_graph_projector_source_instead_of_raw_score_dump() -> None:

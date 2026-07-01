@@ -98,6 +98,98 @@ const signalReasons = (item, report) => {
   return reasons.slice(0, 4)
 }
 
+const hasMetricPayload = (item, key) => {
+  const payload = item?.metrics?.[key]
+  return payload && typeof payload === 'object' && Object.keys(payload).length > 0
+}
+
+const graphProjectorCapabilities = (item) => ({
+  profile: hasMetricPayload(item, 'profile'),
+  drift: hasMetricPayload(item, 'drift'),
+  bridge: hasMetricPayload(item, 'bridge'),
+  outlier: hasMetricPayload(item, 'outlier'),
+  coverage: hasMetricPayload(item, 'coverage'),
+  candidates: (item?.action_candidates || []).length > 0,
+})
+
+const enabledCapabilities = (item) => Object.entries(graphProjectorCapabilities(item))
+  .filter(([, enabled]) => enabled)
+  .map(([name]) => name)
+
+const topBySignal = (items, signalName, predicate = (value) => value != null) => [...items]
+  .filter((item) => predicate(signalValue(item.signals, signalName)))
+  .sort((a, b) => (signalValue(b.signals, signalName) ?? -1) - (signalValue(a.signals, signalName) ?? -1))
+  .slice(0, 5)
+
+const GraphProjectorLanes = ({ report, items }) => {
+  if (!report) return null
+  const fallback = isFallbackReport(report)
+  const lanes = [
+    { id: 'bridge', label: 'Bridge-heavy', items: topBySignal(items, 'bridge_pressure', (value) => (value ?? 0) >= 50), description: 'Connector components from graph-projector bridge analysis.' },
+    { id: 'outlier', label: 'Outliers', items: topBySignal(items, 'outlier', (value) => (value ?? 0) >= 50), description: 'Unusual component neighborhoods from similarity/outlier analysis.' },
+    { id: 'coverage', label: 'Low coverage', items: topBySignal(items, 'coverage', (value) => value != null && value < 60).reverse(), description: 'Components where graph-projector coverage says more exploration may help.' },
+    { id: 'drift', label: 'Drift / changed', items: topBySignal(items, 'drift', (value) => (value ?? 0) > 0).concat(items.filter((item) => (item.changed_node_count || 0) > 0)).slice(0, 5), description: 'Components with drift score or changed nodes.' },
+    { id: 'candidates', label: 'Action candidates', items: [...items].filter((item) => (item.action_candidates || []).length > 0).slice(0, 5), description: 'Backend materialized candidate action signals.' },
+  ]
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Graph-projector lanes</h2>
+          <p className="mt-1 text-sm text-gray-500">These buckets expose what Neo4j/GDS materialized for triage: bridges, outliers, coverage, drift, and candidate actions.</p>
+        </div>
+        {fallback && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">degraded: GDS lanes unavailable</span>}
+      </div>
+      <div className="mt-4 grid gap-3 xl:grid-cols-5 md:grid-cols-2">
+        {lanes.map((lane) => (
+          <section key={lane.id} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-gray-900">{lane.label}</div>
+              <span className="rounded bg-white px-2 py-0.5 text-xs text-gray-600">{fallback ? 'n/a' : lane.items.length}</span>
+            </div>
+            <p className="mt-1 min-h-[32px] text-xs text-gray-500">{fallback ? 'Neo4j/GDS was not available for this report.' : lane.description}</p>
+            <div className="mt-3 space-y-2">
+              {!fallback && lane.items.length > 0 ? lane.items.map((item) => (
+                <Link
+                  key={`${lane.id}-${item.component_id}`}
+                  to={workbenchComponentUrl(report, item)}
+                  className="block rounded border border-gray-200 bg-white px-2 py-1.5 text-xs hover:border-primary-200 hover:bg-primary-50"
+                >
+                  <div className="font-semibold text-gray-800">Component {item.component_id}</div>
+                  <div className="mt-0.5 text-gray-500">{item.node_count} nodes · signal {signalValue(item.signals, lane.id === 'bridge' ? 'bridge_pressure' : lane.id === 'candidates' ? 'exploration_pressure' : lane.id) ?? 'n/a'}</div>
+                </Link>
+              )) : (
+                <div className="rounded border border-dashed border-gray-200 bg-white px-2 py-2 text-xs text-gray-400">No lane items</div>
+              )}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const ComponentSignalPayloads = ({ item, report }) => {
+  const capabilities = enabledCapabilities(item)
+  const fallback = isFallbackReport(report)
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Materialized graph-projector data</div>
+      {fallback ? (
+        <p className="mt-2 text-sm text-amber-800">Fallback grouping only. Neo4j/GDS profile, bridge, outlier, coverage, drift and candidate payloads are not authoritative here.</p>
+      ) : capabilities.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {capabilities.map((capability) => (
+            <span key={capability} className="rounded bg-white px-2 py-1 text-xs font-semibold text-purple-700 shadow-sm">{capability}</span>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-sm text-gray-500">No graph-projector payloads were materialized for this component.</p>
+      )}
+    </div>
+  )
+}
+
 const GraphProjectionBanner = ({ report, boundary }) => {
   if (!report) return null
   const fallback = isFallbackReport(report)
@@ -171,6 +263,10 @@ const ComponentCard = ({ item, report }) => {
       <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
         <ScoreBadge label="Structural pressure" value={signalValue(signals, 'structural_pressure')} />
         <ScoreBadge label="Drift" value={signalValue(signals, 'drift')} />
+      </div>
+
+      <div className="mt-4">
+        <ComponentSignalPayloads item={item} report={report} />
       </div>
 
       {candidates.length > 0 ? (
@@ -433,6 +529,8 @@ const SurfaceComponents = () => {
           </div>
 
           <GraphProjectionBanner report={report} boundary={boundary} />
+
+          <GraphProjectorLanes report={report} items={items} />
 
           <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
