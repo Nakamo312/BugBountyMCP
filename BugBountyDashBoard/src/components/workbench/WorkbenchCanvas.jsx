@@ -1,8 +1,9 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
 
-const DENSE_GRAPH_LIMIT = 900
-const FOCUSED_NEIGHBOR_LIMIT = 160
+const DETAIL_GRAPH_LIMIT = 180
+const OVERVIEW_NODE_LIMIT = 220
+const FOCUSED_NEIGHBOR_LIMIT = 180
 
 const colorByType = {
   program: '#111827',
@@ -34,7 +35,8 @@ const radiusByType = {
   artifact_ref: 2.8,
 }
 
-const importantTypes = new Set(['program', 'host', 'service', 'route_family', 'surface_component'])
+const overviewTypes = new Set(['program', 'host', 'service', 'route_family', 'surface_component'])
+const alwaysLabelTypes = new Set(['program', 'host', 'surface_component'])
 
 const nodeKey = (node) => String(node?.id || '')
 
@@ -108,7 +110,7 @@ const normalizeGraph = (graph) => {
 
 const scoreNode = (node) => {
   let score = 0
-  if (importantTypes.has(node?.node_type)) score += 1000
+  if (overviewTypes.has(node?.node_type)) score += 1000
   score += Number(node?.metrics?.surface_node_count || 0) * 10
   score += Number(node?.evidence_refs?.length || 0)
   score += Number(node?.action_affordance_count || 0) * 4
@@ -118,10 +120,6 @@ const scoreNode = (node) => {
 
 const selectCanvasGraph = (graph, selectedNode) => {
   const normalized = normalizeGraph(graph)
-  if (normalized.nodes.length <= DENSE_GRAPH_LIMIT) {
-    return { ...normalized, hiddenNodeCount: 0, mode: 'investigation' }
-  }
-
   const nodeById = new Map(normalized.nodes.map((node) => [node.id, node]))
   const adjacency = buildAdjacency(normalized.links)
   const visibleIds = new Set()
@@ -135,12 +133,14 @@ const selectCanvasGraph = (graph, selectedNode) => {
       .sort((a, b) => scoreNode(b) - scoreNode(a))
       .slice(0, FOCUSED_NEIGHBOR_LIMIT)
       .forEach((node) => visibleIds.add(node.id))
-  } else {
+  } else if (normalized.nodes.length > DETAIL_GRAPH_LIMIT) {
     normalized.nodes
-      .filter((node) => importantTypes.has(node.node_type) || node?.metadata?.ui_grouping)
+      .filter((node) => overviewTypes.has(node.node_type) || node?.metadata?.ui_grouping)
       .sort((a, b) => scoreNode(b) - scoreNode(a))
-      .slice(0, 220)
+      .slice(0, OVERVIEW_NODE_LIMIT)
       .forEach((node) => visibleIds.add(node.id))
+  } else {
+    normalized.nodes.forEach((node) => visibleIds.add(node.id))
   }
 
   const nodes = normalized.nodes.filter((node) => visibleIds.has(node.id))
@@ -149,7 +149,7 @@ const selectCanvasGraph = (graph, selectedNode) => {
     nodes,
     links,
     hiddenNodeCount: Math.max(0, normalized.nodes.length - nodes.length),
-    mode: selectedId ? 'focused' : 'overview',
+    mode: selectedId ? 'focused' : normalized.nodes.length > DETAIL_GRAPH_LIMIT ? 'overview' : 'investigation',
   }
 }
 
@@ -195,7 +195,7 @@ const GraphLegend = memo(({ hiddenNodeCount, mode, totalNodes }) => (
   <div className="pointer-events-none absolute left-4 top-4 z-10 max-w-xl rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs text-slate-700 shadow-sm backdrop-blur">
     <div className="font-semibold text-slate-900">Investigation graph</div>
     <div className="mt-1">
-      Canvas renderer, hover/select to reveal labels, double click to focus. {hiddenNodeCount > 0 ? `${hiddenNodeCount} low-signal nodes hidden in ${mode} mode.` : `${totalNodes} nodes loaded without card-grid rendering.`}
+      Canvas renderer, hover/select to reveal labels, double click to focus. {hiddenNodeCount > 0 ? `${hiddenNodeCount} detail nodes hidden in ${mode} mode.` : `${totalNodes} nodes loaded.`}
     </div>
     <div className="mt-2 flex flex-wrap gap-2">
       <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-slate-900" /> host</span>
@@ -292,9 +292,19 @@ const WorkbenchCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode, onCop
 
   useEffect(() => {
     if (!graphRef.current || !canvasGraph.nodes.length) return
-    const timer = window.setTimeout(() => graphRef.current?.zoomToFit?.(450, 60), 350)
+    const graphApi = graphRef.current
+    graphApi.d3Force?.('charge')?.strength?.(canvasGraph.mode === 'focused' ? -150 : -260)
+    graphApi.d3Force?.('link')?.distance?.((link) => {
+      const sourceType = typeof link.source === 'object' ? link.source.node_type : ''
+      const targetType = typeof link.target === 'object' ? link.target.node_type : ''
+      if (sourceType === 'host' || targetType === 'host') return 95
+      if (sourceType === 'route_family' || targetType === 'route_family') return 55
+      return 38
+    })
+    graphApi.d3ReheatSimulation?.()
+    const timer = window.setTimeout(() => graphApi.zoomToFit?.(450, 80), 450)
     return () => window.clearTimeout(timer)
-  }, [canvasGraph.nodes.length, canvasGraph.links.length])
+  }, [canvasGraph.mode, canvasGraph.nodes.length, canvasGraph.links.length])
 
   useEffect(() => {
     if (!graphRef.current || !selectedId) return
@@ -331,7 +341,7 @@ const WorkbenchCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode, onCop
     const selected = node.id === selectedId
     const hovered = node.id === hoverNode?.id
     const neighbor = highlightedNeighbors.has(node.id)
-    const important = importantTypes.has(node.node_type) || Boolean(node?.metadata?.ui_grouping)
+    const alwaysLabel = alwaysLabelTypes.has(node.node_type)
     const dimmed = (hoverNode || selectedId) && !selected && !hovered && !neighbor
     const radius = nodeRadius(node) * (selected ? 1.75 : hovered ? 1.45 : 1)
 
@@ -344,13 +354,15 @@ const WorkbenchCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode, onCop
     ctx.strokeStyle = selected ? '#2563eb' : hovered ? '#111827' : 'rgba(255,255,255,0.9)'
     ctx.stroke()
 
-    if (selected || hovered || important || (globalScale > 1.1 && !dimmed)) {
+    const sparseEnoughForLabels = canvasGraph.nodes.length <= 80
+    const zoomedEnoughForGroupLabels = globalScale > 1.9 && canvasGraph.nodes.length <= 160 && node.node_type !== 'endpoint'
+    if (selected || hovered || alwaysLabel || (sparseEnoughForLabels && globalScale > 1.35 && !dimmed) || (zoomedEnoughForGroupLabels && !dimmed)) {
       drawLabel(ctx, node.label || node.id, node.x || 0, node.y || 0, globalScale, {
         size: selected || hovered ? 12 : 10,
         weight: selected || hovered ? 700 : 600,
         offsetY: radius + 4,
         color: selected ? '#1d4ed8' : '#111827',
-        max: selected || hovered ? 56 : 32,
+        max: selected || hovered ? 56 : 24,
       })
     }
 

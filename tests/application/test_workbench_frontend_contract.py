@@ -200,9 +200,12 @@ def test_surface_components_page_can_materialize_latest_without_manual_snapshot_
 def test_workbench_canvas_uses_progressive_investigation_controls_for_dense_graphs() -> None:
     canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
 
-    assert "DENSE_GRAPH_LIMIT" in canvas
+    assert "DETAIL_GRAPH_LIMIT" in canvas
+    assert "OVERVIEW_NODE_LIMIT" in canvas
     assert "selectCanvasGraph" in canvas
     assert "Canvas renderer, hover/select to reveal labels" in canvas
+    assert "alwaysLabelTypes" in canvas
+    assert "zoomedEnoughForGroupLabels" in canvas
     assert "double click to focus" in canvas
     assert "onNodeDoubleClick" in canvas
     assert "zoomToFit" in canvas

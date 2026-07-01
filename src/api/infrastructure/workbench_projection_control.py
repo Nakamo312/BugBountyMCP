@@ -425,7 +425,7 @@ def _local_component_fingerprint(*, program_id: UUID, snapshot_id: UUID, grouped
 
 
 def _friendly_projection_error(message: str) -> str:
-    cleaned = _redact_text(str(message or ""))
+    cleaned = _redact_runtime_text(str(message or ""))
     if "Name or service not known" in cleaned or "getaddrinfo" in cleaned or "Failed to resolve" in cleaned:
         return "Neo4j is not reachable from the API container. The dashboard used the local Surface Map fallback."
     return cleaned[:600]

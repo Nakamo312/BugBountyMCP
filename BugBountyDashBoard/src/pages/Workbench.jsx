@@ -23,6 +23,7 @@ const Workbench = () => {
   const { selectedProgram } = useProgram()
   const [filterQuery, setFilterQuery] = useState('')
   const [savedViews, setSavedViews] = useState([])
+  const [showReadModelDetails, setShowReadModelDetails] = useState(false)
   const programId = selectedProgram?.id
   const {
     actions,
@@ -150,7 +151,7 @@ const Workbench = () => {
         <CountBadge label="Pending proposals" value={counts.experience_proposals_pending} />
       </div>
 
-      <div className="grid h-[720px] grid-cols-[290px_minmax(0,1fr)_360px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="grid h-[calc(100vh-300px)] min-h-[760px] grid-cols-[270px_minmax(0,1fr)_340px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <NodeList
           graph={graph}
           selectedNode={selectedNode}
@@ -186,20 +187,38 @@ const Workbench = () => {
         />
       </div>
 
-      <LowerEvidencePanel
-        actions={actions}
-        memory={memory}
-        evidencePack={evidencePack}
-        selectedNode={selectedNode}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+        <div>
+          <div className="text-sm font-semibold text-gray-900">Evidence and acceptance details</div>
+          <div className="text-xs text-gray-500">Kept collapsed by default so the graph remains the primary workspace. Inspector tabs show the useful entity details.</div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowReadModelDetails((value) => !value)}
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+        >
+          {showReadModelDetails ? 'Hide read-model details' : 'Show evidence / memory details'}
+        </button>
+      </div>
 
-      <WorkbenchAnswerCoverage
-        entity={entity}
-        actions={actions}
-        memory={memory}
-        evidencePack={evidencePack}
-        selectedNode={selectedNode}
-      />
+      {showReadModelDetails && (
+        <>
+          <LowerEvidencePanel
+            actions={actions}
+            memory={memory}
+            evidencePack={evidencePack}
+            selectedNode={selectedNode}
+          />
+
+          <WorkbenchAnswerCoverage
+            entity={entity}
+            actions={actions}
+            memory={memory}
+            evidencePack={evidencePack}
+            selectedNode={selectedNode}
+          />
+        </>
+      )}
     </div>
   )
 }
