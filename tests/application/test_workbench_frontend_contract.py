@@ -157,3 +157,35 @@ def test_workbench_frontend_can_refresh_missing_read_models_without_manual_ids()
     assert "runProjectionRefresh" in hook
     assert "operation" in hook
     assert "snapshot_id" not in hook
+
+
+def test_workbench_surface_canvas_uses_layered_graph_layout_not_plain_grid_cards() -> None:
+    canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
+
+    assert "nodePositionMap" in canvas
+    assert "rankForNode" in canvas
+    assert "route_family" in canvas
+    assert "smoothstep" in canvas
+    assert "const columns =" not in canvas
+    assert "nodePosition(index)" not in canvas
+
+
+def test_workbench_inspector_prefers_readable_profile_summary_over_empty_json_blob() -> None:
+    panels = _read("BugBountyDashBoard/src/components/workbench/WorkbenchPanels.jsx")
+
+    assert "KeyValueGrid" in panels
+    assert "Raw profile DTO" in panels
+    assert "Host" in panels
+    assert "Route" in panels
+    assert "Surface nodes" in panels
+
+
+def test_surface_components_page_can_materialize_latest_without_manual_snapshot_id() -> None:
+    page = _read("BugBountyDashBoard/src/pages/SurfaceComponents.jsx")
+
+    assert "Component data setup" in page
+    assert "Materialize latest components" in page
+    assert "Build surface + components" in page
+    assert "backend resolves snapshot ids" in page
+    assert "Advanced: load a specific snapshot by UUID" in page
+    assert "runWorkbenchProjectionRefresh" in page

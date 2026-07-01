@@ -6,6 +6,7 @@ import {
   Clipboard,
   GitBranch,
   Loader,
+  PlayCircle,
   RefreshCw,
   Search,
 } from 'lucide-react'
@@ -13,6 +14,7 @@ import { useProgram } from '../context/ProgramContext'
 import {
   getLatestSurfaceComponentAnalysis,
   getSurfaceComponentAnalysis,
+  runWorkbenchProjectionRefresh,
 } from '../services/api'
 
 const signalClass = (value) => {
@@ -128,6 +130,8 @@ const SurfaceComponents = () => {
   const [report, setReport] = useState(null)
   const [boundary, setBoundary] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [materializing, setMaterializing] = useState(false)
+  const [projectionResult, setProjectionResult] = useState(null)
   const [error, setError] = useState(null)
 
   const items = report?.items || []
@@ -181,6 +185,25 @@ const SurfaceComponents = () => {
     }
   }
 
+  const materializeLatest = async (operation = 'materialize_components') => {
+    if (!selectedProgram) return
+    setMaterializing(true)
+    setProjectionResult(null)
+    setError(null)
+    try {
+      const response = await runWorkbenchProjectionRefresh({
+        program_id: selectedProgram.id,
+        operation,
+      })
+      setProjectionResult(response.data)
+      await loadLatest()
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Failed to materialize surface component analysis')
+    } finally {
+      setMaterializing(false)
+    }
+  }
+
   useEffect(() => {
     if (selectedProgram) {
       loadLatest()
@@ -223,52 +246,103 @@ const SurfaceComponents = () => {
         </button>
       </div>
 
-      <form onSubmit={loadSnapshot} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <label className="block">
-            <span className="text-sm font-medium text-gray-700">Snapshot ID</span>
-            <input
-              value={snapshotId}
-              onChange={(event) => setSnapshotId(event.target.value)}
-              placeholder="current snapshot UUID"
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
-            />
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-gray-700">Previous Snapshot ID</span>
-            <input
-              value={previousSnapshotId}
-              onChange={(event) => setPreviousSnapshotId(event.target.value)}
-              placeholder="optional previous snapshot UUID"
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
-            />
-          </label>
-          <div className="flex items-end gap-2">
+      <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-blue-950">
+              <PlayCircle size={16} />
+              Component data setup
+            </div>
+            <p className="mt-1 max-w-3xl text-sm text-blue-800">
+              Build component analysis from the latest Surface Map snapshot. The backend resolves snapshot ids; this page should not make you paste UUIDs or run graph-projector commands.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
             <button
-              type="submit"
-              disabled={loading || !snapshotId.trim()}
-              className="flex items-center space-x-2 rounded-lg bg-gray-900 px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
+              type="button"
+              onClick={() => materializeLatest('materialize_components')}
+              disabled={materializing}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
             >
-              <Search size={16} />
-              <span>Load snapshot</span>
+              {materializing ? <Loader className="animate-spin" size={16} /> : <PlayCircle size={16} />}
+              <span>Materialize latest components</span>
             </button>
-            {report?.snapshot_id && (
-              <button
-                type="button"
-                onClick={() => copyToClipboard(report.snapshot_id)}
-                className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-50"
-                title="Copy snapshot id"
-              >
-                <Clipboard size={16} />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => materializeLatest('refresh_workbench')}
+              disabled={materializing}
+              className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+            >
+              {materializing ? <Loader className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+              <span>Build surface + components</span>
+            </button>
           </div>
         </div>
-      </form>
+
+        {projectionResult && (
+          <div className="mt-3 rounded-lg border border-blue-100 bg-white p-3 text-xs text-blue-900">
+            <div className="font-semibold">{projectionResult.status}: {projectionResult.message}</div>
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              {(projectionResult.steps || []).map((step) => (
+                <div key={step.step_id} className="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                  <div className="font-semibold text-gray-900">{step.step_id} · {step.status}</div>
+                  <div className="mt-1 text-gray-600">{step.message}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <details className="mt-4 rounded-lg border border-blue-100 bg-white p-3">
+          <summary className="cursor-pointer text-xs font-semibold text-blue-900">Advanced: load a specific snapshot by UUID</summary>
+          <form onSubmit={loadSnapshot} className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Snapshot ID</span>
+              <input
+                value={snapshotId}
+                onChange={(event) => setSnapshotId(event.target.value)}
+                placeholder="current snapshot UUID"
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700">Previous Snapshot ID</span>
+              <input
+                value={previousSnapshotId}
+                onChange={(event) => setPreviousSnapshotId(event.target.value)}
+                placeholder="optional previous snapshot UUID"
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+              />
+            </label>
+            <div className="flex items-end gap-2">
+              <button
+                type="submit"
+                disabled={loading || !snapshotId.trim()}
+                className="flex items-center space-x-2 rounded-lg bg-gray-900 px-4 py-2 text-white hover:bg-gray-800 disabled:opacity-50"
+              >
+                <Search size={16} />
+                <span>Load snapshot</span>
+              </button>
+              {report?.snapshot_id && (
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(report.snapshot_id)}
+                  className="rounded-lg border border-gray-300 p-2 text-gray-600 hover:bg-gray-50"
+                  title="Copy snapshot id"
+                >
+                  <Clipboard size={16} />
+                </button>
+              )}
+            </div>
+          </form>
+        </details>
+      </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {error}
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <div className="font-semibold">Component analysis is not ready.</div>
+          <div className="mt-1">{error}</div>
+          <div className="mt-2 text-xs">Use the setup buttons above; snapshot ids are resolved by the backend.</div>
         </div>
       )}
 

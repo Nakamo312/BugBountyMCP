@@ -80,6 +80,26 @@ def test_workbench_edge_mapper_exposes_relationship_not_cypher_shape() -> None:
     assert edge.source_projection == "surface_map"
 
 
+
+def test_workbench_surface_adds_ui_grouping_when_persisted_edges_are_absent() -> None:
+    row_a = _row(host="example.com", path="/api/users/1", route_template="/api/users/{id}")
+    row_b = _row(host="example.com", path="/api/orders/1", route_template="/api/orders/{id}")
+
+    group_nodes, group_edges = workbench_surface._surface_ui_grouping([row_a, row_b])
+
+    assert {node.node_type for node in group_nodes} == {"host", "route_family"}
+    assert any(node.label == "example.com" for node in group_nodes)
+    assert any(node.label == "/api/*" for node in group_nodes)
+    assert {edge.relationship_type for edge in group_edges} == {"HAS_ROUTE_FAMILY", "CONTAINS_SURFACE_NODE"}
+    assert all(edge.source_projection == "surface_map_ui_grouping" for edge in group_edges)
+
+
+def test_workbench_surface_entity_lookup_has_sqlalchemy_or_import() -> None:
+    source = workbench_surface.__loader__.get_source(workbench_surface.__name__)
+
+    assert "from sqlalchemy import bindparam, desc, func, or_, select" in source
+    assert ".where(or_(*predicates))" in source
+
 def test_workbench_graph_store_delegates_surface_map_tables_to_surface_module() -> None:
     main_source = workbench_store.__loader__.get_source(workbench_store.__name__)
     surface_source = workbench_surface.__loader__.get_source(workbench_surface.__name__)

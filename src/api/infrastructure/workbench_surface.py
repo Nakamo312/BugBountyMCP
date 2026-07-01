@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import base64
+import re
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import bindparam, desc, func, select
+from sqlalchemy import bindparam, desc, func, or_, select
 
 from api.application.workbench import (
     WorkbenchActionAffordanceList,
@@ -96,21 +98,31 @@ async def build_surface_lens_graph(
         for row in edge_rows
         if _node_id(row["src_node_id"]) in valid_node_ids and _node_id(row["dst_node_id"]) in valid_node_ids
     ]
+    ui_nodes: list[WorkbenchNode] = []
+    ui_edges: list[WorkbenchEdge] = []
+    if not edges and not seed and len(nodes) > 1:
+        ui_nodes, ui_edges = _surface_ui_grouping(node_rows)
+
     return WorkbenchGraph(
         program_id=program_id,
         lens=WorkbenchLens.SURFACE,
         snapshot_id=snapshot["id"],
         seed=seed,
         depth=depth,
-        nodes=nodes,
-        edges=edges,
+        nodes=[*ui_nodes, *nodes],
+        edges=[*ui_edges, *edges],
         counts={
             "nodes": len(nodes),
             "edges": len(edges),
+            "ui_group_nodes": len(ui_nodes),
+            "ui_group_edges": len(ui_edges),
             "snapshot_nodes_total": int(snapshot.get("node_count") or 0),
             "snapshot_edges_total": int(snapshot.get("edge_count") or 0),
         },
-        boundary=workbench_read_boundary(surface="surface_lens_graph"),
+        boundary={
+            **workbench_read_boundary(surface="surface_lens_graph"),
+            "ui_grouping": "derived_from_surface_node_properties_when_persisted_edges_are_absent",
+        },
     )
 
 
@@ -119,6 +131,8 @@ async def surface_entity_profile(session_factory, *, program_id: UUID, entity_ke
         snapshot = await _latest_snapshot(session, program_id)
         if snapshot is None:
             return None
+        if _is_surface_ui_group_key(entity_key):
+            return await _surface_ui_group_profile(session, program_id, snapshot["id"], entity_key)
         row = await _entity_node(session, program_id, snapshot["id"], entity_key)
         if row is None:
             return None
@@ -162,6 +176,13 @@ async def surface_entity_actions(
         snapshot = await _latest_snapshot(session, program_id)
         if snapshot is None:
             return None
+        if _is_surface_ui_group_key(entity_key):
+            return WorkbenchActionAffordanceList(
+                program_id=program_id,
+                entity_key=entity_key,
+                actions=[],
+                boundary=workbench_read_boundary(surface="surface_ui_group_actions_read_only"),
+            )
         row = await _entity_node(session, program_id, snapshot["id"], entity_key)
         if row is None:
             return None
@@ -189,6 +210,8 @@ async def surface_entity_memory(
         snapshot = await _latest_snapshot(session, program_id)
         if snapshot is None:
             return None
+        if _is_surface_ui_group_key(entity_key):
+            return await _surface_ui_group_memory(session, program_id, snapshot["id"], entity_key)
         row = await _entity_node(session, program_id, snapshot["id"], entity_key)
         if row is None:
             return None
@@ -219,6 +242,268 @@ async def surface_entity_memory(
         evidence_refs=_dedupe_dicts(evidence_refs),
         boundary=workbench_read_boundary(surface="entity_memory_from_action_outcomes"),
     )
+
+
+def _surface_ui_grouping(node_rows: list[Mapping[str, Any]]) -> tuple[list[WorkbenchNode], list[WorkbenchEdge]]:
+    hosts: dict[str, list[Mapping[str, Any]]] = {}
+    families: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+    for row in node_rows:
+        host = _text(row.get("host")) or "unknown-host"
+        family = _path_family(row)
+        hosts.setdefault(host, []).append(row)
+        families.setdefault((host, family), []).append(row)
+
+    nodes: list[WorkbenchNode] = []
+    edges: list[WorkbenchEdge] = []
+    for host, rows in sorted(hosts.items()):
+        nodes.append(_ui_group_node(
+            group_id=_ui_host_id(host),
+            entity_key=_ui_host_key(host),
+            node_type="host",
+            label=host,
+            caption=f"{len(rows)} surface nodes",
+            badges=["host", "ui-group"],
+            properties={"host": host, "derived_from": "surface_nodes"},
+            metrics={"surface_node_count": len(rows)},
+            rank=0,
+        ))
+
+    for (host, family), rows in sorted(families.items()):
+        family_id = _ui_family_id(host, family)
+        nodes.append(_ui_group_node(
+            group_id=family_id,
+            entity_key=_ui_family_key(host, family),
+            node_type="route_family",
+            label=family,
+            caption=f"{host} · {len(rows)} nodes",
+            badges=["route_family", "ui-group"],
+            properties={"host": host, "route_family": family, "derived_from": "surface_nodes"},
+            metrics={"surface_node_count": len(rows)},
+            rank=1,
+        ))
+        edges.append(_ui_group_edge(_ui_host_id(host), family_id, "HAS_ROUTE_FAMILY", "route family"))
+        for row in rows:
+            edges.append(_ui_group_edge(family_id, _node_id(row["id"]), "CONTAINS_SURFACE_NODE", "contains"))
+    return nodes, edges
+
+
+def _ui_group_node(
+    *,
+    group_id: str,
+    entity_key: str,
+    node_type: str,
+    label: str,
+    caption: str,
+    badges: list[str],
+    properties: dict[str, Any],
+    metrics: dict[str, Any],
+    rank: int,
+) -> WorkbenchNode:
+    return WorkbenchNode(
+        id=group_id,
+        entity_key=entity_key,
+        node_type=node_type,
+        label=label,
+        caption=caption,
+        properties=properties,
+        metadata={"derived": True, "ui_grouping": True},
+        visual={"role": "group", "rank": rank},
+        badges=badges,
+        metrics=metrics,
+        evidence_refs=[],
+        action_affordance_count=0,
+        staleness="fresh",
+        confidence=0.8,
+        source_refs=[{"type": "surface_ui_grouping", "id": entity_key}],
+    )
+
+
+def _ui_group_edge(source: str, target: str, relationship_type: str, label: str) -> WorkbenchEdge:
+    return WorkbenchEdge(
+        id=f"ui-edge:{source}:{target}",
+        source=source,
+        target=target,
+        relationship_type=relationship_type,
+        label=label,
+        confidence=0.8,
+        delta_state="unchanged",
+        source_projection="surface_map_ui_grouping",
+    )
+
+
+def _path_family(row: Mapping[str, Any]) -> str:
+    path = _text(row.get("route_template") or row.get("path")) or "/"
+    clean = path if path.startswith("/") else f"/{path}"
+    parts = [part for part in clean.strip("/").split("/") if part]
+    if not parts:
+        return "/"
+    first = parts[0]
+    return f"/{first}/*" if len(parts) > 1 else f"/{first}"
+
+
+def _is_surface_ui_group_key(entity_key: str) -> bool:
+    return entity_key.startswith("surface-ui:host:") or entity_key.startswith("surface-ui:family:")
+
+
+def _ui_host_key(host: str) -> str:
+    return f"surface-ui:host:{_pack_ui_value(host)}"
+
+
+def _ui_family_key(host: str, family: str) -> str:
+    return f"surface-ui:family:{_pack_ui_value(host)}:{_pack_ui_value(family)}"
+
+
+def _ui_host_id(host: str) -> str:
+    return f"ui:host:{_pack_ui_value(host)}"
+
+
+def _ui_family_id(host: str, family: str) -> str:
+    return f"ui:family:{_pack_ui_value(host)}:{_pack_ui_value(family)}"
+
+
+def _pack_ui_value(value: str) -> str:
+    return base64.urlsafe_b64encode(value.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _unpack_ui_value(value: str) -> str:
+    padded = value + "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+
+
+def _ui_group_parts(entity_key: str) -> tuple[str, str, str | None] | None:
+    parts = entity_key.split(":")
+    try:
+        if len(parts) == 3 and parts[:2] == ["surface-ui", "host"]:
+            host = _unpack_ui_value(parts[2])
+            return ("host", host, None)
+        if len(parts) == 4 and parts[:2] == ["surface-ui", "family"]:
+            host = _unpack_ui_value(parts[2])
+            family = _unpack_ui_value(parts[3])
+            return ("family", host, family)
+    except Exception:
+        return None
+    return None
+
+
+async def _surface_ui_group_profile(
+    session: Any,
+    program_id: UUID,
+    snapshot_id: UUID,
+    entity_key: str,
+) -> WorkbenchEntityProfile | None:
+    rows = await _rows_for_ui_group(session, program_id, snapshot_id, entity_key, limit=1000)
+    if rows is None:
+        return None
+    group = _ui_group_parts(entity_key)
+    if group is None:
+        return None
+    group_type, host, family = group
+    label = host if group_type == "host" else family or "route family"
+    node_types = _value_counts(row.get("node_type") for row in rows)
+    methods = _value_counts(row.get("method") for row in rows)
+    statuses = _value_counts(row.get("status_code") for row in rows)
+    examples = [_node_label(row, dict(row.get("features_json") or {})) for row in rows[:8]]
+    return WorkbenchEntityProfile(
+        program_id=program_id,
+        entity_key=entity_key,
+        profile={
+            "label": label,
+            "node_type": "surface_ui_group",
+            "group_type": group_type,
+            "host": host,
+            "route_family": family,
+            "snapshot_id": str(snapshot_id),
+            "surface_node_count": len(rows),
+            "node_types": node_types,
+            "methods": methods,
+            "status_codes": statuses,
+            "examples": examples,
+            "source_projection": "surface_map_ui_grouping",
+        },
+        properties={"host": host, "route_family": family, "derived_from": "surface_nodes"},
+        evidence_refs=[{"type": "surface_node", "id": str(row["id"])} for row in rows[:20]],
+        memory_pointers=[{"type": "surface_ui_grouping", "id": entity_key}],
+        boundary=workbench_read_boundary(surface="surface_ui_group_profile"),
+    )
+
+
+async def _surface_ui_group_memory(
+    session: Any,
+    program_id: UUID,
+    snapshot_id: UUID,
+    entity_key: str,
+) -> WorkbenchEntityMemory | None:
+    rows = await _rows_for_ui_group(session, program_id, snapshot_id, entity_key, limit=1000)
+    if rows is None:
+        return None
+    group = _ui_group_parts(entity_key)
+    if group is None:
+        return None
+    _, host, family = group
+    return WorkbenchEntityMemory(
+        program_id=program_id,
+        entity_key=entity_key,
+        fragments=[
+            {
+                "id": f"surface-ui-fragment:{entity_key}",
+                "kind": "surface_ui_group",
+                "entity_key": entity_key,
+                "host": host,
+                "route_family": family,
+                "surface_node_count": len(rows),
+                "examples": [_node_label(row, dict(row.get("features_json") or {})) for row in rows[:10]],
+            }
+        ],
+        tree_nodes=[
+            {
+                "id": f"surface-ui-tree:{entity_key}",
+                "kind": "surface_ui_group",
+                "label": family or host,
+                "summary_is_truth": False,
+            }
+        ],
+        summaries=[
+            {
+                "kind": "surface_ui_group_summary",
+                "surface_node_count": len(rows),
+                "summary_is_truth": False,
+            }
+        ],
+        evidence_refs=[{"type": "surface_node", "id": str(row["id"])} for row in rows[:20]],
+        boundary=workbench_read_boundary(surface="surface_ui_group_memory"),
+    )
+
+
+async def _rows_for_ui_group(
+    session: Any,
+    program_id: UUID,
+    snapshot_id: UUID,
+    entity_key: str,
+    *,
+    limit: int,
+) -> list[Mapping[str, Any]] | None:
+    group = _ui_group_parts(entity_key)
+    if group is None:
+        return None
+    group_type, host, family = group
+    rows = await _nodes_for_snapshot(session, program_id, snapshot_id, limit=limit)
+    if group_type == "host":
+        return [row for row in rows if (_text(row.get("host")) or "unknown-host") == host]
+    return [
+        row
+        for row in rows
+        if (_text(row.get("host")) or "unknown-host") == host and _path_family(row) == family
+    ]
+
+
+def _value_counts(values: object) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:  # type: ignore[assignment]
+        text = _text(value)
+        if text is None:
+            continue
+        counts[text] = counts.get(text, 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:10])
 
 
 def _target_values(row: Mapping[str, Any]) -> list[str]:
