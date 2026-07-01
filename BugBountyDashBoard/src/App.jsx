@@ -8,6 +8,7 @@ import Hosts from './pages/Hosts'
 import Analysis from './pages/Analysis'
 import InfrastructureMap from './pages/InfrastructureMap'
 import SurfaceComponents from './pages/SurfaceComponents'
+import Workbench from './pages/Workbench'
 import AgentWorkspace from './pages/AgentWorkspace'
 import AgentTaskDetailPage from './pages/AgentTaskDetail'
 import ActionsPage from './pages/Actions/ActionPage'
@@ -21,6 +22,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/programs" element={<Programs />} />
             <Route path="/actions" element={<ActionsPage />} />
+            <Route path="/workbench" element={<Workbench />} />
             <Route path="/workspace" element={<AgentWorkspace />} />
             <Route path="/workspace/tasks/:taskId" element={<AgentTaskDetailPage />} />
             <Route path="/hosts" element={<Hosts />} />

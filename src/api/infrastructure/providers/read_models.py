@@ -6,11 +6,13 @@ from api.application.agent_task_detail import AgentTaskDetailService
 from api.application.campaign_workspace import CampaignWorkspaceService
 from api.application.program_projection_overview import ProgramProjectionOverviewService
 from api.application.surface_component_analysis import SurfaceComponentAnalysisService
+from api.application.workbench import WorkbenchReadService
 from api.infrastructure.agent_activity import AgentActivityStore
 from api.infrastructure.agent_task_detail import AgentTaskDetailStore
 from api.infrastructure.campaign_workspace import CampaignWorkspaceStore
 from api.infrastructure.program_projection_overview import ProgramProjectionOverviewStore
 from api.infrastructure.surface_component_analysis import SurfaceComponentAnalysisStore
+from api.infrastructure.workbench import WorkbenchGraphStore
 
 
 class ReadModelProvider(Provider):
@@ -27,6 +29,10 @@ class ReadModelProvider(Provider):
     @provide(scope=Scope.APP)
     def get_program_projection_overview_store(self, session_factory: async_sessionmaker) -> ProgramProjectionOverviewStore:
         return ProgramProjectionOverviewStore(session_factory)
+
+    @provide(scope=Scope.APP)
+    def get_workbench_graph_store(self, session_factory: async_sessionmaker) -> WorkbenchGraphStore:
+        return WorkbenchGraphStore(session_factory)
 
     @provide(scope=Scope.APP)
     def get_agent_task_detail_store(self, session_factory: async_sessionmaker) -> AgentTaskDetailStore:
@@ -70,3 +76,14 @@ class ReadModelProvider(Provider):
         store: ProgramProjectionOverviewStore,
     ) -> ProgramProjectionOverviewService:
         return ProgramProjectionOverviewService(store)
+
+    @provide(scope=Scope.REQUEST)
+    def get_workbench_read_service(
+        self,
+        graph_store: WorkbenchGraphStore,
+        projection_overview: ProgramProjectionOverviewService,
+    ) -> WorkbenchReadService:
+        return WorkbenchReadService(
+            graph_store=graph_store,
+            projection_overview=projection_overview,
+        )

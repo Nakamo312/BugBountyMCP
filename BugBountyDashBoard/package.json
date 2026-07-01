@@ -15,7 +15,8 @@
     "axios": "^1.6.2",
     "lucide-react": "^0.294.0",
     "clsx": "^2.0.0",
-    "react-force-graph-2d": "^1.25.0"
+    "react-force-graph-2d": "^1.25.0",
+    "@xyflow/react": "^12.3.5"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",

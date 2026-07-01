@@ -259,6 +259,29 @@ export const suppressActionExperienceProposal = (proposalId, data = {}) =>
   api.post(`/action-experience-proposals/${proposalId}/suppress`, data)
 
 
+
+// Workbench
+export const getWorkbenchBootstrap = (programId) =>
+  api.get('/workbench/bootstrap', { params: { program_id: programId } })
+
+export const getWorkbenchGraph = ({ programId, lens = 'surface', seed, depth = 1, limit = 250 } = {}) => {
+  const params = { program_id: programId, lens, depth, limit }
+  if (seed) params.seed = seed
+  return api.get('/workbench/graph', { params })
+}
+
+export const getWorkbenchEntity = (programId, entityKey) =>
+  api.get(`/workbench/entities/${encodeURIComponent(entityKey)}`, { params: { program_id: programId } })
+
+export const getWorkbenchEntityActions = (programId, entityKey) =>
+  api.get(`/workbench/entities/${encodeURIComponent(entityKey)}/actions`, { params: { program_id: programId } })
+
+export const getWorkbenchEntityMemory = (programId, entityKey) =>
+  api.get(`/workbench/entities/${encodeURIComponent(entityKey)}/memory`, { params: { program_id: programId } })
+
+export const retrieveWorkbenchEvidence = (data) =>
+  api.post('/workbench/retrieve', data)
+
 // Program projection overview
 export const getProgramProjectionOverview = (programId) =>
   api.get('/program-projection-overview', { params: { program_id: programId } })

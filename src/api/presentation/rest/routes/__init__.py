@@ -15,6 +15,7 @@ from .graph import router as graph_router
 from .surface_component_analysis import router as surface_component_analysis_router
 from .program_projection_overview import router as program_projection_overview_router
 from .credentials import router as credentials_router
+from .workbench import router as workbench_router
 
 router = APIRouter()
 
@@ -34,3 +35,4 @@ router.include_router(graph_router, prefix="/api/v1/graph", tags=["Graph"])
 router.include_router(surface_component_analysis_router, prefix="/api/v1/surface-component-analysis", tags=["Surface Component Analysis"])
 router.include_router(program_projection_overview_router, prefix="/api/v1/program-projection-overview", tags=["Program Projection Overview"])
 router.include_router(credentials_router, prefix="/api/v1/credentials", tags=["Credentials"])
+router.include_router(workbench_router, prefix="/api/v1/workbench", tags=["Workbench"])

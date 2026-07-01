@@ -10,7 +10,8 @@ import {
   Network,
   GitBranch,
   AlertCircle,
-  MessageSquare
+  MessageSquare,
+  Workflow
 } from 'lucide-react'
 import ProgramSelector from './ProgramSelector'
 
@@ -22,7 +23,8 @@ const Layout = ({ children }) => {
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/programs', icon: FolderKanban, label: 'Programs' },
     { path: '/actions', icon: PlayCircle, label: 'Actions' },
-    { path: '/workspace', icon: MessageSquare, label: 'Workspace' },
+    { path: '/workbench', icon: Workflow, label: 'Workbench' },
+    { path: '/workspace', icon: MessageSquare, label: 'Agent Workspace' },
     { path: '/hosts', icon: Server, label: 'Hosts' },
     { path: '/analysis', icon: ShieldAlert, label: 'Analysis' },
     { path: '/infrastructure', icon: Network, label: 'Infrastructure' },
@@ -48,7 +50,7 @@ const Layout = ({ children }) => {
           <nav className="flex-1 p-4 space-y-2">
             {navItems.map((item) => {
               const Icon = item.icon
-              const isActive = item.path === '/workspace' ? location.pathname.startsWith('/workspace') : location.pathname === item.path
+              const isActive = item.path === '/workspace' ? location.pathname.startsWith('/workspace') : item.path === '/workbench' ? location.pathname.startsWith('/workbench') : location.pathname === item.path
               return (
                 <Link
                   key={item.path}
