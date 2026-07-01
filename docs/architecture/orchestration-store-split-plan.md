@@ -45,39 +45,25 @@ request -> policy/approval -> command/job -> run claim/scheduling
 Do not split by table name. A table may belong to multiple transaction surfaces,
 but a write method must have one primary owner.
 
-Keep `OrchestrationStore` as a compatibility facade during the extraction. Do not add a new layer over it. The facade should delegate to smaller stores and be
-removed only after application services depend on the narrower interfaces.
+`OrchestrationStore` was only an extraction scaffold. Do not reintroduce a compatibility facade over the split stores; application services must depend on narrower scenario interfaces directly. Do not add a new layer over it.
 
 ## Target Stores
 
-### ActionCommandStore
+### Action write stores
 
-Owns the action-to-command write path:
+`ActionPolicyResultStore` owns terminal or approval-required policy result recording.
 
-- `create_allowed_action`;
-- action request row;
-- target/options rows;
-- scope decision row;
-- policy decision row;
-- job row;
-- initial run row for inline command execution when that remains part of action
-  creation;
-- campaign creation/activation only through a small campaign collaborator.
+`AllowedActionQueueStore` owns the allowed-action queue path and its outbox write in the same caller transaction.
 
-It must not lease scheduled work, claim node runs, retry failed runs, or dispatch
-outbox rows.
+They must not lease scheduled work, claim node runs, retry failed runs, or expose approval state transitions.
 
-### ApprovalStore
+### Approval stores
 
-Owns human/policy approval state:
+`ApprovalRequestStore` owns approval request reads and scope lookup for approval workflows.
 
-- approval request creation;
-- approval decision recording;
-- action rejection;
-- action status transition from `requires_approval` to rejected/allowed when the
-  approval flow explicitly owns the transition.
+`ApprovalDecisionStore` owns approval decisions, action status transitions from `requires_approval`, and approval-time queue creation.
 
-It must not create jobs, claim runs, or touch campaign budget.
+They must not expose action submission writes or node-run claiming.
 
 ### RunClaimStore
 
@@ -96,59 +82,56 @@ Owns node-run creation and deduplication:
 It may call a campaign budget collaborator inside the same database transaction,
 but it must not own campaign lifecycle reconciliation.
 
-### CampaignStateStore
+### Campaign lifecycle and write stores
 
-Owns campaign accounting and lifecycle:
+Campaign behavior is not one store anymore:
 
-- `_campaign_activity_query` and activity mapping;
-- `get_campaign_activity`;
-- `reconcile_campaign_lifecycle`;
-- `reconcile_active_campaigns`;
-- `_persist_campaign_lifecycle`;
-- `mark_campaign_terminal`;
-- budget lock/refill/check/consume operations used by `RunClaimStore`;
-- campaign creation/activation primitives used by `ActionCommandStore`.
+- `campaign_activity.py` owns campaign activity query construction and mapping;
+- `CampaignLifecycleStore` owns lifecycle reads/reconciliation and terminal transitions;
+- `CampaignWriteStore` owns only caller-transaction campaign upsert/activation primitives used by action command and approval flows;
+- campaign budget reservation stays with the run-claim transaction boundary, not with lifecycle reconciliation.
 
+Campaign upsert/activation must remain atomic with the action/job/run/outbox transaction that calls it.
 Budget operations must remain atomic with the run insert that consumes them.
-That means `RunClaimStore` must receive a session-bound collaborator, not call a
-separate transaction.
+Campaign lifecycle reconciliation must not gain action command writes or budget accounting.
 
-### ScheduledWorkStore
+### Scheduled queue stores
 
-Owns already-created scheduled work queue lifecycle:
+Already-created scheduled work queue lifecycle is split across three ports:
 
-- `count_scheduled_active_runs_by_node`;
-- `lease_ready_scheduled_node_runs`;
-- `recover_stale_leases`;
-- `fail_stale_scheduled_active_runs`;
-- `requeue_retryable_node_runs`;
-- exhausted retry transition to `dead`.
+- `ScheduledLeaseStore` owns active scheduled run counts and ready-run leasing;
+- `ScheduledRecoveryStore` owns stale lease recovery and stale active-run failure;
+- `ScheduledRetryStore` owns retry requeue and exhausted retry transition to `dead`.
 
-It does not decide whether a new run should exist. That is `RunClaimStore`. It
-must not grow reconciliation, campaign budget, run accounting, or event emission
-scenarios. Those would turn it into the next mini-combiner.
+There is no `ScheduledWorkStore` combiner. It was useful during extraction, then
+removed once `NodeRegistry` could depend on lease, recovery, and retry ports
+separately. None of these stores may decide whether a new run should exist. That
+remains `RunClaimStore`. They must not grow reconciliation, campaign budget, run
+accounting, or event emission scenarios. Those would recreate the next
+mini-combiner.
 
-Known deferred smell: `requeue_retryable_node_runs` still preserves the old
-concurrency model: select retryable ids, then update by id. That means two retry
-workers can race toward the same failed run. Future behavior-changing cleanup
-should use a locked selection such as `FOR UPDATE SKIP LOCKED` or a single guarded
-`UPDATE ... RETURNING` boundary before changing retry semantics.
+Known deferred smell: `ScheduledRetryStore.requeue_retryable_node_runs` still
+preserves the old concurrency model: select retryable ids, then update by id.
+That means two retry workers can race toward the same failed run. Future
+behavior-changing cleanup should use a locked selection such as `FOR UPDATE SKIP
+LOCKED` or a single guarded `UPDATE ... RETURNING` boundary before changing retry
+semantics.
 
-Known deferred scaling issue: `_requeue_run_ids` still updates rows one by one.
+Known deferred scaling issue: `requeue_run_ids` still updates rows one by one.
 That keeps the old semantics and supports per-row jitter, but bulk update should
 be considered when jitter is disabled and retry batches become large.
 
-### DispatchStore
+### DispatchWriterStore and DispatchLeaseStore
 
-Owns outbox delivery state:
+Own outbox write and delivery state without a dispatch combiner:
 
-- event dispatch row creation;
-- PostgreSQL notify for dispatch wake-up;
-- `claim_dispatches`;
-- successful dispatch marking;
-- failed dispatch retry/dead state.
+- `DispatchWriterStore` creates event dispatch rows inside the caller's transaction;
+- `DispatchWriterStore` emits PostgreSQL notify for dispatch wake-up;
+- `DispatchLeaseStore` owns `claim_dispatches`;
+- `DispatchLeaseStore` owns successful dispatch marking;
+- `DispatchLeaseStore` owns failed dispatch retry/dead state.
 
-It does not build hypotheses, claim node runs, or mutate campaign budget.
+They do not build hypotheses, claim node runs, or mutate campaign budget.
 
 ### EventStore
 
@@ -157,7 +140,7 @@ Owns durable event persistence:
 - `record_event`;
 - run placeholder creation for legacy event envelopes during the migration;
 - event store row insertion;
-- event-to-outbox enqueue through `DispatchStore` or a session-bound outbox
+- event-to-outbox enqueue through `DispatchWriterStore` or a session-bound outbox
   helper;
 - event read helpers needed by action read models.
 
@@ -256,17 +239,20 @@ application layer must not see SQL details and the invariant must be reviewable.
    campaign/job mutation, and insert-race recovery.
 4. `0045_extract_dispatch_and_scheduled_work_stores` — split event dispatch
    leasing/retry/dead state from already-created scheduled work leasing/requeue.
-   Completed: `DispatchStore` owns outbox enqueue, notify statement, dispatch
-   claim leasing, sent transition, and failed/dead transition.
-   `ScheduledWorkStore` owns active scheduled run counts, ready-run leasing,
-   stale lease recovery, stale active-run failure, retry requeue, and exhausted
-   retry transition to dead. `OrchestrationStore` keeps compatibility facade
-   methods only.
+   Completed: `DispatchWriterStore` owns outbox enqueue and notify;
+   `DispatchLeaseStore` owns dispatch claim leasing, sent transition, and
+   failed/dead transition. The scheduled queue first moved into `ScheduledWorkStore`, then P19 removed
+   that combiner and left `ScheduledLeaseStore`, `ScheduledRecoveryStore`, and
+   `ScheduledRetryStore` as separate ports.
 5. `0046_extract_action_approval_campaign_stores` — split action command
    creation, approval state, campaign lifecycle/accounting, event persistence,
    and keep action read models on the facade until the write boundaries settle.
-   Also add direct behavior tests for `DispatchStore` and `ScheduledWorkStore`
-   so facade/source-grep tests are not the only regression guard.
+   P23 later replaces the broad `CampaignStateStore` with `CampaignLifecycleStore`
+   plus `CampaignWriteStore` so lifecycle reconciliation and action-time campaign
+   writes no longer share one object.
+   Also add direct behavior tests for `DispatchWriterStore`, `DispatchLeaseStore`,
+   `ScheduledLeaseStore`, `ScheduledRecoveryStore`, and `ScheduledRetryStore` so facade/source-grep
+   tests are not the only regression guard.
 6. `0047_extract_action_read_and_run_state_stores` — split action read models into
    `ActionReadStore` and runner state transitions into `RunStateStore`, keeping
    old `OrchestrationStore` methods as compatibility facades. Also move the
@@ -281,7 +267,10 @@ application layer must not see SQL details and the invariant must be reviewable.
    `PipelineContext` as an execution facade that must not gain new side effects,
    mark temporary compatibility imports, and make the `ScanNode` no-factory path
    explicit legacy fallback.
-9. Return to graph backlog and typed projection contracts once orchestration
+9. `P19_remove_scheduled_work_combiner` — delete the temporary
+   `ScheduledWorkStore` shell and inject scheduled lease, recovery, and retry
+   ports separately into `NodeRegistry`.
+10. Return to graph backlog and typed projection contracts once orchestration
    write boundaries are small enough to review.
 
 The next patch should not add LangGraph behavior, new scanner chains, credential
@@ -300,28 +289,32 @@ method packs arguments into `RunClaimRequest`; the internal flow works through
 `ExistingWorkClaim`, `CampaignBudgetSnapshot`, and `CampaignBudgetReservation`
 instead of spreading raw row mappings through the whole scenario.
 
-Patch 0045 extracts `DispatchStore` and `ScheduledWorkStore`. Dispatch
-leasing/retry/dead state and scheduled run leasing/requeue no longer live in the
-facade. `OrchestrationStore` keeps compatibility facade methods so application
-services do not change during the extraction.
+Patch 0045 extracts `DispatchWriterStore`/`DispatchLeaseStore` and the first scheduled queue boundary.
+Dispatch write, leasing, retry, and dead-state transitions no longer live in a
+combined facade. P19 removes the temporary `ScheduledWorkStore` combiner and
+uses `ScheduledLeaseStore`, `ScheduledRecoveryStore`, and `ScheduledRetryStore`
+directly from pipeline runtime wiring.
 
-Patch 0046 extracts `ActionCommandStore`, `ApprovalStore`, `CampaignStateStore`,
-and `EventStore`. Event persistence and outbox enqueue stay atomic because action
-flows use the shared session-bound `insert_job_run_and_dispatch(...)` helper and
-commit once. `OrchestrationStore` still owns action read models and runner state
-transitions as compatibility surface.
+Patch 0046 extracts action/approval write stores, the original `CampaignStateStore`,
+and `EventStore`. P23 removes that broad campaign object: `CampaignLifecycleStore`
+owns lifecycle reads/reconciliation, while `CampaignWriteStore` owns only
+action-time campaign upsert/activation primitives. P25 removes the broad
+`ActionCommandStore`/`ApprovalStore` implementations and keeps four concrete
+scenario stores: `ActionPolicyResultStore`, `AllowedActionQueueStore`,
+`ApprovalRequestStore`, and `ApprovalDecisionStore`. Event persistence and outbox
+enqueue stay atomic because action flows call the execution writer and dispatch
+writer inside one transaction and commit once.
 
 Patch 0047 extracts `ActionReadStore` and `RunStateStore`. Action read queries
 and runner state transitions no longer live in the facade. The patch also fixes
-two extraction smells from 0046: approval request creation helper moved out of
-`approval_store.py` into neutral session-bound write helpers, and
+two extraction smells from 0046: approval request creation moved into neutral
+session-bound write helpers instead of an approval store side effect, and
 `EventStore.record_event` now treats only duplicate event id conflicts as
 idempotent instead of swallowing every `IntegrityError`.
 
-After 0047, `OrchestrationStore` is expected to remain a compatibility facade
-with legacy static helpers only. Do not add new orchestration scenarios to it.
-Return to graph backlog and typed projection contracts unless a concrete
-regression appears in the split stores.
+After P15, `OrchestrationStore` no longer exists. Do not add a new all-in-one
+orchestration facade. Return to graph backlog and typed projection contracts
+unless a concrete regression appears in the split stores.
 
 Patch 0048 keeps `OrchestrationStore` only as a deprecated compatibility facade.
 New callers should request scenario-owned ports/stores directly. Action write

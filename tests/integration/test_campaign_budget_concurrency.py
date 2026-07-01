@@ -1,14 +1,11 @@
 from __future__ import annotations
-
 import asyncio
 from datetime import datetime, timezone
 from uuid import uuid4
-
 import pytest
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
-
-from api.application.contracts import ExecutionMode
+from api.application.contracts import ExecutionMode, NodeRunClaimRequest
 from api.infrastructure.adapters.orm import (
     action_requests,
     campaigns,
@@ -17,11 +14,7 @@ from api.infrastructure.adapters.orm import (
     runs,
 )
 from api.infrastructure.orchestration.run_claim_store import RunClaimStore
-
-
 pytestmark = pytest.mark.integration
-
-
 @pytest.mark.asyncio
 async def test_concurrent_claims_cannot_overspend_campaign_run_budget(
     integration_async_engine,
@@ -36,7 +29,6 @@ async def test_concurrent_claims_cannot_overspend_campaign_run_budget(
     job_id = uuid4()
     correlation_id = uuid4()
     now = datetime.now(timezone.utc)
-
     async with session_factory() as session:
         await session.execute(
             insert(programs).values(
@@ -100,27 +92,27 @@ async def test_concurrent_claims_cannot_overspend_campaign_run_budget(
             )
         )
         await session.commit()
-
     store = RunClaimStore(session_factory)
-
     async def claim(index: int):
         return await store.claim_node_run(
-            claim_key=f"claim-{campaign_id}-{index}",
-            job_id=job_id,
-            program_id=program_id,
-            node_id="httpx",
-            event_name="host_discovered",
-            trigger_event_id=uuid4(),
-            input_fingerprint=f"input-{index}",
-            target_fingerprint=f"target-{index}",
-            execution_mode=ExecutionMode.SCHEDULED,
-            target_count=1,
-            work_key=f"work-{campaign_id}-{index}",
-            campaign_id=campaign_id,
-            expansion_depth=1,
-            max_expansion_depth=6,
-            cooldown_seconds=0,
-            token_cost=1,
+            NodeRunClaimRequest(
+                claim_key=f"claim-{campaign_id}-{index}",
+                job_id=job_id,
+                program_id=program_id,
+                node_id="httpx",
+                event_name="host_discovered",
+                trigger_event_id=uuid4(),
+                input_fingerprint=f"input-{index}",
+                target_fingerprint=f"target-{index}",
+                execution_mode=ExecutionMode.SCHEDULED,
+                target_count=1,
+                work_key=f"work-{campaign_id}-{index}",
+                campaign_id=campaign_id,
+                expansion_depth=1,
+                max_expansion_depth=6,
+                cooldown_seconds=0,
+                token_cost=1,
+            )
         )
 
     first, second = await asyncio.gather(claim(1), claim(2))

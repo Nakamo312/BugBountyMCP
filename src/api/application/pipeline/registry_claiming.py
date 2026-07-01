@@ -6,7 +6,7 @@ import logging
 from typing import Any, Dict
 from uuid import UUID
 
-from api.application.contracts import ExecutionMode
+from api.application.contracts import ExecutionMode, NodeRunClaimRequest
 from api.application.pipeline.fingerprints import (
     build_node_claim_key,
     build_node_input_fingerprint,
@@ -25,7 +25,7 @@ class NodeRegistryClaimingMixin:
         event_name: str,
         event: Dict[str, Any],
     ) -> Dict[str, Any] | None:
-        store = await self._get_pipeline_orchestration_store()
+        store = await self._get_node_run_claims()
         if store is None:
             return dict(event)
 
@@ -41,7 +41,7 @@ class NodeRegistryClaimingMixin:
                 node_id=node_id,
                 input_fingerprint=input_fingerprint,
             )
-            last_claim = await store.claim_node_run(
+            request = NodeRunClaimRequest(
                 claim_key=claim_key,
                 job_id=UUID(str(event["job_id"])),
                 program_id=UUID(str(event["program_id"])),
@@ -75,6 +75,7 @@ class NodeRegistryClaimingMixin:
                 cooldown_seconds=node.cooldown_seconds,
                 token_cost=node.token_cost,
             )
+            last_claim = await store.claim_node_run(request)
             if last_claim.is_blocked:
                 logger.warning(
                     "Scheduled node run blocked: node=%s event=%s reason=%s",

@@ -4,7 +4,6 @@ from typing import List, Optional, Dict, Any
 from uuid import UUID
 
 from api.application.dto.host import (
-    HostResponseDTO,
     EndpointResponseDTO,
     InputParameterResponseDTO,
     HeaderResponseDTO,
@@ -19,12 +18,8 @@ from api.application.dto.host import (
     ProgramStatsDTO,
     HostsWithStatsListDTO,
 )
-from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
-from api.application.services.view_queries import (
-    ReadOnlyView,
-    view_count_query,
-    view_data_query,
-)
+from api.application.host_queries import HostAssetReader
+from api.application.read_only_views import ReadOnlyView, ReadOnlyViewReader
 
 _PROGRAM_VIEW_FILTERS = frozenset({"program_id"})
 _PROGRAM_HOST_VIEW_FILTERS = frozenset({"program_id", "host_id"})
@@ -42,239 +37,184 @@ _PROGRAM_STATS_VIEW = ReadOnlyView("program_stats", _PROGRAM_VIEW_FILTERS)
 class HostService:
     """Service for querying hosts and related data"""
 
-    def __init__(self, uow: HTTPXUnitOfWork):
-        self.uow = uow
+    def __init__(
+        self,
+        host_reader: HostAssetReader,
+        view_reader: ReadOnlyViewReader,
+    ):
+        self._host_reader = host_reader
+        self._view_reader = view_reader
     
     async def get_hosts_by_program(
         self,
         program_id: UUID,
         limit: int = 100,
         offset: int = 0,
-        in_scope: Optional[bool] = None
+        in_scope: Optional[bool] = None,
     ) -> HostsListResponseDTO:
         """Get hosts by program_id with pagination"""
-        async with self.uow as uow:
-            hosts = await uow.hosts.find_by_program(
-                program_id=program_id,
-                limit=limit,
-                offset=offset,
-                in_scope=in_scope
-            )
-            # Count total with same filters
-            filters = {"program_id": program_id}
-            if in_scope is not None:
-                filters["in_scope"] = in_scope
-            total = await uow.hosts.count(filters=filters)
-            
-            return HostsListResponseDTO(
-                hosts=[HostResponseDTO.model_validate(host) for host in hosts],
-                total=total,
-                limit=limit,
-                offset=offset
-            )
-    
+        return await self._host_reader.get_hosts_by_program(
+            program_id=program_id,
+            limit=limit,
+            offset=offset,
+            in_scope=in_scope,
+        )
+
     async def get_host_with_endpoints(
         self,
-        host_id: UUID
+        host_id: UUID,
     ) -> Optional[HostWithEndpointsDTO]:
         """Get host with all endpoints"""
-        async with self.uow as uow:
-            host = await uow.hosts.get(host_id)
-            if not host:
-                return None
-            
-            endpoints = await uow.endpoints.find_by_host(host_id, limit=RELATED_ROWS_LIMIT)
-            
-            return HostWithEndpointsDTO(
-                host=HostResponseDTO.model_validate(host),
-                endpoints=[EndpointResponseDTO.model_validate(ep) for ep in endpoints]
-            )
-    
+        return await self._host_reader.get_host_with_endpoints(host_id=host_id)
+
     async def get_endpoints_by_host(
         self,
         host_id: UUID,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
     ) -> List[EndpointResponseDTO]:
         """Get endpoints by host_id"""
-        async with self.uow as uow:
-            endpoints = await uow.endpoints.find_by_host(
-                host_id=host_id,
-                limit=limit,
-                offset=offset
-            )
-            
-            return [EndpointResponseDTO.model_validate(ep) for ep in endpoints]
-    
+        return await self._host_reader.get_endpoints_by_host(
+            host_id=host_id,
+            limit=limit,
+            offset=offset,
+        )
+
     async def get_endpoint_with_details(
         self,
-        endpoint_id: UUID
+        endpoint_id: UUID,
     ) -> Optional[EndpointWithDetailsDTO]:
         """Get endpoint with parameters and headers"""
-        async with self.uow as uow:
-            endpoint = await uow.endpoints.get(endpoint_id)
-            if not endpoint:
-                return None
-            
-            parameters = await uow.input_parameters.find_by_endpoint(
-                endpoint_id=endpoint_id,
-                limit=RELATED_ROWS_LIMIT
-            )
-            headers = await uow.headers.find_by_endpoint(
-                endpoint_id=endpoint_id,
-                limit=RELATED_ROWS_LIMIT
-            )
-            
-            return EndpointWithDetailsDTO(
-                endpoint=EndpointResponseDTO.model_validate(endpoint),
-                parameters=[InputParameterResponseDTO.model_validate(param) for param in parameters],
-                headers=[HeaderResponseDTO.model_validate(header) for header in headers],
-            )
-    
+        return await self._host_reader.get_endpoint_with_details(endpoint_id=endpoint_id)
+
     async def get_parameters_by_endpoint(
         self,
         endpoint_id: UUID,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
     ) -> List[InputParameterResponseDTO]:
         """Get input parameters by endpoint_id"""
-        async with self.uow as uow:
-            parameters = await uow.input_parameters.find_by_endpoint(
-                endpoint_id=endpoint_id,
-                limit=limit,
-                offset=offset
-            )
-            
-            return [InputParameterResponseDTO.model_validate(param) for param in parameters]
-    
+        return await self._host_reader.get_parameters_by_endpoint(
+            endpoint_id=endpoint_id,
+            limit=limit,
+            offset=offset,
+        )
+
     async def get_headers_by_endpoint(
         self,
         endpoint_id: UUID,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
     ) -> List[HeaderResponseDTO]:
         """Get headers by endpoint_id"""
-        async with self.uow as uow:
-            headers = await uow.headers.find_by_endpoint(
-                endpoint_id=endpoint_id,
-                limit=limit,
-                offset=offset
-            )
-            
-            return [HeaderResponseDTO.model_validate(header) for header in headers]
+        return await self._host_reader.get_headers_by_endpoint(
+            endpoint_id=endpoint_id,
+            limit=limit,
+            offset=offset,
+        )
 
     async def get_hosts_with_stats(
         self,
         program_id: UUID,
         limit: int = 100,
         offset: int = 0,
-        in_scope: Optional[bool] = None
+        in_scope: Optional[bool] = None,
     ) -> HostsWithStatsListDTO:
         """Get hosts with statistics from host_full_stats view"""
-        async with self.uow as uow:
-            filters: Dict[str, Any] = {"program_id": program_id}
-            if in_scope is not None:
-                filters["in_scope"] = in_scope
-            params: Dict[str, Any] = {**filters, "limit": limit, "offset": offset}
+        filters: Dict[str, Any] = {"program_id": program_id}
+        if in_scope is not None:
+            filters["in_scope"] = in_scope
 
-            count_result = await uow._session.execute(view_count_query(_HOST_FULL_STATS_VIEW, filters), params)
-            total = count_result.scalar() or 0
-
-            result = await uow._session.execute(view_data_query(_HOST_FULL_STATS_VIEW, filters), params)
-            rows = result.mappings().all()
-
-            return HostsWithStatsListDTO(
-                hosts=[HostWithStatsDTO(**dict(row)) for row in rows],
-                total=total,
-                limit=limit,
-                offset=offset
-            )
+        page = await self._view_reader.page_view_rows(
+            _HOST_FULL_STATS_VIEW,
+            filters,
+            limit=limit,
+            offset=offset,
+        )
+        return HostsWithStatsListDTO(
+            hosts=[HostWithStatsDTO(**row) for row in page.rows],
+            total=page.total or 0,
+            limit=limit,
+            offset=offset,
+        )
 
     async def get_host_with_services(self, host_id: UUID) -> Optional[HostWithServicesDTO]:
         """Get host with all services from host_services_view"""
-        async with self.uow as uow:
-            filters = {"host_id": host_id}
-            result = await uow._session.execute(
-                view_data_query(_HOST_SERVICES_VIEW, filters),
-                {**filters, "limit": RELATED_ROWS_LIMIT, "offset": 0},
-            )
-            rows = result.mappings().all()
+        filters = {"host_id": host_id}
+        rows = await self._view_reader.list_view_rows(
+            _HOST_SERVICES_VIEW,
+            filters,
+            limit=RELATED_ROWS_LIMIT,
+            offset=0,
+        )
 
-            if not rows:
-                return None
+        if not rows:
+            return None
 
-            first_row = rows[0]
-            services = []
-            for row in rows:
-                if row.get("service_id"):
-                    services.append(ServiceResponseDTO(
-                        id=row["service_id"],
-                        scheme=row["scheme"],
-                        port=row["port"],
-                        technologies=row.get("technologies") or {},
-                        favicon_hash=row.get("favicon_hash"),
-                        websocket=row.get("websocket", False)
-                    ))
+        first_row = rows[0]
+        services = []
+        for row in rows:
+            if row.get("service_id"):
+                services.append(ServiceResponseDTO(
+                    id=row["service_id"],
+                    scheme=row["scheme"],
+                    port=row["port"],
+                    technologies=row.get("technologies") or {},
+                    favicon_hash=row.get("favicon_hash"),
+                    websocket=row.get("websocket", False),
+                ))
 
-            return HostWithServicesDTO(
-                host_id=first_row["host_id"],
-                host=first_row["host"],
-                program_id=first_row["program_id"],
-                in_scope=first_row["in_scope"],
-                services=services
-            )
+        return HostWithServicesDTO(
+            host_id=first_row["host_id"],
+            host=first_row["host"],
+            program_id=first_row["program_id"],
+            in_scope=first_row["in_scope"],
+            services=services,
+        )
 
     async def get_endpoint_full_details(
         self,
-        endpoint_id: UUID
+        endpoint_id: UUID,
     ) -> Optional[EndpointFullDetailsDTO]:
         """Get full endpoint details from endpoint_full_details view"""
-        async with self.uow as uow:
-            filters = {"endpoint_id": endpoint_id}
-            result = await uow._session.execute(
-                view_data_query(_ENDPOINT_FULL_DETAILS_VIEW, filters),
-                {**filters, "limit": 1, "offset": 0},
-            )
-            row = result.mappings().first()
-
-            if not row:
-                return None
-
-            return EndpointFullDetailsDTO(**dict(row))
+        rows = await self._view_reader.list_view_rows(
+            _ENDPOINT_FULL_DETAILS_VIEW,
+            {"endpoint_id": endpoint_id},
+            limit=1,
+            offset=0,
+        )
+        if not rows:
+            return None
+        return EndpointFullDetailsDTO(**rows[0])
 
     async def get_endpoints_with_body(
         self,
         program_id: UUID,
         limit: int = 100,
         offset: int = 0,
-        host_id: Optional[UUID] = None
+        host_id: Optional[UUID] = None,
     ) -> tuple[List[EndpointWithBodyDTO], int]:
         """Get endpoints with request body from endpoints_with_body view"""
-        async with self.uow as uow:
-            filters: Dict[str, Any] = {"program_id": program_id}
-            if host_id:
-                filters["host_id"] = host_id
-            params: Dict[str, Any] = {**filters, "limit": limit, "offset": offset}
+        filters: Dict[str, Any] = {"program_id": program_id}
+        if host_id:
+            filters["host_id"] = host_id
 
-            count_result = await uow._session.execute(view_count_query(_ENDPOINTS_WITH_BODY_VIEW, filters), params)
-            total = count_result.scalar() or 0
-
-            result = await uow._session.execute(view_data_query(_ENDPOINTS_WITH_BODY_VIEW, filters), params)
-            rows = result.mappings().all()
-
-            return [EndpointWithBodyDTO(**dict(row)) for row in rows], total
+        page = await self._view_reader.page_view_rows(
+            _ENDPOINTS_WITH_BODY_VIEW,
+            filters,
+            limit=limit,
+            offset=offset,
+        )
+        return [EndpointWithBodyDTO(**row) for row in page.rows], page.total or 0
 
     async def get_program_stats(self, program_id: UUID) -> Optional[ProgramStatsDTO]:
         """Get program statistics from program_stats view"""
-        async with self.uow as uow:
-            filters = {"program_id": program_id}
-            result = await uow._session.execute(
-                view_data_query(_PROGRAM_STATS_VIEW, filters),
-                {**filters, "limit": 1, "offset": 0},
-            )
-            row = result.mappings().first()
-
-            if not row:
-                return None
-
-            return ProgramStatsDTO(**dict(row))
+        rows = await self._view_reader.list_view_rows(
+            _PROGRAM_STATS_VIEW,
+            {"program_id": program_id},
+            limit=1,
+            offset=0,
+        )
+        if not rows:
+            return None
+        return ProgramStatsDTO(**rows[0])

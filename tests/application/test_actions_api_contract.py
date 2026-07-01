@@ -1,48 +1,31 @@
 from __future__ import annotations
-
 from api.application.action_invocation_payload import action_invocation_mapping
 from datetime import datetime, timezone
 from uuid import uuid4
-
 import pytest
-
 import sys
 import types
-
 try:
     from api.infrastructure.events.event_bus import EventBus  # noqa: F401
 except ImportError:
     event_bus_module = types.ModuleType("api.infrastructure.events.event_bus")
     event_bus_module.EventBus = object
     sys.modules.setdefault("api.infrastructure.events.event_bus", event_bus_module)
-
-try:
-    from api.infrastructure.orchestration.store import OrchestrationStore  # noqa: F401
-except ImportError:
-    store_module = types.ModuleType("api.infrastructure.orchestration.store")
-    store_module.OrchestrationStore = object
-    sys.modules.setdefault("api.infrastructure.orchestration.store", store_module)
-
 try:
     from dishka.integrations.fastapi import DishkaRoute, FromDishka  # noqa: F401
 except ImportError:
     dishka_module = types.ModuleType("dishka")
     dishka_fastapi = types.ModuleType("dishka.integrations.fastapi")
-
     from fastapi.routing import APIRoute
-
     class DishkaRoute(APIRoute):  # pragma: no cover - import stub
         pass
-
     class FromDishka:  # pragma: no cover - import stub
         def __class_getitem__(cls, item):
             return item
-
     dishka_fastapi.DishkaRoute = DishkaRoute
     dishka_fastapi.FromDishka = FromDishka
     sys.modules.setdefault("dishka", dishka_module)
     sys.modules.setdefault("dishka.integrations.fastapi", dishka_fastapi)
-
 
 from api.application.contracts import (
     ActionArtifactReference,
@@ -62,14 +45,14 @@ from api.application.contracts import (
     PolicyDecision,
     TerminalOutcome,
 )
-from api.application.services.action import ActionNotFoundError, ActionService
+from api.application.services.action import ActionService
+from api.application.services.action_composition import build_action_service
+from api.application.services.action_errors import ActionNotFoundError
 from api.application.services.policy import PolicyService
 from api.domain.enums import RuleType, ScopeAction
 from api.domain.models import ScopeRuleModel
 
 sys.modules.pop("api.infrastructure.events.event_bus", None)
-sys.modules.pop("api.infrastructure.orchestration.store", None)
-
 
 class StubStore:
     def __init__(self) -> None:
@@ -111,11 +94,9 @@ class StubStore:
     async def list_action_artifacts(self, action_id):
         return list(self.artifacts_by_action_id.get(action_id, []))
 
-
 class NoopBus:
     async def publish(self, *args, **kwargs):  # pragma: no cover - should not be called
         raise AssertionError("ActionService must not publish directly")
-
 
 class RecordingScopeRules:
     def __init__(self, rules):
@@ -126,7 +107,6 @@ class RecordingScopeRules:
         self.program_ids.append(program_id)
         return list(self.rules)
 
-
 class RecordingOutcomeFeedbackWriter:
     def __init__(self, record: ActionOutcomeFeedbackRecord | None = None) -> None:
         self.record = record
@@ -135,7 +115,6 @@ class RecordingOutcomeFeedbackWriter:
     async def apply_feedback(self, *, action_id, feedback):
         self.calls.append((action_id, feedback))
         return self.record
-
 
 def _feedback_record(*, action_id, program_id, now) -> ActionOutcomeFeedbackRecord:
     outcome_id = uuid4()
@@ -177,7 +156,6 @@ def _feedback_record(*, action_id, program_id, now) -> ActionOutcomeFeedbackReco
         outcome=outcome,
     )
 
-
 class RecordingPolicy(PolicyService):
     def __init__(self):
         super().__init__()
@@ -187,7 +165,6 @@ class RecordingPolicy(PolicyService):
         self.received_scope_rules = list(scope_rules or [])
         return super().evaluate(request, detail, scope_rules=scope_rules)
 
-
 def _action_service(
     store,
     *,
@@ -196,18 +173,18 @@ def _action_service(
     scope_rules=None,
     outcome_feedback=None,
 ) -> ActionService:
-    return ActionService(
-        commands=store,
+    return build_action_service(
+        policy_results=store,
+        allowed_actions=store,
         queries=store,
         results=store,
-        approvals=store,
+        approval_requests=store,
+        approval_decisions=store,
         policy=policy or PolicyService(),
         catalog=ActionCatalogService(catalog_store or StubCatalogStore()),
         scope_rules=scope_rules,
         outcome_feedback=outcome_feedback,
     )
-
-
 
 def _actions_route_module():
     import importlib.util
@@ -219,7 +196,6 @@ def _actions_route_module():
     assert spec and spec.loader
     spec.loader.exec_module(module)
     return module
-
 
 @pytest.mark.asyncio
 async def test_request_action_queues_capability_from_action_contract() -> None:
@@ -259,7 +235,6 @@ async def test_request_action_queues_capability_from_action_contract() -> None:
     assert envelope.correlation_id == action.correlation_id
     assert envelope.profile == "safe-web-probe"
 
-
 @pytest.mark.asyncio
 async def test_request_action_replaces_legacy_tool_routes() -> None:
     store = StubStore()
@@ -283,7 +258,6 @@ async def test_request_action_replaces_legacy_tool_routes() -> None:
     assert queued_action.profile.capability_id == "httpx"
     assert queued_action.profile.profile_id == "safe-web-probe"
     assert envelope.event == "httpx_scan_requested"
-
 
 @pytest.mark.asyncio
 async def test_request_action_loads_program_scope_rules_before_policy_evaluation() -> None:
@@ -325,7 +299,6 @@ async def test_request_action_loads_program_scope_rules_before_policy_evaluation
     assert scope_rules.program_ids == [program_id]
     assert policy.received_scope_rules == [rule]
 
-
 @pytest.mark.asyncio
 async def test_get_action_returns_stored_action_record_by_id() -> None:
     action_id = uuid4()
@@ -350,7 +323,6 @@ async def test_get_action_returns_stored_action_record_by_id() -> None:
 
     with pytest.raises(ActionNotFoundError):
         await service.get_action(uuid4())
-
 
 @pytest.mark.asyncio
 async def test_list_action_events_returns_stored_events_for_action() -> None:
@@ -387,7 +359,6 @@ async def test_list_action_events_returns_stored_events_for_action() -> None:
     service = _action_service(store)
 
     assert await service.list_action_events(action_id, limit=10, offset=0) == [event]
-
 
 @pytest.mark.asyncio
 async def test_get_action_result_returns_terminal_runs_and_artifact_references() -> None:
@@ -442,7 +413,6 @@ async def test_get_action_result_returns_terminal_runs_and_artifact_references()
     assert result.runs == [run]
     assert result.artifacts == [artifact]
 
-
 @pytest.mark.asyncio
 async def test_record_outcome_feedback_goes_through_action_service_boundary() -> None:
     action_id = uuid4()
@@ -479,7 +449,6 @@ async def test_record_outcome_feedback_goes_through_action_service_boundary() ->
     assert record.action_id == action_id
     assert writer.calls == [(action_id, request)]
 
-
 def test_actions_route_exposes_canonical_create_endpoint() -> None:
     source = open("src/api/presentation/rest/routes/actions.py", encoding="utf-8").read()
 
@@ -488,13 +457,11 @@ def test_actions_route_exposes_canonical_create_endpoint() -> None:
     assert "ActionRequest" in source
     assert "action_service.request_action(request)" in source
 
-
 def test_tool_actions_route_alias_is_registered_for_public_mvp_contract() -> None:
     source = open("src/api/presentation/rest/routes/__init__.py", encoding="utf-8").read()
 
     assert 'router.include_router(actions_router, prefix="/api/v1/actions"' in source
     assert 'router.include_router(actions_router, prefix="/api/v1/tool-actions"' in source
-
 
 def test_actions_route_exposes_get_action_endpoint() -> None:
     source = open("src/api/presentation/rest/routes/actions.py", encoding="utf-8").read()
@@ -505,7 +472,6 @@ def test_actions_route_exposes_get_action_endpoint() -> None:
     assert "ActionNotFoundError" in source
     assert "status_code=404" in source
 
-
 def test_actions_route_exposes_action_events_endpoint() -> None:
     source = open("src/api/presentation/rest/routes/actions.py", encoding="utf-8").read()
 
@@ -514,7 +480,6 @@ def test_actions_route_exposes_action_events_endpoint() -> None:
     assert "action_service.list_action_events(" in source
     assert '"items": [event.model_dump(mode="json") for event in events]' in source
 
-
 def test_actions_route_exposes_action_result_endpoint() -> None:
     source = open("src/api/presentation/rest/routes/actions.py", encoding="utf-8").read()
 
@@ -522,8 +487,6 @@ def test_actions_route_exposes_action_result_endpoint() -> None:
     assert "async def get_action_result(" in source
     assert "action_service.get_action_result(action_id)" in source
     assert 'result.model_dump(mode="json")' in source
-
-
 
 def test_actions_route_exposes_action_outcome_feedback_endpoint() -> None:
     source = open("src/api/presentation/rest/routes/actions.py", encoding="utf-8").read()
@@ -554,7 +517,6 @@ from api.application.action_catalog import (
     CatalogNotReady,
 )
 from api.application.services.action_catalog import ActionCatalogService
-
 
 class StubCatalogStore:
     def __init__(
@@ -625,7 +587,6 @@ class StubCatalogStore:
             },
         )
 
-
 @pytest.mark.asyncio
 async def test_action_catalog_service_returns_uuid_items() -> None:
     response = await ActionCatalogService(StubCatalogStore()).list_items()
@@ -635,7 +596,6 @@ async def test_action_catalog_service_returns_uuid_items() -> None:
     assert item.capability == "katana"
     assert item.profile == "safe-crawl"
     assert item.safety_level == "safe_active"
-
 
 @pytest.mark.asyncio
 async def test_action_catalog_detail_returns_submit_helper() -> None:
@@ -648,12 +608,10 @@ async def test_action_catalog_detail_returns_submit_helper() -> None:
     assert item.submit["body"]["catalog_id"] == str(store.item_id)
     assert "profile" not in item.submit["body"]
 
-
 @pytest.mark.asyncio
 async def test_action_catalog_service_propagates_not_ready() -> None:
     with pytest.raises(CatalogNotReady):
         await ActionCatalogService(StubCatalogStore(ready=False)).list_items()
-
 
 def test_actions_catalog_routes_are_registered() -> None:
     source = open("src/api/presentation/rest/routes/actions.py", encoding="utf-8").read()
@@ -665,7 +623,6 @@ def test_actions_catalog_routes_are_registered() -> None:
     assert "CatalogItemNotFound" in source
     assert "status_code=404" in source
 
-
 def test_actions_catalog_runtime_does_not_read_yaml() -> None:
     route_source = open("src/api/presentation/rest/routes/actions.py", encoding="utf-8").read()
     store_source = open("src/api/infrastructure/tool_catalog/store.py", encoding="utf-8").read()
@@ -674,7 +631,6 @@ def test_actions_catalog_runtime_does_not_read_yaml() -> None:
     assert "load_tool_catalog_snapshot" not in store_source
     assert "tool_catalog_entries" in store_source
     assert "deactivated_at" in store_source
-
 
 def test_action_and_policy_services_use_catalog_detail_not_static_capability_registry() -> None:
     action_source = (

@@ -70,6 +70,55 @@ def test_review_gates_reject_allowed_file_growth(tmp_path: Path) -> None:
     assert [violation.rule for violation in violations] == ["long-file-growth"]
 
 
+def test_review_gates_reject_stale_allowlist_entry(tmp_path: Path) -> None:
+    review_gates = _load_review_gates()
+    _write(tmp_path / "src" / "legacy.py", "value = 1\n")
+    allowlist_path = tmp_path / "governance" / "review_gates_allowlist.json"
+    allowlist_path.parent.mkdir(parents=True, exist_ok=True)
+    allowlist_path.write_text(
+        json.dumps(
+            {
+                "long_files": {
+                    "src/legacy.py": {
+                        "max_lines": 501,
+                        "reason": "Legacy file allowed only until it is reduced in a dedicated refactor.",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    violations = review_gates.run_checks(tmp_path, allowlist_path=allowlist_path, scan_roots=("src",))
+
+    assert [violation.rule for violation in violations] == ["allowlist-stale"]
+
+
+def test_review_gates_reject_loose_allowlist_budget(tmp_path: Path) -> None:
+    review_gates = _load_review_gates()
+    body = "\n".join(f"value_{index} = {index}" for index in range(501))
+    _write(tmp_path / "src" / "legacy.py", body)
+    allowlist_path = tmp_path / "governance" / "review_gates_allowlist.json"
+    allowlist_path.parent.mkdir(parents=True, exist_ok=True)
+    allowlist_path.write_text(
+        json.dumps(
+            {
+                "long_files": {
+                    "src/legacy.py": {
+                        "max_lines": 600,
+                        "reason": "Legacy file allowed only until it is reduced in a dedicated refactor.",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    violations = review_gates.run_checks(tmp_path, allowlist_path=allowlist_path, scan_roots=("src",))
+
+    assert [violation.rule for violation in violations] == ["allowlist-budget"]
+
+
 def test_review_gates_reject_new_long_function(tmp_path: Path) -> None:
     review_gates = _load_review_gates()
     function_body = "\n".join(f"    step_{index} = {index}" for index in range(81))

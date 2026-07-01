@@ -7,12 +7,12 @@ from fastapi.responses import JSONResponse
 from api.application.action_catalog import CatalogItemNotFound, CatalogNotReady
 from api.application.contracts import ActionOutcomeFeedback, ActionRequest, ActionStatus
 from api.application.execution_limits import ActionInputValidationError
-from api.application.services.action import (
+from api.application.services.action import ActionService
+from api.application.services.action_errors import (
     ActionApprovalStateError,
     ActionNotFoundError,
     ActionOutcomeFeedbackUnavailable,
     ActionOutcomeNotFoundError,
-    ActionService,
 )
 from api.application.services.action_catalog import ActionCatalogService
 from api.presentation.schemas import ActionApprovalRequest, ActionRejectionRequest

@@ -12,8 +12,6 @@ from api.infrastructure.unit_of_work.adapters.infrastructure import SQLAlchemyIn
 from api.infrastructure.unit_of_work.adapters.katana import SQLAlchemyKatanaUnitOfWork
 from api.infrastructure.unit_of_work.adapters.mantra import SQLAlchemyMantraUnitOfWork
 from api.infrastructure.unit_of_work.adapters.naabu import SQLAlchemyNaabuUnitOfWork
-from api.infrastructure.unit_of_work.adapters.program import SQLAlchemyProgramUnitOfWork
-from api.infrastructure.unit_of_work.interfaces.program import ProgramUnitOfWork
 
 
 class DatabaseProvider(Provider):
@@ -36,10 +34,6 @@ class DatabaseProvider(Provider):
 
 class UnitOfWorkProvider(Provider):
     scope = Scope.APP
-
-    @provide(scope=Scope.REQUEST, provides=ProgramUnitOfWork)
-    def get_program_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyProgramUnitOfWork:
-        return SQLAlchemyProgramUnitOfWork(session_factory)
 
     @provide(scope=Scope.REQUEST)
     def get_scan_uow(self, session_factory: async_sessionmaker) -> SQLAlchemyHTTPXUnitOfWork:

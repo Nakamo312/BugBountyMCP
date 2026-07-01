@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.exc import IntegrityError
 
-from api.infrastructure.orchestration import action_command_store
+from api.infrastructure.orchestration import action_submission_conflicts
 
 
 class _DuplicateActionRequestOrig:
@@ -31,7 +31,7 @@ class _OtherUniqueOrig:
 
 def test_duplicate_action_request_integrity_error_is_submission_conflict() -> None:
     classifier = getattr(
-        action_command_store,
+        action_submission_conflicts,
         "is_duplicate_action_request_integrity_error",
         None,
     )

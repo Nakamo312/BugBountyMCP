@@ -21,7 +21,6 @@ READ_PATH_RE = re.compile(r"(^|/)([^/]*(gds|reader|scoring)[^/]*)\.py$", re.IGNO
 STORE_SCORE_CALL_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*ScoreCalculator\.calculate\s*\(")
 STORE_MATH_IMPORTS = {"math", "statistics", "numpy", "scipy"}
 
-
 @dataclass(frozen=True)
 class Violation:
     rule: str
@@ -38,14 +37,11 @@ class Violation:
             where = f"{where}::{self.symbol}"
         return f"[{self.rule}] {where} - {self.message}"
 
-
 def _rel(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
-
 def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
-
 
 def _iter_source_files(root: Path, scan_roots: Sequence[str]) -> Iterable[Path]:
     for scan_root in scan_roots:
@@ -56,11 +52,9 @@ def _iter_source_files(root: Path, scan_roots: Sequence[str]) -> Iterable[Path]:
             if path.is_file() and path.suffix in SOURCE_SUFFIXES:
                 yield path
 
-
 def _line_count(path: Path) -> int:
     with path.open("r", encoding="utf-8", errors="ignore") as handle:
         return sum(1 for _ in handle)
-
 
 def _load_allowlist(path: Path | None) -> dict[str, Any]:
     if path is None or not path.exists():
@@ -71,7 +65,6 @@ def _load_allowlist(path: Path | None) -> dict[str, Any]:
         raise ValueError(f"review gate allowlist must be a JSON object: {path}")
     return payload
 
-
 def _allow_entry(allowlist: Mapping[str, Any], group: str, key: str) -> Mapping[str, Any] | None:
     entries = allowlist.get(group, {})
     if not isinstance(entries, Mapping):
@@ -79,20 +72,17 @@ def _allow_entry(allowlist: Mapping[str, Any], group: str, key: str) -> Mapping[
     entry = entries.get(key)
     return entry if isinstance(entry, Mapping) else None
 
-
 def _allow_reason_ok(entry: Mapping[str, Any] | None) -> bool:
     if entry is None:
         return False
     reason = entry.get("reason")
     return isinstance(reason, str) and len(reason.strip()) >= 20
 
-
 def _allow_max_lines(entry: Mapping[str, Any] | None) -> int | None:
     if entry is None:
         return None
     value = entry.get("max_lines")
     return value if isinstance(value, int) else None
-
 
 def check_long_files(
     root: Path,
@@ -128,10 +118,8 @@ def check_long_files(
             )
     return violations
 
-
 def _python_files(files: Sequence[Path]) -> Iterable[Path]:
     return (path for path in files if path.suffix in PYTHON_SUFFIXES)
-
 
 def _qualnames(tree: ast.AST) -> dict[ast.AST, str]:
     names: dict[ast.AST, str] = {}
@@ -148,7 +136,6 @@ def _qualnames(tree: ast.AST) -> dict[ast.AST, str]:
 
     visit(tree, ())
     return names
-
 
 def check_long_functions(
     root: Path,
@@ -201,6 +188,95 @@ def check_long_functions(
                 )
     return violations
 
+def _function_lengths(path: Path, root: Path) -> dict[str, int]:
+    rel = _rel(path, root)
+    try:
+        tree = ast.parse(_read_text(path), filename=rel)
+    except SyntaxError:
+        return {}
+    names = _qualnames(tree)
+    lengths: dict[str, int] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not hasattr(node, "end_lineno"):
+            continue
+        lengths[names.get(node, node.name)] = int(node.end_lineno) - int(node.lineno) + 1
+    return lengths
+
+def check_allowlist_budget(
+    root: Path,
+    allowlist: Mapping[str, Any],
+    *,
+    max_file_lines: int = DEFAULT_MAX_FILE_LINES,
+    max_function_lines: int = DEFAULT_MAX_FUNCTION_LINES,
+) -> list[Violation]:
+    violations: list[Violation] = []
+    long_files = allowlist.get("long_files", {})
+    if isinstance(long_files, Mapping):
+        for rel, entry in long_files.items():
+            if not isinstance(rel, str) or not isinstance(entry, Mapping):
+                continue
+            path = root / rel
+            if not path.exists():
+                violations.append(Violation("allowlist-stale", rel, "allowlist entry points at a missing file"))
+                continue
+            count = _line_count(path)
+            allowed_max = _allow_max_lines(entry)
+            if count <= max_file_lines:
+                violations.append(
+                    Violation(
+                        "allowlist-stale",
+                        rel,
+                        f"{count} lines; file is below the {max_file_lines}-line gate and must leave the allowlist",
+                    )
+                )
+                continue
+            if allowed_max is not None and allowed_max > count:
+                violations.append(
+                    Violation(
+                        "allowlist-budget",
+                        rel,
+                        f"allowed legacy maximum is {allowed_max}, but current file has {count} lines; lower the allowance",
+                    )
+                )
+    long_functions = allowlist.get("long_functions", {})
+    if isinstance(long_functions, Mapping):
+        cache: dict[str, dict[str, int]] = {}
+        for key, entry in long_functions.items():
+            if not isinstance(key, str) or "::" not in key or not isinstance(entry, Mapping):
+                continue
+            rel, qualname = key.split("::", 1)
+            path = root / rel
+            if not path.exists():
+                violations.append(Violation("allowlist-stale", rel, "allowlist entry points at a missing file", symbol=qualname))
+                continue
+            lengths = cache.setdefault(rel, _function_lengths(path, root))
+            length = lengths.get(qualname)
+            if length is None:
+                violations.append(Violation("allowlist-stale", rel, "allowlist entry points at a missing function", symbol=qualname))
+                continue
+            allowed_max = _allow_max_lines(entry)
+            if length <= max_function_lines:
+                violations.append(
+                    Violation(
+                        "allowlist-stale",
+                        rel,
+                        f"{length} lines; function is below the {max_function_lines}-line gate and must leave the allowlist",
+                        symbol=qualname,
+                    )
+                )
+                continue
+            if allowed_max is not None and allowed_max > length:
+                violations.append(
+                    Violation(
+                        "allowlist-budget",
+                        rel,
+                        f"allowed legacy maximum is {allowed_max}, but current function has {length} lines; lower the allowance",
+                        symbol=qualname,
+                    )
+                )
+    return violations
 
 def _contains_store_score_math(class_node: ast.ClassDef, source_segment: str) -> bool:
     for node in ast.walk(class_node):
@@ -215,7 +291,6 @@ def _contains_store_score_math(class_node: ast.ClassDef, source_segment: str) ->
         if isinstance(node, ast.FunctionDef) and "score" in node.name.lower():
             return True
     return False
-
 
 def check_store_score_math(root: Path, files: Sequence[Path], allowlist: Mapping[str, Any]) -> list[Violation]:
     violations: list[Violation] = []
@@ -246,7 +321,6 @@ def check_store_score_math(root: Path, files: Sequence[Path], allowlist: Mapping
             )
     return violations
 
-
 def _string_constants(tree: ast.AST) -> Iterable[tuple[int, str]]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -258,7 +332,6 @@ def _string_constants(tree: ast.AST) -> Iterable[tuple[int, str]]:
                     parts.append(value.value)
             if parts:
                 yield getattr(node, "lineno", 1), "".join(parts)
-
 
 def check_read_path_writes(root: Path, files: Sequence[Path], allowlist: Mapping[str, Any]) -> list[Violation]:
     del allowlist
@@ -286,7 +359,6 @@ def check_read_path_writes(root: Path, files: Sequence[Path], allowlist: Mapping
                 )
     return violations
 
-
 def _cypher_string_name(parent: ast.AST) -> str | None:
     if isinstance(parent, ast.Assign):
         names = []
@@ -298,7 +370,6 @@ def _cypher_string_name(parent: ast.AST) -> str | None:
         return ",".join(names) or None
     return None
 
-
 def _parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
     parents: dict[ast.AST, ast.AST] = {}
     for parent in ast.walk(tree):
@@ -306,11 +377,9 @@ def _parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
             parents[child] = parent
     return parents
 
-
 def _is_query_artifact(rel: str) -> bool:
     name = Path(rel).name
     return name.endswith("_queries.py") or name in {"query_templates.py"}
-
 
 def check_long_cypher(root: Path, files: Sequence[Path], allowlist: Mapping[str, Any]) -> list[Violation]:
     violations: list[Violation] = []
@@ -351,7 +420,6 @@ def check_long_cypher(root: Path, files: Sequence[Path], allowlist: Mapping[str,
             )
     return violations
 
-
 def run_checks(
     root: Path,
     *,
@@ -369,8 +437,15 @@ def run_checks(
     violations.extend(check_store_score_math(root, files, allowlist))
     violations.extend(check_read_path_writes(root, files, allowlist))
     violations.extend(check_long_cypher(root, files, allowlist))
+    violations.extend(
+        check_allowlist_budget(
+            root,
+            allowlist,
+            max_file_lines=max_file_lines,
+            max_function_lines=max_function_lines,
+        )
+    )
     return violations
-
 
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run repository review gates.")
@@ -380,7 +455,6 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--max-file-lines", type=int, default=DEFAULT_MAX_FILE_LINES)
     parser.add_argument("--max-function-lines", type=int, default=DEFAULT_MAX_FUNCTION_LINES)
     return parser.parse_args(argv)
-
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(sys.argv[1:] if argv is None else argv)
@@ -402,7 +476,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     print("review gates passed")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

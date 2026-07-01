@@ -5,12 +5,13 @@ from uuid import uuid4
 
 import pytest
 
-from api.application.contracts import ExecutionMode, ExecutionStatus, NodeRunClaim
-from api.infrastructure.orchestration.run_claim_store import (
+from api.application.contracts import ExecutionMode, ExecutionStatus, NodeRunClaim, NodeRunClaimRequest
+from api.infrastructure.orchestration.run_claim_models import (
     CampaignBudgetSnapshot,
-    RunClaimStore,
-    _refilled_tokens,
+    refilled_tokens as _refilled_tokens,
 )
+from api.infrastructure.orchestration.run_claim_store import RunClaimStore
+from api.infrastructure.orchestration import run_claim_transaction
 
 
 class EmptyResult:
@@ -65,6 +66,10 @@ def _claim_kwargs(**overrides):
     }
     values.update(overrides)
     return values
+
+
+def _claim_request(**overrides) -> NodeRunClaimRequest:
+    return NodeRunClaimRequest(**_claim_kwargs(**overrides))
 
 
 def test_token_bucket_refill_is_capped_by_capacity() -> None:
@@ -134,12 +139,10 @@ def test_campaign_budget_snapshot_reports_first_exhausted_dimension() -> None:
 async def test_depth_limit_blocks_without_creating_run(monkeypatch) -> None:
     session = RecordingSession()
     store = RunClaimStore(lambda: session)
-    monkeypatch.setattr(store, "_select_node_run_claim", _none)
-    monkeypatch.setattr(store, "_select_retryable_failed_work_claim", _none)
+    monkeypatch.setattr(run_claim_transaction, "select_node_run_claim", _none)
+    monkeypatch.setattr(run_claim_transaction, "select_retryable_failed_work_claim", _none)
 
-    claim = await store.claim_node_run(
-        **_claim_kwargs(expansion_depth=7, max_expansion_depth=6)
-    )
+    claim = await store.claim_node_run(_claim_request(expansion_depth=7, max_expansion_depth=6))
 
     assert claim.created is False
     assert claim.blocked_reason == "depth_limit"
@@ -151,9 +154,9 @@ async def test_depth_limit_blocks_without_creating_run(monkeypatch) -> None:
 async def test_campaign_budget_blocks_before_run_insert(monkeypatch) -> None:
     session = RecordingSession()
     store = RunClaimStore(lambda: session)
-    monkeypatch.setattr(store, "_select_node_run_claim", _none)
-    monkeypatch.setattr(store, "_select_retryable_failed_work_claim", _none)
-    monkeypatch.setattr(store, "_select_recent_completed_work", _none)
+    monkeypatch.setattr(run_claim_transaction, "select_node_run_claim", _none)
+    monkeypatch.setattr(run_claim_transaction, "select_retryable_failed_work_claim", _none)
+    monkeypatch.setattr(run_claim_transaction, "select_recent_completed_work", _none)
 
     async def exhausted(*args, **kwargs):
         return {
@@ -167,9 +170,9 @@ async def test_campaign_budget_blocks_before_run_insert(monkeypatch) -> None:
             "tokens_refilled_at": datetime.now(timezone.utc),
         }
 
-    monkeypatch.setattr(store, "_lock_campaign_budget", exhausted)
+    monkeypatch.setattr(run_claim_transaction, "lock_campaign_budget", exhausted)
 
-    claim = await store.claim_node_run(**_claim_kwargs())
+    claim = await store.claim_node_run(_claim_request())
 
     assert claim.created is False
     assert claim.blocked_reason == "campaign_run_budget_exhausted"
@@ -194,10 +197,10 @@ async def test_duplicate_claim_does_not_lock_or_consume_campaign_budget(
     async def unexpected_budget_lock(*args, **kwargs):
         raise AssertionError("duplicate claim must not consume campaign budget")
 
-    monkeypatch.setattr(store, "_select_node_run_claim", select_existing)
-    monkeypatch.setattr(store, "_lock_campaign_budget", unexpected_budget_lock)
+    monkeypatch.setattr(run_claim_transaction, "select_node_run_claim", select_existing)
+    monkeypatch.setattr(run_claim_transaction, "lock_campaign_budget", unexpected_budget_lock)
 
-    claim = await store.claim_node_run(**_claim_kwargs())
+    claim = await store.claim_node_run(_claim_request())
 
     assert claim is existing
     assert session.commits == 0
@@ -209,7 +212,7 @@ async def test_cooldown_blocks_recently_completed_work_before_budget(
 ) -> None:
     session = RecordingSession()
     store = RunClaimStore(lambda: session)
-    monkeypatch.setattr(store, "_select_node_run_claim", _none)
+    monkeypatch.setattr(run_claim_transaction, "select_node_run_claim", _none)
 
     async def recent_work(*args, **kwargs):
         return {"id": uuid4()}
@@ -217,10 +220,10 @@ async def test_cooldown_blocks_recently_completed_work_before_budget(
     async def unexpected_budget_lock(*args, **kwargs):
         raise AssertionError("cooldown must be checked before campaign budget")
 
-    monkeypatch.setattr(store, "_select_recent_completed_work", recent_work)
-    monkeypatch.setattr(store, "_lock_campaign_budget", unexpected_budget_lock)
+    monkeypatch.setattr(run_claim_transaction, "select_recent_completed_work", recent_work)
+    monkeypatch.setattr(run_claim_transaction, "lock_campaign_budget", unexpected_budget_lock)
 
-    claim = await store.claim_node_run(**_claim_kwargs())
+    claim = await store.claim_node_run(_claim_request())
 
     assert claim.created is False
     assert claim.blocked_reason == "cooldown_active"
@@ -231,8 +234,8 @@ async def test_cooldown_blocks_recently_completed_work_before_budget(
 async def test_new_run_atomically_consumes_campaign_budget(monkeypatch) -> None:
     session = RecordingSession()
     store = RunClaimStore(lambda: session)
-    monkeypatch.setattr(store, "_select_node_run_claim", _none)
-    monkeypatch.setattr(store, "_select_recent_completed_work", _none)
+    monkeypatch.setattr(run_claim_transaction, "select_node_run_claim", _none)
+    monkeypatch.setattr(run_claim_transaction, "select_recent_completed_work", _none)
     now = datetime.now(timezone.utc)
 
     async def available(*args, **kwargs):
@@ -247,11 +250,9 @@ async def test_new_run_atomically_consumes_campaign_budget(monkeypatch) -> None:
             "tokens_refilled_at": now,
         }
 
-    monkeypatch.setattr(store, "_lock_campaign_budget", available)
+    monkeypatch.setattr(run_claim_transaction, "lock_campaign_budget", available)
 
-    claim = await store.claim_node_run(
-        **_claim_kwargs(target_count=3, token_cost=2)
-    )
+    claim = await store.claim_node_run(_claim_request(target_count=3, token_cost=2))
 
     assert claim.created is True
     assert claim.blocked_reason is None
@@ -266,7 +267,7 @@ async def test_new_run_atomically_consumes_campaign_budget(monkeypatch) -> None:
 async def test_retryable_existing_work_does_not_consume_budget(monkeypatch) -> None:
     session = RecordingSession()
     store = RunClaimStore(lambda: session)
-    monkeypatch.setattr(store, "_select_node_run_claim", _none)
+    monkeypatch.setattr(run_claim_transaction, "select_node_run_claim", _none)
     existing_id = uuid4()
 
     async def retryable(*args, **kwargs):
@@ -281,17 +282,15 @@ async def test_retryable_existing_work_does_not_consume_budget(monkeypatch) -> N
     async def unexpected_budget_lock(*args, **kwargs):
         raise AssertionError("retry must not consume campaign budget")
 
-    monkeypatch.setattr(store, "_select_retryable_failed_work_claim", retryable)
-    monkeypatch.setattr(store, "_lock_campaign_budget", unexpected_budget_lock)
+    monkeypatch.setattr(run_claim_transaction, "select_retryable_failed_work_claim", retryable)
+    monkeypatch.setattr(run_claim_transaction, "lock_campaign_budget", unexpected_budget_lock)
 
-    claim = await store.claim_node_run(
-        **_claim_kwargs(
+    claim = await store.claim_node_run(_claim_request(
             retry_policy={
                 "max_attempts": 2,
                 "terminal_outcomes": ["tool_failed"],
             }
-        )
-    )
+        ))
 
     assert claim.run_id == existing_id
     assert claim.created is False

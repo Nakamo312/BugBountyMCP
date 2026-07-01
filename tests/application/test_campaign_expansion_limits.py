@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from api.application.contracts import EventEnvelope, NodeRunClaim, ExecutionStatus
+from api.application.contracts import EventEnvelope, NodeRunClaim, ExecutionStatus, NodeRunClaimRequest
 from api.infrastructure.pipeline.builder import build_node
 from api.application.pipeline.context import PipelineContext
 from api.application.pipeline.fingerprints import build_node_work_key
@@ -24,13 +24,13 @@ class RecordingBus:
 
 class RecordingClaimStore:
     def __init__(self) -> None:
-        self.claims: list[dict] = []
+        self.claims: list[NodeRunClaimRequest] = []
 
-    async def claim_node_run(self, **kwargs) -> NodeRunClaim:
-        self.claims.append(kwargs)
+    async def claim_node_run(self, request: NodeRunClaimRequest) -> NodeRunClaim:
+        self.claims.append(request)
         return NodeRunClaim(
             run_id=uuid4(),
-            claim_key=kwargs["claim_key"],
+            claim_key=request.claim_key,
             status=ExecutionStatus.QUEUED,
         )
 
@@ -160,7 +160,7 @@ async def test_registry_passes_expansion_limits_to_scheduled_claim() -> None:
     registry = NodeRegistry(
         RecordingBus(),
         Settings(),
-        orchestration_store=store,
+        node_run_claims=store,
     )
     registry._nodes[node.node_id] = node
     campaign_id = uuid4()
@@ -179,12 +179,12 @@ async def test_registry_passes_expansion_limits_to_scheduled_claim() -> None:
     await registry._claim_event_for_node("httpx", "host_discovered", event)
 
     claim = store.claims[0]
-    assert claim["campaign_id"] == campaign_id
-    assert claim["expansion_depth"] == 4
-    assert claim["max_expansion_depth"] == 6
-    assert claim["cooldown_seconds"] == 300
-    assert claim["token_cost"] == 1
-    assert claim["target_count"] == 1
-    assert claim["run_payload"]["targets"] == ["example.com"]
-    assert claim["coalesced_trigger"]["trigger_event_id"] == event["event_id"]
-    assert claim["work_key"] is not None
+    assert claim.campaign_id == campaign_id
+    assert claim.expansion_depth == 4
+    assert claim.max_expansion_depth == 6
+    assert claim.cooldown_seconds == 300
+    assert claim.token_cost == 1
+    assert claim.target_count == 1
+    assert claim.run_payload["targets"] == ["example.com"]
+    assert claim.coalesced_trigger["trigger_event_id"] == event["event_id"]
+    assert claim.work_key is not None

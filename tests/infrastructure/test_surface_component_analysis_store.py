@@ -107,8 +107,9 @@ async def test_surface_component_analysis_store_reads_latest_report() -> None:
     assert report.snapshot_id == snapshot_id
     assert report.item_count == 1
     assert report.items[0].component_id == 3
-    assert report.items[0].exploration_priority_score == 88
+    assert report.items[0].signals.exploration_pressure == 88
     assert report.items[0].action_candidates[0]["capability_id"] == "httpx"
+    assert report.items[0].action_candidates[0]["calibration_status"] == "uncalibrated"
     assert "previous_snapshot_id IS NULL" in session.queries[0][0]
     assert session.query_types == ["Select", "Select"]
 

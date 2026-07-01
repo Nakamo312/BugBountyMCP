@@ -4,7 +4,7 @@ from dishka import Provider, Scope, from_context, provide
 
 from api.config import Settings
 from api.application.ports.runners import ToolRunnerFactoryPort
-from api.application.ports.orchestration import EventDispatchStorePort, EventRecorderPort
+from api.application.ports.orchestration import EventDispatchLeasePort, EventRecorderPort
 from api.infrastructure.agent_coordination import AgentEventRouter
 from api.infrastructure.events.dispatcher import EventDispatcher
 from api.infrastructure.events.event_bus import EventBus
@@ -53,12 +53,12 @@ class CLIRunnerProvider(Provider):
     def get_event_dispatcher(
         self,
         settings: Settings,
-        dispatch_store: EventDispatchStorePort,
+        dispatch_lease: EventDispatchLeasePort,
         event_bus: EventBus,
         agent_router: AgentEventRouter,
     ) -> EventDispatcher:
         return EventDispatcher(
-            store=dispatch_store,
+            store=dispatch_lease,
             event_bus=event_bus,
             agent_router=agent_router,
             batch_size=settings.EVENT_DISPATCH_BATCH_SIZE,

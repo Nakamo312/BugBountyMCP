@@ -12,8 +12,35 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
+SURFACE_COMPONENT_SIGNAL_FORMULA_VERSION = "surface-gds-heuristic-signal.v1"
+SURFACE_COMPONENT_SIGNAL_KIND = "heuristic"
+SURFACE_COMPONENT_SIGNAL_CALIBRATION = "uncalibrated"
+
+
 class SurfaceComponentAnalysisNotFound(Exception):
     """Raised when no materialized analysis exists for the requested snapshot."""
+
+
+class SurfaceComponentHeuristicSignals(BaseModel):
+    """Uncalibrated graph-derived signals exposed by the read API.
+
+    The materialized PostgreSQL table still uses historical ``*_score`` column
+    names. This application DTO intentionally does not. API consumers should
+    treat these values as rank-aiding features, not as calibrated priority,
+    severity, risk, or learned utility.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    formula_version: str = SURFACE_COMPONENT_SIGNAL_FORMULA_VERSION
+    kind: str = SURFACE_COMPONENT_SIGNAL_KIND
+    calibration_status: str = SURFACE_COMPONENT_SIGNAL_CALIBRATION
+    structural_pressure: int | None = None
+    drift: int | None = None
+    bridge_pressure: int | None = None
+    outlier: int | None = None
+    coverage: int | None = None
+    exploration_pressure: int | None = None
 
 
 class SurfaceComponentAnalysisItem(BaseModel):
@@ -22,12 +49,7 @@ class SurfaceComponentAnalysisItem(BaseModel):
     component_id: int
     node_count: int
     changed_node_count: int
-    structural_pressure_score: int | None = None
-    drift_score: int | None = None
-    bridge_pressure_score: int | None = None
-    outlier_score: int | None = None
-    coverage_score: int | None = None
-    exploration_priority_score: int | None = None
+    signals: SurfaceComponentHeuristicSignals = Field(default_factory=SurfaceComponentHeuristicSignals)
     action_candidate_count: int
     metrics: dict[str, Any] = Field(default_factory=dict)
     action_candidates: list[dict[str, Any]] = Field(default_factory=list)
@@ -110,4 +132,10 @@ def surface_component_analysis_boundary() -> dict[str, Any]:
         "action_submission": "forbidden",
         "tool_execution": "forbidden",
         "source_of_truth": "surface_component_analysis_runs/surface_component_analysis_items",
+        "signal_contract": {
+            "formula_version": SURFACE_COMPONENT_SIGNAL_FORMULA_VERSION,
+            "kind": SURFACE_COMPONENT_SIGNAL_KIND,
+            "calibration_status": SURFACE_COMPONENT_SIGNAL_CALIBRATION,
+            "not_semantics": ["priority", "severity", "risk", "learned_utility"],
+        },
     }

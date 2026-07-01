@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Any
 
 from api.application.contracts import (
-    ExecutionMode,
     ExecutionStatus,
     NodeRunClaim,
     TerminalOutcome,
@@ -131,32 +130,6 @@ class CampaignBudgetReservation:
     snapshot: CampaignBudgetSnapshot
     target_cost: int
     token_cost: float
-
-
-@dataclass(frozen=True)
-class RunClaimRequest:
-    """Public claim arguments packed into an internal workflow value."""
-
-    claim_key: str
-    job_id: uuid.UUID
-    program_id: uuid.UUID
-    node_id: str
-    event_name: str
-    trigger_event_id: uuid.UUID
-    input_fingerprint: str
-    target_fingerprint: str
-    execution_mode: ExecutionMode = ExecutionMode.INLINE
-    next_run_at: datetime | None = None
-    target_count: int | None = None
-    run_payload: Mapping[str, Any] | None = None
-    work_key: str | None = None
-    coalesced_trigger: Mapping[str, Any] | None = None
-    retry_policy: dict | None = None
-    campaign_id: uuid.UUID | None = None
-    expansion_depth: int = 0
-    max_expansion_depth: int | None = None
-    cooldown_seconds: int | float = 0
-    token_cost: int | float = 1
 
 
 def existing_work_claim(

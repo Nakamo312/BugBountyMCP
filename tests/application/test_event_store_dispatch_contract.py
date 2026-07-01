@@ -11,10 +11,7 @@ import pytest
 # type boundaries in this test module.
 event_bus_module = types.ModuleType("api.infrastructure.events.event_bus")
 event_bus_module.EventBus = object
-store_module = types.ModuleType("api.infrastructure.orchestration.store")
-store_module.OrchestrationStore = object
 sys.modules.setdefault("api.infrastructure.events.event_bus", event_bus_module)
-sys.modules.setdefault("api.infrastructure.orchestration.store", store_module)
 
 from api.application.action_invocation_payload import (
     ACTION_INVOCATION_PAYLOAD_KEY,
@@ -32,14 +29,14 @@ from api.application.action_catalog import CatalogDetail
 from api.domain.enums import RuleType, ScopeAction
 from api.domain.models import ScopeRuleModel
 from api.application.services.action import ActionService
+from api.application.services.action_composition import build_action_service
 from api.application.services.action_catalog import ActionCatalogService
 from api.application.services.policy import PolicyService
 
 sys.modules.pop("api.infrastructure.events.event_bus", None)
-sys.modules.pop("api.infrastructure.orchestration.store", None)
 
 
-class StubOrchestrationStore:
+class StubActionStore:
     def __init__(self) -> None:
         self.policy_results: list[tuple[ActionRequest, PolicyDecision]] = []
         self.queued: list[tuple[ActionRequest, object]] = []
@@ -158,11 +155,13 @@ def _service(
             scope_policy=scope_policy,
         )
     )
-    return ActionService(
-        commands=store,
+    return build_action_service(
+        policy_results=store,
+        allowed_actions=store,
         queries=store,
         results=store,
-        approvals=store,
+        approval_requests=store,
+        approval_decisions=store,
         policy=PolicyService(),
         catalog=catalog,
         scope_rules=scope_rules,
@@ -171,7 +170,7 @@ def _service(
 
 @pytest.mark.asyncio
 async def test_request_action_persists_event_for_dispatch_without_direct_publish() -> None:
-    store = StubOrchestrationStore()
+    store = StubActionStore()
     bus = RecordingEventBus()
     service = _service(store, bus)
     action = ActionRequest(
@@ -198,7 +197,7 @@ async def test_request_action_persists_event_for_dispatch_without_direct_publish
 
 @pytest.mark.asyncio
 async def test_allowed_action_uses_one_atomic_store_operation() -> None:
-    store = StubOrchestrationStore()
+    store = StubActionStore()
     service = _service(store, RecordingEventBus())
     action = ActionRequest(
         kind=ActionKind.SCAN,
@@ -257,7 +256,7 @@ async def test_approve_action_persists_event_for_dispatch_without_direct_publish
         targets=["https://example.com"],
         options={"timeout": 5},
     )
-    store = StubOrchestrationStore()
+    store = StubActionStore()
     store.action_for_approval = (pending, ActionStatus.REQUIRES_APPROVAL.value)
     bus = RecordingEventBus()
     service = _service(store, bus, capability="ffuf", profile="content-discovery-light")
@@ -294,7 +293,7 @@ async def test_approve_action_rechecks_scope_before_queueing_targets() -> None:
             )
         ]
     )
-    store = StubOrchestrationStore()
+    store = StubActionStore()
     store.action_for_approval = (pending, ActionStatus.REQUIRES_APPROVAL.value)
     service = _service(
         store,
@@ -331,60 +330,75 @@ def test_event_dispatch_schema_is_separate_from_event_store() -> None:
     assert "uq_event_dispatches_event_destination" in migration_source
 
 
-def test_action_command_and_approval_stores_record_event_and_dispatch_atomically() -> None:
-    action_source = open(
-        "src/api/infrastructure/orchestration/action_command_store.py",
+def test_allowed_and_approval_queue_stores_record_event_and_dispatch_atomically() -> None:
+    allowed_source = open(
+        "src/api/infrastructure/orchestration/allowed_action_queue_store.py",
         encoding="utf-8",
     ).read()
     approval_source = open(
-        "src/api/infrastructure/orchestration/approval_store.py",
+        "src/api/infrastructure/orchestration/approval_decision_store.py",
         encoding="utf-8",
     ).read()
-    helper_source = open(
-        "src/api/infrastructure/orchestration/action_write_helpers.py",
+    execution_source = open(
+        "src/api/infrastructure/orchestration/action_execution_writer.py",
+        encoding="utf-8",
+    ).read()
+    command_tx_source = open(
+        "src/api/infrastructure/orchestration/action_command_transactions.py",
+        encoding="utf-8",
+    ).read()
+    approval_tx_source = open(
+        "src/api/infrastructure/orchestration/approval_transactions.py",
         encoding="utf-8",
     ).read()
 
-    create_body = action_source.split("async def create_queued_job", 1)[1].split(
-        "async def get_scope_id", 1
-    )[0]
-    approve_body = approval_source.split("async def approve_and_create_queued_job", 1)[1].split(
-        "async def reject_action", 1
-    )[0]
+    allowed_body = command_tx_source.split("async def create_allowed_action_in_session", 1)[1]
+    approve_body = approval_tx_source.split(
+        "async def approve_and_create_queued_job_in_session", 1
+    )[1].split("async def reject_action_in_session", 1)[0]
 
-    assert "insert_job_run_and_dispatch(" in create_body
-    assert "await session.commit()" in create_body
-    assert "insert_job_run_and_dispatch(" in approve_body
-    assert "await session.commit()" in approve_body
-    assert "insert_event_store_row(session, envelope)" in helper_source
-    assert "dispatches.enqueue_dispatch(session, envelope" in helper_source
+    assert "create_allowed_action_in_session(" in allowed_source
+    assert "approve_and_create_queued_job_in_session(" in approval_source
+    assert "insert_queued_execution(" in allowed_body
+    assert "dispatches.enqueue_dispatch(session, envelope" in allowed_body
+    assert "await session.commit()" not in allowed_body
+    assert "insert_queued_execution(" in approve_body
+    assert "dispatches.enqueue_dispatch(session, envelope" in approve_body
+    assert "await session.commit()" not in approve_body
+    assert "insert_event_store_row(session, envelope)" in execution_source
+    assert "enqueue_dispatch" not in execution_source
 
 
-def test_allowed_action_command_store_flow_has_one_commit_for_all_execution_state() -> None:
+def test_allowed_action_queue_store_flow_has_one_commit_for_all_execution_state() -> None:
     action_source = open(
-        "src/api/infrastructure/orchestration/action_command_store.py",
+        "src/api/infrastructure/orchestration/allowed_action_queue_store.py",
         encoding="utf-8",
     ).read()
-    helper_source = open(
-        "src/api/infrastructure/orchestration/action_write_helpers.py",
+    execution_source = open(
+        "src/api/infrastructure/orchestration/action_execution_writer.py",
+        encoding="utf-8",
+    ).read()
+    command_tx_source = open(
+        "src/api/infrastructure/orchestration/action_command_transactions.py",
         encoding="utf-8",
     ).read()
 
     assert "async def create_allowed_action" in action_source
-    body = action_source.split("async def create_allowed_action", 1)[1].split(
-        "async def create_queued_job", 1
-    )[0]
+    body = action_source.split("async def create_allowed_action", 1)[1]
+    tx_body = command_tx_source.split("async def create_allowed_action_in_session", 1)[1]
 
-    assert "self.campaigns.upsert_campaign(session, action, now)" in body
-    assert "self._insert_action_request(" in body
-    assert "insert_policy_decision_row(" in body
-    assert "record_action_detail_rows(" in body
-    assert "scope_decision_id=scope_id" in body
-    assert "insert_job_run_and_dispatch(" in body
-    assert "insert(jobs).values(" in helper_source
-    assert "insert(runs).values(" in helper_source
-    assert "insert_event_store_row(session, envelope)" in helper_source
-    assert "dispatches.enqueue_dispatch(session, envelope" in helper_source
-    assert "run_payload_for_action(action)" in helper_source
-    assert "run_payload=run_payload_for_action(action)" in helper_source
+    assert "create_allowed_action_in_session(" in body
+    assert "campaigns.upsert_campaign(session, action, now)" in tx_body
+    assert "insert_action_request(" in tx_body
+    assert "insert_policy_decision_row(" in tx_body
+    assert "record_action_detail_rows(" in tx_body
+    assert "scope_decision_id=scope_id" in tx_body
+    assert "insert_queued_execution(" in tx_body
+    assert "dispatches.enqueue_dispatch(session, envelope" in tx_body
+    assert "insert(jobs).values(" in execution_source
+    assert "insert(runs).values(" in execution_source
+    assert "insert_event_store_row(session, envelope)" in execution_source
+    assert "run_payload_for_action(action)" in execution_source
+    assert "run_payload=run_payload_for_action(action)" in execution_source
+    assert "enqueue_dispatch" not in execution_source
     assert body.count("await session.commit()") == 1

@@ -8,6 +8,7 @@ import pytest
 from api.application.surface_component_analysis import (
     SurfaceComponentAnalysisItem,
     SurfaceComponentAnalysisNotFound,
+    SurfaceComponentHeuristicSignals,
     SurfaceComponentAnalysisReport,
     SurfaceComponentAnalysisService,
     surface_component_analysis_boundary,
@@ -48,18 +49,30 @@ def _report() -> SurfaceComponentAnalysisReport:
                 component_id=7,
                 node_count=5,
                 changed_node_count=2,
-                structural_pressure_score=73,
-                drift_score=None,
-                bridge_pressure_score=66,
-                outlier_score=72,
-                coverage_score=55,
-                exploration_priority_score=34,
+                signals=SurfaceComponentHeuristicSignals(
+                    structural_pressure=73,
+                    drift=None,
+                    bridge_pressure=66,
+                    outlier=72,
+                    coverage=55,
+                    exploration_pressure=34,
+                ),
                 action_candidate_count=1,
                 metrics={"profile": {"component_id": 7}},
                 action_candidates=[{"capability_id": "katana", "profile_id": "safe-crawl"}],
             )
         ],
     )
+
+
+def test_surface_component_analysis_item_exposes_signal_contract_not_score_fields() -> None:
+    item = _report().items[0].model_dump()
+
+    assert "signals" in item
+    assert item["signals"]["calibration_status"] == "uncalibrated"
+    assert item["signals"]["exploration_pressure"] == 34
+    assert "exploration_priority_score" not in item
+    assert "structural_pressure_score" not in item
 
 
 @pytest.mark.asyncio
@@ -71,7 +84,7 @@ async def test_surface_component_analysis_service_returns_materialized_report() 
     result = await service.latest(program_id=report.program_id, snapshot_id=report.snapshot_id)
 
     assert result.analysis_run_id == report.analysis_run_id
-    assert result.items[0].structural_pressure_score == 73
+    assert result.items[0].signals.structural_pressure == 73
     assert store.calls == [
         {
             "method": "latest",
@@ -108,6 +121,8 @@ def test_surface_component_analysis_boundary_is_read_only() -> None:
     assert boundary["gds_execution"] == "not_available_from_api_read_endpoint"
     assert boundary["proposal_creation"] == "forbidden"
     assert boundary["action_submission"] == "forbidden"
+    assert boundary["signal_contract"]["calibration_status"] == "uncalibrated"
+    assert "priority" in boundary["signal_contract"]["not_semantics"]
 
 
 def test_surface_component_analysis_route_is_registered() -> None:

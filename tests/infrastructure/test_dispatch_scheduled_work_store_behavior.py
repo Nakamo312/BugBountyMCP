@@ -7,10 +7,15 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from api.application.contracts import ExecutionStatus
-from api.infrastructure.orchestration.dispatch_store import DispatchStore
-from api.infrastructure.orchestration.scheduled_work_store import (
-    ScheduledWorkStore,
-    _RetryPolicy,
+from api.infrastructure.orchestration.dispatch_leasing import DispatchLeaseStore, claimable_dispatch_predicates
+from api.infrastructure.orchestration.dispatch_writer import DispatchWriterStore
+from api.infrastructure.orchestration.scheduled_leasing import select_ready_scheduled_rows
+from api.infrastructure.orchestration import scheduled_leasing
+from api.infrastructure.orchestration.scheduled_retry import (
+    RetryPolicy,
+    mark_exhausted_runs_dead,
+    requeue_run_ids,
+    retry_policy_values,
 )
 
 
@@ -49,7 +54,7 @@ def _compiled_params(statement) -> dict:
 
 def test_dispatch_claim_predicate_reclaims_expired_locks() -> None:
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    pending_or_failed, expired_lock = DispatchStore._claimable_dispatch_predicates(now=now)
+    pending_or_failed, expired_lock = claimable_dispatch_predicates(now=now)
 
     expired_sql = str(expired_lock.compile(dialect=postgresql.dialect()))
     pending_sql = str(pending_or_failed.compile(dialect=postgresql.dialect()))
@@ -64,7 +69,7 @@ def test_dispatch_claim_predicate_reclaims_expired_locks() -> None:
 @pytest.mark.asyncio
 async def test_dispatch_mark_failed_moves_to_dead_after_max_attempts() -> None:
     session = RecordingSession(rowcount=1)
-    store = DispatchStore(lambda: session)
+    store = DispatchLeaseStore(lambda: session)
     dispatch_id = uuid4()
 
     updated = await store.mark_failed(
@@ -89,7 +94,7 @@ async def test_dispatch_mark_failed_moves_to_dead_after_max_attempts() -> None:
 @pytest.mark.asyncio
 async def test_dispatch_mark_failed_keeps_retryable_failed_available_later() -> None:
     session = RecordingSession(rowcount=1)
-    store = DispatchStore(lambda: session)
+    store = DispatchLeaseStore(lambda: session)
 
     updated = await store.mark_failed(
         dispatch_id=uuid4(),
@@ -109,20 +114,15 @@ async def test_dispatch_mark_failed_keeps_retryable_failed_available_later() -> 
 
 @pytest.mark.asyncio
 async def test_scheduled_ready_selection_respects_per_node_limits(monkeypatch) -> None:
-    store = ScheduledWorkStore(lambda: RecordingSession())
     calls = []
 
     async def select_ready_for_node(session, *, node_id, limit, now):
         calls.append((node_id, limit))
         return [{"node_id": node_id, "run_id": uuid4(), "created_at": now} for _ in range(limit)]
 
-    monkeypatch.setattr(
-        ScheduledWorkStore,
-        "_select_ready_rows_for_node",
-        staticmethod(select_ready_for_node),
-    )
+    monkeypatch.setattr(scheduled_leasing, "select_ready_rows_for_node", select_ready_for_node)
 
-    rows = await store._select_ready_scheduled_rows(
+    rows = await select_ready_scheduled_rows(
         object(),
         node_limits={"node-b": 2, "node-a": 1, "node-zero": 0},
         now=datetime.now(timezone.utc),
@@ -137,7 +137,7 @@ async def test_scheduled_requeue_increments_attempt_and_clears_terminal_fields()
     session = RecordingSession()
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
-    await ScheduledWorkStore._requeue_run_ids(
+    await requeue_run_ids(
         session,
         run_ids=[uuid4()],
         retry_reason="tool_failed",
@@ -169,7 +169,7 @@ async def test_scheduled_exhausted_retry_moves_to_dead() -> None:
     session = RecordingSession()
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
-    await ScheduledWorkStore._mark_exhausted_runs_dead(
+    await mark_exhausted_runs_dead(
         session,
         run_ids=[uuid4()],
         retry_reason="tool_failed",
@@ -184,8 +184,8 @@ async def test_scheduled_exhausted_retry_moves_to_dead() -> None:
 
 
 def test_retry_policy_skips_non_retryable_policy() -> None:
-    assert ScheduledWorkStore._retry_policy_values({"max_attempts": 1}) is None
-    assert ScheduledWorkStore._retry_policy_values({"max_attempts": 3}) is None
-    assert ScheduledWorkStore._retry_policy_values(
+    assert retry_policy_values({"max_attempts": 1}) is None
+    assert retry_policy_values({"max_attempts": 3}) is None
+    assert retry_policy_values(
         {"max_attempts": 3, "terminal_outcomes": ["tool_failed"]}
-    ) == _RetryPolicy(max_attempts=3, terminal_outcomes=["tool_failed"])
+    ) == RetryPolicy(max_attempts=3, terminal_outcomes=["tool_failed"])

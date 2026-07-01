@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from uuid import UUID
+from datetime import datetime
 from typing import Any
+from uuid import UUID
 
-from api.application.contract_enums import ExecutionStatus, TerminalOutcome
+from api.application.contract_enums import ExecutionMode, ExecutionStatus, TerminalOutcome
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,34 @@ class NodeRunClaim:
     @property
     def is_blocked(self) -> bool:
         return self.blocked_reason is not None
+
+
+
+
+@dataclass(frozen=True)
+class NodeRunClaimRequest:
+    """Single command for claiming a pipeline node run."""
+
+    claim_key: str
+    job_id: UUID
+    program_id: UUID
+    node_id: str
+    event_name: str
+    trigger_event_id: UUID
+    input_fingerprint: str
+    target_fingerprint: str
+    execution_mode: ExecutionMode = ExecutionMode.INLINE
+    next_run_at: datetime | None = None
+    target_count: int | None = None
+    run_payload: Mapping[str, Any] | None = None
+    work_key: str | None = None
+    coalesced_trigger: Mapping[str, Any] | None = None
+    retry_policy: dict | None = None
+    campaign_id: UUID | None = None
+    expansion_depth: int = 0
+    max_expansion_depth: int | None = None
+    cooldown_seconds: int | float = 0
+    token_cost: int | float = 1
 
 
 @dataclass(frozen=True)

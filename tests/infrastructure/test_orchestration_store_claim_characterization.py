@@ -5,8 +5,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from api.application.contracts import ExecutionMode, ExecutionStatus, TerminalOutcome
+from api.application.contracts import ExecutionMode, ExecutionStatus, TerminalOutcome, NodeRunClaimRequest
 from api.infrastructure.orchestration.run_claim_store import RunClaimStore
+from api.infrastructure.orchestration import run_claim_transaction
 
 
 class EmptyResult:
@@ -79,6 +80,10 @@ def _claim_kwargs(**overrides):
     return values
 
 
+def _claim_request(**overrides) -> NodeRunClaimRequest:
+    return NodeRunClaimRequest(**_claim_kwargs(**overrides))
+
+
 def _trigger_params(session: RecordingSession) -> list[dict]:
     return [params for _, params in session.calls if isinstance(params, dict)]
 
@@ -103,19 +108,17 @@ async def test_retryable_failed_work_claim_appends_coalesced_trigger_without_bud
     async def unexpected_budget_lock(*args, **kwargs):
         raise AssertionError("retry reuse must not lock or consume campaign budget")
 
-    monkeypatch.setattr(store, "_select_node_run_claim", _none)
-    monkeypatch.setattr(store, "_select_retryable_failed_work_claim", retryable)
-    monkeypatch.setattr(store, "_lock_campaign_budget", unexpected_budget_lock)
+    monkeypatch.setattr(run_claim_transaction, "select_node_run_claim", _none)
+    monkeypatch.setattr(run_claim_transaction, "select_retryable_failed_work_claim", retryable)
+    monkeypatch.setattr(run_claim_transaction, "lock_campaign_budget", unexpected_budget_lock)
 
-    claim = await store.claim_node_run(
-        **_claim_kwargs(
+    claim = await store.claim_node_run(_claim_request(
             coalesced_trigger={"event_id": "new-trigger"},
             retry_policy={
                 "max_attempts": 2,
                 "terminal_outcomes": [TerminalOutcome.TOOL_FAILED.value],
             },
-        )
-    )
+        ))
 
     assert claim.run_id == existing_id
     assert claim.claim_key == "existing-retry-claim"
@@ -160,15 +163,13 @@ async def test_insert_race_rechecks_claim_before_active_work_fallback_and_coales
     async def unexpected_budget_lock(*args, **kwargs):
         raise AssertionError("insert-race fallback test should not touch budget")
 
-    monkeypatch.setattr(store, "_select_node_run_claim", select_claim)
-    monkeypatch.setattr(store, "_select_active_work_claim", active_work)
-    monkeypatch.setattr(store, "_lock_campaign_budget", unexpected_budget_lock)
+    monkeypatch.setattr(run_claim_transaction, "select_node_run_claim", select_claim)
+    monkeypatch.setattr(run_claim_transaction, "select_active_work_claim", active_work)
+    monkeypatch.setattr(run_claim_transaction, "lock_campaign_budget", unexpected_budget_lock)
 
-    claim = await store.claim_node_run(
-        **_claim_kwargs(
+    claim = await store.claim_node_run(_claim_request(
             coalesced_trigger={"event_id": "racing-trigger"},
-        )
-    )
+        ))
 
     assert session.raised_insert_race is True
     assert session.rollbacks == 1
@@ -193,49 +194,17 @@ async def test_insert_race_without_existing_claim_or_active_work_reraises(
     session = InsertRaceSession()
     store = RunClaimStore(lambda: session)
 
-    monkeypatch.setattr(store, "_select_node_run_claim", _none)
-    monkeypatch.setattr(store, "_select_active_work_claim", _none)
+    monkeypatch.setattr(run_claim_transaction, "select_node_run_claim", _none)
+    monkeypatch.setattr(run_claim_transaction, "select_active_work_claim", _none)
 
     async def unexpected_budget_lock(*args, **kwargs):
         raise AssertionError("unrecoverable insert-race test should not touch budget")
 
-    monkeypatch.setattr(store, "_lock_campaign_budget", unexpected_budget_lock)
+    monkeypatch.setattr(run_claim_transaction, "lock_campaign_budget", unexpected_budget_lock)
 
     with pytest.raises(IntegrityError):
-        await store.claim_node_run(**_claim_kwargs())
+        await store.claim_node_run(_claim_request())
 
     assert session.raised_insert_race is True
     assert session.rollbacks == 1
     assert session.commits == 0
-
-
-@pytest.mark.asyncio
-async def test_orchestration_store_claim_node_run_remains_compatibility_facade(
-    monkeypatch,
-) -> None:
-    from api.application.contracts import NodeRunClaim
-    from api.infrastructure.orchestration.store import OrchestrationStore
-
-    session = RecordingSession()
-    store = OrchestrationStore(lambda: session)
-    expected = NodeRunClaim(
-        run_id=uuid4(),
-        claim_key="claim-key",
-        status=ExecutionStatus.QUEUED,
-        created=True,
-    )
-    delegated_kwargs = None
-
-    async def delegated_claim_node_run(**kwargs):
-        nonlocal delegated_kwargs
-        delegated_kwargs = kwargs
-        return expected
-
-    monkeypatch.setattr(store.run_claims, "claim_node_run", delegated_claim_node_run)
-
-    claim = await store.claim_node_run(**_claim_kwargs())
-
-    assert claim is expected
-    assert delegated_kwargs is not None
-    assert delegated_kwargs["claim_key"] == "claim-key"
-    assert delegated_kwargs["work_key"] == "work-key"

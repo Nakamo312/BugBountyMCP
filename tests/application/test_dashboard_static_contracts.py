@@ -14,8 +14,8 @@ def _lucide_imports(source: str) -> set[str]:
     return {name.strip().strip(",") for name in block.splitlines() if name.strip()}
 
 
-def test_agent_task_detail_imports_every_lucide_icon_it_uses() -> None:
-    source = Path("BugBountyDashBoard/src/pages/AgentTaskDetail.jsx").read_text(
+def test_agent_task_stats_imports_every_lucide_icon_it_uses() -> None:
+    source = Path("BugBountyDashBoard/src/components/agents/taskDetail/AgentTaskStats.jsx").read_text(
         encoding="utf-8"
     )
 

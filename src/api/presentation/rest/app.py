@@ -24,30 +24,36 @@ logger = logging.getLogger(__name__)
 async def _start_scheduler(app: FastAPI, container, settings: Settings) -> None:
     from api.application.execution_limits import system_execution_budget
     from api.application.ports.action import (
-        ActionApprovalPort,
-        ActionCommandPort,
+        ActionPolicyResultWriter,
         ActionQueryPort,
         ActionResultPort,
+        AllowedActionQueueWriter,
+        ApprovalDecisionWriter,
+        ApprovalRequestReader,
     )
     from api.application.scheduler import ActionScheduler, load_scheduler_config
-    from api.application.services.action import ActionService
+    from api.application.services.action_composition import build_action_service
     from api.application.services.action_catalog import ActionCatalogService
     from api.application.services.policy import PolicyService
     from api.infrastructure.repositories.adapters.scope_rule import SQLAlchemyScopeRuleRepository
 
-    action_commands: ActionCommandPort = await container.get(ActionCommandPort)
+    action_policy_results: ActionPolicyResultWriter = await container.get(ActionPolicyResultWriter)
+    allowed_action_queue: AllowedActionQueueWriter = await container.get(AllowedActionQueueWriter)
     action_queries: ActionQueryPort = await container.get(ActionQueryPort)
     action_results: ActionResultPort = await container.get(ActionResultPort)
-    action_approvals: ActionApprovalPort = await container.get(ActionApprovalPort)
+    approval_requests: ApprovalRequestReader = await container.get(ApprovalRequestReader)
+    approval_decisions: ApprovalDecisionWriter = await container.get(ApprovalDecisionWriter)
     catalog_service: ActionCatalogService = await container.get(ActionCatalogService)
     scope_rule_repository: SQLAlchemyScopeRuleRepository = await container.get(
         SQLAlchemyScopeRuleRepository
     )
-    action_service = ActionService(
-        commands=action_commands,
+    action_service = build_action_service(
+        policy_results=action_policy_results,
+        allowed_actions=allowed_action_queue,
         queries=action_queries,
         results=action_results,
-        approvals=action_approvals,
+        approval_requests=approval_requests,
+        approval_decisions=approval_decisions,
         policy=PolicyService(),
         catalog=catalog_service,
         scope_rules=scope_rule_repository,

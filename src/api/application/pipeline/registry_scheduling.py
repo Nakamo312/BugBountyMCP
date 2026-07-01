@@ -17,7 +17,7 @@ class NodeRegistrySchedulingMixin:
     def _should_start_scheduled_executor(self) -> bool:
         if not self.settings.PIPELINE_SCHEDULER_ENABLED:
             return False
-        if self.container is None and self._orchestration_store is None:
+        if not self._has_scheduled_runtime_ports():
             return False
         return any(
             node.execution_mode == ExecutionMode.SCHEDULED
@@ -66,19 +66,20 @@ class NodeRegistrySchedulingMixin:
         return limits
 
     async def _drain_scheduled_node_runs_once(self) -> None:
-        store = await self._get_pipeline_orchestration_store()
-        if store is None:
-            logger.warning("Scheduled executor tick skipped: orchestration store is missing")
+        runtime_ports = await self._get_scheduled_runtime_ports()
+        if runtime_ports is None:
+            logger.warning("Scheduled executor tick skipped: scheduled runtime ports are missing")
             return
+        scheduled_leases, scheduled_recovery, scheduled_retries, run_states = runtime_ports
 
-        recovered_leases = await store.recover_stale_leases()
+        recovered_leases = await scheduled_recovery.recover_stale_leases()
         if recovered_leases:
             logger.warning(
                 "Recovered stale scheduled leases: count=%s",
                 recovered_leases,
             )
 
-        stale_failed = await store.fail_stale_scheduled_active_runs(
+        stale_failed = await scheduled_recovery.fail_stale_scheduled_active_runs(
             running_timeout_seconds=self.settings.PIPELINE_SCHEDULER_RUNNING_TIMEOUT_SECONDS,
             flushing_timeout_seconds=self.settings.PIPELINE_SCHEDULER_FLUSHING_TIMEOUT_SECONDS,
         )
@@ -88,7 +89,7 @@ class NodeRegistrySchedulingMixin:
                 stale_failed,
             )
 
-        requeued = await store.requeue_retryable_node_runs(
+        requeued = await scheduled_retries.requeue_retryable_node_runs(
             retry_policies=self._retry_policies_by_node(),
             max_requeues_per_node=self.settings.PIPELINE_RETRY_REQUEUE_LIMIT_PER_NODE,
             retry_jitter_seconds=self.settings.PIPELINE_RETRY_REQUEUE_JITTER_SECONDS,
@@ -96,8 +97,7 @@ class NodeRegistrySchedulingMixin:
         if requeued:
             logger.info("Requeued retryable scheduled runs: count=%s", requeued)
 
-        active_counter = getattr(store, "count_scheduled_active_runs_by_node", None)
-        active_runs_by_node = await active_counter() if active_counter else {}
+        active_runs_by_node = await scheduled_leases.count_scheduled_active_runs_by_node()
         node_limits = self._scheduled_node_available_slot_limits(
             self.settings.PIPELINE_SCHEDULED_EXECUTOR_BATCH_SIZE,
             active_runs_by_node=active_runs_by_node,
@@ -106,7 +106,7 @@ class NodeRegistrySchedulingMixin:
             logger.debug("Scheduled executor tick skipped: no available node slots")
             return
 
-        leased_runs = await store.lease_ready_scheduled_node_runs(
+        leased_runs = await scheduled_leases.lease_ready_scheduled_node_runs(
             node_limits=node_limits,
             lease_owner=self._scheduler_lease_owner,
             lease_ttl_seconds=self.settings.PIPELINE_SCHEDULER_LEASE_TTL_SECONDS,
@@ -130,7 +130,7 @@ class NodeRegistrySchedulingMixin:
                     leased_run.run_id,
                 )
                 await self._cancel_unknown_scheduled_node_run(
-                    store=store,
+                    run_states=run_states,
                     node_id=leased_run.node_id,
                     run_id=leased_run.run_id,
                 )
@@ -145,12 +145,12 @@ class NodeRegistrySchedulingMixin:
     async def _cancel_unknown_scheduled_node_run(
         self,
         *,
-        store,
+        run_states,
         node_id: str,
         run_id,
     ) -> None:
         try:
-            cancelled = await store.mark_run_finished(
+            cancelled = await run_states.mark_run_finished(
                 run_id=run_id,
                 status=ExecutionStatus.CANCELLED,
                 error=f"Cancelled: leased scheduled run for unknown node {node_id}",

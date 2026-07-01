@@ -4,7 +4,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from api.application.contracts import ActionStatus, ActionSubmission
-from api.application.ports.action import ActionApprovalPort
+from api.application.ports.action import ApprovalDecisionWriter, ApprovalRequestReader
 from api.application.services.action_command import ActionCommandCompiler
 from api.application.services.action_envelope import ActionEnvelopeBuilder
 from api.application.services.action_errors import ActionApprovalStateError, ActionNotFoundError
@@ -17,12 +17,14 @@ class ActionApprovalWorkflow:
     def __init__(
         self,
         *,
-        approvals: ActionApprovalPort,
+        approval_requests: ApprovalRequestReader,
+        approval_decisions: ApprovalDecisionWriter,
         command_compiler: ActionCommandCompiler,
         policy_evaluator: ActionPolicyEvaluator,
         envelopes: ActionEnvelopeBuilder,
     ) -> None:
-        self.approvals = approvals
+        self.approval_requests = approval_requests
+        self.approval_decisions = approval_decisions
         self.command_compiler = command_compiler
         self.policy_evaluator = policy_evaluator
         self.envelopes = envelopes
@@ -44,7 +46,7 @@ class ActionApprovalWorkflow:
             approved_by=approved_by,
             reason=reason,
         )
-        scope_id = await self.approvals.get_scope_id(command.action_id)
+        scope_id = await self.approval_requests.get_scope_id(command.action_id)
         envelope = self.envelopes.event_envelope(
             command,
             decision,
@@ -53,7 +55,11 @@ class ActionApprovalWorkflow:
             confidence=confidence,
             scope_id=scope_id,
         )
-        approved = await self.approvals.approve_and_create_queued_job(command, decision, envelope)
+        approved = await self.approval_decisions.approve_and_create_queued_job(
+            command,
+            decision,
+            envelope,
+        )
         if not approved:
             raise ActionApprovalStateError(
                 f"Action {action_id} is no longer awaiting approval"
@@ -80,7 +86,7 @@ class ActionApprovalWorkflow:
             rejected_by=rejected_by,
             reason=reason,
         )
-        rejected = await self.approvals.reject_action(command, decision)
+        rejected = await self.approval_decisions.reject_action(command, decision)
         if not rejected:
             raise ActionApprovalStateError(
                 f"Action {action_id} is no longer awaiting approval"
@@ -88,7 +94,7 @@ class ActionApprovalWorkflow:
         return self.envelopes.rejected_submission(command, decision)
 
     async def _action_for_approval(self, action_id: UUID):
-        action, current_status = await self.approvals.get_action_for_approval(action_id)
+        action, current_status = await self.approval_requests.get_action_for_approval(action_id)
         if action is None:
             raise ActionNotFoundError(f"Action not found: {action_id}")
         return action, current_status

@@ -8,9 +8,7 @@ from typing import Any
 from sqlalchemy import insert
 
 from api.application.contracts import (
-    EventEnvelope,
     ResolvedActionCommand,
-    ExecutionStatus,
     PolicyDecision,
     PolicyDecisionStatus,
 )
@@ -18,13 +16,9 @@ from api.infrastructure.adapters.orm import (
     action_request_options,
     action_request_targets,
     approval_requests,
-    jobs,
     policy_decisions,
-    runs,
     scope_decisions,
 )
-from api.infrastructure.orchestration.dispatch_store import DispatchStore
-from api.infrastructure.orchestration.event_store import insert_event_store_row
 
 
 def scope_status(decision: PolicyDecision) -> str:
@@ -53,13 +47,6 @@ def catalog_hash(decision: PolicyDecision) -> str | None:
 def action_request_payload(action: ResolvedActionCommand) -> dict[str, Any]:
     """Persist the public request shape, not the resolved command internals."""
     return action.to_public_request().model_dump(mode="json")
-
-
-def run_payload_for_action(action: ResolvedActionCommand) -> dict[str, Any]:
-    return {
-        "options": dict(action.profile.options),
-        "execution_budget": action.effective_budget.model_dump(mode="json"),
-    }
 
 
 async def record_approval_request_if_needed(
@@ -154,43 +141,3 @@ async def record_action_detail_rows(
         )
     )
     return scope_decision_id
-
-
-async def insert_job_run_and_dispatch(
-    session,
-    *,
-    action: ResolvedActionCommand,
-    envelope: EventEnvelope,
-    dispatches: DispatchStore,
-    now: datetime,
-) -> None:
-    await session.execute(
-        insert(jobs).values(
-            id=envelope.job_id,
-            action_id=action.action_id,
-            program_id=action.program_id,
-            capability_id=action.profile.capability_id,
-            profile_id=action.profile.profile_id,
-            status=ExecutionStatus.QUEUED.value,
-            correlation_id=envelope.correlation_id,
-            campaign_id=action.campaign_id,
-            created_at=now,
-            updated_at=now,
-        )
-    )
-    await session.execute(
-        insert(runs).values(
-            id=envelope.run_id,
-            job_id=envelope.job_id,
-            program_id=action.program_id,
-            event_name=envelope.event,
-            trigger_event_id=envelope.event_id,
-            status=ExecutionStatus.QUEUED.value,
-            attempt=1,
-            run_payload=run_payload_for_action(action),
-            created_at=now,
-            updated_at=now,
-        )
-    )
-    await insert_event_store_row(session, envelope)
-    await dispatches.enqueue_dispatch(session, envelope, now=now)

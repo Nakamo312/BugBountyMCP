@@ -44,6 +44,7 @@ from api.application.invocation_contracts import (
 from api.application.pipeline_contracts import (
     IngestContext,
     NodeRunClaim,
+    NodeRunClaimRequest,
     ScheduledNodeRun,
 )
 
@@ -70,6 +71,7 @@ __all__ = [
     "ExecutionStatus",
     "IngestContext",
     "NodeRunClaim",
+    "NodeRunClaimRequest",
     "PolicyDecision",
     "PolicyDecisionStatus",
     "RunnerInvocationContext",

@@ -13,7 +13,8 @@ from api.infrastructure.adapters.orm import (
     event_store,
     programs,
 )
-from api.infrastructure.orchestration.dispatch_store import DispatchStore
+from api.infrastructure.orchestration.dispatch_leasing import DispatchLeaseStore, claimable_dispatch_predicates
+from api.infrastructure.orchestration.dispatch_writer import DispatchWriterStore
 
 
 pytestmark = pytest.mark.integration
@@ -80,7 +81,7 @@ async def test_concurrent_dispatchers_claim_one_outbox_delivery_once(
         expire_on_commit=False,
     )
     _, event_id, dispatch_id = await _seed_dispatch(session_factory)
-    store = DispatchStore(session_factory)
+    store = DispatchLeaseStore(session_factory)
 
     first, second = await asyncio.gather(
         store.claim_dispatches(
@@ -112,7 +113,7 @@ async def test_failed_outbox_delivery_is_retryable_and_keeps_original_event(
         expire_on_commit=False,
     )
     _, event_id, dispatch_id = await _seed_dispatch(session_factory)
-    store = DispatchStore(session_factory)
+    store = DispatchLeaseStore(session_factory)
 
     claimed = await store.claim_dispatches(
         destination="rabbitmq",

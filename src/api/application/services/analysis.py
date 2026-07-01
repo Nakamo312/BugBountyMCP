@@ -1,7 +1,7 @@
 """Service for querying security analysis views"""
 
 from dataclasses import dataclass
-from typing import List, Dict, Any
+from typing import Dict, Any
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -21,12 +21,7 @@ from api.application.dto.analysis import (
     APIPatternDTO,
     AnalysisListDTO,
 )
-from api.infrastructure.unit_of_work.interfaces.httpx import HTTPXUnitOfWork
-from api.application.services.view_queries import (
-    ReadOnlyView,
-    view_count_query,
-    view_data_query,
-)
+from api.application.read_only_views import ReadOnlyView, ReadOnlyViewReader
 
 _PROGRAM_VIEW_FILTERS = frozenset({"program_id"})
 _INJECTION_CANDIDATES_VIEW = ReadOnlyView("injection_candidates_view", _PROGRAM_VIEW_FILTERS)
@@ -71,8 +66,8 @@ _ANALYSIS_QUERIES = {
 class AnalysisService:
     """Service for querying security analysis database views"""
 
-    def __init__(self, uow: HTTPXUnitOfWork):
-        self.uow = uow
+    def __init__(self, view_reader: ReadOnlyViewReader):
+        self._view_reader = view_reader
 
     async def _query_view(
         self,
@@ -80,22 +75,20 @@ class AnalysisService:
         program_id: UUID,
         limit: int = 100,
         offset: int = 0,
-        extra_filters: Dict[str, Any] | None = None
-    ) -> tuple[List[Dict[str, Any]], int]:
+        extra_filters: Dict[str, Any] | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
         """Execute a bounded query against an allow-listed read-only view."""
-        async with self.uow as uow:
-            filters: Dict[str, Any] = {"program_id": program_id}
-            if extra_filters:
-                filters.update(extra_filters)
-            params = {**filters, "limit": limit, "offset": offset}
+        filters: Dict[str, Any] = {"program_id": program_id}
+        if extra_filters:
+            filters.update(extra_filters)
 
-            count_result = await uow._session.execute(view_count_query(view, filters), params)
-            total = count_result.scalar() or 0
-
-            result = await uow._session.execute(view_data_query(view, filters), params)
-            rows = result.mappings().all()
-
-            return [dict(row) for row in rows], total
+        page = await self._view_reader.page_view_rows(
+            view,
+            filters,
+            limit=limit,
+            offset=offset,
+        )
+        return page.rows, page.total or 0
 
     async def get_analysis(
         self,

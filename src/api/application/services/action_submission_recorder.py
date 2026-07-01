@@ -10,22 +10,24 @@ from api.application.contracts import (
     EventEnvelope,
     PolicyDecision,
 )
-from api.application.ports.action import ActionCommandPort
+from api.application.ports.action import ActionPolicyResultWriter, AllowedActionQueueWriter
 from api.application.services.action_errors import ActionSubmissionConflict
 
 SubmissionLookup = Callable[[UUID], Awaitable[ActionSubmission | None]]
 
 
 class ActionSubmissionRecorder:
-    """Record command decisions and recover already-created submissions."""
+    """Record submission state through scenario-specific write ports."""
 
     def __init__(
         self,
         *,
-        commands: ActionCommandPort,
+        policy_results: ActionPolicyResultWriter,
+        allowed_actions: AllowedActionQueueWriter,
         submission_lookup: SubmissionLookup,
     ) -> None:
-        self.commands = commands
+        self.policy_results = policy_results
+        self.allowed_actions = allowed_actions
         self.submission_lookup = submission_lookup
 
     async def record_policy_result_or_recover(
@@ -34,7 +36,7 @@ class ActionSubmissionRecorder:
         decision: PolicyDecision,
     ) -> ActionSubmission | None:
         try:
-            await self.commands.record_policy_result(action, decision)
+            await self.policy_results.record_policy_result(action, decision)
         except ActionSubmissionConflict:
             recovered = await self.submission_lookup(action.action_id)
             if recovered is not None:
@@ -51,7 +53,7 @@ class ActionSubmissionRecorder:
         scope_id: UUID,
     ) -> ActionSubmission | None:
         try:
-            await self.commands.create_allowed_action(
+            await self.allowed_actions.create_allowed_action(
                 action,
                 decision,
                 envelope,

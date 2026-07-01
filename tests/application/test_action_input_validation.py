@@ -13,6 +13,7 @@ from api.application.execution_limits import (
     ToolOptionSpec,
 )
 from api.application.services.action import ActionService
+from api.application.services.action_composition import build_action_service
 from api.application.services.action_catalog import ActionCatalogService
 from api.application.services.policy import PolicyService
 
@@ -97,11 +98,13 @@ def _service():
     catalog_store = CatalogStore()
     store = RecordingStore()
     policy = RecordingPolicy()
-    service = ActionService(
-        commands=store,
+    service = build_action_service(
+        policy_results=store,
+        allowed_actions=store,
         queries=store,
         results=store,
-        approvals=store,
+        approval_requests=store,
+        approval_decisions=store,
         policy=policy,
         catalog=ActionCatalogService(catalog_store),
         system_budget=ExecutionBudget(

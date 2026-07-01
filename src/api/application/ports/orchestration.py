@@ -1,21 +1,21 @@
 """Narrow orchestration ports used by application code.
 
-The compatibility OrchestrationStore still exists in infrastructure, but application
-modules should depend on these scenario contracts instead of the whole facade.
+There is no all-in-one orchestration facade. Application modules depend on
+scenario contracts instead of a one-object-knows-everything store.
 """
 from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Protocol
 from uuid import UUID
 
 from api.application.contracts import (
     EventDispatchRecord,
     EventEnvelope,
-    ExecutionMode,
     ExecutionStatus,
     NodeRunClaim,
+    NodeRunClaimRequest,
     ScheduledNodeRun,
     TerminalOutcome,
 )
@@ -54,34 +54,11 @@ class PipelineRunStatePort(Protocol):
 
 
 class NodeRunClaimPort(Protocol):
-    async def claim_node_run(
-        self,
-        *,
-        claim_key: str,
-        job_id: UUID,
-        program_id: UUID,
-        node_id: str,
-        event_name: str,
-        trigger_event_id: UUID,
-        input_fingerprint: str,
-        target_fingerprint: str,
-        execution_mode: ExecutionMode = ExecutionMode.INLINE,
-        next_run_at: datetime | None = None,
-        target_count: int | None = None,
-        run_payload: Mapping[str, Any] | None = None,
-        work_key: str | None = None,
-        coalesced_trigger: Mapping[str, Any] | None = None,
-        retry_policy: dict | None = None,
-        campaign_id: UUID | None = None,
-        expansion_depth: int = 0,
-        max_expansion_depth: int | None = None,
-        cooldown_seconds: int | float = 0,
-        token_cost: int | float = 1,
-    ) -> NodeRunClaim:
+    async def claim_node_run(self, request: NodeRunClaimRequest) -> NodeRunClaim:
         ...
 
 
-class ScheduledRunStorePort(Protocol):
+class ScheduledLeasePort(Protocol):
     async def count_scheduled_active_runs_by_node(self) -> dict[str, int]:
         ...
 
@@ -94,6 +71,8 @@ class ScheduledRunStorePort(Protocol):
     ) -> list[ScheduledNodeRun]:
         ...
 
+
+class ScheduledRecoveryPort(Protocol):
     async def recover_stale_leases(self, *, now: datetime | None = None) -> int:
         ...
 
@@ -106,6 +85,8 @@ class ScheduledRunStorePort(Protocol):
     ) -> int:
         ...
 
+
+class ScheduledRetryPort(Protocol):
     async def requeue_retryable_node_runs(
         self,
         *,
@@ -115,24 +96,12 @@ class ScheduledRunStorePort(Protocol):
     ) -> int:
         ...
 
-    async def mark_run_finished(
-        self,
-        *,
-        run_id: UUID,
-        status: ExecutionStatus,
-        error: str | None = None,
-        terminal_outcome: TerminalOutcome | None = None,
-        retry_policy: dict | None = None,
-    ) -> bool:
-        ...
-
-
 class EventRecorderPort(Protocol):
     async def record_event(self, envelope: EventEnvelope) -> None:
         ...
 
 
-class EventDispatchStorePort(Protocol):
+class EventDispatchLeasePort(Protocol):
     async def claim_dispatches(
         self,
         *,
@@ -157,12 +126,3 @@ class EventDispatchStorePort(Protocol):
         retry_delay_seconds: float,
     ) -> bool:
         ...
-
-
-class PipelineOrchestrationStorePort(
-    NodeRunClaimPort,
-    ScheduledRunStorePort,
-    PipelineRunStatePort,
-    Protocol,
-):
-    """Combined pipeline port used only where claim, schedule, and run state meet."""

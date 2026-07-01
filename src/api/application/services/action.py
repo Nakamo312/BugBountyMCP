@@ -13,87 +13,27 @@ from api.application.contracts import (
     ActionStatus,
     ActionSubmission,
 )
-from api.application.execution_limits import DEFAULT_SYSTEM_EXECUTION_BUDGET, ExecutionBudget
-from api.application.ports.action import (
-    ActionApprovalPort,
-    ActionCommandPort,
-    ActionOutcomeFeedbackWriter,
-    ActionQueryPort,
-    ActionResultPort,
-    ScopeRuleProvider,
-)
-from api.application.services.action_catalog import ActionCatalogService
-from api.application.services.action_errors import (
-    ActionApprovalStateError,
-    ActionNotFoundError,
-    ActionOutcomeFeedbackUnavailable,
-    ActionOutcomeNotFoundError,
-)
-from api.application.services.action_outcome_feedback import ActionOutcomeFeedbackService
 from api.application.services.action_approval import ActionApprovalWorkflow
-from api.application.services.action_read import (
-    ActionReadService,
-    policy_decision_status_for_action_status as _policy_decision_status_for_action_status,
-)
+from api.application.services.action_outcome_feedback import ActionOutcomeFeedbackService
+from api.application.services.action_read import ActionReadService
 from api.application.services.action_submission import ActionSubmissionWorkflow
-from api.application.services.policy import PolicyService
 
 
 class ActionService:
-    """Thin façade over action read and command use cases."""
+    """Thin façade over already-composed action use cases."""
 
     def __init__(
         self,
-        store: object | None = None,
-        policy: PolicyService | None = None,
-        catalog: ActionCatalogService | None = None,
-        scope_rules: ScopeRuleProvider | None = None,
-        outcome_feedback: ActionOutcomeFeedbackWriter | None = None,
-        system_budget: ExecutionBudget | None = None,
-        commands: ActionCommandPort | None = None,
-        queries: ActionQueryPort | None = None,
-        results: ActionResultPort | None = None,
-        approvals: ActionApprovalPort | None = None,
+        *,
+        reads: ActionReadService,
+        feedback: ActionOutcomeFeedbackService,
+        submissions: ActionSubmissionWorkflow,
+        approvals: ActionApprovalWorkflow,
     ) -> None:
-        if store is not None:
-            raise TypeError(
-                "ActionService requires explicit command, query, result, and approval ports"
-            )
-        self.commands = commands
-        self.queries = queries
-        self.results = results
-        self.approvals = approvals
-        if self.commands is None or self.queries is None or self.results is None or self.approvals is None:
-            raise TypeError("ActionService requires command, query, result, and approval ports")
-        if policy is None or catalog is None:
-            raise TypeError("ActionService requires policy and catalog services")
-        self.policy = policy
-        self.catalog = catalog
-        self.scope_rules = scope_rules
-        self.outcome_feedback = outcome_feedback
-        self.system_budget = system_budget or DEFAULT_SYSTEM_EXECUTION_BUDGET
-        self._reads = ActionReadService(
-            queries=self.queries,
-            results=self.results,
-        )
-        self._feedback = ActionOutcomeFeedbackService(
-            queries=self.queries,
-            outcome_feedback=outcome_feedback,
-        )
-        self._submissions = ActionSubmissionWorkflow(
-            commands=self.commands,
-            policy=policy,
-            catalog=catalog,
-            scope_rules=scope_rules,
-            system_budget=self.system_budget,
-            submission_lookup=self._reads.get_action_submission,
-        )
-        self._approvals = ActionApprovalWorkflow(
-            approvals=self.approvals,
-            command_compiler=self._submissions.command_compiler,
-            policy_evaluator=self._submissions.policy_evaluator,
-            envelopes=self._submissions.envelopes,
-        )
+        self._reads = reads
+        self._feedback = feedback
+        self._submissions = submissions
+        self._approvals = approvals
 
     async def list_actions(
         self,

@@ -32,16 +32,22 @@ from api.infrastructure.adapters.orm import (
     policy_decisions,
     scope_decisions,
 )
-from api.infrastructure.orchestration.action_command_store import ActionCommandStore
-from api.infrastructure.orchestration.action_read_store import ActionReadStore
+from api.infrastructure.orchestration.allowed_action_queue_store import AllowedActionQueueStore
+from api.infrastructure.orchestration.action_read_mappers import (
+    action_artifact_reference_from_row,
+    action_event_record_from_row,
+    action_record_from_row,
+    action_run_result_from_row,
+)
 from api.infrastructure.orchestration.action_write_helpers import (
     action_request_payload,
     catalog_hash,
     scope_status,
     target_status,
 )
-from api.infrastructure.orchestration.campaign_state_store import CampaignStateStore
-from api.infrastructure.orchestration.dispatch_store import DispatchStore
+from api.infrastructure.orchestration.campaign_write_store import CampaignWriteStore
+from api.infrastructure.orchestration.dispatch_leasing import DispatchLeaseStore, claimable_dispatch_predicates
+from api.infrastructure.orchestration.dispatch_writer import DispatchWriterStore
 
 
 class RecordingAsyncSession:
@@ -164,9 +170,9 @@ def test_action_write_helpers_derive_scope_status_and_target_status() -> None:
 @pytest.mark.asyncio
 async def test_allowed_action_rolls_back_when_outbox_enqueue_fails(monkeypatch) -> None:
     session = RecordingAsyncSession()
-    campaigns = CampaignStateStore(lambda: session)
-    dispatches = DispatchStore(lambda: session)
-    store = ActionCommandStore(lambda: session, campaigns=campaigns, dispatches=dispatches)
+    campaigns = CampaignWriteStore()
+    dispatches = DispatchWriterStore()
+    store = AllowedActionQueueStore(lambda: session, campaigns=campaigns, dispatches=dispatches)
     request = ActionRequest(
         kind=ActionKind.SCAN,
         program_id=uuid4(),
@@ -230,7 +236,7 @@ def test_action_read_store_builds_action_record_from_durable_request_row() -> No
     created_at = datetime.now(timezone.utc)
     updated_at = datetime.now(timezone.utc)
 
-    record = ActionReadStore.action_record_from_row(
+    record = action_record_from_row(
         {
             "id": action.action_id,
             "program_id": action.program_id,
@@ -261,7 +267,7 @@ def test_action_read_store_builds_action_event_record_from_event_store_row() -> 
     correlation_id = uuid4()
     created_at = datetime.now(timezone.utc)
 
-    record = ActionReadStore.action_event_record_from_row(
+    record = action_event_record_from_row(
         {
             "event_id": event_id,
             "event_type": "httpx_scan_requested",
@@ -289,7 +295,7 @@ def test_action_read_store_builds_action_run_result_from_run_row() -> None:
     job_id = uuid4()
     now = datetime.now(timezone.utc)
 
-    record = ActionReadStore.action_run_result_from_row(
+    record = action_run_result_from_row(
         {
             "id": run_id,
             "job_id": job_id,
@@ -314,7 +320,7 @@ def test_action_read_store_builds_action_artifact_reference_from_row() -> None:
     run_id = uuid4()
     created_at = datetime.now(timezone.utc)
 
-    record = ActionReadStore.action_artifact_reference_from_row(
+    record = action_artifact_reference_from_row(
         {
             "id": artifact_id,
             "job_id": job_id,

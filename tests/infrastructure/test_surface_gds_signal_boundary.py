@@ -48,5 +48,15 @@ def test_surface_component_dashboard_does_not_label_heuristics_as_priority() -> 
     source = SURFACE_COMPONENTS_PAGE.read_text()
 
     assert "priority {item.exploration_priority_score" not in source
-    assert "Values are uncalibrated graph signals" in source
-    assert "not learned priority" in source
+    assert "uncalibrated heuristic graph signals" in source
+    assert "not priority, risk, severity, or learned utility" in source
+    assert "item.exploration_priority_score" not in source
+
+
+def test_surface_component_read_api_hides_legacy_score_columns() -> None:
+    source = Path("src/api/application/surface_component_analysis.py").read_text(encoding="utf-8")
+
+    assert "class SurfaceComponentHeuristicSignals" in source
+    assert "exploration_pressure" in source
+    assert "structural_pressure_score" not in source
+    assert "exploration_priority_score" not in source

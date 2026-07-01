@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from sqlalchemy.sql.dml import Update
 
-from api.infrastructure.orchestration.run_claim_store import _append_coalesced_trigger_statement
+from api.infrastructure.orchestration.run_claim_statements import append_coalesced_trigger_statement
 
 
 def test_append_coalesced_trigger_statement_uses_sqlalchemy_core() -> None:
-    statement = _append_coalesced_trigger_statement()
+    statement = append_coalesced_trigger_statement()
 
     assert isinstance(statement, Update)
     compiled = str(statement)
@@ -21,7 +21,7 @@ def test_append_coalesced_trigger_statement_uses_sqlalchemy_core() -> None:
 
 
 def test_append_coalesced_trigger_statement_preserves_tail_trim_contract() -> None:
-    compiled = str(_append_coalesced_trigger_statement())
+    compiled = str(append_coalesced_trigger_statement())
 
     assert "ORDER BY" in compiled
     assert "LIMIT" in compiled

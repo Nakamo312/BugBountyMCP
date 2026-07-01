@@ -13,20 +13,10 @@ from api.application.contracts import (
     PolicyDecision,
     PolicyDecisionStatus,
 )
-from api.application.execution_limits import (
-    DEFAULT_SYSTEM_EXECUTION_BUDGET,
-    ExecutionBudget,
-)
-from api.application.ports.action import (
-    ActionCommandPort,
-    ScopeRuleProvider,
-)
-from api.application.services.action_catalog import ActionCatalogService
 from api.application.services.action_command import ActionCommandCompiler
 from api.application.services.action_envelope import ActionEnvelopeBuilder
 from api.application.services.action_policy_evaluator import ActionPolicyEvaluator
 from api.application.services.action_submission_recorder import ActionSubmissionRecorder
-from api.application.services.policy import PolicyService
 
 SubmissionLookup = Callable[[UUID], Awaitable[ActionSubmission | None]]
 
@@ -37,32 +27,17 @@ class ActionSubmissionWorkflow:
     def __init__(
         self,
         *,
-        commands: ActionCommandPort,
-        policy: PolicyService,
-        catalog: ActionCatalogService,
+        command_compiler: ActionCommandCompiler,
+        policy_evaluator: ActionPolicyEvaluator,
+        envelopes: ActionEnvelopeBuilder,
+        recorder: ActionSubmissionRecorder,
         submission_lookup: SubmissionLookup,
-        scope_rules: ScopeRuleProvider | None = None,
-        system_budget: ExecutionBudget | None = None,
-        command_compiler: ActionCommandCompiler | None = None,
-        policy_evaluator: ActionPolicyEvaluator | None = None,
-        envelopes: ActionEnvelopeBuilder | None = None,
-        recorder: ActionSubmissionRecorder | None = None,
     ) -> None:
-        budget = system_budget or DEFAULT_SYSTEM_EXECUTION_BUDGET
-        self.command_compiler = command_compiler or ActionCommandCompiler(
-            catalog=catalog,
-            system_budget=budget,
-        )
-        self.policy_evaluator = policy_evaluator or ActionPolicyEvaluator(
-            policy=policy,
-            scope_rules=scope_rules,
-        )
-        self.envelopes = envelopes or ActionEnvelopeBuilder()
-        self.recorder = recorder or ActionSubmissionRecorder(
-            commands=commands,
-            submission_lookup=submission_lookup,
-        )
-        self.submission_lookup = submission_lookup
+        self._command_compiler = command_compiler
+        self._policy_evaluator = policy_evaluator
+        self._envelopes = envelopes
+        self._recorder = recorder
+        self._submission_lookup = submission_lookup
 
     async def request_action(
         self,
@@ -70,11 +45,11 @@ class ActionSubmissionWorkflow:
         *,
         confidence: float = 0.5,
     ) -> ActionSubmission:
-        existing = await self.submission_lookup(action.action_id)
+        existing = await self._submission_lookup(action.action_id)
         if existing is not None:
             return existing
-        command, detail = await self.command_compiler.resolve_command(action)
-        decision = await self.policy_evaluator.evaluate(command, detail)
+        command, detail = await self._command_compiler.resolve_command(action)
+        decision = await self._policy_evaluator.evaluate(command, detail)
         if decision.status == PolicyDecisionStatus.BLOCKED:
             return await self._record_terminal_submission(
                 command,
@@ -108,7 +83,7 @@ class ActionSubmissionWorkflow:
         profile_id: str | None = None,
         confidence: float = 0.5,
     ) -> ActionSubmission:
-        detail = await self.command_compiler.resolve_scan_event(
+        detail = await self._command_compiler.resolve_scan_event(
             event=event,
             profile_id=profile_id,
         )
@@ -130,10 +105,10 @@ class ActionSubmissionWorkflow:
         status: ActionStatus,
         message: str,
     ) -> ActionSubmission:
-        recovered = await self.recorder.record_policy_result_or_recover(action, decision)
+        recovered = await self._recorder.record_policy_result_or_recover(action, decision)
         if recovered is not None:
             return recovered
-        return self.envelopes.terminal_submission(
+        return self._envelopes.terminal_submission(
             action,
             decision,
             status=status,
@@ -150,7 +125,7 @@ class ActionSubmissionWorkflow:
         confidence: float,
     ) -> ActionSubmission:
         scope_id = uuid4()
-        envelope = self.envelopes.event_envelope(
+        envelope = self._envelopes.event_envelope(
             action,
             decision,
             request_event=request_event,
@@ -158,7 +133,7 @@ class ActionSubmissionWorkflow:
             confidence=confidence,
             scope_id=scope_id,
         )
-        recovered = await self.recorder.create_allowed_action_or_recover(
+        recovered = await self._recorder.create_allowed_action_or_recover(
             action,
             decision,
             envelope,
@@ -166,7 +141,7 @@ class ActionSubmissionWorkflow:
         )
         if recovered is not None:
             return recovered
-        return self.envelopes.queued_submission(
+        return self._envelopes.queued_submission(
             action,
             decision,
             envelope,

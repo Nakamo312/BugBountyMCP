@@ -6,19 +6,8 @@ from pathlib import Path
 ROOT = Path(".")
 APPLICATION_ROOT = ROOT / "src/api/application"
 
-# Temporary allowlist for already-known boundary leaks. This test is an AST gate:
-# it should fail when a new application -> infrastructure import appears. Shrink
-# this list as compatibility aliases and legacy execution seams are removed.
-_ALLOWED_INFRASTRUCTURE_IMPORTS = {
-    # Remaining legacy seams are UoW protocols and raw artifact parsing.
-    # Runner refs/factories, event bus, EventType, and queue topology are
-    # no longer allowed here.
-    ("src/api/application/services/analysis.py", "api.infrastructure.unit_of_work.interfaces.httpx"),
-    ("src/api/application/services/host.py", "api.infrastructure.unit_of_work.interfaces.httpx"),
-    ("src/api/application/services/infrastructure.py", "api.infrastructure.unit_of_work.interfaces.infrastructure"),
-    ("src/api/application/services/program.py", "api.infrastructure.unit_of_work.interfaces.program"),
-    ("src/api/application/services/raw_artifact_parser.py", "api.infrastructure.parsers.raw_artifact_parser"),
-}
+# This test is an AST gate: application code must not import infrastructure.
+_ALLOWED_INFRASTRUCTURE_IMPORTS: set[tuple[str, str]] = set()
 
 
 def _infrastructure_imports() -> set[tuple[str, str]]:

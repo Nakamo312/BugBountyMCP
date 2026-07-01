@@ -10,6 +10,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from api.application.surface_component_analysis import (
     SurfaceComponentAnalysisItem,
     SurfaceComponentAnalysisReport,
+    SurfaceComponentHeuristicSignals,
     SurfaceComponentAnalysisStore as SurfaceComponentAnalysisStoreProtocol,
 )
 from api.infrastructure.adapters.orm import (
@@ -144,16 +145,49 @@ def _item_from_row(row: Any) -> SurfaceComponentAnalysisItem:
         component_id=int(row["component_id"]),
         node_count=int(row["node_count"]),
         changed_node_count=int(row["changed_node_count"]),
-        structural_pressure_score=_optional_int(row["structural_pressure_score"]),
-        drift_score=_optional_int(row["drift_score"]),
-        bridge_pressure_score=_optional_int(row["bridge_pressure_score"]),
-        outlier_score=_optional_int(row["outlier_score"]),
-        coverage_score=_optional_int(row["coverage_score"]),
-        exploration_priority_score=_optional_int(row["exploration_priority_score"]),
+        signals=SurfaceComponentHeuristicSignals(
+            structural_pressure=_optional_int(row["structural_pressure_score"]),
+            drift=_optional_int(row["drift_score"]),
+            bridge_pressure=_optional_int(row["bridge_pressure_score"]),
+            outlier=_optional_int(row["outlier_score"]),
+            coverage=_optional_int(row["coverage_score"]),
+            exploration_pressure=_optional_int(row["exploration_priority_score"]),
+        ),
         action_candidate_count=int(row["action_candidate_count"]),
         metrics=dict(row["metrics_json"] or {}),
-        action_candidates=list(row["action_candidates_json"] or []),
+        action_candidates=_action_candidate_signals(row["action_candidates_json"] or []),
     )
+
+
+def _action_candidate_signals(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_action_candidate_signal(candidate) for candidate in candidates]
+
+
+def _action_candidate_signal(candidate: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "capability_id": candidate.get("capability_id") or candidate.get("capability") or "unknown",
+        "profile_id": candidate.get("profile_id") or candidate.get("profile") or "default",
+        "rank_signal": _candidate_rank_signal(candidate),
+        "ranker_kind": candidate.get("ranker_kind") or "heuristic",
+        "calibration_status": candidate.get("calibration_status") or "uncalibrated",
+        "formula_version": candidate.get("score_formula_version") or candidate.get("formula_version"),
+    }
+    if candidate.get("sample_count") is not None:
+        payload["sample_count"] = int(candidate["sample_count"])
+    if candidate.get("score_features") is not None:
+        payload["signal_features"] = candidate["score_features"]
+    if candidate.get("candidate_score_features") is not None:
+        payload["signal_features"] = candidate["candidate_score_features"]
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def _candidate_rank_signal(candidate: dict[str, Any]) -> int | None:
+    value = candidate.get("rank_signal")
+    if value is None:
+        value = candidate.get("candidate_score")
+    if value is None:
+        value = candidate.get("utility_score")
+    return _optional_int(value)
 
 
 def _optional_int(value: Any) -> int | None:

@@ -9,10 +9,7 @@ import pytest
 
 event_bus_module = types.ModuleType("api.infrastructure.events.event_bus")
 event_bus_module.EventBus = object
-store_module = types.ModuleType("api.infrastructure.orchestration.store")
-store_module.OrchestrationStore = object
 sys.modules.setdefault("api.infrastructure.events.event_bus", event_bus_module)
-sys.modules.setdefault("api.infrastructure.orchestration.store", store_module)
 
 from api.application.action_catalog import CatalogDetail
 from api.application.contracts import ActionKind, ActionRequest, ActionStatus, ActionSubmission
@@ -20,7 +17,6 @@ from api.application.scheduler import ActionScheduler, ScheduledActionSpec
 from api.application.services.action_catalog import ActionCatalogService
 
 sys.modules.pop("api.infrastructure.events.event_bus", None)
-sys.modules.pop("api.infrastructure.orchestration.store", None)
 
 
 def _detail(item_id: UUID, *, event: str = "custom_catalog_event_requested") -> CatalogDetail:

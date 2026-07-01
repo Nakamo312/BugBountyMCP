@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import sys
 import types
 from datetime import UTC, datetime
@@ -9,6 +8,7 @@ from uuid import uuid4
 import pytest
 
 from api.application.contracts import ActionKind, ActionRecord, ActionStatus, PolicyDecisionStatus
+from api.application.services.action_composition import build_action_service
 from api.application.services.action_read import policy_decision_status_for_action_status
 
 
@@ -46,7 +46,6 @@ async def test_action_service_get_action_submission_builds_recovery_submission(m
             connect_robust=None,
         ),
     )
-    action_module = importlib.import_module("api.application.services.action")
     action_id = uuid4()
     action = ActionRecord(
         action_id=action_id,
@@ -61,11 +60,13 @@ async def test_action_service_get_action_submission_builds_recovery_submission(m
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
-    service = action_module.ActionService(
-        commands=_UnusedPort(),
+    service = build_action_service(
+        policy_results=_UnusedPort(),
+        allowed_actions=_UnusedPort(),
         queries=_Store(action),
         results=_ResultPort(),
-        approvals=_UnusedPort(),
+        approval_requests=_UnusedPort(),
+        approval_decisions=_UnusedPort(),
         policy=object(),
         catalog=object(),
     )
@@ -103,12 +104,13 @@ async def test_action_service_get_action_submission_is_optional_for_write_only_s
             connect_robust=None,
         ),
     )
-    action_module = importlib.import_module("api.application.services.action")
-    service = action_module.ActionService(
-        commands=_UnusedPort(),
+    service = build_action_service(
+        policy_results=_UnusedPort(),
+        allowed_actions=_UnusedPort(),
         queries=_WriteOnlyStore(),
         results=_ResultPort(),
-        approvals=_UnusedPort(),
+        approval_requests=_UnusedPort(),
+        approval_decisions=_UnusedPort(),
         policy=object(),
         catalog=object(),
     )

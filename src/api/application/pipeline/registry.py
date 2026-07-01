@@ -7,7 +7,13 @@ import logging
 from uuid import uuid4
 
 from api.application.contracts import ExecutionMode
-from api.application.ports.orchestration import PipelineOrchestrationStorePort
+from api.application.ports.orchestration import (
+    NodeRunClaimPort,
+    PipelineRunStatePort,
+    ScheduledLeasePort,
+    ScheduledRecoveryPort,
+    ScheduledRetryPort,
+)
 from api.application.pipeline.node import Node
 from api.application.pipeline.registry_claiming import NodeRegistryClaimingMixin
 from api.application.pipeline.registry_scheduling import NodeRegistrySchedulingMixin
@@ -32,7 +38,11 @@ class NodeRegistry(NodeRegistryClaimingMixin, NodeRegistrySchedulingMixin):
         bus: EventBusPort,
         settings: Settings,
         container=None,
-        orchestration_store: PipelineOrchestrationStorePort | None = None,
+        node_run_claims: NodeRunClaimPort | None = None,
+        scheduled_leases: ScheduledLeasePort | None = None,
+        scheduled_recovery: ScheduledRecoveryPort | None = None,
+        scheduled_retries: ScheduledRetryPort | None = None,
+        run_states: PipelineRunStatePort | None = None,
         context_factory: PipelineContextFactory | None = None,
         subscription_queues: Sequence[str] | None = None,
     ):
@@ -47,7 +57,11 @@ class NodeRegistry(NodeRegistryClaimingMixin, NodeRegistrySchedulingMixin):
         self.bus = bus
         self.settings = settings
         self.container = container
-        self._orchestration_store = orchestration_store
+        self._node_run_claims = node_run_claims
+        self._scheduled_leases = scheduled_leases
+        self._scheduled_recovery = scheduled_recovery
+        self._scheduled_retries = scheduled_retries
+        self._run_states = run_states
         self.context_factory = context_factory
         self.subscription_queues = tuple(subscription_queues or ())
         self._nodes: Dict[str, Node] = {}
@@ -114,10 +128,10 @@ class NodeRegistry(NodeRegistryClaimingMixin, NodeRegistrySchedulingMixin):
         ]
 
         logger.debug(
-            "Scheduled executor start check: enabled=%s container=%s store=%s scheduled_nodes=%s",
+            "Scheduled executor start check: enabled=%s container=%s runtime_ports=%s scheduled_nodes=%s",
             self.settings.PIPELINE_SCHEDULER_ENABLED,
             self.container is not None,
-            self._orchestration_store is not None,
+            self._has_scheduled_runtime_ports(),
             scheduled_nodes,
         )
 
@@ -135,10 +149,10 @@ class NodeRegistry(NodeRegistryClaimingMixin, NodeRegistrySchedulingMixin):
             )
         else:
             logger.warning(
-                "Scheduled executor not started: enabled=%s container=%s store=%s scheduled_nodes=%s",
+                "Scheduled executor not started: enabled=%s container=%s runtime_ports=%s scheduled_nodes=%s",
                 self.settings.PIPELINE_SCHEDULER_ENABLED,
                 self.container is not None,
-                self._orchestration_store is not None,
+                self._has_scheduled_runtime_ports(),
                 scheduled_nodes,
             )
 
@@ -281,14 +295,58 @@ class NodeRegistry(NodeRegistryClaimingMixin, NodeRegistrySchedulingMixin):
     def worker_snapshots(self) -> list[dict[str, int | float | str]]:
         return [node.runtime_snapshot() for node in self._nodes.values()]
 
-    async def _get_pipeline_orchestration_store(self) -> PipelineOrchestrationStorePort | None:
-        if self._orchestration_store is not None:
-            return self._orchestration_store
+    async def _get_node_run_claims(self) -> NodeRunClaimPort | None:
+        if self._node_run_claims is not None:
+            return self._node_run_claims
         if self.container is None:
             return None
 
         async with self.container() as request_container:
-            return await request_container.get(PipelineOrchestrationStorePort)
+            return await request_container.get(NodeRunClaimPort)
+
+    async def _get_scheduled_runtime_ports(
+        self,
+    ) -> tuple[
+        ScheduledLeasePort,
+        ScheduledRecoveryPort,
+        ScheduledRetryPort,
+        PipelineRunStatePort,
+    ] | None:
+        if self._scheduled_runtime_ports_are_injected():
+            return (
+                self._scheduled_leases,
+                self._scheduled_recovery,
+                self._scheduled_retries,
+                self._run_states,
+            )
+        if self.container is None:
+            return None
+
+        async with self.container() as request_container:
+            scheduled_leases = self._scheduled_leases or await request_container.get(
+                ScheduledLeasePort
+            )
+            scheduled_recovery = self._scheduled_recovery or await request_container.get(
+                ScheduledRecoveryPort
+            )
+            scheduled_retries = self._scheduled_retries or await request_container.get(
+                ScheduledRetryPort
+            )
+            run_states = self._run_states or await request_container.get(PipelineRunStatePort)
+            return scheduled_leases, scheduled_recovery, scheduled_retries, run_states
+
+    def _scheduled_runtime_ports_are_injected(self) -> bool:
+        return (
+            self._scheduled_leases is not None
+            and self._scheduled_recovery is not None
+            and self._scheduled_retries is not None
+            and self._run_states is not None
+        )
+
+    def _has_scheduled_runtime_ports(self) -> bool:
+        if self._scheduled_runtime_ports_are_injected():
+            return True
+        return self.container is not None
 
     def get_graph(self) -> Dict[str, Any]:
         """

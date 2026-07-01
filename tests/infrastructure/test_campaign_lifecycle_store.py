@@ -6,11 +6,12 @@ from uuid import uuid4
 from sqlalchemy.dialects import postgresql
 
 from api.application.campaign_lifecycle import CampaignActivityState
-from api.infrastructure.orchestration.campaign_state_store import CampaignStateStore
+from api.infrastructure.orchestration.campaign_activity import campaign_activity_from_row, campaign_activity_query
+from api.infrastructure.orchestration.campaign_lifecycle_store import CampaignLifecycleStore, validate_terminal_campaign_status
 
 
 def test_campaign_activity_query_covers_execution_outbox_and_projections() -> None:
-    query = CampaignStateStore.activity_query(
+    query = campaign_activity_query(
         program_id=uuid4(),
         campaign_id=uuid4(),
     )
@@ -35,7 +36,7 @@ def test_campaign_activity_row_maps_to_application_state() -> None:
     program_id = uuid4()
     last_activity_at = datetime.now(timezone.utc)
 
-    state = CampaignStateStore.activity_from_row(
+    state = campaign_activity_from_row(
         {
             "campaign_id": campaign_id,
             "program_id": program_id,
@@ -66,7 +67,7 @@ def test_campaign_activity_row_maps_to_application_state() -> None:
     )
 
 
-class RecordingLifecycleStore(CampaignStateStore):
+class RecordingLifecycleStore(CampaignLifecycleStore):
     def __init__(self, state: CampaignActivityState) -> None:
         super().__init__(lambda: None)
         self.state = state
@@ -111,6 +112,6 @@ async def test_reconcile_campaign_persists_deterministic_transition() -> None:
 
 
 def test_terminal_campaign_transition_contract_is_explicit() -> None:
-    assert CampaignStateStore.validate_terminal_campaign_status("closed") == "closed"
-    assert CampaignStateStore.validate_terminal_campaign_status("cancelled") == "cancelled"
-    assert CampaignStateStore.validate_terminal_campaign_status("failed") == "failed"
+    assert validate_terminal_campaign_status("closed") == "closed"
+    assert validate_terminal_campaign_status("cancelled") == "cancelled"
+    assert validate_terminal_campaign_status("failed") == "failed"

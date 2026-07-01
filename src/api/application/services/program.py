@@ -1,5 +1,4 @@
 # api/application/services/program_service.py
-from dataclasses import replace
 from typing import List, Optional
 from uuid import UUID, uuid4
 from xml.dom import NotFoundErr
@@ -10,198 +9,114 @@ from api.application.dto.program import (ProgramCreateDTO,
                                          ProgramUpdateDTO,
                                          RootInputResponseDTO,
                                          ScopeRuleResponseDTO)
+from api.application.program_store import ProgramRelations, ProgramStore
 from api.domain.models import ProgramModel, RootInputModel, ScopeRuleModel
-from api.infrastructure.unit_of_work.interfaces.program import \
-    ProgramUnitOfWork
 
 
 class ProgramService:
-    def __init__(self, uow: ProgramUnitOfWork):
-        self.uow = uow
-    
+    def __init__(self, store: ProgramStore):
+        self._store = store
+
     async def create_program(self, dto: ProgramCreateDTO) -> ProgramFullResponseDTO:
-        async with self.uow as uow:
-            program = ProgramModel(id=uuid4(), name=dto.name)
-            created_program = await uow.programs.create(program)
-            
-            scope_rules = []
-            for rule_dto in dto.scope_rules:
-                rule = ScopeRuleModel(
-                    id=uuid4(),
-                    program_id=created_program.id,
-                    rule_type=rule_dto.rule_type,
-                    pattern=rule_dto.pattern,
-                    action=rule_dto.action
-                )
-                created_rule = await uow.scope_rules.create(rule)
-                scope_rules.append(created_rule)
-            
-            root_inputs = []
-            for input_dto in dto.root_inputs:
-                root_input = RootInputModel(
-                    id=uuid4(),
-                    program_id=created_program.id,
-                    value=input_dto.value,
-                    input_type=input_dto.input_type
-                )
-                created_input = await uow.root_inputs.create(root_input)
-                root_inputs.append(created_input)
-            
-            await uow.commit()
-            
-            return _program_full_response(created_program, scope_rules, root_inputs)
-    
+        program = ProgramModel(id=uuid4(), name=dto.name)
+        relations = await self._store.create_with_relations(
+            program=program,
+            scope_rules=_scope_rule_models(program.id, dto.scope_rules),
+            root_inputs=_root_input_models(program.id, dto.root_inputs),
+        )
+        return _program_full_response(relations)
+
     async def get_program_with_relations(self, program_id: UUID) -> ProgramFullResponseDTO:
-        async with self.uow as uow:
-            program = await uow.programs.get(program_id)
-            if not program:
-                raise NotFoundErr(f"Program {program_id} not found")
-            
-            scope_rules = await uow.scope_rules.find_by_program(program_id)
-            root_inputs = await uow.root_inputs.find_by_program(program_id)
-            
-            return _program_full_response(program, scope_rules, root_inputs)
-    
+        relations = await self._store.get_with_relations(program_id)
+        if not relations:
+            raise NotFoundErr(f"Program {program_id} not found")
+        return _program_full_response(relations)
+
     async def get_program(self, program_id: UUID) -> Optional[ProgramResponseDTO]:
-        async with self.uow as uow:
-            program = await uow.programs.get(program_id)
-            if not program:
-                return None
-            
-            return _program_response(program)
-    
+        program = await self._store.get(program_id)
+        return _program_response(program) if program else None
+
     async def list_programs(self, limit: int = 100, offset: int = 0) -> List[ProgramResponseDTO]:
-        async with self.uow as uow:
-            programs = await uow.programs.find_many(limit=limit, offset=offset)
-            
-            return [
-                _program_response(program) for program in programs
-            ]
-    
+        return [
+            _program_response(program)
+            for program in await self._store.list_many(limit=limit, offset=offset)
+        ]
+
     async def update_program(self, program_id: UUID, dto: ProgramUpdateDTO) -> ProgramFullResponseDTO:
-        """
-        Update program with optional fields.
-
-        Args:
-            program_id: Program UUID
-            dto: Update DTO with optional name, scope_rules, root_inputs
-
-        Returns:
-            Updated program with all relations
-        """
-        async with self.uow as uow:
-            program = await uow.programs.get(program_id)
-            if not program:
-                raise NotFoundErr(f"Program {program_id} not found")
-
-            if dto.name is not None:
-                updated_program = replace(program, name=dto.name)
-                program = await uow.programs.update(program_id, updated_program)
-
-            if dto.scope_rules is not None:
-                await uow.scope_rules.delete_by_program(program_id)
-
-                for rule_dto in dto.scope_rules:
-                    rule = ScopeRuleModel(
-                        id=uuid4(),
-                        program_id=program_id,
-                        rule_type=rule_dto.rule_type,
-                        pattern=rule_dto.pattern,
-                        action=rule_dto.action
-                    )
-                    await uow.scope_rules.create(rule)
-
-            if dto.root_inputs is not None:
-                await uow.root_inputs.delete_by_program(program_id)
-
-                for input_dto in dto.root_inputs:
-                    root_input = RootInputModel(
-                        id=uuid4(),
-                        program_id=program_id,
-                        value=input_dto.value,
-                        input_type=input_dto.input_type
-                    )
-                    await uow.root_inputs.create(root_input)
-
-            await uow.commit()
-
-            scope_rules = await uow.scope_rules.find_by_program(program_id)
-            root_inputs = await uow.root_inputs.find_by_program(program_id)
-
-            return _program_full_response(program, scope_rules, root_inputs)
+        relations = await self._store.update_with_relations(
+            program_id=program_id,
+            name=dto.name,
+            scope_rules=(
+                _scope_rule_models(program_id, dto.scope_rules)
+                if dto.scope_rules is not None
+                else None
+            ),
+            root_inputs=(
+                _root_input_models(program_id, dto.root_inputs)
+                if dto.root_inputs is not None
+                else None
+            ),
+        )
+        if not relations:
+            raise NotFoundErr(f"Program {program_id} not found")
+        return _program_full_response(relations)
 
     async def update_program_name(self, program_id: UUID, new_name: str) -> ProgramResponseDTO:
-        async with self.uow as uow:
-            program = await uow.programs.get(program_id)
-            if not program:
-                raise NotFoundErr(f"Program {program_id} not found")
+        program = await self._store.update_name(program_id, new_name)
+        if not program:
+            raise NotFoundErr(f"Program {program_id} not found")
+        return _program_response(program)
 
-            updated_program = replace(program, name=new_name)
-            result = await uow.programs.update(program_id, updated_program)
-
-            await uow.commit()
-
-            return _program_response(result)
-    
     async def delete_program(self, program_id: UUID) -> None:
-        async with self.uow as uow:
-            program = await uow.programs.get(program_id)
-            if not program:
-                raise NotFoundErr(f"Program {program_id} not found")
-            
-            await uow.scope_rules.delete_by_program(program_id)
-            await uow.root_inputs.delete_by_program(program_id)
-            await uow.programs.delete(program_id)
-            
-            await uow.commit()
-    
+        deleted = await self._store.delete(program_id)
+        if not deleted:
+            raise NotFoundErr(f"Program {program_id} not found")
+
     async def add_scope_rule(self, program_id: UUID, rule_dto) -> ScopeRuleResponseDTO:
-        async with self.uow as uow:
-            program = await uow.programs.get(program_id)
-            if not program:
-                raise NotFoundErr(f"Program {program_id} not found")
-            
-            rule = ScopeRuleModel(
-                id=uuid4(),
-                program_id=program_id,
-                rule_type=rule_dto.rule_type,
-                pattern=rule_dto.pattern,
-                action=rule_dto.action
-            )
-            created_rule = await uow.scope_rules.create(rule)
+        rule = _scope_rule_models(program_id, [rule_dto])[0]
+        created_rule = await self._store.add_scope_rule(program_id, rule)
+        if not created_rule:
+            raise NotFoundErr(f"Program {program_id} not found")
+        return _scope_rule_response(created_rule)
 
-            await uow.commit()
-
-            return _scope_rule_response(created_rule)
-    
     async def add_root_input(self, program_id: UUID, input_dto) -> RootInputResponseDTO:
-        async with self.uow as uow:
-            program = await uow.programs.get(program_id)
-            if not program:
-                raise NotFoundErr(f"Program {program_id} not found")
-            
-            root_input = RootInputModel(
-                id=uuid4(),
-                program_id=program_id,
-                value=input_dto.value,
-                input_type=input_dto.input_type
-            )
-            created_input = await uow.root_inputs.create(root_input)
-            
-            await uow.commit()
-            
-            return _root_input_response(created_input)
+        root_input = _root_input_models(program_id, [input_dto])[0]
+        created_input = await self._store.add_root_input(program_id, root_input)
+        if not created_input:
+            raise NotFoundErr(f"Program {program_id} not found")
+        return _root_input_response(created_input)
 
 
-def _program_full_response(
-    program: ProgramModel,
-    scope_rules: list[ScopeRuleModel],
-    root_inputs: list[RootInputModel],
-) -> ProgramFullResponseDTO:
+def _scope_rule_models(program_id: UUID, rule_dtos) -> list[ScopeRuleModel]:
+    return [
+        ScopeRuleModel(
+            id=uuid4(),
+            program_id=program_id,
+            rule_type=rule_dto.rule_type,
+            pattern=rule_dto.pattern,
+            action=rule_dto.action,
+        )
+        for rule_dto in rule_dtos
+    ]
+
+
+def _root_input_models(program_id: UUID, input_dtos) -> list[RootInputModel]:
+    return [
+        RootInputModel(
+            id=uuid4(),
+            program_id=program_id,
+            value=input_dto.value,
+            input_type=input_dto.input_type,
+        )
+        for input_dto in input_dtos
+    ]
+
+
+def _program_full_response(relations: ProgramRelations) -> ProgramFullResponseDTO:
     return ProgramFullResponseDTO(
-        program=_program_response(program),
-        scope_rules=[_scope_rule_response(rule) for rule in scope_rules],
-        root_inputs=[_root_input_response(root_input) for root_input in root_inputs],
+        program=_program_response(relations.program),
+        scope_rules=[_scope_rule_response(rule) for rule in relations.scope_rules],
+        root_inputs=[_root_input_response(root_input) for root_input in relations.root_inputs],
     )
 
 

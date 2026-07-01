@@ -15,6 +15,8 @@ from api.application.contracts import (
 )
 from api.application.action_outcome_scoring import ActionOutcomeScoreCalculator
 from api.infrastructure.action_outcomes import ActionOutcomeStore
+from api.infrastructure.action_outcome_feedback import feedback_event_values, feedback_update_values
+from api.infrastructure.action_outcome_mappers import duration_ms, target_count
 from api.infrastructure.adapters.orm import action_outcome_feedback_events, action_outcomes
 
 
@@ -137,16 +139,31 @@ def test_score_calculator_penalizes_failed_repetitive_runs() -> None:
     assert failed.score_breakdown["terminal_penalty"] > 0
 
 
+
+
+def test_action_outcome_store_is_only_session_boundary() -> None:
+    source = Path("src/api/infrastructure/action_outcomes.py").read_text(encoding="utf-8")
+
+    assert "from api.infrastructure.adapters.orm" not in source
+    assert "select(" not in source
+    assert "insert(" not in source
+    assert "update(" not in source
+    assert "pg_insert" not in source
+    assert "collect_action_outcome_measures" in source
+    assert "upsert_action_outcome_in_session" in source
+    assert "apply_action_outcome_feedback_in_session" in source
+
+
 def test_action_outcome_store_duration_and_target_count_helpers() -> None:
     start = datetime.now(timezone.utc)
     finish = start + timedelta(seconds=2, milliseconds=500)
 
-    assert ActionOutcomeStore._duration_ms(start, finish) == 2500
-    assert ActionOutcomeStore._duration_ms(None, finish) is None
-    assert ActionOutcomeStore._target_count({"target_count": 4}) == 4
-    assert ActionOutcomeStore._target_count({"target_count": None, "run_payload": {"targets": ["a", "b"]}}) == 2
-    assert ActionOutcomeStore._target_count({"target_count": None, "run_payload": {"target": "a"}}) == 1
-    assert ActionOutcomeStore._target_count({"target_count": None, "run_payload": {}}) is None
+    assert duration_ms(start, finish) == 2500
+    assert duration_ms(None, finish) is None
+    assert target_count({"target_count": 4}) == 4
+    assert target_count({"target_count": None, "run_payload": {"targets": ["a", "b"]}}) == 2
+    assert target_count({"target_count": None, "run_payload": {"target": "a"}}) == 1
+    assert target_count({"target_count": None, "run_payload": {}}) is None
 
 
 def test_action_outcome_feedback_table_keeps_human_signals_auditable() -> None:
@@ -210,7 +227,7 @@ def test_action_outcome_feedback_helpers_patch_only_present_signals() -> None:
         reason="useful follow-up",
     )
 
-    values = ActionOutcomeStore._feedback_update_values(feedback=feedback, now=now)
+    values = feedback_update_values(feedback=feedback, now=now)
 
     assert values["manual_interest"] is True
     assert values["manual_stop"] is False
@@ -237,7 +254,7 @@ def test_action_outcome_feedback_event_values_keep_provenance() -> None:
         confidence=0.9,
     )
 
-    values = ActionOutcomeStore._feedback_event_values(
+    values = feedback_event_values(
         row=row,
         feedback_id=feedback_id,
         feedback=feedback,

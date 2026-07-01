@@ -4,7 +4,8 @@ import pytest
 
 from api.infrastructure.events.dispatcher import EventDispatcher
 from api.infrastructure.events.notify_channels import validate_postgres_notify_channel
-from api.infrastructure.orchestration.dispatch_store import DispatchStore
+from api.infrastructure.orchestration.dispatch_leasing import DispatchLeaseStore, claimable_dispatch_predicates
+from api.infrastructure.orchestration.dispatch_writer import DispatchWriterStore
 
 
 def test_event_dispatcher_validates_notify_channel_at_boundary() -> None:
@@ -21,7 +22,7 @@ def test_event_dispatcher_validates_notify_channel_at_boundary() -> None:
 
 
 def test_event_dispatch_pg_notify_statement_validates_channel() -> None:
-    statement = DispatchStore.notify_statement(
+    statement = DispatchWriterStore.notify_statement(
         channel="event_dispatches_changed_test",
         payload="event-id",
     )
@@ -30,7 +31,7 @@ def test_event_dispatch_pg_notify_statement_validates_channel() -> None:
     assert "pg_notify" in compiled
 
     with pytest.raises(ValueError):
-        DispatchStore.notify_statement(
+        DispatchWriterStore.notify_statement(
             channel="event_dispatches_changed;DROP",
             payload="event-id",
         )

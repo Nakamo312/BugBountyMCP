@@ -13,6 +13,7 @@ from api.application.contracts import (
     ActionStatus,
 )
 from api.application.services.action import ActionService
+from api.application.services.action_composition import build_action_service
 from api.application.services.action_catalog import ActionCatalogService
 from api.application.services.policy import PolicyService
 from tests.application.test_actions_api_contract import StubCatalogStore
@@ -80,10 +81,15 @@ class SplitApprovalPort:
         return True
 
 
-def test_action_service_rejects_legacy_store_composite_port() -> None:
-    with pytest.raises(TypeError, match="explicit command, query, result, and approval ports"):
+def test_action_service_rejects_port_level_composition() -> None:
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
         ActionService(
-            store=object(),
+            policy_results=object(),
+            allowed_actions=object(),
+            queries=object(),
+            results=object(),
+            approval_requests=object(),
+            approval_decisions=object(),
             policy=PolicyService(),
             catalog=ActionCatalogService(StubCatalogStore()),
         )
@@ -104,11 +110,13 @@ async def test_action_service_accepts_separate_narrow_ports() -> None:
     queries = SplitQueryPort()
     results = SplitResultPort()
     approvals = SplitApprovalPort(action=request)
-    service = ActionService(
-        commands=commands,
+    service = build_action_service(
+        policy_results=commands,
+        allowed_actions=commands,
         queries=queries,
         results=results,
-        approvals=approvals,
+        approval_requests=approvals,
+        approval_decisions=approvals,
         policy=PolicyService(),
         catalog=ActionCatalogService(catalog_store),
     )

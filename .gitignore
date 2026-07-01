@@ -36,6 +36,9 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
+docs/
+patches/
+
 # Unit test / coverage reports
 htmlcov/
 .tox/
@@ -222,3 +225,8 @@ katana_config/
 *.swp
 data/raw_outputs/
 .tmp_pytest/
+
+# Local patch/apply artifacts
+.patch-backup/
+*.patch
+HANDOFF_FOR_NEW_CHAT.md

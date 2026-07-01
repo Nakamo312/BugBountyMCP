@@ -107,7 +107,7 @@ async def test_parser_rehydrates_artifact_context_from_metadata_row(tmp_path: Pa
     ):
         pass
 
-    parsed = RawArtifactParserService().parse_metadata_row(recorded[0])
+    parsed = RawArtifactParserService(ProcessEventArtifactParser()).parse_metadata_row(recorded[0])
     blob_text = Path(recorded[0]["storage_uri"]).read_text(encoding="utf-8")
 
     assert '"type": "metadata"' not in blob_text
@@ -268,7 +268,7 @@ async def test_parser_service_reads_compressed_artifact(tmp_path: Path) -> None:
     ):
         pass
 
-    parsed = RawArtifactParserService().parse_metadata_row(recorded[0])
+    parsed = RawArtifactParserService(ProcessEventArtifactParser()).parse_metadata_row(recorded[0])
 
     assert parsed.records[0].payload == {"host": "compressed.example"}
 

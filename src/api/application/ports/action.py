@@ -34,7 +34,7 @@ class ActionOutcomeFeedbackWriter(Protocol):
         ...
 
 
-class ActionCommandPort(Protocol):
+class ActionPolicyResultWriter(Protocol):
     async def record_policy_result(
         self,
         action: ResolvedActionCommand,
@@ -42,6 +42,8 @@ class ActionCommandPort(Protocol):
     ) -> UUID:
         ...
 
+
+class AllowedActionQueueWriter(Protocol):
     async def create_allowed_action(
         self,
         action: ResolvedActionCommand,
@@ -85,13 +87,15 @@ class ActionResultPort(Protocol):
         ...
 
 
-class ActionApprovalPort(Protocol):
+class ApprovalRequestReader(Protocol):
     async def get_action_for_approval(self, action_id: UUID):
         ...
 
     async def get_scope_id(self, action_id: UUID) -> UUID | None:
         ...
 
+
+class ApprovalDecisionWriter(Protocol):
     async def approve_and_create_queued_job(
         self,
         action: ResolvedActionCommand,

@@ -41,8 +41,10 @@ async def test_recorder_does_not_recover_non_idempotency_failures() -> None:
     async def lookup_submission(action_id):
         return _submission(action_id)
 
+    failing = _FailingCommands()
     recorder = ActionSubmissionRecorder(
-        commands=_FailingCommands(),
+        policy_results=failing,
+        allowed_actions=failing,
         submission_lookup=lookup_submission,
     )
 

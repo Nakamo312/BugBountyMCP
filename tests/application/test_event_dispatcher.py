@@ -8,7 +8,7 @@ from api.application.contracts import EventDispatchRecord, EventEnvelope
 from api.infrastructure.events.dispatcher import EventDispatcher
 
 
-class InMemoryDispatchStore:
+class InMemoryDispatchLeaseStore:
     def __init__(self, records: list[EventDispatchRecord]) -> None:
         self.records = list(records)
         self.claims: list[dict] = []
@@ -73,7 +73,7 @@ def _record(attempts: int = 0) -> EventDispatchRecord:
 @pytest.mark.asyncio
 async def test_dispatcher_sends_stored_event_without_recording_again() -> None:
     record = _record()
-    store = InMemoryDispatchStore([record])
+    store = InMemoryDispatchLeaseStore([record])
     bus = RecordingEventBus()
     dispatcher = EventDispatcher(
         store=store,
@@ -102,7 +102,7 @@ async def test_dispatcher_sends_stored_event_without_recording_again() -> None:
 @pytest.mark.asyncio
 async def test_dispatcher_routes_stored_event_to_agent_router_before_rabbit_publish() -> None:
     record = _record()
-    store = InMemoryDispatchStore([record])
+    store = InMemoryDispatchLeaseStore([record])
     bus = RecordingEventBus()
     agent_router = RecordingAgentRouter()
     dispatcher = EventDispatcher(
@@ -124,7 +124,7 @@ async def test_dispatcher_routes_stored_event_to_agent_router_before_rabbit_publ
 @pytest.mark.asyncio
 async def test_dispatcher_retries_when_agent_router_fails() -> None:
     record = _record(attempts=1)
-    store = InMemoryDispatchStore([record])
+    store = InMemoryDispatchLeaseStore([record])
     bus = RecordingEventBus()
     agent_router = RecordingAgentRouter(fail=True)
     dispatcher = EventDispatcher(
@@ -150,7 +150,7 @@ async def test_dispatcher_retries_when_agent_router_fails() -> None:
 @pytest.mark.asyncio
 async def test_dispatcher_records_failure_for_retry() -> None:
     record = _record(attempts=2)
-    store = InMemoryDispatchStore([record])
+    store = InMemoryDispatchLeaseStore([record])
     bus = RecordingEventBus(fail=True)
     dispatcher = EventDispatcher(
         store=store,
@@ -176,7 +176,7 @@ async def test_dispatcher_records_failure_for_retry() -> None:
 
 @pytest.mark.asyncio
 async def test_dispatcher_idles_without_rows() -> None:
-    store = InMemoryDispatchStore([])
+    store = InMemoryDispatchLeaseStore([])
     bus = RecordingEventBus()
     dispatcher = EventDispatcher(store=store, event_bus=bus)
 
@@ -188,23 +188,21 @@ async def test_dispatcher_idles_without_rows() -> None:
     assert store.failed == []
 
 
-def test_dispatcher_uses_existing_event_store() -> None:
-    source = open("src/api/infrastructure/orchestration/store.py", encoding="utf-8").read()
-    dispatch_source = open("src/api/infrastructure/orchestration/dispatch_store.py", encoding="utf-8").read()
+def test_dispatcher_uses_dedicated_dispatch_lease_and_writer_stores() -> None:
+    lease_source = open("src/api/infrastructure/orchestration/dispatch_leasing.py", encoding="utf-8").read()
+    writer_source = open("src/api/infrastructure/orchestration/dispatch_writer.py", encoding="utf-8").read()
     dispatcher_source = open("src/api/infrastructure/events/dispatcher.py", encoding="utf-8").read()
     bus_source = open("src/api/infrastructure/events/event_bus.py", encoding="utf-8").read()
 
-    assert "claim_dispatches" in source
-    assert "mark_sent" in source
-    assert "mark_failed" in source
-    assert "self.dispatches.claim_dispatches" in source
-    assert "self.dispatches.mark_sent" in source
-    assert "self.dispatches.mark_failed" in source
-    assert "event_dispatches.join(" in dispatch_source
-    assert "pg_notify" in dispatch_source
+    assert "async def claim_dispatches" in lease_source
+    assert "async def mark_sent" in lease_source
+    assert "async def mark_failed" in lease_source
+    assert "event_dispatches.join(" in lease_source
+    assert "pg_notify" in writer_source
     assert "record_event: bool = True" in bus_source
     assert "record_event=False" in dispatcher_source
     assert "routing_key=record.routing_key" in dispatcher_source
+    assert "api.infrastructure.orchestration.store" not in dispatcher_source
 
 
 def test_event_dispatcher_is_wired_with_agent_router_at_app_startup() -> None:
