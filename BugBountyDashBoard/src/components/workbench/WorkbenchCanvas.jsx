@@ -38,6 +38,33 @@ const radiusByType = {
 const overviewTypes = new Set(['program', 'host', 'service', 'route_family', 'surface_component'])
 const alwaysLabelTypes = new Set(['program', 'host', 'surface_component'])
 
+const useCanvasSize = () => {
+  const containerRef = useRef(null)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+
+  useEffect(() => {
+    const element = containerRef.current
+    if (!element) return undefined
+    const updateSize = () => {
+      const rect = element.getBoundingClientRect()
+      setSize({
+        width: Math.max(320, Math.floor(rect.width)),
+        height: Math.max(320, Math.floor(rect.height)),
+      })
+    }
+    updateSize()
+    const observer = new ResizeObserver(updateSize)
+    observer.observe(element)
+    window.addEventListener('resize', updateSize)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', updateSize)
+    }
+  }, [])
+
+  return [containerRef, size]
+}
+
 const nodeKey = (node) => String(node?.id || '')
 
 const endpointStatusColor = (node) => {
@@ -270,6 +297,7 @@ const GraphContextMenu = ({ menu, onClose, onInspect, onFocus, onCopyKey, onFilt
 
 const WorkbenchCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode, onCopyNodeKey, onFilterNodeType }) => {
   const graphRef = useRef(null)
+  const [containerRef, canvasSize] = useCanvasSize()
   const [hoverNode, setHoverNode] = useState(null)
   const [contextMenu, setContextMenu] = useState(null)
   const selectedId = selectedNode?.id
@@ -398,18 +426,22 @@ const WorkbenchCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode, onCop
     return source === selectedId || target === selectedId || source === hoverNode?.id || target === hoverNode?.id ? 1.8 : 0.6
   }, [hoverNode, selectedId])
 
-  if (!canvasGraph.nodes.length) return <EmptyCanvas />
-
   return (
-    <>
-      <GraphLegend
+    <div ref={containerRef} className="workbench-canvas-bounds relative isolate h-full w-full overflow-hidden bg-gray-50" data-testid="workbench-canvas-bounds">
+      {!canvasGraph.nodes.length ? (
+        <EmptyCanvas />
+      ) : (
+        <>
+          <GraphLegend
         hiddenNodeCount={canvasGraph.hiddenNodeCount}
         mode={canvasGraph.mode}
         totalNodes={canvasGraph.nodes.length}
       />
-      <GraphToolbar onZoomToFit={zoomToFit} onFocusSelected={focusSelected} selectedNode={selectedNode} />
-      <ForceGraph2D
+          <GraphToolbar onZoomToFit={zoomToFit} onFocusSelected={focusSelected} selectedNode={selectedNode} />
+          <ForceGraph2D
         ref={graphRef}
+        width={canvasSize.width || 320}
+        height={canvasSize.height || 320}
         graphData={canvasGraph}
         nodeId="id"
         nodeCanvasObject={paintNode}
@@ -440,15 +472,17 @@ const WorkbenchCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode, onCop
           setContextMenu(null)
         }}
       />
-      <GraphContextMenu
-        menu={contextMenu}
-        onClose={() => setContextMenu(null)}
-        onInspect={inspectNode}
-        onFocus={focusNode}
-        onCopyKey={copyNodeKey}
-        onFilterType={filterNodeType}
-      />
-    </>
+          <GraphContextMenu
+            menu={contextMenu}
+            onClose={() => setContextMenu(null)}
+            onInspect={inspectNode}
+            onFocus={focusNode}
+            onCopyKey={copyNodeKey}
+            onFilterType={filterNodeType}
+          />
+        </>
+      )}
+    </div>
   )
 }
 

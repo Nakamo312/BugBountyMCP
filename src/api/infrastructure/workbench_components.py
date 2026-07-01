@@ -99,6 +99,9 @@ async def component_entity_profile(
             "analysis_run_id": str(run["id"]),
             "snapshot_id": str(run["snapshot_id"]),
             "component_id": component_id,
+            "algorithm": run.get("algorithm"),
+            "algorithm_version": run.get("algorithm_version"),
+            **_component_projection_source(run, item),
         },
         properties=node.properties,
         evidence_refs=node.evidence_refs,
@@ -265,6 +268,22 @@ def _analysis_node_from_row(run: Mapping[str, Any], items: list[Mapping[str, Any
     )
 
 
+def _component_projection_source(run: Mapping[str, Any], row: Mapping[str, Any]) -> dict[str, str]:
+    algorithm = str(run.get("algorithm_version") or run.get("algorithm") or "")
+    metrics = _dict(row.get("metrics_json"))
+    if "surface-local-route-family" in algorithm or metrics.get("source") == "surface_snapshot_route_family_grouping":
+        return {
+            "projection_source": "surface_map_local_fallback",
+            "source_quality": "degraded_fallback",
+            "gds_execution": "not_performed",
+        }
+    return {
+        "projection_source": "neo4j_gds_materialized",
+        "source_quality": "graph_projector_gds",
+        "gds_execution": "materialized_before_ui_read",
+    }
+
+
 def _component_node_from_row(run: Mapping[str, Any], row: Mapping[str, Any]) -> WorkbenchNode:
     component_id = int(row["component_id"])
     signals = _component_signals(row)
@@ -282,8 +301,11 @@ def _component_node_from_row(run: Mapping[str, Any], row: Mapping[str, Any]) -> 
             "node_count": int(row["node_count"]),
             "changed_node_count": int(row["changed_node_count"]),
             "action_candidate_count": int(row["action_candidate_count"]),
+            "algorithm": run.get("algorithm"),
+            "algorithm_version": run.get("algorithm_version"),
+            **_component_projection_source(run, row),
         },
-        metadata={"signals": signals, "metrics": _dict(row.get("metrics_json")), "signal_contract": _component_signal_contract()},
+        metadata={"signals": signals, "metrics": _dict(row.get("metrics_json")), "signal_contract": _component_signal_contract(), "projection_source": _component_projection_source(run, row)},
         badges=_component_badges(row),
         metrics={"signals": signals, "node_count": int(row["node_count"]), "changed_node_count": int(row["changed_node_count"])},
         evidence_refs=[_component_ref(run, component_id)],

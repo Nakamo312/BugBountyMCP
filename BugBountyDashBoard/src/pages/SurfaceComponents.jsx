@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   AlertCircle,
   BarChart3,
@@ -67,56 +68,126 @@ const candidateLabel = (candidate) => {
   return `${capability}/${profile}${signal == null ? '' : ` · signal ${signal}`}`
 }
 
-const ComponentCard = ({ item }) => {
+const isFallbackReport = (report) => String(report?.algorithm_version || report?.algorithm || '').includes('surface-local-route-family')
+
+const projectionMode = (report) => (isFallbackReport(report) ? 'degraded fallback' : 'Neo4j/GDS materialized')
+
+const projectionModeClass = (report) => (isFallbackReport(report)
+  ? 'border-amber-200 bg-amber-50 text-amber-900'
+  : 'border-green-200 bg-green-50 text-green-900')
+
+const componentEntityKey = (report, item) => `surface-component:${report?.analysis_run_id}:${item.component_id}`
+
+const workbenchComponentUrl = (report, item) => (
+  `/workbench?lens=components&seed=${encodeURIComponent(componentEntityKey(report, item))}`
+)
+
+const signalReasons = (item, report) => {
+  const signals = item.signals || {}
+  const reasons = []
+  if (isFallbackReport(report)) {
+    reasons.push('Degraded local grouping: Neo4j/GDS was unavailable, so bridge/outlier/candidate analytics are not authoritative.')
+  }
+  if ((item.changed_node_count || 0) > 0) reasons.push(`${item.changed_node_count} changed nodes since previous snapshot.`)
+  if ((item.action_candidates || []).length > 0) reasons.push(`${item.action_candidates.length} backend action candidate signals.`)
+  if ((signals.bridge_pressure ?? 0) >= 50) reasons.push('Bridge pressure is high; inspect connector endpoints first.')
+  if ((signals.outlier ?? 0) >= 50) reasons.push('Outlier signal is high; check unusual endpoints or responses.')
+  if ((signals.coverage ?? 100) < 50) reasons.push('Coverage signal is low; this area may need more exploration.')
+  if ((signals.exploration_pressure ?? 0) >= 75) reasons.push('Exploration pressure is high relative to other components.')
+  if (!reasons.length) reasons.push('No strong graph signal exposed for this component yet.')
+  return reasons.slice(0, 4)
+}
+
+const GraphProjectionBanner = ({ report, boundary }) => {
+  if (!report) return null
+  const fallback = isFallbackReport(report)
+  return (
+    <div className={`rounded-xl border p-4 shadow-sm ${projectionModeClass(report)}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold">Projection source: {projectionMode(report)}</div>
+          <p className="mt-1 max-w-4xl text-sm">
+            {fallback
+              ? 'Neo4j/GDS component analytics were unavailable. This page is showing degraded Surface Map route-family groups, not full graph-projector math.'
+              : 'This analysis was materialized from graph-projector output. Use it to open component subgraphs, inspect bridge/outlier/coverage signals, and review backend action candidate signals.'}
+          </p>
+        </div>
+        <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold">
+          {boundary?.signal_contract?.calibration_status || 'uncalibrated'}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+const ComponentCard = ({ item, report }) => {
   const candidates = item.action_candidates || []
   const signals = item.signals || {}
   const exploration = signalValue(signals, 'exploration_pressure')
+  const fallback = isFallbackReport(report)
+  const reasons = signalReasons(item, report)
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className={`rounded-xl border bg-white p-5 shadow-sm ${fallback ? 'border-amber-200' : 'border-gray-200'}`}>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-lg font-semibold text-gray-900">Component {item.component_id}</h3>
-            <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-              {item.node_count} nodes
-            </span>
-            <span className="rounded bg-primary-50 px-2 py-0.5 text-xs text-primary-700">
-              {item.changed_node_count} changed
+            <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{item.node_count} nodes</span>
+            <span className="rounded bg-primary-50 px-2 py-0.5 text-xs text-primary-700">{item.changed_node_count} changed</span>
+            <span className={`rounded px-2 py-0.5 text-xs font-semibold ${fallback ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}>
+              {fallback ? 'fallback grouping' : 'Neo4j/GDS'}
             </span>
           </div>
           <p className="mt-1 text-sm text-gray-500">
-            Materialized surface component profile. Values are uncalibrated heuristic graph signals, not priority, risk, severity, or learned utility.
+            Graph-projector component profile. Signals are for triage and drilldown; they are not vulnerability verdicts.
           </p>
         </div>
-        <span className={`rounded px-3 py-1 text-sm font-semibold ${signalClass(exploration)}`}>
-          signal {exploration ?? 'n/a'}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={`rounded px-3 py-1 text-sm font-semibold ${signalClass(exploration)}`}>signal {exploration ?? 'n/a'}</span>
+          <Link
+            to={workbenchComponentUrl(report, item)}
+            className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            Open in Workbench
+          </Link>
+        </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr_1fr]">
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Why inspect this component</div>
+          <ul className="mt-2 space-y-1 text-sm text-gray-700">
+            {reasons.map((reason) => <li key={reason}>• {reason}</li>)}
+          </ul>
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <ScoreBadge label="Bridge pressure" value={signalValue(signals, 'bridge_pressure')} />
+          <ScoreBadge label="Outlier" value={signalValue(signals, 'outlier')} />
+          <ScoreBadge label="Coverage" value={signalValue(signals, 'coverage')} />
+          <ScoreBadge label="Exploration pressure" value={exploration} />
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
         <ScoreBadge label="Structural pressure" value={signalValue(signals, 'structural_pressure')} />
         <ScoreBadge label="Drift" value={signalValue(signals, 'drift')} />
-        <ScoreBadge label="Bridge pressure" value={signalValue(signals, 'bridge_pressure')} />
-        <ScoreBadge label="Outlier" value={signalValue(signals, 'outlier')} />
-        <ScoreBadge label="Coverage" value={signalValue(signals, 'coverage')} />
-        <ScoreBadge label="Exploration pressure" value={exploration} />
       </div>
 
-      {candidates.length > 0 && (
+      {candidates.length > 0 ? (
         <div className="mt-4 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Action candidate signals
-          </div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Backend action candidate signals</div>
           <div className="mt-2 flex flex-wrap gap-2">
-            {candidates.slice(0, 6).map((candidate, index) => (
+            {candidates.slice(0, 8).map((candidate, index) => (
               <span key={`${item.component_id}-candidate-${index}`} className="rounded bg-white px-2 py-1 text-xs text-gray-700 shadow-sm">
                 {candidateLabel(candidate)}
               </span>
             ))}
-            {candidates.length > 6 && (
-              <span className="rounded px-2 py-1 text-xs text-gray-500">+{candidates.length - 6}</span>
-            )}
+            {candidates.length > 8 && <span className="rounded px-2 py-1 text-xs text-gray-500">+{candidates.length - 8}</span>}
           </div>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+          No materialized action candidates. {fallback ? 'Expected in fallback mode.' : 'Check graph-projector candidate generation.'}
         </div>
       )}
     </div>
@@ -361,6 +432,8 @@ const SurfaceComponents = () => {
             <StatCard icon={Search} label="Signal kind" value={boundary?.signal_contract?.kind || 'heuristic'} />
           </div>
 
+          <GraphProjectionBanner report={report} boundary={boundary} />
+
           <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
               <div>
@@ -395,7 +468,7 @@ const SurfaceComponents = () => {
           ) : (
             <div className="space-y-4">
               {sortedItems.map((item) => (
-                <ComponentCard key={item.component_id} item={item} />
+                <ComponentCard key={item.component_id} item={item} report={report} />
               ))}
             </div>
           )}

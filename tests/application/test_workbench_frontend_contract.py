@@ -170,6 +170,10 @@ def test_workbench_surface_canvas_uses_canvas_investigation_map_not_card_grid() 
     assert "paintNode" in canvas
     assert "route_family" in canvas
     assert "GraphLegend" in canvas
+    assert "workbench-canvas-bounds" in canvas
+    assert "ResizeObserver" in canvas
+    assert "width={canvasSize.width || 320}" in canvas
+    assert "height={canvasSize.height || 320}" in canvas
     assert "WorkbenchNodeCard" not in canvas
     assert "nodePositionMap" not in canvas
     assert "const columns =" not in canvas
@@ -195,6 +199,10 @@ def test_surface_components_page_can_materialize_latest_without_manual_snapshot_
     assert "backend resolves snapshot ids" in page
     assert "Advanced: load a specific snapshot by UUID" in page
     assert "runWorkbenchProjectionRefresh" in page
+    assert "Open in Workbench" in page
+    assert "Neo4j/GDS materialized" in page
+    assert "degraded fallback" in page
+    assert "Why inspect this component" in page
 
 
 def test_workbench_canvas_uses_progressive_investigation_controls_for_dense_graphs() -> None:
@@ -209,4 +217,39 @@ def test_workbench_canvas_uses_progressive_investigation_controls_for_dense_grap
     assert "double click to focus" in canvas
     assert "onNodeDoubleClick" in canvas
     assert "zoomToFit" in canvas
+    assert "workbench-canvas-bounds" in canvas
+    assert "ResizeObserver" in canvas
+    assert "width={canvasSize.width || 320}" in canvas
+    assert "height={canvasSize.height || 320}" in canvas
     assert "WorkbenchNodeCard" not in canvas
+
+
+def test_workbench_deep_links_component_lens_and_keeps_canvas_inside_bounds() -> None:
+    hook = _read("BugBountyDashBoard/src/hooks/useWorkbench.js")
+    canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
+    panels = _read("BugBountyDashBoard/src/components/workbench/WorkbenchPanels.jsx")
+    components = _read("BugBountyDashBoard/src/pages/SurfaceComponents.jsx")
+
+    assert "routeWorkbenchState" in hook
+    assert "URLSearchParams(window.location.search)" in hook
+    assert "params.get('lens')" in hook
+    assert "params.get('seed')" in hook
+    assert "`/workbench?lens=components&seed=${encodeURIComponent" in components
+    assert "workbench-canvas-bounds" in canvas
+    assert "overflow-hidden bg-gray-50" in canvas
+    assert "pointer-events-auto" in panels
+    assert "relative z-20" in panels
+
+
+def test_surface_components_exposes_graph_projector_source_instead_of_raw_score_dump() -> None:
+    components = _read("BugBountyDashBoard/src/pages/SurfaceComponents.jsx")
+    backend = _read("src/api/infrastructure/workbench_components.py")
+
+    assert "Projection source:" in components
+    assert "Neo4j/GDS materialized" in components
+    assert "Neo4j/GDS component analytics were unavailable" in components
+    assert "Backend action candidate signals" in components
+    assert "Open in Workbench" in components
+    assert "surface_map_local_fallback" in backend
+    assert "neo4j_gds_materialized" in backend
+    assert "gds_execution" in backend

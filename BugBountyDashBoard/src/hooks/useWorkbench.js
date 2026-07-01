@@ -11,6 +11,15 @@ import {
 
 const defaultLens = 'surface'
 
+const routeWorkbenchState = () => {
+  if (typeof window === 'undefined') return { lens: defaultLens, seed: null }
+  const params = new URLSearchParams(window.location.search)
+  return {
+    lens: params.get('lens') || defaultLens,
+    seed: params.get('seed') || null,
+  }
+}
+
 export const useWorkbench = (selectedProgram) => {
   const [lens, setLens] = useState(defaultLens)
   const [bootstrap, setBootstrap] = useState(null)
@@ -121,7 +130,8 @@ export const useWorkbench = (selectedProgram) => {
 
   useEffect(() => {
     if (programId) {
-      loadWorkbench({ nextLens: defaultLens })
+      const routeState = routeWorkbenchState()
+      loadWorkbench({ nextLens: routeState.lens, seed: routeState.seed, depth: routeState.seed ? 2 : 1 })
     } else {
       setBootstrap(null)
       setGraph(null)

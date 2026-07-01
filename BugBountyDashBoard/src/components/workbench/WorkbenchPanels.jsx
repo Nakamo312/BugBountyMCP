@@ -321,7 +321,12 @@ const profileRows = (profile, properties, selectedNode) => {
     ['Method', merged.method],
     ['Status', merged.status_code],
     ['Content type', merged.content_type],
-    ['Surface nodes', merged.surface_node_count],
+    ['Surface nodes', merged.surface_node_count || merged.node_count],
+    ['Changed', merged.changed_node_count],
+    ['Candidates', merged.action_candidate_count],
+    ['Projection source', merged.projection_source || merged.source_projection],
+    ['GDS status', merged.gds_execution || merged.source_quality],
+    ['Algorithm', merged.algorithm_version || merged.algorithm],
     ['Snapshot', merged.snapshot_id],
     ['Source', merged.source_projection],
   ]
@@ -532,7 +537,7 @@ export const Inspector = ({ entity, actions, memory, loading, selectedNode }) =>
 
   if (!selectedNode) {
     return (
-      <aside className="h-full border-l border-gray-200 bg-white p-5">
+      <aside className="relative z-20 h-full border-l border-gray-200 bg-white p-5 pointer-events-auto">
         <div className="text-sm font-semibold text-gray-900">Inspector</div>
         <p className="mt-2 text-sm text-gray-500">Select a graph node to read profile, evidence, memory pointers, and backend action affordances.</p>
       </aside>
@@ -541,14 +546,14 @@ export const Inspector = ({ entity, actions, memory, loading, selectedNode }) =>
 
   if (loading) {
     return (
-      <aside className="flex h-full items-center justify-center border-l border-gray-200 bg-white">
+      <aside className="relative z-20 flex h-full items-center justify-center border-l border-gray-200 bg-white pointer-events-auto">
         <Loader className="animate-spin text-primary-500" size={28} />
       </aside>
     )
   }
 
   return (
-    <aside className="h-full overflow-y-auto border-l border-gray-200 bg-white p-5">
+    <aside className="relative z-20 h-full overflow-y-auto border-l border-gray-200 bg-white p-5 pointer-events-auto">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Inspector</div>
