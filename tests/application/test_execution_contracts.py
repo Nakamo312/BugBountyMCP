@@ -3,6 +3,10 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+from api.application.action_invocation_payload import (
+    ACTION_INVOCATION_PAYLOAD_KEY,
+    action_invocation_mapping,
+)
 from api.application.contracts import (
     ActionKind,
     ActionRequest,
@@ -149,6 +153,55 @@ def test_build_invocation_reads_parent_artifact_from_event_payload() -> None:
     assert invocation.parent_artifact_id == parent_artifact_id
 
 
+
+def test_build_invocation_reads_nested_action_invocation_payload() -> None:
+    ids = {
+        name: uuid4()
+        for name in [
+            "action_id",
+            "job_id",
+            "run_id",
+            "program_id",
+            "scope_decision_id",
+            "policy_decision_id",
+            "campaign_id",
+            "correlation_id",
+        ]
+    }
+    event = {
+        "job_id": str(ids["job_id"]),
+        "run_id": str(ids["run_id"]),
+        "program_id": str(ids["program_id"]),
+        "correlation_id": str(ids["correlation_id"]),
+        "payload": {
+            ACTION_INVOCATION_PAYLOAD_KEY: {
+                "action_id": str(ids["action_id"]),
+                "capability_id": "httpx",
+                "profile_id": "safe-web-probe",
+                "options": {"timeout": 10},
+                "execution_budget": {"max_targets": 5},
+                "safety_level": "passive",
+                "scope_decision_id": str(ids["scope_decision_id"]),
+                "policy_decision_id": str(ids["policy_decision_id"]),
+                "campaign_id": str(ids["campaign_id"]),
+                "requested_by": "api",
+            }
+        },
+    }
+
+    invocation = build_invocation(event, ["https://example.com"])
+
+    assert invocation is not None
+    assert invocation.action_id == ids["action_id"]
+    assert invocation.capability_id == "httpx"
+    assert invocation.profile_id == "safe-web-probe"
+    assert invocation.options == {"timeout": 10}
+    assert invocation.execution_budget.max_targets == 5
+    assert invocation.scope_decision_id == ids["scope_decision_id"]
+    assert invocation.policy_decision_id == ids["policy_decision_id"]
+    assert invocation.campaign_id == ids["campaign_id"]
+
+
 def test_action_event_payload_keeps_options_in_one_nested_shape() -> None:
     action = ActionRequest(
         kind=ActionKind.SCAN,
@@ -169,8 +222,11 @@ def test_action_event_payload_keeps_options_in_one_nested_shape() -> None:
     )
 
     payload = ActionEnvelopeBuilder.payload(action, decision, scope_id=uuid4())
+    invocation_payload = action_invocation_mapping(payload)
 
-    assert payload["options"] == {"timeout": 10, "follow_redirects": False}
+    assert invocation_payload["options"] == {"timeout": 10, "follow_redirects": False}
+    assert "options" not in payload
+    assert "action_id" not in payload
     assert "timeout" not in payload
     assert "follow_redirects" not in payload
 

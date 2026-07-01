@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from api.application.agent_action_proposals import AgentActionProposalType
-from api.application.agent_task_roles import AgentTaskRoleComposer, normalize_agent_role
+from api.application.agent.task.role import AgentTaskRoleComposer, normalize_agent_role
 from api.application.agent_tasks import AgentTaskMessageKind, AgentTaskStatus
 
 

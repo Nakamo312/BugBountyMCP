@@ -11,7 +11,7 @@ def symbols():
         ActionExperienceProbeFeatureSet,
         ActionExperienceProbeRanking,
     )
-    from graph_projector.action_experience_proposals import (
+    from graph_projector.action_experience.proposals import (
         ActionExperienceProposalLoopResult,
         ActionExperienceProposalStore,
         ActionExperienceProposalWorker,

@@ -59,9 +59,10 @@
   роутером на десятки методов. Это не завершенная декомпозиция.
 - `src/api/application/services/action.py`: выглядит как mini-container внутри
   application layer.
-- `src/api/application/services/action_catalog_resolver.py`: resolver делает
-  lookup, normalization, budget resolve, max target validation, bind_profile и
-  mutation metadata. Название врет.
+- `src/api/application/services/action_command_compiler.py`: command compiler теперь
+  делает lookup, normalization, budget resolve и max target validation без
+  mutating `bind_profile`; следующий риск — не раздувать его обратно в
+  policy/envelope workflow.
 - `src/api/application/services/action_envelope.py`: payload хранит options и
   как `options`, и как top-level поля. Это двойная форма одного состояния.
 - `services/surface-engine/surface_engine/canonicalize.py`: большая входная

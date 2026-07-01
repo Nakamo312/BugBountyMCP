@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from api.application.agent_task_inbox_bridge import AgentTaskRuntimeRequest
+from api.application.agent.task.inbox import AgentTaskRuntimeRequest
 from api.infrastructure.agent_task_context import PostgresAgentTaskContextReader
 
 

@@ -28,13 +28,12 @@ from api.application.contracts import (
 from api.config import Settings
 from api.infrastructure.orchestration.action_command_store import ActionCommandStore
 from api.infrastructure.orchestration.action_read_store import ActionReadStore
-from api.infrastructure.orchestration.action_write_helpers import catalog_hash, scope_status, target_status
 from api.infrastructure.orchestration.approval_store import ApprovalStore
 from api.infrastructure.orchestration.campaign_state_store import CampaignStateStore
 from api.infrastructure.orchestration.dispatch_store import DispatchStore
 from api.infrastructure.orchestration.event_store import EventStore
 from api.infrastructure.orchestration.run_claim_store import RunClaimStore
-from api.infrastructure.orchestration.run_state_store import RunStateStore, retry_values_for_terminal_status
+from api.infrastructure.orchestration.run_state_store import RunStateStore
 from api.infrastructure.orchestration.scheduled_work_store import ScheduledWorkStore
 
 
@@ -71,17 +70,6 @@ class OrchestrationStore:
             campaigns=self.campaigns,
             dispatches=self.dispatches,
         )
-
-    @staticmethod
-    def _campaign_activity_query(*, program_id: uuid.UUID, campaign_id: uuid.UUID):
-        return CampaignStateStore.activity_query(
-            program_id=program_id,
-            campaign_id=campaign_id,
-        )
-
-    @staticmethod
-    def _campaign_activity_from_row(row: Mapping[str, Any]) -> CampaignActivityState:
-        return CampaignStateStore.activity_from_row(row)
 
     async def get_campaign_activity(
         self,
@@ -122,73 +110,11 @@ class OrchestrationStore:
             limit=limit,
         )
 
-    async def _persist_campaign_lifecycle(
-        self,
-        *,
-        campaign_id: uuid.UUID,
-        status: str,
-        active_runs: int,
-        now: datetime,
-    ) -> bool:
-        return await self.campaigns.persist_campaign_lifecycle(
-            campaign_id=campaign_id,
-            status=status,
-            active_runs=active_runs,
-            now=now,
-        )
-
-    @staticmethod
-    def _validate_terminal_campaign_status(status: str) -> str:
-        return CampaignStateStore.validate_terminal_campaign_status(status)
-
     async def mark_campaign_terminal(self, *, campaign_id: uuid.UUID, status: str) -> bool:
         return await self.campaigns.mark_campaign_terminal(
             campaign_id=campaign_id,
             status=status,
         )
-
-    @staticmethod
-    def _scope_status(decision: PolicyDecision) -> str:
-        return scope_status(decision)
-
-    @staticmethod
-    def _target_status(target: str, decision: PolicyDecision) -> str:
-        return target_status(target, decision)
-
-    @staticmethod
-    def _catalog_hash(decision: PolicyDecision) -> str | None:
-        return catalog_hash(decision)
-
-    @staticmethod
-    def _event_dispatch_notify_statement(*, channel: str, payload: str):
-        return DispatchStore.notify_statement(channel=channel, payload=payload)
-
-    async def _enqueue_dispatch(
-        self,
-        session,
-        envelope: EventEnvelope,
-        *,
-        destination: str = "rabbitmq",
-        now: datetime | None = None,
-    ) -> None:
-        await self.dispatches.enqueue_dispatch(
-            session,
-            envelope,
-            destination=destination,
-            now=now,
-        )
-
-    @staticmethod
-    def _action_event_record_from_row(row: Mapping[str, Any]) -> ActionEventRecord:
-        return ActionReadStore.action_event_record_from_row(row)
-
-    @staticmethod
-    def _action_run_result_from_row(row: Mapping[str, Any]) -> ActionRunResult:
-        return ActionReadStore.action_run_result_from_row(row)
-
-    @staticmethod
-    def _action_artifact_reference_from_row(row: Mapping[str, Any]) -> ActionArtifactReference:
-        return ActionReadStore.action_artifact_reference_from_row(row)
 
     async def claim_dispatches(
         self,
@@ -247,10 +173,6 @@ class OrchestrationStore:
 
     async def get_action(self, action_id: uuid.UUID) -> ActionRecord | None:
         return await self.action_reads.get_action(action_id)
-
-    @staticmethod
-    def _action_record_from_row(row: Mapping[str, Any]) -> ActionRecord:
-        return ActionReadStore.action_record_from_row(row)
 
     async def list_action_events(
         self,
@@ -447,19 +369,4 @@ class OrchestrationStore:
 
     async def record_event(self, envelope: EventEnvelope) -> None:
         await self.events.record_event(envelope)
-
-    @staticmethod
-    def _retry_values(
-        *,
-        now: datetime,
-        status: ExecutionStatus,
-        terminal_outcome: TerminalOutcome | None,
-        retry_policy: dict | None,
-    ) -> dict:
-        return retry_values_for_terminal_status(
-            now=now,
-            status=status,
-            terminal_outcome=terminal_outcome,
-            retry_policy=retry_policy,
-        )
 

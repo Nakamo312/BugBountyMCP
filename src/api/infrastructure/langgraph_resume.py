@@ -65,8 +65,3 @@ class ResearchWaitResumer:
         if self.workflow_status_reader is None:
             return None
         return await self.workflow_status_reader.get_workflow_run_status(run_id=run_id)
-
-
-# Backward-compatible alias for old imports. New code should use
-# ResearchWaitResumer.
-MvpResearchAutoResumer = ResearchWaitResumer

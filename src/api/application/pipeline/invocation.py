@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Mapping
 from typing import Any
 from uuid import UUID
 
+from api.application.action_invocation_payload import action_invocation_mapping
 from api.application.contracts import (
     RunnerInvocationContext,
     SafetyLevel,
@@ -36,16 +37,19 @@ InvocationContext = ToolInvocation | RunnerInvocationContext
 
 
 def option_map(event: Mapping[str, Any]) -> dict[str, Any]:
-    """Return action options from a legacy event dict."""
+    """Return action options from current nested or legacy event dicts."""
     direct = event.get("options")
     if isinstance(direct, Mapping):
         return dict(direct)
 
-    payload = event.get("payload")
-    if isinstance(payload, Mapping):
-        nested = payload.get("options")
-        if isinstance(nested, Mapping):
-            return dict(nested)
+    payload = _payload_mapping(event)
+    legacy_payload_options = payload.get("options")
+    if isinstance(legacy_payload_options, Mapping):
+        return dict(legacy_payload_options)
+
+    action_payload_options = action_invocation_mapping(payload).get("options")
+    if isinstance(action_payload_options, Mapping):
+        return dict(action_payload_options)
     return {}
 
 
@@ -56,28 +60,42 @@ def build_invocation(
     """Build ToolInvocation when an event carries complete action context."""
     try:
         payload = dict(event.get("payload") or {})
+        action_payload = action_invocation_mapping(payload)
         parent_artifact_id = (
             event.get("parent_artifact_id")
             or payload.get("parent_artifact_id")
+            or action_payload.get("parent_artifact_id")
         )
         return ToolInvocation(
-            action_id=UUID(str(event["action_id"])),
+            action_id=UUID(str(_event_value(event, payload, action_payload, "action_id"))),
             job_id=UUID(str(event["job_id"])),
             run_id=UUID(str(event["run_id"])),
             program_id=UUID(str(event["program_id"])),
-            capability_id=str(event["capability_id"]),
-            profile_id=str(event["profile_id"]),
+            capability_id=str(_event_value(event, payload, action_payload, "capability_id")),
+            profile_id=str(_event_value(event, payload, action_payload, "profile_id")),
             targets=targets,
             options=option_map(event),
             execution_budget=ExecutionBudget.model_validate(
-                event["execution_budget"]
+                _event_value(event, payload, action_payload, "execution_budget")
             ),
-            safety_level=SafetyLevel(str(event["safety_level"])),
-            scope_decision_id=UUID(str(event["scope_decision_id"])),
-            policy_decision_id=UUID(str(event["policy_decision_id"])),
-            campaign_id=UUID(str(event["campaign_id"])),
+            safety_level=SafetyLevel(
+                str(_event_value(event, payload, action_payload, "safety_level"))
+            ),
+            scope_decision_id=UUID(
+                str(_event_value(event, payload, action_payload, "scope_decision_id"))
+            ),
+            policy_decision_id=UUID(
+                str(_event_value(event, payload, action_payload, "policy_decision_id"))
+            ),
+            campaign_id=UUID(
+                str(_event_value(event, payload, action_payload, "campaign_id"))
+            ),
             correlation_id=UUID(str(event["correlation_id"])),
-            requested_by=(str(event["requested_by"]) if event.get("requested_by") else None),
+            requested_by=(
+                str(_event_optional_value(event, payload, action_payload, "requested_by"))
+                if _event_optional_value(event, payload, action_payload, "requested_by")
+                else None
+            ),
             source_event_id=(UUID(str(event["event_id"])) if event.get("event_id") else None),
             parent_artifact_id=(
                 UUID(str(parent_artifact_id))
@@ -104,22 +122,9 @@ def build_runner_context(
     """
     try:
         payload = _payload_mapping(event)
+        action_payload = action_invocation_mapping(payload)
         lineage = _lineage_mapping(event)
-        upstream_runner = _upstream_runner_context(event)
-        budget_payload = (
-            event.get("execution_budget")
-            or payload.get("execution_budget")
-            or lineage.get("root_execution_budget")
-        )
-        safety_value = (
-            event.get("safety_level")
-            or payload.get("safety_level")
-            or lineage.get("root_safety_level")
-        )
-        parent_artifact_id = (
-            event.get("parent_artifact_id")
-            or payload.get("parent_artifact_id")
-        )
+        context = _runner_context_values(event, payload, action_payload, lineage)
         return RunnerInvocationContext(
             job_id=_optional_uuid(event.get("job_id")),
             run_id=_optional_uuid(event.get("run_id")),
@@ -128,70 +133,26 @@ def build_runner_context(
             targets=targets,
             options={},
             execution_budget=(
-                ExecutionBudget.model_validate(budget_payload)
-                if budget_payload
+                ExecutionBudget.model_validate(context["budget"])
+                if context["budget"]
                 else None
             ),
-            safety_level=(SafetyLevel(str(safety_value)) if safety_value else None),
-            scope_decision_id=_optional_uuid(
-                event.get("scope_decision_id")
-                or payload.get("scope_decision_id")
-                or lineage.get("scope_decision_id")
-            ),
-            policy_decision_id=_optional_uuid(
-                event.get("policy_decision_id")
-                or payload.get("policy_decision_id")
-                or lineage.get("policy_decision_id")
-            ),
-            campaign_id=_optional_uuid(
-                event.get("campaign_id") or lineage.get("campaign_id")
-            ),
-            correlation_id=_optional_uuid(
-                event.get("correlation_id") or lineage.get("correlation_id")
-            ),
-            requested_by=(
-                str(event.get("requested_by") or lineage.get("requested_by"))
-                if (event.get("requested_by") or lineage.get("requested_by"))
+            safety_level=(
+                SafetyLevel(str(context["safety_level"]))
+                if context["safety_level"]
                 else None
             ),
+            scope_decision_id=_optional_uuid(context["scope_decision_id"]),
+            policy_decision_id=_optional_uuid(context["policy_decision_id"]),
+            campaign_id=_optional_uuid(context["campaign_id"]),
+            correlation_id=_optional_uuid(context["correlation_id"]),
+            requested_by=_optional_text(context["requested_by"]),
             source_event_id=_optional_uuid(event.get("event_id")),
-            parent_artifact_id=_optional_uuid(parent_artifact_id),
-            root_action_id=_optional_uuid(
-                event.get("action_id")
-                or payload.get("action_id")
-                or lineage.get("root_action_id")
-            ),
-            root_capability_id=(
-                str(
-                    event.get("capability_id")
-                    or payload.get("capability_id")
-                    or lineage.get("root_capability_id")
-                )
-                if (
-                    event.get("capability_id")
-                    or payload.get("capability_id")
-                    or lineage.get("root_capability_id")
-                )
-                else None
-            ),
-            root_profile_id=(
-                str(
-                    event.get("profile_id")
-                    or payload.get("profile_id")
-                    or lineage.get("root_profile_id")
-                )
-                if (
-                    event.get("profile_id")
-                    or payload.get("profile_id")
-                    or lineage.get("root_profile_id")
-                )
-                else None
-            ),
-            upstream_node_id=(
-                str(upstream_runner.get("node_id"))
-                if upstream_runner.get("node_id")
-                else None
-            ),
+            parent_artifact_id=_optional_uuid(context["parent_artifact_id"]),
+            root_action_id=_optional_uuid(context["root_action_id"]),
+            root_capability_id=_optional_text(context["root_capability_id"]),
+            root_profile_id=_optional_text(context["root_profile_id"]),
+            upstream_node_id=_optional_text(context["upstream_node_id"]),
             payload=payload,
         )
     except (KeyError, TypeError, ValueError):
@@ -309,6 +270,117 @@ def run_raw(
     }
     kwargs = {key: value for key, value in options.items() if key in accepted}
     return method(targets, **kwargs)
+
+
+def _runner_context_values(
+    event: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    action_payload: Mapping[str, Any],
+    lineage: Mapping[str, Any],
+) -> dict[str, Any]:
+    upstream_runner = _upstream_runner_context(event)
+    return {
+        "budget": _first_value(
+            event.get("execution_budget"),
+            payload.get("execution_budget"),
+            action_payload.get("execution_budget"),
+            lineage.get("root_execution_budget"),
+        ),
+        "safety_level": _first_value(
+            event.get("safety_level"),
+            payload.get("safety_level"),
+            action_payload.get("safety_level"),
+            lineage.get("root_safety_level"),
+        ),
+        "scope_decision_id": _first_value(
+            event.get("scope_decision_id"),
+            payload.get("scope_decision_id"),
+            action_payload.get("scope_decision_id"),
+            lineage.get("scope_decision_id"),
+        ),
+        "policy_decision_id": _first_value(
+            event.get("policy_decision_id"),
+            payload.get("policy_decision_id"),
+            action_payload.get("policy_decision_id"),
+            lineage.get("policy_decision_id"),
+        ),
+        "campaign_id": _first_value(
+            event.get("campaign_id"),
+            action_payload.get("campaign_id"),
+            lineage.get("campaign_id"),
+        ),
+        "correlation_id": _first_value(
+            event.get("correlation_id"),
+            lineage.get("correlation_id"),
+        ),
+        "requested_by": _first_value(
+            event.get("requested_by"),
+            payload.get("requested_by"),
+            action_payload.get("requested_by"),
+            lineage.get("requested_by"),
+        ),
+        "parent_artifact_id": _first_value(
+            event.get("parent_artifact_id"),
+            payload.get("parent_artifact_id"),
+            action_payload.get("parent_artifact_id"),
+        ),
+        "root_action_id": _first_value(
+            event.get("action_id"),
+            payload.get("action_id"),
+            action_payload.get("action_id"),
+            lineage.get("root_action_id"),
+        ),
+        "root_capability_id": _first_value(
+            event.get("capability_id"),
+            payload.get("capability_id"),
+            action_payload.get("capability_id"),
+            lineage.get("root_capability_id"),
+        ),
+        "root_profile_id": _first_value(
+            event.get("profile_id"),
+            payload.get("profile_id"),
+            action_payload.get("profile_id"),
+            lineage.get("root_profile_id"),
+        ),
+        "upstream_node_id": upstream_runner.get("node_id"),
+    }
+
+
+def _first_value(*values: Any) -> Any:
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _optional_text(value: Any) -> str | None:
+    return str(value) if value not in (None, "") else None
+
+
+def _event_value(
+    event: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    action_payload: Mapping[str, Any],
+    key: str,
+) -> Any:
+    if key in event:
+        return event[key]
+    if key in payload:
+        return payload[key]
+    return action_payload[key]
+
+
+def _event_optional_value(
+    event: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    action_payload: Mapping[str, Any],
+    key: str,
+) -> Any:
+    if key in event:
+        return event[key]
+    if key in payload:
+        return payload[key]
+    return action_payload.get(key)
 
 
 def _payload_mapping(event: Mapping[str, Any]) -> Mapping[str, Any]:

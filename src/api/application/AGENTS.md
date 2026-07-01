@@ -15,8 +15,8 @@ Read first when changing this layer:
 - New scan execution paths must go through `ActionService` and `PolicyService`.
 - Do not import concrete runner, ingestor, database, repository, parser, or
   provider implementations from application services. Infrastructure wiring
-  belongs under `api.infrastructure.*`; `api.application.providers.*` is only
-  a deprecated compatibility alias package.
+  belongs under `api.infrastructure.*`; the old `api.application.providers.*`
+  alias package has been removed.
 - `tests/application/test_application_import_boundary.py` is the AST boundary gate.
   New `api.application` -> `api.infrastructure` imports must not be added; shrink
   its temporary allowlist when compatibility aliases or legacy seams are removed.
@@ -51,6 +51,8 @@ Read first when changing this layer:
 
 Event type contracts live in `api.application.event_contracts`. Do not import `EventType` from `api.infrastructure.events.event_types` in application code.
 
-`api.application.providers.*` is a deprecated compatibility package. New code must import provider wiring from `api.infrastructure.providers.*` or from the real composition root. The AST boundary tests reject new imports of the compatibility provider package.
+The old application-layer DI aliases have been removed: `api.application.di`, `api.application.container`, and `api.application.providers.*` must not come back. New code must import provider wiring from `api.infrastructure.providers.*` or the infrastructure composition root. The AST boundary tests reject those removed paths.
 
 Event bus transport adapters live in infrastructure. Application code must depend on `api.application.ports.events.EventBusPort` and must not import `api.infrastructure.events.event_bus` or `api.infrastructure.events.queue_config`. Queue topology belongs to infrastructure provider wiring.
+
+- Application code with a shared domain prefix should be grouped into packages instead of root-level prefix modules. LangGraph agent task runtime code lives under `api.application.langgraph.task.agent.{factory,graph,models,context,result,helpers}`. Deterministic agent task role reply code lives under `api.application.agent.task.role.{composer,context,models,proposals,text}`. Agent task inbox handoff code lives under `api.application.agent.task.inbox.{bridge,models,payload,processor}`. Do not reintroduce `agent_task_langgraph_*`, `agent_task_role_*`, `agent_task_roles`, or `agent_task_inbox_*` modules at the application root.

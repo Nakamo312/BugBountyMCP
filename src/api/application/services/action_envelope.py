@@ -3,6 +3,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from api.application.action_invocation_payload import (
+    ACTION_INVOCATION_PAYLOAD_KEY,
+    ACTION_INVOCATION_SCHEMA,
+)
 from api.application.contracts import (
     ResolvedActionCommand,
     ActionStatus,
@@ -45,9 +49,9 @@ class ActionEnvelopeBuilder:
         *,
         scope_id: UUID | None,
     ) -> dict[str, object]:
-        options = dict(action.profile.options)
-        payload = {
-            "options": options,
+        invocation = {
+            "schema": ACTION_INVOCATION_SCHEMA,
+            "options": dict(action.profile.options),
             "action_id": str(action.action_id),
             "capability_id": action.profile.capability_id,
             "profile_id": action.profile.profile_id,
@@ -58,8 +62,12 @@ class ActionEnvelopeBuilder:
             "requested_by": action.requested_by,
         }
         if decision.safety_level is not None:
-            payload["safety_level"] = decision.safety_level.value
-        return {key: value for key, value in payload.items() if value is not None}
+            invocation["safety_level"] = decision.safety_level.value
+        return {
+            ACTION_INVOCATION_PAYLOAD_KEY: {
+                key: value for key, value in invocation.items() if value is not None
+            }
+        }
 
     @staticmethod
     def terminal_submission(

@@ -1,4 +1,4 @@
-"""Command workflow for action submission and approval."""
+"""Action request submission workflow."""
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -18,17 +18,12 @@ from api.application.execution_limits import (
     ExecutionBudget,
 )
 from api.application.ports.action import (
-    ActionApprovalPort,
     ActionCommandPort,
     ScopeRuleProvider,
 )
 from api.application.services.action_catalog import ActionCatalogService
-from api.application.services.action_catalog_resolver import ActionCatalogResolver
+from api.application.services.action_command import ActionCommandCompiler
 from api.application.services.action_envelope import ActionEnvelopeBuilder
-from api.application.services.action_errors import (
-    ActionApprovalStateError,
-    ActionNotFoundError,
-)
 from api.application.services.action_policy_evaluator import ActionPolicyEvaluator
 from api.application.services.action_submission_recorder import ActionSubmissionRecorder
 from api.application.services.policy import PolicyService
@@ -37,26 +32,27 @@ SubmissionLookup = Callable[[UUID], Awaitable[ActionSubmission | None]]
 
 
 class ActionSubmissionWorkflow:
-    """Coordinate action command use cases across small helper services."""
+    """Coordinate action request and enqueue use cases."""
 
     def __init__(
         self,
         *,
         commands: ActionCommandPort,
-        approvals: ActionApprovalPort,
         policy: PolicyService,
         catalog: ActionCatalogService,
         submission_lookup: SubmissionLookup,
         scope_rules: ScopeRuleProvider | None = None,
         system_budget: ExecutionBudget | None = None,
-        resolver: ActionCatalogResolver | None = None,
+        command_compiler: ActionCommandCompiler | None = None,
         policy_evaluator: ActionPolicyEvaluator | None = None,
         envelopes: ActionEnvelopeBuilder | None = None,
         recorder: ActionSubmissionRecorder | None = None,
     ) -> None:
         budget = system_budget or DEFAULT_SYSTEM_EXECUTION_BUDGET
-        self.approvals = approvals
-        self.resolver = resolver or ActionCatalogResolver(catalog=catalog, system_budget=budget)
+        self.command_compiler = command_compiler or ActionCommandCompiler(
+            catalog=catalog,
+            system_budget=budget,
+        )
         self.policy_evaluator = policy_evaluator or ActionPolicyEvaluator(
             policy=policy,
             scope_rules=scope_rules,
@@ -77,7 +73,7 @@ class ActionSubmissionWorkflow:
         existing = await self.submission_lookup(action.action_id)
         if existing is not None:
             return existing
-        command, detail = await self.resolver.resolve_command(action)
+        command, detail = await self.command_compiler.resolve_command(action)
         decision = await self.policy_evaluator.evaluate(command, detail)
         if decision.status == PolicyDecisionStatus.BLOCKED:
             return await self._record_terminal_submission(
@@ -112,7 +108,10 @@ class ActionSubmissionWorkflow:
         profile_id: str | None = None,
         confidence: float = 0.5,
     ) -> ActionSubmission:
-        detail = await self.resolver.resolve_scan_event(event=event, profile_id=profile_id)
+        detail = await self.command_compiler.resolve_scan_event(
+            event=event,
+            profile_id=profile_id,
+        )
         action = ActionRequest(
             kind=ActionKind.SCAN,
             program_id=program_id,
@@ -122,79 +121,6 @@ class ActionSubmissionWorkflow:
             requested_by=requested_by,
         )
         return await self.request_action(action, confidence=confidence)
-
-    async def approve_action(
-        self,
-        *,
-        action_id: UUID,
-        approved_by: str = "api",
-        reason: str | None = None,
-        confidence: float = 0.5,
-    ) -> ActionSubmission:
-        action, current_status = await self._action_for_approval(action_id)
-        command, detail = await self.resolver.resolve_command(action)
-        self._require_approval_status(action_id, current_status)
-        decision = await self.policy_evaluator.approve(
-            command,
-            detail,
-            approved_by=approved_by,
-            reason=reason,
-        )
-        scope_id = await self.approvals.get_scope_id(command.action_id)
-        envelope = self.envelopes.event_envelope(
-            command,
-            decision,
-            request_event=detail.request_event,
-            source=approved_by,
-            confidence=confidence,
-            scope_id=scope_id,
-        )
-        approved = await self.approvals.approve_and_create_queued_job(command, decision, envelope)
-        if not approved:
-            raise ActionApprovalStateError(
-                f"Action {action_id} is no longer awaiting approval"
-            )
-        return self.envelopes.queued_submission(
-            command,
-            decision,
-            envelope,
-            message=self._queued_message(detail.request_event, len(envelope.targets), approved=True),
-        )
-
-    async def reject_action(
-        self,
-        *,
-        action_id: UUID,
-        rejected_by: str = "api",
-        reason: str | None = None,
-    ) -> ActionSubmission:
-        action, current_status = await self._action_for_approval(action_id)
-        command, _detail = await self.resolver.resolve_command(action)
-        self._require_approval_status(action_id, current_status)
-        decision = self.policy_evaluator.reject(
-            command,
-            rejected_by=rejected_by,
-            reason=reason,
-        )
-        rejected = await self.approvals.reject_action(command, decision)
-        if not rejected:
-            raise ActionApprovalStateError(
-                f"Action {action_id} is no longer awaiting approval"
-            )
-        return self.envelopes.rejected_submission(command, decision)
-
-    async def _action_for_approval(self, action_id: UUID):
-        action, current_status = await self.approvals.get_action_for_approval(action_id)
-        if action is None:
-            raise ActionNotFoundError(f"Action not found: {action_id}")
-        return action, current_status
-
-    @staticmethod
-    def _require_approval_status(action_id: UUID, current_status: str) -> None:
-        if current_status != ActionStatus.REQUIRES_APPROVAL.value:
-            raise ActionApprovalStateError(
-                f"Action {action_id} is not awaiting approval: {current_status}"
-            )
 
     async def _record_terminal_submission(
         self,
@@ -244,12 +170,10 @@ class ActionSubmissionWorkflow:
             action,
             decision,
             envelope,
-            message=self._queued_message(request_event, len(envelope.targets)),
+            message=_queued_message(request_event, len(envelope.targets)),
         )
 
-    @staticmethod
-    def _queued_message(request_event: str, target_count: int, *, approved: bool = False) -> str:
-        label = request_event.replace("_", " ").title()
-        if approved:
-            return f"{label} approved and queued for {target_count} targets"
-        return f"{label} queued for {target_count} targets"
+
+def _queued_message(request_event: str, target_count: int) -> str:
+    label = request_event.replace("_", " ").title()
+    return f"{label} queued for {target_count} targets"

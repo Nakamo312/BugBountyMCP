@@ -11,7 +11,7 @@ from api.application.agent_action_proposals import (
     AgentActionProposalService,
 )
 from api.application.agent_task_runtime_contracts import AgentTaskRuntime
-from api.application.agent_task_langgraph_runtime import AgentTaskRuntimeFactory
+from api.application.langgraph.task.agent.factory import AgentTaskRuntimeFactory
 from api.application.agent_task_runtime_results import AgentTaskRuntimeResultIngestService
 from api.application.agent_tasks import AgentTaskService
 from api.application.services.action import ActionService

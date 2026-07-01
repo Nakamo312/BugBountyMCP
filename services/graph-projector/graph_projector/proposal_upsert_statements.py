@@ -194,7 +194,10 @@ def _surface_candidate_explanation(candidate: object) -> dict[str, object]:
         ),
         "candidate_score": candidate.candidate_score,
         "rank_score": candidate.candidate_score,
-        "candidate_score_semantics": "heuristic ranking score; not outcome utility",
+        "candidate_score_semantics": (
+            "uncalibrated heuristic ranking signal stored in the legacy "
+            "candidate_score field; not outcome utility"
+        ),
         "candidate_score_formula_version": getattr(candidate, "score_formula_version", None),
         "candidate_score_features": score_features,
         "base_candidate_score": score_features.get("base_candidate_score", candidate.candidate_score),

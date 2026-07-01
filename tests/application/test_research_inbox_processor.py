@@ -159,10 +159,10 @@ async def test_inbox_processor_leaves_message_claimed_when_graph_handoff_fails()
 
 def test_inbox_processor_is_wired_as_lifespan_worker_but_disabled_by_default() -> None:
     app_source = open("src/api/presentation/rest/app.py", encoding="utf-8").read()
-    di_source = open("src/api/application/di.py", encoding="utf-8").read()
+    wiring_source = open("src/api/infrastructure/providers/research_runtime.py", encoding="utf-8").read()
     config_source = open("src/api/config.py", encoding="utf-8").read()
 
-    assert "ResearchInboxProcessor" in di_source
+    assert "ResearchInboxProcessor" in wiring_source
     assert "USE_AGENT_INBOX_PROCESSOR: bool = False" in config_source
     assert "inbox_processor.start()" in app_source
     assert "inbox_processor.stop()" in app_source

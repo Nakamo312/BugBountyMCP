@@ -30,6 +30,7 @@ from api.application.services.action_errors import (
     ActionOutcomeNotFoundError,
 )
 from api.application.services.action_outcome_feedback import ActionOutcomeFeedbackService
+from api.application.services.action_approval import ActionApprovalWorkflow
 from api.application.services.action_read import (
     ActionReadService,
     policy_decision_status_for_action_status as _policy_decision_status_for_action_status,
@@ -81,12 +82,17 @@ class ActionService:
         )
         self._submissions = ActionSubmissionWorkflow(
             commands=self.commands,
-            approvals=self.approvals,
             policy=policy,
             catalog=catalog,
             scope_rules=scope_rules,
             system_budget=self.system_budget,
             submission_lookup=self._reads.get_action_submission,
+        )
+        self._approvals = ActionApprovalWorkflow(
+            approvals=self.approvals,
+            command_compiler=self._submissions.command_compiler,
+            policy_evaluator=self._submissions.policy_evaluator,
+            envelopes=self._submissions.envelopes,
         )
 
     async def list_actions(
@@ -138,7 +144,7 @@ class ActionService:
         reason: str | None = None,
         confidence: float = 0.5,
     ) -> ActionSubmission:
-        return await self._submissions.approve_action(
+        return await self._approvals.approve_action(
             action_id=action_id,
             approved_by=approved_by,
             reason=reason,
@@ -152,7 +158,7 @@ class ActionService:
         rejected_by: str = "api",
         reason: str | None = None,
     ) -> ActionSubmission:
-        return await self._submissions.reject_action(
+        return await self._approvals.reject_action(
             action_id=action_id,
             rejected_by=rejected_by,
             reason=reason,

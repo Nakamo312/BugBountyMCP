@@ -2,11 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from api.application.agent_task_inbox_bridge import AgentTaskRuntimeRequest
-from api.application.agent_task_langgraph_runtime import (
-    AgentTaskContextReader,
-    AgentTaskRuntimeFactory,
-)
+from api.application.agent.task.inbox import AgentTaskRuntimeRequest
+from api.application.langgraph.task.agent.factory import AgentTaskRuntimeFactory
+from api.application.langgraph.task.agent.models import AgentTaskContextReader
 
 from agent_worker.client import AgentControlPlaneClient
 from agent_worker.settings import AgentWorkerSettings

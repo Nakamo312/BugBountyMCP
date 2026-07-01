@@ -8,7 +8,7 @@ from dishka.integrations.fastapi import setup_dishka
 
 from api.config import Settings
 from api.infrastructure.adapters.mappers import start_mappers
-from api.application.container import create_container
+from api.infrastructure.container import create_container
 from api.presentation.rest.handlers import (
     global_exception_handler,
     scan_execution_handler,

@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 COPY scanner.proto .
 RUN python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. scanner.proto
 
+COPY crawler ./crawler
 COPY playwright_scanner.py .
 COPY playwright_service.py .
 

@@ -16,7 +16,7 @@ from api.infrastructure.adapters.orm import (
     programs,
     runs,
 )
-from api.infrastructure.orchestration.store import OrchestrationStore
+from api.infrastructure.orchestration.campaign_state_store import CampaignStateStore
 
 
 pytestmark = pytest.mark.integration
@@ -136,7 +136,7 @@ async def test_campaign_waits_for_outbox_then_becomes_quiescent(
         )
         await session.commit()
 
-    store = OrchestrationStore(session_factory)
+    store = CampaignStateStore(session_factory)
     now = datetime.now(timezone.utc)
 
     pending = await store.reconcile_campaign_lifecycle(

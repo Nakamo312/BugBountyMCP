@@ -10,34 +10,6 @@ APPLICATION_ROOT = ROOT / "src/api/application"
 # it should fail when a new application -> infrastructure import appears. Shrink
 # this list as compatibility aliases and legacy execution seams are removed.
 _ALLOWED_INFRASTRUCTURE_IMPORTS = {
-    # Compatibility composition root: api.application.di still assembles the app
-    # using infrastructure providers until imports move to the actual entrypoint.
-    ("src/api/application/di.py", "api.infrastructure.providers.action_runtime"),
-    ("src/api/application/di.py", "api.infrastructure.providers.agent_runtime"),
-    ("src/api/application/di.py", "api.infrastructure.providers.batch_processors"),
-    ("src/api/application/di.py", "api.infrastructure.providers.credentials"),
-    ("src/api/application/di.py", "api.infrastructure.providers.database"),
-    ("src/api/application/di.py", "api.infrastructure.providers.ingestors"),
-    ("src/api/application/di.py", "api.infrastructure.providers.pipeline"),
-    ("src/api/application/di.py", "api.infrastructure.providers.read_models"),
-    ("src/api/application/di.py", "api.infrastructure.providers.research_runtime"),
-    ("src/api/application/di.py", "api.infrastructure.providers.runners"),
-    ("src/api/application/di.py", "api.infrastructure.providers.services"),
-    # Deprecated compatibility aliases after moving concrete catalog/builders.
-    ("src/api/application/pipeline/builder.py", "api.infrastructure.pipeline.builder"),
-    ("src/api/application/pipeline/catalog.py", "api.infrastructure.pipeline.catalog"),
-    # Deprecated compatibility aliases after moving provider wiring.
-    ("src/api/application/providers/action_runtime.py", "api.infrastructure.providers.action_runtime"),
-    ("src/api/application/providers/agent_runtime.py", "api.infrastructure.providers.agent_runtime"),
-    ("src/api/application/providers/batch_processors.py", "api.infrastructure.providers.batch_processors"),
-    ("src/api/application/providers/credentials.py", "api.infrastructure.providers.credentials"),
-    ("src/api/application/providers/database.py", "api.infrastructure.providers.database"),
-    ("src/api/application/providers/ingestors.py", "api.infrastructure.providers.ingestors"),
-    ("src/api/application/providers/pipeline.py", "api.infrastructure.providers.pipeline"),
-    ("src/api/application/providers/read_models.py", "api.infrastructure.providers.read_models"),
-    ("src/api/application/providers/research_runtime.py", "api.infrastructure.providers.research_runtime"),
-    ("src/api/application/providers/runners.py", "api.infrastructure.providers.runners"),
-    ("src/api/application/providers/services.py", "api.infrastructure.providers.services"),
     # Remaining legacy seams are UoW protocols and raw artifact parsing.
     # Runner refs/factories, event bus, EventType, and queue topology are
     # no longer allowed here.
@@ -101,6 +73,165 @@ def _imports_from_src(predicate) -> set[tuple[str, str]]:
     return imports
 
 
+
+def test_application_composition_root_aliases_stay_removed() -> None:
+    assert not (APPLICATION_ROOT / "di.py").exists()
+    assert not (APPLICATION_ROOT / "container.py").exists()
+
+    removed_paths = {"api.application.di", "api.application.container"}
+    found = _imports_from_src(lambda _path, module: module in removed_paths)
+
+    assert sorted(found) == []
+
+
+
+def test_application_pipeline_infrastructure_aliases_stay_removed() -> None:
+    removed_paths = {
+        APPLICATION_ROOT / "pipeline/builder.py",
+        APPLICATION_ROOT / "pipeline/catalog.py",
+        APPLICATION_ROOT / "pipeline/run_state_reporter.py",
+    }
+
+    assert [path.as_posix() for path in sorted(removed_paths) if path.exists()] == []
+
+    removed_modules = {
+        "api.application.pipeline.builder",
+        "api.application.pipeline.catalog",
+        "api.application.pipeline.run_state_reporter",
+    }
+    found = _imports_from_src(lambda _path, module: module in removed_modules)
+
+    assert sorted(found) == []
+
+
+def test_mvp_research_compat_aliases_stay_removed() -> None:
+    removed_paths = {
+        APPLICATION_ROOT / "mvp_research_workflow.py",
+        APPLICATION_ROOT / "mvp_research_readiness.py",
+        APPLICATION_ROOT / "mvp_research_state_graph.py",
+        APPLICATION_ROOT / "langgraph_inbox_handoff.py",
+    }
+
+    assert [path.as_posix() for path in sorted(removed_paths) if path.exists()] == []
+
+    removed_modules = {
+        "api.application.mvp_research_workflow",
+        "api.application.mvp_research_readiness",
+        "api.application.mvp_research_state_graph",
+        "api.application.langgraph_inbox_handoff",
+    }
+    found = _imports_from_src(lambda _path, module: module in removed_modules)
+
+    assert sorted(found) == []
+
+    resume_source = (ROOT / "src/api/infrastructure/langgraph_resume.py").read_text(
+        encoding="utf-8"
+    )
+    assert "MvpResearchAutoResumer" not in resume_source
+
+
+
+
+def test_flat_agent_task_langgraph_modules_stay_removed() -> None:
+    removed_paths = {
+        APPLICATION_ROOT / "agent_task_langgraph_context.py",
+        APPLICATION_ROOT / "agent_task_langgraph_factory.py",
+        APPLICATION_ROOT / "agent_task_langgraph_graph.py",
+        APPLICATION_ROOT / "agent_task_langgraph_helpers.py",
+        APPLICATION_ROOT / "agent_task_langgraph_models.py",
+        APPLICATION_ROOT / "agent_task_langgraph_result.py",
+        APPLICATION_ROOT / "agent_task_langgraph_runtime.py",
+    }
+    assert [path.as_posix() for path in sorted(removed_paths) if path.exists()] == []
+
+    removed_modules = {
+        "api.application.agent_task_langgraph_context",
+        "api.application.agent_task_langgraph_factory",
+        "api.application.agent_task_langgraph_graph",
+        "api.application.agent_task_langgraph_helpers",
+        "api.application.agent_task_langgraph_models",
+        "api.application.agent_task_langgraph_result",
+        "api.application.agent_task_langgraph_runtime",
+    }
+    found = _imports_from_src(lambda _path, module: module in removed_modules)
+
+    assert sorted(found) == []
+
+
+
+def test_flat_agent_task_role_modules_stay_removed() -> None:
+    removed_paths = {
+        APPLICATION_ROOT / "agent_task_role_composer.py",
+        APPLICATION_ROOT / "agent_task_role_context.py",
+        APPLICATION_ROOT / "agent_task_role_models.py",
+        APPLICATION_ROOT / "agent_task_role_proposals.py",
+        APPLICATION_ROOT / "agent_task_role_text.py",
+        APPLICATION_ROOT / "agent_task_roles.py",
+    }
+    assert [path.as_posix() for path in sorted(removed_paths) if path.exists()] == []
+
+    removed_modules = {
+        "api.application.agent_task_role_composer",
+        "api.application.agent_task_role_context",
+        "api.application.agent_task_role_models",
+        "api.application.agent_task_role_proposals",
+        "api.application.agent_task_role_text",
+        "api.application.agent_task_roles",
+    }
+    found = _imports_from_src(lambda _path, module: module in removed_modules)
+
+    assert sorted(found) == []
+
+
+def test_flat_agent_task_inbox_modules_stay_removed() -> None:
+    removed_paths = {
+        APPLICATION_ROOT / "agent_task_inbox_bridge.py",
+        APPLICATION_ROOT / "agent_task_inbox_bridge_models.py",
+        APPLICATION_ROOT / "agent_task_inbox_payload.py",
+        APPLICATION_ROOT / "agent_task_inbox_processor.py",
+    }
+    assert [path.as_posix() for path in sorted(removed_paths) if path.exists()] == []
+
+    removed_modules = {
+        "api.application.agent_task_inbox_bridge",
+        "api.application.agent_task_inbox_bridge_models",
+        "api.application.agent_task_inbox_payload",
+        "api.application.agent_task_inbox_processor",
+    }
+    found = _imports_from_src(lambda _path, module: module in removed_modules)
+
+    assert sorted(found) == []
+
+
+def test_action_catalog_resolver_service_stays_removed() -> None:
+    assert not (APPLICATION_ROOT / "services/action_catalog_resolver.py").exists()
+
+    found = _imports_from_src(
+        lambda _path, module: module == "api.application.services.action_catalog_resolver"
+    )
+
+    assert sorted(found) == []
+
+    compiler_source = (APPLICATION_ROOT / "services/action_command/compiler.py").read_text(
+        encoding="utf-8"
+    )
+    assert "class ActionCatalogResolver" not in compiler_source
+    assert "def bind(" not in compiler_source
+    assert "bind_profile" not in compiler_source
+
+
+def test_action_command_compiler_stays_packaged() -> None:
+    assert not (APPLICATION_ROOT / "services/action_command_compiler.py").exists()
+    package_root = APPLICATION_ROOT / "services/action_command"
+    expected = {"__init__.py", "budget.py", "compiler.py", "metadata.py", "options.py"}
+    assert expected.issubset({path.name for path in package_root.iterdir()})
+
+    compiler_source = (package_root / "compiler.py").read_text(encoding="utf-8")
+    assert "normalize_options" not in compiler_source
+    assert "resolve_execution_budget" not in compiler_source
+    assert "effective_budget" not in compiler_source
+
+
 def test_application_does_not_import_transport_event_bus_or_queue_config() -> None:
     forbidden = {
         "api.infrastructure.events.event_bus",
@@ -130,6 +261,16 @@ def test_application_does_not_import_concrete_runner_infrastructure() -> None:
 
     assert sorted(found) == []
 
+
+
+def test_deprecated_process_event_schema_alias_stays_removed() -> None:
+    assert not (ROOT / "src/api/infrastructure/schemas/models/process_event.py").exists()
+
+    found = _imports_from_src(
+        lambda _path, module: module == "api.infrastructure.schemas.models.process_event"
+    )
+
+    assert sorted(found) == []
 
 def test_no_new_deprecated_event_type_imports() -> None:
     found = _imports_from_src(

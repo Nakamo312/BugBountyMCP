@@ -15,7 +15,7 @@ import {
   getSurfaceComponentAnalysis,
 } from '../services/api'
 
-const scoreClass = (score) => {
+const signalClass = (score) => {
   if (score == null) return 'bg-gray-100 text-gray-500'
   if (score >= 75) return 'bg-red-100 text-red-800'
   if (score >= 50) return 'bg-orange-100 text-orange-800'
@@ -26,7 +26,7 @@ const scoreClass = (score) => {
 const ScoreBadge = ({ label, score }) => (
   <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
     <span className="text-xs font-medium text-gray-500">{label}</span>
-    <span className={`rounded px-2 py-0.5 text-xs font-semibold ${scoreClass(score)}`}>
+    <span className={`rounded px-2 py-0.5 text-xs font-semibold ${signalClass(score)}`}>
       {score == null ? 'n/a' : score}
     </span>
   </div>
@@ -59,8 +59,8 @@ const copyToClipboard = (text) => {
 const candidateLabel = (candidate) => {
   const capability = candidate.capability_id || candidate.capability || 'unknown'
   const profile = candidate.profile_id || candidate.profile || 'default'
-  const score = candidate.candidate_score ?? candidate.utility_score ?? candidate.component_utility_score
-  return `${capability}/${profile}${score == null ? '' : ` · ${score}`}`
+  const signal = candidate.candidate_score ?? candidate.utility_score ?? candidate.component_utility_score
+  return `${capability}/${profile}${signal == null ? '' : ` · signal ${signal}`}`
 }
 
 const ComponentCard = ({ item }) => {
@@ -79,11 +79,11 @@ const ComponentCard = ({ item }) => {
             </span>
           </div>
           <p className="mt-1 text-sm text-gray-500">
-            Materialized surface component profile. Scores come from persisted graph math, not live GDS.
+            Materialized surface component profile. Values are uncalibrated graph signals, not learned priority.
           </p>
         </div>
-        <span className={`rounded px-3 py-1 text-sm font-semibold ${scoreClass(item.exploration_priority_score)}`}>
-          priority {item.exploration_priority_score ?? 'n/a'}
+        <span className={`rounded px-3 py-1 text-sm font-semibold ${signalClass(item.exploration_priority_score)}`}>
+          signal {item.exploration_priority_score ?? 'n/a'}
         </span>
       </div>
 

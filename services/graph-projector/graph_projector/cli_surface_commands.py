@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from .action_experience_proposals import ActionExperienceProposalLoopResult
+from .action_experience.proposals import ActionExperienceProposalLoopResult
 from .settings import GraphProjectorSettings
 from .cli_output import _print_surface_component_report
 from .cli_services import (

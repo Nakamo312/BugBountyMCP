@@ -5,13 +5,16 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 from api.infrastructure.artifacts.raw_artifact_repository import RawArtifactRepository
-from api.infrastructure.orchestration.store import OrchestrationStore
 
 logger = logging.getLogger(__name__)
+
+
+class RunReconcileStateStore(Protocol):
+    async def clear_run_reconcile(self, *, run_id: UUID) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -32,7 +35,7 @@ class RawArtifactReconciler:
         *,
         base_dir: str | Path,
         repository: RawArtifactRepository,
-        orchestration_store: OrchestrationStore,
+        orchestration_store: RunReconcileStateStore,
     ):
         self.base_dir = Path(base_dir)
         self.repository = repository

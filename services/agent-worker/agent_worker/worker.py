@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from api.application.agent_task_inbox_bridge import (
+from api.application.agent.task.inbox import (
     AgentTaskRuntime,
     AgentTaskRuntimeResult,
     runtime_request_from_agent_task_message,

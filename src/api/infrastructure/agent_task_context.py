@@ -13,7 +13,7 @@ from typing import Any
 from sqlalchemy import desc, func, select
 
 from api.application.agent_task_runtime_contracts import AgentTaskRuntimeRequest
-from api.application.agent_task_langgraph_runtime import AgentTaskContextReader
+from api.application.langgraph.task.agent.models import AgentTaskContextReader
 from api.infrastructure.adapters.orm import (
     action_experience_proposals,
     action_outcomes,

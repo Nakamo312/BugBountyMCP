@@ -342,9 +342,8 @@ explicit ports or terminal hooks wired by `PipelineContextFactory`.
 `RunCompletionReporter` may keep the current terminal transition plus
 action-outcome-memory hook while it stays small, but outcome-memory branching
 should move to a separate terminal hook before it grows. The compatibility import
-paths `api.application.providers.pipeline`,
-`api.infrastructure.schemas.models.process_event`, and
-`api.application.pipeline.run_state_reporter` are temporary migration aliases, not
-new stable APIs. Direct `ScanNode` construction without a context factory is a
+removed provider alias paths such as `api.application.providers.pipeline` and
+`api.application.pipeline.run_state_reporter`, and
+`api.infrastructure.schemas.models.process_event` are gone, not new stable APIs. Direct `ScanNode` construction without a context factory is a
 legacy-only fallback and intentionally has no raw-capture, run-state, outcome, or
 scope-filter ports.

@@ -7,11 +7,10 @@ from sqlalchemy.dialects import postgresql
 
 from api.application.campaign_lifecycle import CampaignActivityState
 from api.infrastructure.orchestration.campaign_state_store import CampaignStateStore
-from api.infrastructure.orchestration.store import OrchestrationStore
 
 
 def test_campaign_activity_query_covers_execution_outbox_and_projections() -> None:
-    query = OrchestrationStore._campaign_activity_query(
+    query = CampaignStateStore.activity_query(
         program_id=uuid4(),
         campaign_id=uuid4(),
     )
@@ -36,7 +35,7 @@ def test_campaign_activity_row_maps_to_application_state() -> None:
     program_id = uuid4()
     last_activity_at = datetime.now(timezone.utc)
 
-    state = OrchestrationStore._campaign_activity_from_row(
+    state = CampaignStateStore.activity_from_row(
         {
             "campaign_id": campaign_id,
             "program_id": program_id,
@@ -112,6 +111,6 @@ async def test_reconcile_campaign_persists_deterministic_transition() -> None:
 
 
 def test_terminal_campaign_transition_contract_is_explicit() -> None:
-    assert OrchestrationStore._validate_terminal_campaign_status("closed") == "closed"
-    assert OrchestrationStore._validate_terminal_campaign_status("cancelled") == "cancelled"
-    assert OrchestrationStore._validate_terminal_campaign_status("failed") == "failed"
+    assert CampaignStateStore.validate_terminal_campaign_status("closed") == "closed"
+    assert CampaignStateStore.validate_terminal_campaign_status("cancelled") == "cancelled"
+    assert CampaignStateStore.validate_terminal_campaign_status("failed") == "failed"

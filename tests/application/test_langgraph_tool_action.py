@@ -109,11 +109,11 @@ async def test_langgraph_tool_action_surfaces_approval_required_without_bypassin
 
 def test_langgraph_tool_action_does_not_import_execution_surfaces() -> None:
     source = open("src/api/application/langgraph_tool_action.py", encoding="utf-8").read()
-    di_source = open("src/api/application/di.py", encoding="utf-8").read()
+    wiring_source = open("src/api/infrastructure/providers/research_runtime.py", encoding="utf-8").read()
 
     assert "ActionRequest" in source
     assert "request_action" in source
-    assert "LangGraphToolActionTool" in di_source
-    assert "get_langgraph_tool_action_tool" in di_source
+    assert "LangGraphToolActionTool" in wiring_source
+    assert "get_langgraph_tool_action_tool" in wiring_source
     for forbidden in ("RabbitMQ", "EventBus", "runner", "subprocess", "session", "store."):
         assert forbidden not in source

@@ -28,8 +28,8 @@ def _request() -> AgentTaskRuntimeRequest:
 
 def test_runtime_contracts_import_without_legacy_processor_cycle() -> None:
     contracts = importlib.import_module("api.application.agent_task_runtime_contracts")
-    processor = importlib.import_module("api.application.agent_task_inbox_processor")
-    bridge = importlib.import_module("api.application.agent_task_inbox_bridge")
+    processor = importlib.import_module("api.application.agent.task.inbox.processor")
+    bridge = importlib.import_module("api.application.agent.task.inbox")
 
     assert contracts.AgentTaskRuntimeRequest is bridge.AgentTaskRuntimeRequest
     assert processor.AgentTaskInboxProcessor is bridge.AgentTaskInboxProcessor

@@ -16,7 +16,7 @@ from api.infrastructure.adapters.orm import (
     programs,
     runs,
 )
-from api.infrastructure.orchestration.store import OrchestrationStore
+from api.infrastructure.orchestration.run_claim_store import RunClaimStore
 
 
 pytestmark = pytest.mark.integration
@@ -101,7 +101,7 @@ async def test_concurrent_claims_cannot_overspend_campaign_run_budget(
         )
         await session.commit()
 
-    store = OrchestrationStore(session_factory)
+    store = RunClaimStore(session_factory)
 
     async def claim(index: int):
         return await store.claim_node_run(

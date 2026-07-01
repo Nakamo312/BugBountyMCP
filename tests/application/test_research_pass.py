@@ -200,9 +200,12 @@ def test_research_pass_is_wired_through_di_without_execution_authority() -> None
         "src/api/application/research_pass.py",
         encoding="utf-8",
     ).read()
-    di_source = open("src/api/application/di.py", encoding="utf-8").read()
+    provider_source = open(
+        "src/api/infrastructure/providers/research_runtime.py",
+        encoding="utf-8",
+    ).read()
 
-    assert "get_research_pass" in di_source
+    assert "get_research_pass" in provider_source
     for forbidden in (
         "RabbitMQ",
         "EventBus",

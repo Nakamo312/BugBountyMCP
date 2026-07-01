@@ -431,14 +431,6 @@ def test_action_write_stores_accept_resolved_commands_without_persisting_command
     assert "Persist the public request shape" in helper_source
 
 
-def test_orchestration_store_is_deprecated_compatibility_facade_only() -> None:
-    store_source = _read(STORE)
-
-    assert "deprecated_compatibility_facade = True" in store_source
-    assert "DeprecationWarning" not in store_source
-    assert "Adding methods here keeps the old one-object-knows-everything model alive" in store_source
-
-
 def test_pipeline_context_delegates_raw_capture_run_completion_and_scope_filtering() -> None:
     context_source = _read(PIPELINE_CONTEXT)
     raw_capture_source = _read(RAW_ARTIFACT_CAPTURE)
@@ -491,5 +483,6 @@ def test_pipeline_boundary_guardrails_are_documented() -> None:
 
     assert "0049_pipeline_boundary_guardrails" in text
     assert "must not gain new side effects" in text
-    assert "temporary migration aliases" in text
+    assert "are gone, not new stable APIs" in text
+    assert "api.infrastructure.schemas.models.process_event" in text
     assert "legacy-only fallback" in text

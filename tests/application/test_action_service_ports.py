@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from api.application.action_invocation_payload import action_invocation_mapping
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -122,7 +123,10 @@ async def test_action_service_accepts_separate_narrow_ports() -> None:
     assert queued_action.profile.profile_id == "safe-web-probe"
     with pytest.raises(RuntimeError, match="has not been resolved"):
         _ = request.profile
-    assert envelope.payload["options"]["timeout"] == 10
+    invocation_payload = action_invocation_mapping(envelope.payload)
+
+    assert invocation_payload["options"]["timeout"] == 10
+    assert "options" not in envelope.payload
 
     now = datetime.now(timezone.utc)
     queries.actions[request.action_id] = ActionRecord(

@@ -5,14 +5,14 @@ They are not parsers and they are not ingestors.
 
 ## Rules
 
-- New CLI runners should expose `run_raw()` that yields raw `ProcessEvent`
-  objects from `CommandExecutor`.
-- New or modified runners should pass a validated `CommandInvocation` into
-  `CommandExecutor`. Legacy `command/stdin/timeout` arguments are accepted only
-  as compatibility until call sites are migrated.
-- A temporary `run()` compatibility wrapper may parse through the official
-  parser, but live pipeline workers should use `run_raw()` plus explicit parser
-  configuration.
+- Ordinary external tools must be declared in `cli_specs/` and executed through
+  `GenericCliToolRunner`. Do not add per-tool wrapper classes for normal argv,
+  stdin, timeout, parser, or stderr behavior.
+- Concrete runner classes are reserved for real special cases such as browser
+  orchestration or tools that need non-spec execution boundaries.
+- New or modified execution paths should pass a validated `CommandInvocation`
+  into `CommandExecutor`. Legacy `command/stdin/timeout` arguments are accepted
+  only as compatibility until call sites are migrated.
 - Do not write database state from runners.
 - Do not write files directly from runners; raw artifact capture belongs in
   pipeline context.

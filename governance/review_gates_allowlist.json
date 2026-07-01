@@ -6,8 +6,8 @@
       "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
     },
     "playwright/playwright_scanner.py": {
-      "max_lines": 822,
-      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+      "max_lines": 735,
+      "reason": "Legacy scanner after model/logging extraction; must keep shrinking instead of growing back."
     },
     "services/bb-cli/bb_cli/__main__.py": {
       "max_lines": 517,
@@ -17,20 +17,8 @@
       "max_lines": 579,
       "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
     },
-    "services/bb-cli/bb_cli/render.py": {
-      "max_lines": 677,
-      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
-    },
-    "services/graph-projector/graph_projector/action_experience_proposals.py": {
-      "max_lines": 697,
-      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
-    },
     "services/search-indexer/search_indexer/reindex.py": {
       "max_lines": 838,
-      "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
-    },
-    "services/surface-engine/surface_engine/canonicalize.py": {
-      "max_lines": 763,
       "reason": "Legacy file above review gate threshold; must shrink in a dedicated refactor before it may grow."
     },
     "src/api/application/agent_task_inbox_bridge.py": {
@@ -164,8 +152,8 @@
       "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
     },
     "playwright/playwright_scanner.py::PlaywrightScanner._explore_state": {
-      "max_lines": 116,
-      "reason": "Legacy file/function newly covered by expanded review gate roots; must shrink in a dedicated refactor before it may grow."
+      "max_lines": 114,
+      "reason": "Legacy exploration loop after safe scanner cleanup; must keep shrinking instead of growing back."
     },
     "playwright/playwright_scanner.py::PlaywrightScanner.scan": {
       "max_lines": 90,
@@ -181,10 +169,6 @@
     },
     "services/bb-cli/bb_cli/operator_plan.py::summarize_projection_run_step_audit": {
       "max_lines": 87,
-      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
-    },
-    "services/bb-cli/bb_cli/render.py::render_program_projection_overview": {
-      "max_lines": 89,
       "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
     },
     "services/graph-projector/graph_projector/g_bipartite_endpoint_param_contract.py::validate_endpoint_param_projection_event_shape": {
@@ -205,10 +189,6 @@
     },
     "services/search-indexer/search_indexer/reindex.py::main": {
       "max_lines": 194,
-      "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
-    },
-    "services/surface-engine/surface_engine/canonicalize.py::canonicalize_endpoint": {
-      "max_lines": 165,
       "reason": "Legacy function above review gate threshold; must shrink in a dedicated refactor before it may grow."
     },
     "src/api/application/action_experience_proposals.py::ActionExperienceProposalAcceptanceService.accept_as_action": {

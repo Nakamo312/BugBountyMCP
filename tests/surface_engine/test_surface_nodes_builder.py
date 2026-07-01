@@ -162,3 +162,21 @@ def test_surface_delta_builder_scores_structural_introductions_not_counts():
     assert any(delta.delta_type == "edge_introduced" for delta in deltas)
     assert all(0 <= delta.novelty_score <= 100 for delta in deltas)
     assert all("score_basis" in delta.details_json for delta in deltas)
+
+
+def test_surface_node_builder_is_split_into_package_modules():
+    nodes_root = ROOT / "services/surface-engine/surface_engine/nodes"
+    assert nodes_root.is_dir()
+    assert not (ROOT / "services/surface-engine/surface_engine/nodes.py").exists()
+
+    for module_name in ["models.py", "metadata.py", "drafts.py", "dedupe.py", "observation.py", "snapshot.py"]:
+        assert (nodes_root / module_name).exists()
+
+    observation_source = (nodes_root / "observation.py").read_text()
+    assert "canonicalize_observation" in observation_source
+    assert "canonicalize_endpoint(" not in observation_source
+    assert "build_snapshot_fingerprint" not in observation_source
+
+    snapshot_source = (nodes_root / "snapshot.py").read_text()
+    assert "build_snapshot_fingerprint" in snapshot_source
+    assert "canonicalize_observation" not in snapshot_source

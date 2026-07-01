@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from api.application.contracts import ExecutionStatus, TerminalOutcome
+from api.infrastructure.orchestration.run_state_store import retry_values_for_terminal_status
 from api.infrastructure.orchestration.store import OrchestrationStore
 
 
@@ -145,9 +146,9 @@ async def test_run_state_methods_remain_compatibility_facades(monkeypatch) -> No
     ]
 
 
-def test_retry_values_remain_backward_compatible_static_facade() -> None:
+def test_retry_values_for_terminal_status_remains_explicit_contract() -> None:
     now = datetime.now(timezone.utc)
-    values = OrchestrationStore._retry_values(
+    values = retry_values_for_terminal_status(
         now=now,
         status=ExecutionStatus.FAILED,
         terminal_outcome=TerminalOutcome.TOOL_FAILED,

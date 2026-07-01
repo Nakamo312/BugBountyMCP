@@ -3,7 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 
-from .canonicalize import canonicalize_endpoint
+from .canonicalization import (
+    CanonicalizationAliases,
+    EndpointObservationInput,
+    RequestShapeInput,
+    ResponseShapeInput,
+    TransportObservationInput,
+    canonicalize_observation,
+)
 from .deltas import build_surface_deltas
 from .edges import build_surface_edges_from_nodes
 from .nodes import build_snapshot_draft, build_surface_nodes_from_observations
@@ -62,27 +69,38 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _canonicalize_url(args: argparse.Namespace) -> int:
-    endpoint = canonicalize_endpoint(
-        url=args.url,
-        method=args.method,
-        program_id=args.program_id,
-        scheme=args.scheme,
-        port=args.port,
-        http_version=args.http_version,
-        tls=_parse_bool(args.tls),
-        alpn=args.alpn,
-        transport_protocol=args.transport_protocol,
-        connection_features=args.connection_feature,
-        status_code=args.status_code,
-        content_type=args.content_type,
-        request_content_type=args.request_content_type,
-        request_body_fields=_parse_kv_args(args.request_body_field),
-        request_json_keys=args.request_json_key,
-        request_xml_tags=args.request_xml_tag,
-        response_content_type=args.response_content_type,
-        response_json_keys=args.response_json_key or args.json_key,
-        response_xml_tags=args.response_xml_tag,
-        header_names=args.header_name,
+    endpoint = canonicalize_observation(
+        EndpointObservationInput(
+            url=args.url,
+            method=args.method,
+            program_id=args.program_id,
+            transport=TransportObservationInput(
+                scheme=args.scheme,
+                port=args.port,
+                http_version=args.http_version,
+                tls=_parse_bool(args.tls),
+                alpn=args.alpn,
+                transport_protocol=args.transport_protocol,
+                connection_features=args.connection_feature,
+            ),
+            request_shape=RequestShapeInput(
+                content_type=args.request_content_type,
+                body_fields=_parse_kv_args(args.request_body_field),
+                json_keys=args.request_json_key,
+                xml_tags=args.request_xml_tag,
+            ),
+            response_shape=ResponseShapeInput(
+                status_code=args.status_code,
+                header_names=args.header_name,
+                content_type=args.response_content_type,
+                json_keys=args.response_json_key,
+                xml_tags=args.response_xml_tag,
+            ),
+            aliases=CanonicalizationAliases(
+                content_type=args.content_type,
+                json_keys=args.json_key,
+            ),
+        )
     )
     print(json.dumps(endpoint.to_features(), indent=2, sort_keys=True))
     return 0

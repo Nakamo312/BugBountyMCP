@@ -211,12 +211,12 @@ async def test_context_tools_deny_raw_artifact_fetch() -> None:
 def test_context_tools_are_wired_without_execution_surfaces() -> None:
     app_source = open("src/api/application/langgraph_context_tools.py", encoding="utf-8").read()
     infra_source = open("src/api/infrastructure/langgraph_context.py", encoding="utf-8").read()
-    di_source = open("src/api/application/di.py", encoding="utf-8").read()
+    wiring_source = open("src/api/infrastructure/providers/research_runtime.py", encoding="utf-8").read()
 
-    assert "LangGraphContextTools" in di_source
-    assert "PostgresArtifactReader" in di_source
-    assert "OpenSearchSanitizedSearchReader" in di_source
-    assert "SafeGraphTemplateRenderer" in di_source
+    assert "LangGraphContextTools" in wiring_source
+    assert "PostgresArtifactReader" in wiring_source
+    assert "OpenSearchSanitizedSearchReader" in wiring_source
+    assert "SafeGraphTemplateRenderer" in wiring_source
     assert "default_query_template_registry" in infra_source
     for forbidden in ("RabbitMQ", "EventBus", "runner", "subprocess", "raw_artifacts"):
         assert forbidden not in app_source

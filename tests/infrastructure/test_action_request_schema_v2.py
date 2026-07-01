@@ -32,8 +32,16 @@ from api.infrastructure.adapters.orm import (
     policy_decisions,
     scope_decisions,
 )
-from api.infrastructure.orchestration.action_write_helpers import action_request_payload
-from api.infrastructure.orchestration.store import OrchestrationStore
+from api.infrastructure.orchestration.action_command_store import ActionCommandStore
+from api.infrastructure.orchestration.action_read_store import ActionReadStore
+from api.infrastructure.orchestration.action_write_helpers import (
+    action_request_payload,
+    catalog_hash,
+    scope_status,
+    target_status,
+)
+from api.infrastructure.orchestration.campaign_state_store import CampaignStateStore
+from api.infrastructure.orchestration.dispatch_store import DispatchStore
 
 
 class RecordingAsyncSession:
@@ -129,7 +137,7 @@ def test_resolved_action_command_persists_public_request_shape_for_approval_look
     assert ActionRequest.model_validate(payload).action_id == request.action_id
 
 
-def test_orchestration_store_derives_scope_status_and_target_status() -> None:
+def test_action_write_helpers_derive_scope_status_and_target_status() -> None:
     action = ActionRequest(
         kind=ActionKind.SCAN,
         program_id=uuid4(),
@@ -146,17 +154,19 @@ def test_orchestration_store_derives_scope_status_and_target_status() -> None:
         metadata={"catalog_hash": "abc123", "scope_policy": "strict"},
     )
 
-    assert OrchestrationStore._scope_status(decision) == "partial"
-    assert OrchestrationStore._target_status("https://a.example", decision) == "allowed"
-    assert OrchestrationStore._target_status("https://b.example", decision) == "blocked"
-    assert OrchestrationStore._target_status("https://c.example", decision) == "requested"
-    assert OrchestrationStore._catalog_hash(decision) == "abc123"
+    assert scope_status(decision) == "partial"
+    assert target_status("https://a.example", decision) == "allowed"
+    assert target_status("https://b.example", decision) == "blocked"
+    assert target_status("https://c.example", decision) == "requested"
+    assert catalog_hash(decision) == "abc123"
 
 
 @pytest.mark.asyncio
 async def test_allowed_action_rolls_back_when_outbox_enqueue_fails(monkeypatch) -> None:
     session = RecordingAsyncSession()
-    store = OrchestrationStore(lambda: session)
+    campaigns = CampaignStateStore(lambda: session)
+    dispatches = DispatchStore(lambda: session)
+    store = ActionCommandStore(lambda: session, campaigns=campaigns, dispatches=dispatches)
     request = ActionRequest(
         kind=ActionKind.SCAN,
         program_id=uuid4(),
@@ -194,7 +204,7 @@ async def test_allowed_action_rolls_back_when_outbox_enqueue_fails(monkeypatch) 
     async def fail_outbox_enqueue(*args, **kwargs) -> None:
         raise RuntimeError("outbox unavailable")
 
-    monkeypatch.setattr(store.action_commands.dispatches, "enqueue_dispatch", fail_outbox_enqueue)
+    monkeypatch.setattr(store.dispatches, "enqueue_dispatch", fail_outbox_enqueue)
 
     with pytest.raises(RuntimeError, match="outbox unavailable"):
         await store.create_allowed_action(
@@ -208,7 +218,7 @@ async def test_allowed_action_rolls_back_when_outbox_enqueue_fails(monkeypatch) 
     assert session.rollbacks == 1
 
 
-def test_orchestration_store_builds_action_record_from_durable_request_row() -> None:
+def test_action_read_store_builds_action_record_from_durable_request_row() -> None:
     action = ActionRequest(
         kind=ActionKind.SCAN,
         program_id=uuid4(),
@@ -220,7 +230,7 @@ def test_orchestration_store_builds_action_record_from_durable_request_row() -> 
     created_at = datetime.now(timezone.utc)
     updated_at = datetime.now(timezone.utc)
 
-    record = OrchestrationStore._action_record_from_row(
+    record = ActionReadStore.action_record_from_row(
         {
             "id": action.action_id,
             "program_id": action.program_id,
@@ -242,7 +252,7 @@ def test_orchestration_store_builds_action_record_from_durable_request_row() -> 
     assert record.status is ActionStatus.QUEUED
 
 
-def test_orchestration_store_builds_action_event_record_from_event_store_row() -> None:
+def test_action_read_store_builds_action_event_record_from_event_store_row() -> None:
     action_id = uuid4()
     event_id = uuid4()
     program_id = uuid4()
@@ -251,7 +261,7 @@ def test_orchestration_store_builds_action_event_record_from_event_store_row() -
     correlation_id = uuid4()
     created_at = datetime.now(timezone.utc)
 
-    record = OrchestrationStore._action_event_record_from_row(
+    record = ActionReadStore.action_event_record_from_row(
         {
             "event_id": event_id,
             "event_type": "httpx_scan_requested",
@@ -274,12 +284,12 @@ def test_orchestration_store_builds_action_event_record_from_event_store_row() -
     assert record.event_type == "httpx_scan_requested"
     assert record.payload["target"] == "https://example.com"
 
-def test_orchestration_store_builds_action_run_result_from_run_row() -> None:
+def test_action_read_store_builds_action_run_result_from_run_row() -> None:
     run_id = uuid4()
     job_id = uuid4()
     now = datetime.now(timezone.utc)
 
-    record = OrchestrationStore._action_run_result_from_row(
+    record = ActionReadStore.action_run_result_from_row(
         {
             "id": run_id,
             "job_id": job_id,
@@ -298,13 +308,13 @@ def test_orchestration_store_builds_action_run_result_from_run_row() -> None:
     assert record.terminal_outcome is TerminalOutcome.COMPLETED
 
 
-def test_orchestration_store_builds_action_artifact_reference_from_row() -> None:
+def test_action_read_store_builds_action_artifact_reference_from_row() -> None:
     artifact_id = uuid4()
     job_id = uuid4()
     run_id = uuid4()
     created_at = datetime.now(timezone.utc)
 
-    record = OrchestrationStore._action_artifact_reference_from_row(
+    record = ActionReadStore.action_artifact_reference_from_row(
         {
             "id": artifact_id,
             "job_id": job_id,

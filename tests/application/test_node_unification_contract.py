@@ -16,7 +16,7 @@ from api.application.pipeline.yaml_config import NodeType, PipelineNodeSpec
 ROOT = Path(__file__).resolve().parents[2]
 PIPELINE_DIR = ROOT / "src" / "api" / "application" / "pipeline"
 PIPELINE_YAML = PIPELINE_DIR / "pipeline.yaml"
-BUILDER = PIPELINE_DIR / "builder.py"
+FACTORY = PIPELINE_DIR / "factory.py"
 CUSTOM_NODE_FILES = (
     PIPELINE_DIR / "nodes" / "ffuf_node.py",
     PIPELINE_DIR / "nodes" / "amass_node.py",
@@ -73,9 +73,9 @@ def test_custom_node_modules_are_removed() -> None:
     assert existing == []
 
 
-def test_builder_does_not_branch_on_tool_specific_node_types() -> None:
-    """The builder should construct ScanNode from declarative runtime metadata."""
-    source = BUILDER.read_text(encoding="utf-8")
+def test_factory_does_not_branch_on_tool_specific_node_types() -> None:
+    """The factory should construct ScanNode from declarative runtime metadata."""
+    source = FACTORY.read_text(encoding="utf-8")
 
     forbidden_fragments = (
         "nodes.ffuf_node",

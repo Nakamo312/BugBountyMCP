@@ -7,7 +7,8 @@ def test_credential_management_routes_are_registered_and_audit_safe() -> None:
     source = Path("src/api/presentation/rest/routes/credentials.py").read_text(encoding="utf-8")
     router_source = Path("src/api/presentation/rest/routes/__init__.py").read_text(encoding="utf-8")
     service_source = Path("src/api/application/credential_management.py").read_text(encoding="utf-8")
-    di_source = Path("src/api/application/di.py").read_text(encoding="utf-8")
+    container_source = Path("src/api/infrastructure/container.py").read_text(encoding="utf-8")
+    credential_provider_source = Path("src/api/infrastructure/providers/credentials.py").read_text(encoding="utf-8")
 
     assert '@router.post(\n    ""' in source
     assert '@router.post(\n    "/rotate-secret"' in source
@@ -20,8 +21,8 @@ def test_credential_management_routes_are_registered_and_audit_safe() -> None:
     assert "get_secret_value()" in service_source
     assert "secret_material" in service_source
     assert "audit-safe" in service_source
-    assert "CredentialProvider" in di_source
-    assert "build_postgres_credential_store" in di_source
+    assert "CredentialProvider" in container_source
+    assert "build_postgres_credential_store" in credential_provider_source
 
 
 def test_credential_management_boundaries_do_not_expose_secret_resolve_or_runner_materialization() -> None:

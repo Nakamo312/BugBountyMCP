@@ -9,7 +9,7 @@ from api.application.agent_task_budget import (
     AgentTaskRuntimeBudgetPolicy,
     BudgetedAgentTaskRuntime,
 )
-from api.application.agent_task_inbox_bridge import (
+from api.application.agent.task.inbox import (
     AgentTaskRuntimeRequest,
     AgentTaskRuntimeResult,
 )

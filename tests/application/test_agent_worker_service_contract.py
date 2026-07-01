@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path("services/agent-worker").resolve()))
 
-from api.application.agent_task_inbox_bridge import AgentTaskRuntimeResult
+from api.application.agent.task.inbox import AgentTaskRuntimeResult
 from api.application.agent_tasks import (
     AGENT_TASK_PROMPT_MESSAGE_TYPE,
     AGENT_TASK_PROMPT_SCHEMA_VERSION,

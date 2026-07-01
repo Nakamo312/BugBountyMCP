@@ -5,9 +5,13 @@ import uuid
 from collections.abc import Mapping
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from api.application.action_invocation_payload import (
+    ACTION_INVOCATION_PAYLOAD_KEY,
+    action_invocation_value,
+)
 from api.application.contracts import (
     ActionArtifactReference,
     ActionEventRecord,
@@ -82,7 +86,14 @@ class ActionReadStore:
                 event_store.c.payload,
                 event_store.c.created_at,
             )
-            .where(event_store.c.payload["action_id"].as_string() == str(action_id))
+            .where(
+                or_(
+                    event_store.c.payload["action_id"].as_string() == str(action_id),
+                    event_store.c.payload[ACTION_INVOCATION_PAYLOAD_KEY][
+                        "action_id"
+                    ].as_string() == str(action_id),
+                )
+            )
             .order_by(event_store.c.created_at.asc(), event_store.c.event_id.asc())
             .limit(limit)
             .offset(offset)
@@ -157,7 +168,7 @@ class ActionReadStore:
     @staticmethod
     def action_event_record_from_row(row: Mapping[str, Any]) -> ActionEventRecord:
         payload = dict(row.get("payload") or {})
-        action_id_value = payload.get("action_id")
+        action_id_value = action_invocation_value(payload, "action_id")
         return ActionEventRecord(
             event_id=row["event_id"],
             action_id=uuid.UUID(str(action_id_value)) if action_id_value else None,

@@ -149,10 +149,6 @@ async def test_campaign_methods_remain_compatibility_facades(monkeypatch) -> Non
         calls.append(("reconcile_active_campaigns", kwargs))
         return 7
 
-    async def persist_campaign_lifecycle(**kwargs):
-        calls.append(("persist_campaign_lifecycle", kwargs))
-        return True
-
     async def mark_campaign_terminal(**kwargs):
         calls.append(("mark_campaign_terminal", kwargs))
         return False
@@ -160,7 +156,6 @@ async def test_campaign_methods_remain_compatibility_facades(monkeypatch) -> Non
     monkeypatch.setattr(store.campaigns, "get_campaign_activity", get_campaign_activity)
     monkeypatch.setattr(store.campaigns, "reconcile_campaign_lifecycle", reconcile_campaign_lifecycle)
     monkeypatch.setattr(store.campaigns, "reconcile_active_campaigns", reconcile_active_campaigns)
-    monkeypatch.setattr(store.campaigns, "persist_campaign_lifecycle", persist_campaign_lifecycle)
     monkeypatch.setattr(store.campaigns, "mark_campaign_terminal", mark_campaign_terminal)
 
     assert await store.get_campaign_activity(program_id=program_id, campaign_id=campaign_id) == "activity"
@@ -174,12 +169,6 @@ async def test_campaign_methods_remain_compatibility_facades(monkeypatch) -> Non
         == "decision"
     )
     assert await store.reconcile_active_campaigns(now=now, quiet_window_seconds=30, limit=5) == 7
-    assert await store._persist_campaign_lifecycle(
-        campaign_id=campaign_id,
-        status="running",
-        active_runs=1,
-        now=now,
-    ) is True
     assert await store.mark_campaign_terminal(campaign_id=campaign_id, status="cancelled") is False
 
     assert calls == [
@@ -194,10 +183,6 @@ async def test_campaign_methods_remain_compatibility_facades(monkeypatch) -> Non
             },
         ),
         ("reconcile_active_campaigns", {"now": now, "quiet_window_seconds": 30, "limit": 5}),
-        (
-            "persist_campaign_lifecycle",
-            {"campaign_id": campaign_id, "status": "running", "active_runs": 1, "now": now},
-        ),
         ("mark_campaign_terminal", {"campaign_id": campaign_id, "status": "cancelled"}),
     ]
 

@@ -209,12 +209,15 @@ def test_dispatcher_uses_existing_event_store() -> None:
 
 def test_event_dispatcher_is_wired_with_agent_router_at_app_startup() -> None:
     app_source = open("src/api/presentation/rest/app.py", encoding="utf-8").read()
-    di_source = open("src/api/application/di.py", encoding="utf-8").read()
+    wiring_source = (
+        open("src/api/infrastructure/providers/agent_runtime.py", encoding="utf-8").read()
+        + open("src/api/infrastructure/providers/runners.py", encoding="utf-8").read()
+    )
 
-    assert "AgentInboxStore" in di_source
-    assert "AgentEventRouter" in di_source
-    assert "EventDispatcher" in di_source
-    assert "agent_router=agent_router" in di_source
+    assert "AgentInboxStore" in wiring_source
+    assert "AgentEventRouter" in wiring_source
+    assert "EventDispatcher" in wiring_source
+    assert "agent_router=agent_router" in wiring_source
     assert "settings.USE_EVENT_DISPATCHER" in app_source
     assert "event_dispatcher.start()" in app_source
     assert "event_dispatcher.stop()" in app_source

@@ -16,6 +16,11 @@ store_module.OrchestrationStore = object
 sys.modules.setdefault("api.infrastructure.events.event_bus", event_bus_module)
 sys.modules.setdefault("api.infrastructure.orchestration.store", store_module)
 
+from api.application.action_invocation_payload import (
+    ACTION_INVOCATION_PAYLOAD_KEY,
+    action_invocation_mapping,
+    action_invocation_value,
+)
 from api.application.contracts import (
     ActionKind,
     ActionRequest,
@@ -188,7 +193,7 @@ async def test_request_action_persists_event_for_dispatch_without_direct_publish
     assert envelope.event_id == submission.event_id
     assert envelope.job_id == submission.job_id
     assert envelope.run_id == submission.run_id
-    assert envelope.payload["execution_budget"]["max_targets"] == 1000
+    assert action_invocation_value(envelope.payload, "execution_budget")["max_targets"] == 1000
 
 
 @pytest.mark.asyncio
@@ -215,9 +220,32 @@ async def test_allowed_action_uses_one_atomic_store_operation() -> None:
         _ = action.profile
     assert decision.status is PolicyDecisionStatus.ALLOWED
     assert envelope.event_id == submission.event_id
-    assert envelope.payload["scope_decision_id"] is not None
+    assert action_invocation_value(envelope.payload, "scope_decision_id") is not None
     assert store.policy_results == []
     assert store.queued == []
+
+
+def test_action_event_payload_consumers_support_nested_and_legacy_shapes() -> None:
+    action_id = uuid4()
+    scope_id = uuid4()
+    legacy_payload = {
+        "action_id": str(action_id),
+        "scope_decision_id": str(scope_id),
+        "execution_budget": {"max_targets": 5},
+    }
+    nested_payload = {
+        ACTION_INVOCATION_PAYLOAD_KEY: {
+            "action_id": str(action_id),
+            "scope_decision_id": str(scope_id),
+            "execution_budget": {"max_targets": 5},
+        }
+    }
+
+    assert action_invocation_mapping(legacy_payload) == {}
+    assert action_invocation_value(legacy_payload, "action_id") == str(action_id)
+    assert action_invocation_value(nested_payload, "action_id") == str(action_id)
+    assert action_invocation_value(nested_payload, "scope_decision_id") == str(scope_id)
+    assert action_invocation_value(nested_payload, "execution_budget") == {"max_targets": 5}
 
 
 @pytest.mark.asyncio
@@ -357,6 +385,6 @@ def test_allowed_action_command_store_flow_has_one_commit_for_all_execution_stat
     assert "insert(runs).values(" in helper_source
     assert "insert_event_store_row(session, envelope)" in helper_source
     assert "dispatches.enqueue_dispatch(session, envelope" in helper_source
-    assert '"execution_budget": action.effective_budget.model_dump(mode="json")' in helper_source
+    assert "run_payload_for_action(action)" in helper_source
     assert "run_payload=run_payload_for_action(action)" in helper_source
     assert body.count("await session.commit()") == 1

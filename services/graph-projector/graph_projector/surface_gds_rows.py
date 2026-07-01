@@ -9,17 +9,17 @@ from .surface_gds_models import (
     SurfaceComponentOutlierProfile,
     SurfaceComponentProfile,
 )
-from .surface_gds_scores import (
-    _bridge_pressure_score,
+from .surface_gds_signals import (
+    _bridge_pressure_signal,
     _clamp,
-    _component_action_candidate_features,
-    _component_action_candidate_score,
-    _component_attention_score,
-    _component_drift_score,
-    _coverage_score,
-    _exploration_priority_score,
-    _outlier_score,
-    _structural_pressure_score,
+    _component_action_candidate_signal_features,
+    _component_action_candidate_signal,
+    _component_attention_signal,
+    _component_drift_signal,
+    _coverage_signal,
+    _exploration_pressure_signal,
+    _outlier_signal,
+    _structural_pressure_signal,
 )
 
 
@@ -42,19 +42,19 @@ def _component_action_candidate_from_row(row: dict[str, object]) -> SurfaceCompo
     human_positive_rate = _clamp(float(row["human_positive_rate"]))
     human_stop_rate = _clamp(float(row["human_stop_rate"]))
     utility_score = float(row["utility_score"])
-    component_attention_score = _component_attention_score(
+    component_attention_score = _component_attention_signal(
         node_count=node_count,
         changed_node_count=changed_node_count,
         max_novelty_score=max_novelty_score,
     )
-    candidate_score = _component_action_candidate_score(
+    candidate_score = _component_action_candidate_signal(
         component_attention_score=component_attention_score,
         sample_count=sample_count,
         avg_similarity=avg_similarity,
         utility_score=utility_score,
         human_stop_rate=human_stop_rate,
     )
-    score_features = _component_action_candidate_features(
+    score_features = _component_action_candidate_signal_features(
         component_attention_score=component_attention_score,
         sample_count=sample_count,
         avg_similarity=avg_similarity,
@@ -92,13 +92,13 @@ def _component_coverage_from_row(row: dict[str, object]) -> SurfaceComponentCove
     avg_outcome_utility = float(row["avg_outcome_utility"])
     max_novelty_score = int(row["max_novelty_score"])
     novelty_density = changed_node_count / node_count if node_count > 0 else 0.0
-    coverage_score = _coverage_score(
+    coverage_score = _coverage_signal(
         action_outcome_count=action_outcome_count,
         positive_outcome_count=positive_outcome_count,
         stop_outcome_count=stop_outcome_count,
         avg_outcome_utility=avg_outcome_utility,
     )
-    exploration_priority_score = _exploration_priority_score(
+    exploration_priority_score = _exploration_pressure_signal(
         node_count=node_count,
         novelty_density=novelty_density,
         max_novelty_score=max_novelty_score,
@@ -127,7 +127,7 @@ def _component_outlier_from_row(row: dict[str, object]) -> SurfaceComponentOutli
     low_similarity_node_count = max(0, int(row["low_similarity_node_count"]))
     max_novelty_score = int(row["max_novelty_score"])
     novelty_density = changed_node_count / node_count if node_count > 0 else 0.0
-    outlier_score = _outlier_score(
+    outlier_score = _outlier_signal(
         node_count=node_count,
         novelty_density=novelty_density,
         max_novelty_score=max_novelty_score,
@@ -159,7 +159,7 @@ def _component_drift_from_row(row: dict[str, object]) -> SurfaceComponentDrift:
     max_novelty_score = int(row["max_novelty_score"])
     previous_component_raw = row.get("previous_component_id")
     previous_component_id = None if previous_component_raw is None else int(previous_component_raw)
-    drift_score = _component_drift_score(
+    drift_score = _component_drift_signal(
         current_node_count=current_node_count,
         previous_node_count=previous_node_count,
         introduced_node_count=introduced_node_count,
@@ -190,7 +190,7 @@ def _component_profile_from_row(row: dict[str, object]) -> SurfaceComponentProfi
     avg_degree = float(row["avg_degree"])
     max_degree = float(row["max_degree"])
     novelty_density = changed_node_count / node_count if node_count > 0 else 0.0
-    structural_pressure_score = _structural_pressure_score(
+    structural_pressure_score = _structural_pressure_signal(
         node_count=node_count,
         novelty_density=novelty_density,
         max_novelty_score=max_novelty_score,
@@ -218,7 +218,7 @@ def _component_bridge_from_row(row: dict[str, object]) -> SurfaceComponentBridge
     max_degree = float(row["max_degree"])
     max_novelty_score = int(row["max_novelty_score"])
     novelty_density = changed_node_count / node_count if node_count > 0 else 0.0
-    bridge_pressure_score = _bridge_pressure_score(
+    bridge_pressure_score = _bridge_pressure_signal(
         node_count=node_count,
         novelty_density=novelty_density,
         max_novelty_score=max_novelty_score,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from api.application.action_invocation_payload import action_invocation_mapping
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -245,10 +246,14 @@ async def test_request_action_queues_capability_from_action_contract() -> None:
     with pytest.raises(RuntimeError, match="has not been resolved"):
         _ = action.profile
     assert envelope.event == "httpx_scan_requested"
-    assert envelope.payload["options"] == {"timeout": 10}
-    assert envelope.payload["options"]["timeout"] == 10
-    assert envelope.payload["action_id"] == str(action.action_id)
-    assert envelope.payload["campaign_id"] == str(action.campaign_id)
+    invocation_payload = action_invocation_mapping(envelope.payload)
+
+    assert invocation_payload["options"] == {"timeout": 10}
+    assert invocation_payload["options"]["timeout"] == 10
+    assert invocation_payload["action_id"] == str(action.action_id)
+    assert invocation_payload["campaign_id"] == str(action.campaign_id)
+    assert "options" not in envelope.payload
+    assert "action_id" not in envelope.payload
     assert envelope.campaign_id == action.campaign_id
     assert envelope.expansion_depth == 0
     assert envelope.correlation_id == action.correlation_id

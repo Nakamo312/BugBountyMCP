@@ -201,12 +201,13 @@ def _score_features_after_review_prior(
             "review_prior_formula_version": REVIEW_PRIOR_FORMULA_VERSION,
             "review_prior": prior.as_explanation(),
             "score_semantics": (
-                "heuristic ranking score adjusted by operator review prior; "
+                "uncalibrated heuristic ranking signal adjusted by operator review prior; "
                 "not outcome utility"
             ),
             "adjustment": {
                 "kind": "operator_review_prior",
                 "base_score_field": "base_candidate_score",
+                "score_field_semantics": "legacy storage for uncalibrated heuristic signal",
                 "adjusted_score_field": "adjusted_candidate_score",
                 "multiplier": prior.multiplier,
             },

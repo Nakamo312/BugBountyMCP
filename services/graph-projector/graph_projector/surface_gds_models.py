@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from .surface_gds_scores import (
+from .surface_gds_signals import (
     SURFACE_GDS_CALIBRATION_STATUS,
     SURFACE_GDS_RANKER_KIND,
-    SURFACE_GDS_SCORE_FORMULA_VERSION,
+    SURFACE_GDS_SIGNAL_FORMULA_VERSION,
 )
 
 
@@ -48,7 +48,7 @@ class SurfaceComponentDrift:
     """Temporal movement of one current component relative to a prior snapshot.
 
     The match is structural: components are compared by stable node
-    fingerprints shared across two snapshot-local WCC partitions. A high score
+    fingerprints shared across two snapshot-local WCC partitions. A high value
     means the current component is less explainable by the previous partition
     and/or concentrates fresh surface deltas. No semantic labels are used.
     """
@@ -96,7 +96,7 @@ class SurfaceComponentOutlierProfile:
 
     The profile is structural: nodeSimilarity estimates how much nodes in the
     component resemble other nodes in the same snapshot-local shape graph. A
-    high outlier score means the component has low neighborhood similarity and
+    high outlier value means the component has low neighborhood similarity and
     concentrates fresh deltas. No endpoint words or handwritten categories are
     used.
     """
@@ -161,5 +161,5 @@ class SurfaceComponentActionCandidate:
     candidate_score: int
     ranker_kind: str = SURFACE_GDS_RANKER_KIND
     calibration_status: str = SURFACE_GDS_CALIBRATION_STATUS
-    score_formula_version: str = SURFACE_GDS_SCORE_FORMULA_VERSION
+    score_formula_version: str = SURFACE_GDS_SIGNAL_FORMULA_VERSION
     score_features: dict[str, object] = field(default_factory=dict)

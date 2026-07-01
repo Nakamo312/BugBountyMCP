@@ -11,7 +11,7 @@ from api.application.agent_action_proposals import (
     AgentActionProposalStatus,
     AgentActionProposalType,
 )
-from api.application.agent_task_inbox_bridge import (
+from api.application.agent.task.inbox import (
     AgentTaskInboxBridge,
     AgentTaskInboxProcessor,
     AgentTaskRuntimeRequest,

@@ -264,7 +264,7 @@ async def test_readiness_gate_uses_explicit_reason_for_missing_durable_run_id() 
 
 
 def test_readiness_gate_is_wired_to_existing_projection_and_agent_stores() -> None:
-    source = open("src/api/application/di.py", encoding="utf-8").read()
+    source = open("src/api/infrastructure/providers/research_runtime.py", encoding="utf-8").read()
 
     assert "get_projection_state_store" in source
     assert "get_agent_wait_condition_engine" in source

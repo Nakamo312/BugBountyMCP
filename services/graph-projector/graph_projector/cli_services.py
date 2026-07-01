@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .action_experience_proposals import (
+from .action_experience.proposals import (
     ActionExperienceProposalStore,
     ActionExperienceProposalWorker,
 )

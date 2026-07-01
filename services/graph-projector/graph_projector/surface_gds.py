@@ -83,7 +83,7 @@ class SurfaceGraphMathReader:
 
         This method uses two GDS algorithms over the same snapshot projection:
         WCC for component membership and degree centrality for structural
-        attachment. The final score is calculated in Python from normalized
+        attachment. The final heuristic signal is calculated in Python from normalized
         structural metrics so it can be versioned and unit-tested outside Neo4j.
         """
 
@@ -125,7 +125,7 @@ class SurfaceGraphMathReader:
 
         WCC gives component membership, degree gives local attachment, and
         betweenness centrality gives bridge pressure: nodes that sit on many
-        shortest paths can connect otherwise separate surface shapes. The score
+        shortest paths can connect otherwise separate surface shapes. The heuristic signal
         is deliberately structural and label-free.
         """
 
@@ -220,8 +220,8 @@ class SurfaceGraphMathReader:
 
         WCC gives component membership. ActionOutcome-to-SurfaceSnapshot edges
         provide the measured action history that produced the snapshot deltas.
-        The result separates coverage from exploration priority: a component can
-        be novel and structurally changed but still have little experience.
+        The result separates experience coverage from exploration pressure: a component
+        can be novel and structurally changed but still have little experience.
         """
 
         if limit <= 0:
@@ -274,7 +274,7 @@ class SurfaceGraphMathReader:
         ``similarity_graph_name`` and ``probe_id`` are deprecated compatibility
         parameters kept for older callers from the former GDS probe path. They
         are validated only and no longer participate in the read-only Jaccard
-        scoring query.
+        signal query.
         """
 
         if limit <= 0:

@@ -21,7 +21,7 @@ def test_langgraph_postgres_checkpoint_migration_owns_required_tables() -> None:
 
 
 def test_di_uses_durable_postgres_checkpointer_without_runtime_schema_setup() -> None:
-    source = Path("src/api/application/di.py").read_text(encoding="utf-8")
+    source = Path("src/api/infrastructure/providers/research_runtime.py").read_text(encoding="utf-8")
 
     assert "AsyncPostgresSaver.from_conn_string" in source
     assert "yield checkpointer" in source

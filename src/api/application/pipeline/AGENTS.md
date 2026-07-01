@@ -21,8 +21,8 @@ Generic scan workers should follow this order:
 - Do not parse CLI output inside `ScanNode`.
 - Do not bypass raw artifact capture for CLI-backed workers.
 - Do not add unregistered component names to YAML. Add concrete registrations to
-  `api.infrastructure.pipeline.catalog` and tests; `api.application.pipeline.catalog`
-  is a deprecated compatibility alias only.
+  `api.infrastructure.pipeline.catalog` and tests. The old application-layer
+  catalog and builder aliases have been removed.
 - Keep event names stable. New event names need routing and contract tests.
 - Custom nodes such as FFUF, Amass, and Hakip2Host must preserve the same
   runner/raw/parser/ingestor boundary even when they cannot use `ScanNode`.
@@ -34,3 +34,5 @@ Generic scan workers should follow this order:
 - Production `ScanNode` wiring must use `PipelineContextFactory`. The no-factory
   path is legacy-only and does not provide raw capture, run-state, outcome, or
   scope-filter collaborators.
+
+Removed aliases must stay removed: `api.application.pipeline.builder`, `api.application.pipeline.catalog`, and `api.application.pipeline.run_state_reporter`. Import `RunCompletionReporter` directly from `api.application.pipeline.run_completion_reporter`.

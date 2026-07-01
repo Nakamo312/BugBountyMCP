@@ -18,14 +18,14 @@ def projector_symbols():
         SURFACE_WCC_CYPHER,
         SurfaceGraphMathReader,
     )
-    from graph_projector.surface_gds_scores import (
-        _bridge_pressure_score,
-        _component_drift_score,
-        _component_action_candidate_score,
-        _coverage_score,
-        _exploration_priority_score,
-        _outlier_score,
-        _structural_pressure_score,
+    from graph_projector.surface_gds_signals import (
+        _bridge_pressure_signal,
+        _component_drift_signal,
+        _component_action_candidate_signal,
+        _coverage_signal,
+        _exploration_pressure_signal,
+        _outlier_signal,
+        _structural_pressure_signal,
     )
 
     return (
@@ -36,10 +36,10 @@ def projector_symbols():
         SURFACE_COMPONENT_DRIFT_CYPHER,
         SURFACE_COMPONENT_OUTLIER_CYPHER,
         SurfaceGraphMathReader,
-        _bridge_pressure_score,
-        _component_drift_score,
-        _outlier_score,
-        _structural_pressure_score,
+        _bridge_pressure_signal,
+        _component_drift_signal,
+        _outlier_signal,
+        _structural_pressure_signal,
     )
 
 

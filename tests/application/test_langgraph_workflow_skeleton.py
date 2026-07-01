@@ -186,7 +186,7 @@ def test_langgraph_workflow_module_does_not_import_execution_surfaces() -> None:
 
 
 def test_langgraph_workflow_runtime_is_available_through_di() -> None:
-    source = open("src/api/application/di.py", encoding="utf-8").read()
+    source = open("src/api/infrastructure/providers/research_runtime.py", encoding="utf-8").read()
 
     assert "LangGraphWorkflowStore" in source
     assert "LangGraphWorkflowRuntime" in source

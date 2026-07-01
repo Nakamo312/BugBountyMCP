@@ -7,6 +7,8 @@ from uuid import uuid4
 
 import pytest
 
+pytest.importorskip("langgraph")
+
 from api.application.agent_wait_conditions import (
     AgentWaitConditionProcessor,
     AgentWaitConditionRecord,
@@ -235,10 +237,10 @@ async def test_wait_resumer_reports_missing_workflow_run() -> None:
 
 def test_wait_processor_is_started_and_stopped_with_application_lifespan() -> None:
     app_source = open("src/api/presentation/rest/app.py", encoding="utf-8").read()
-    di_source = open("src/api/application/di.py", encoding="utf-8").read()
+    wiring_source = open("src/api/infrastructure/providers/research_runtime.py", encoding="utf-8").read()
 
-    assert "AgentWaitConditionProcessor" in di_source
-    assert "ResearchWaitResumer" in di_source
+    assert "AgentWaitConditionProcessor" in wiring_source
+    assert "ResearchWaitResumer" in wiring_source
     assert "wait_condition_processor.start()" in app_source
     assert "wait_condition_processor.stop()" in app_source
 
@@ -247,7 +249,7 @@ def test_wait_processor_resolves_from_application_container() -> None:
     script = """
 import asyncio
 from api.application.agent_wait_conditions import AgentWaitConditionProcessor
-from api.application.container import create_container
+from api.infrastructure.container import create_container
 from api.config import Settings
 
 async def main():

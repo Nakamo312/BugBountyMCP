@@ -10,7 +10,10 @@ def test_agent_protocol_routes_expose_m6_coordination_endpoints() -> None:
     router_source = Path("src/api/presentation/rest/routes/__init__.py").read_text(
         encoding="utf-8"
     )
-    di_source = Path("src/api/application/di.py").read_text(encoding="utf-8")
+    wiring_source = (
+        Path("src/api/infrastructure/providers/agent_runtime.py").read_text(encoding="utf-8")
+        + Path("src/api/infrastructure/providers/research_runtime.py").read_text(encoding="utf-8")
+    )
 
     for endpoint in (
         '@router.post("/subscriptions"',
@@ -31,7 +34,7 @@ def test_agent_protocol_routes_expose_m6_coordination_endpoints() -> None:
     assert "LangGraphWorkflowRuntime" in source
     assert "AgentTaskAgentReplyRequest" in source
     assert "Depends(require_agent_protocol_internal_access)" in source
-    assert "AgentProtocolStore" in di_source
+    assert "AgentProtocolStore" in wiring_source
     assert "agent_protocol_router" in router_source
     security_source = Path("src/api/presentation/rest/security.py").read_text(encoding="utf-8")
     assert "X-Agent-Actor" in security_source

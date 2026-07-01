@@ -7,10 +7,9 @@ UI data is fresh, stale, or missing.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 import shlex
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -227,201 +226,6 @@ def program_projection_operator_plan_boundary() -> dict[str, Any]:
     }
 
 
-@dataclass(frozen=True)
-class _OperatorPlanRule:
-    step_id: str
-    priority: int
-    severity: str
-    area: str
-    title: str
-    reason: str
-    condition: Callable[[ProgramProjectionOverview], bool]
-    commands: Callable[[ProgramProjectionOverview], list[str]]
-    blocks_ui_freshness: bool
-
-
-def _pipeline_is_fresh(overview: ProgramProjectionOverview) -> bool:
-    return overview.ui_data_fresh and not any(
-        rule.step_id != "pipeline-fresh" and rule.condition(overview)
-        for rule in _PROGRAM_PROJECTION_OPERATOR_RULES
-    )
-
-
-_PROGRAM_PROJECTION_OPERATOR_RULES: tuple[_OperatorPlanRule, ...] = (
-    _OperatorPlanRule(
-        step_id="repair-graph-projection",
-        priority=10,
-        severity="critical",
-        area="graph_projection",
-        title="Repair failed graph projection work",
-        reason="Graph projection events or graph fact batches contain failed/dead rows.",
-        condition=lambda overview: bool(
-            overview.graph_projection_events.unhealthy_count
-            or overview.graph_fact_batches.unhealthy_count
-        ),
-        commands=lambda overview: [
-            graph_projector_command("diagnostics", "--program-id", overview.program_id),
-            graph_projector_command("retry", "--program-id", overview.program_id),
-        ],
-        blocks_ui_freshness=True,
-    ),
-    _OperatorPlanRule(
-        step_id="process-graph-projection-events",
-        priority=20,
-        severity="warning",
-        area="graph_projection",
-        title="Process pending graph projection events",
-        reason="Canonical changes have not yet been converted into graph fact batches.",
-        condition=lambda overview: bool(overview.graph_projection_events.backlog_count),
-        commands=lambda overview: [
-            graph_projector_command(
-                "process-projection-events", "--program-id", overview.program_id
-            )
-        ],
-        blocks_ui_freshness=True,
-    ),
-    _OperatorPlanRule(
-        step_id="apply-graph-fact-batches",
-        priority=30,
-        severity="warning",
-        area="graph_projection",
-        title="Apply pending graph fact batches",
-        reason="Graph fact batches are waiting to be applied into the Neo4j projection.",
-        condition=lambda overview: bool(overview.graph_fact_batches.backlog_count),
-        commands=lambda overview: [graph_projector_command("apply-one")],
-        blocks_ui_freshness=True,
-    ),
-    _OperatorPlanRule(
-        step_id="repair-surface-analysis-events",
-        priority=40,
-        severity="critical",
-        area="surface_analysis",
-        title="Repair failed surface analysis events",
-        reason="Surface component analysis materialization events contain failed/dead rows.",
-        condition=lambda overview: bool(overview.surface_analysis_events.unhealthy_count),
-        commands=lambda overview: [
-            graph_projector_command("diagnostics", "--program-id", overview.program_id),
-            graph_projector_command(
-                "retry",
-                "--queue",
-                "surface_analysis_events",
-                "--program-id",
-                overview.program_id,
-            ),
-        ],
-        blocks_ui_freshness=True,
-    ),
-    _OperatorPlanRule(
-        step_id="materialize-surface-analysis",
-        priority=50,
-        severity="warning",
-        area="surface_analysis",
-        title="Materialize latest surface component analysis",
-        reason="The latest surface snapshot does not have a matching persisted component analysis report.",
-        condition=lambda overview: overview.latest_surface_snapshot is not None
-        and not overview.surface_analysis_fresh,
-        commands=lambda overview: [
-            graph_projector_command(
-                "process-surface-analysis-events", "--program-id", overview.program_id
-            ),
-            graph_projector_command(
-                "surface-components-materialize",
-                "--program-id",
-                overview.program_id,
-                "--snapshot-id",
-                overview.latest_surface_snapshot.snapshot_id,
-            ),
-        ],
-        blocks_ui_freshness=True,
-    ),
-    _OperatorPlanRule(
-        step_id="repair-search-projection-events",
-        priority=60,
-        severity="critical",
-        area="search_projection",
-        title="Repair failed search projection work",
-        reason="OpenSearch projection events contain failed/dead rows.",
-        condition=lambda overview: bool(overview.search_projection_events.unhealthy_count),
-        commands=lambda overview: [
-            search_indexer_command("diagnostics", "--program-id", overview.program_id),
-            search_indexer_command("retry", "--program-id", overview.program_id),
-        ],
-        blocks_ui_freshness=True,
-    ),
-    _OperatorPlanRule(
-        step_id="process-search-projection-events",
-        priority=70,
-        severity="warning",
-        area="search_projection",
-        title="Process pending search projection events",
-        reason="Incremental OpenSearch projection events are pending or locked.",
-        condition=lambda overview: bool(overview.search_projection_events.backlog_count),
-        commands=lambda overview: [
-            search_indexer_command("process-events", "--program-id", overview.program_id)
-        ],
-        blocks_ui_freshness=True,
-    ),
-    _OperatorPlanRule(
-        step_id="refresh-surface-search-index",
-        priority=80,
-        severity="warning",
-        area="search_projection",
-        title="Refresh surface component search index",
-        reason="Persisted surface component analysis exists, but the related OpenSearch projections are stale or missing.",
-        condition=lambda overview: overview.latest_surface_analysis is not None
-        and not overview.search_index_fresh,
-        commands=lambda overview: [
-            search_indexer_command("process-events", "--program-id", overview.program_id),
-            search_indexer_command(
-                "reindex",
-                "--target",
-                "surface-components",
-                "--program-id",
-                overview.program_id,
-                "--analysis-run-id",
-                overview.latest_surface_analysis.analysis_run_id,
-            ),
-            search_indexer_command(
-                "reindex",
-                "--target",
-                "surface-deltas",
-                "--program-id",
-                overview.program_id,
-                "--snapshot-id",
-                overview.latest_surface_analysis.snapshot_id,
-            ),
-        ],
-        blocks_ui_freshness=True,
-    ),
-    _OperatorPlanRule(
-        step_id="review-experience-proposals",
-        priority=90,
-        severity="info",
-        area="operator_review",
-        title="Review pending action experience proposals",
-        reason="Pending learned proposals need explicit accept/reject/suppress feedback from the operator.",
-        condition=lambda overview: bool(overview.experience_proposals.pending),
-        commands=lambda overview: [
-            bb_cli_command("--program-id", overview.program_id, "proposal", "list")
-        ],
-        blocks_ui_freshness=False,
-    ),
-    _OperatorPlanRule(
-        step_id="pipeline-fresh",
-        priority=1000,
-        severity="info",
-        area="status",
-        title="Projection pipeline is fresh",
-        reason="Surface analysis, search projection, and durable queues are in a fresh state for UI consumption.",
-        condition=_pipeline_is_fresh,
-        commands=lambda overview: [
-            bb_cli_command("--program-id", overview.program_id, "projection", "overview")
-        ],
-        blocks_ui_freshness=False,
-    ),
-)
-
-
 def build_program_projection_operator_plan(overview: ProgramProjectionOverview) -> list[ProgramProjectionPlanStep]:
     """Convert overview state into an ordered read-only operator plan.
 
@@ -430,20 +234,161 @@ def build_program_projection_operator_plan(overview: ProgramProjectionOverview) 
     the materialized UI data fresh.
     """
 
-    steps = [
-        ProgramProjectionPlanStep(
-            step_id=rule.step_id,
-            priority=rule.priority,
-            severity=rule.severity,
-            area=rule.area,
-            title=rule.title,
-            reason=rule.reason,
-            commands=_dedupe_commands(rule.commands(overview)),
-            blocks_ui_freshness=rule.blocks_ui_freshness,
+    steps: list[ProgramProjectionPlanStep] = []
+
+    def add(
+        *,
+        step_id: str,
+        priority: int,
+        severity: str,
+        area: str,
+        title: str,
+        reason: str,
+        commands: list[str],
+        blocks_ui_freshness: bool,
+    ) -> None:
+        steps.append(
+            ProgramProjectionPlanStep(
+                step_id=step_id,
+                priority=priority,
+                severity=severity,
+                area=area,
+                title=title,
+                reason=reason,
+                commands=_dedupe_commands(commands),
+                blocks_ui_freshness=blocks_ui_freshness,
+            )
         )
-        for rule in _PROGRAM_PROJECTION_OPERATOR_RULES
-        if rule.condition(overview)
-    ]
+
+    if overview.graph_projection_events.unhealthy_count or overview.graph_fact_batches.unhealthy_count:
+        add(
+            step_id="repair-graph-projection",
+            priority=10,
+            severity="critical",
+            area="graph_projection",
+            title="Repair failed graph projection work",
+            reason="Graph projection events or graph fact batches contain failed/dead rows.",
+            commands=[graph_projector_command("diagnostics", "--program-id", overview.program_id), graph_projector_command("retry", "--program-id", overview.program_id)],
+            blocks_ui_freshness=True,
+        )
+
+    if overview.graph_projection_events.backlog_count:
+        add(
+            step_id="process-graph-projection-events",
+            priority=20,
+            severity="warning",
+            area="graph_projection",
+            title="Process pending graph projection events",
+            reason="Canonical changes have not yet been converted into graph fact batches.",
+            commands=[graph_projector_command("process-projection-events", "--program-id", overview.program_id)],
+            blocks_ui_freshness=True,
+        )
+
+    if overview.graph_fact_batches.backlog_count:
+        add(
+            step_id="apply-graph-fact-batches",
+            priority=30,
+            severity="warning",
+            area="graph_projection",
+            title="Apply pending graph fact batches",
+            reason="Graph fact batches are waiting to be applied into the Neo4j projection.",
+            commands=[graph_projector_command("apply-one")],
+            blocks_ui_freshness=True,
+        )
+
+    if overview.surface_analysis_events.unhealthy_count:
+        add(
+            step_id="repair-surface-analysis-events",
+            priority=40,
+            severity="critical",
+            area="surface_analysis",
+            title="Repair failed surface analysis events",
+            reason="Surface component analysis materialization events contain failed/dead rows.",
+            commands=[
+                graph_projector_command("diagnostics", "--program-id", overview.program_id),
+                graph_projector_command("retry", "--queue", "surface_analysis_events", "--program-id", overview.program_id),
+            ],
+            blocks_ui_freshness=True,
+        )
+
+    if overview.latest_surface_snapshot is not None and not overview.surface_analysis_fresh:
+        add(
+            step_id="materialize-surface-analysis",
+            priority=50,
+            severity="warning",
+            area="surface_analysis",
+            title="Materialize latest surface component analysis",
+            reason="The latest surface snapshot does not have a matching persisted component analysis report.",
+            commands=[
+                graph_projector_command("process-surface-analysis-events", "--program-id", overview.program_id),
+                graph_projector_command("surface-components-materialize", "--program-id", overview.program_id, "--snapshot-id", overview.latest_surface_snapshot.snapshot_id),
+            ],
+            blocks_ui_freshness=True,
+        )
+
+    if overview.search_projection_events.unhealthy_count:
+        add(
+            step_id="repair-search-projection-events",
+            priority=60,
+            severity="critical",
+            area="search_projection",
+            title="Repair failed search projection work",
+            reason="OpenSearch projection events contain failed/dead rows.",
+            commands=[search_indexer_command("diagnostics", "--program-id", overview.program_id), search_indexer_command("retry", "--program-id", overview.program_id)],
+            blocks_ui_freshness=True,
+        )
+
+    if overview.search_projection_events.backlog_count:
+        add(
+            step_id="process-search-projection-events",
+            priority=70,
+            severity="warning",
+            area="search_projection",
+            title="Process pending search projection events",
+            reason="Incremental OpenSearch projection events are pending or locked.",
+            commands=[search_indexer_command("process-events", "--program-id", overview.program_id)],
+            blocks_ui_freshness=True,
+        )
+
+    if overview.latest_surface_analysis is not None and not overview.search_index_fresh:
+        add(
+            step_id="refresh-surface-search-index",
+            priority=80,
+            severity="warning",
+            area="search_projection",
+            title="Refresh surface component search index",
+            reason="Persisted surface component analysis exists, but the related OpenSearch projections are stale or missing.",
+            commands=[
+                search_indexer_command("process-events", "--program-id", overview.program_id),
+                search_indexer_command("reindex", "--target", "surface-components", "--program-id", overview.program_id, "--analysis-run-id", overview.latest_surface_analysis.analysis_run_id),
+                search_indexer_command("reindex", "--target", "surface-deltas", "--program-id", overview.program_id, "--snapshot-id", overview.latest_surface_analysis.snapshot_id),
+            ],
+            blocks_ui_freshness=True,
+        )
+
+    if overview.experience_proposals.pending:
+        add(
+            step_id="review-experience-proposals",
+            priority=90,
+            severity="info",
+            area="operator_review",
+            title="Review pending action experience proposals",
+            reason="Pending learned proposals need explicit accept/reject/suppress feedback from the operator.",
+            commands=[bb_cli_command("--program-id", overview.program_id, "proposal", "list")],
+            blocks_ui_freshness=False,
+        )
+
+    if not steps and overview.ui_data_fresh:
+        add(
+            step_id="pipeline-fresh",
+            priority=1000,
+            severity="info",
+            area="status",
+            title="Projection pipeline is fresh",
+            reason="Surface analysis, search projection, and durable queues are in a fresh state for UI consumption.",
+            commands=[bb_cli_command("--program-id", overview.program_id, "projection", "overview")],
+            blocks_ui_freshness=False,
+        )
 
     return sorted(steps, key=lambda step: step.priority)
 

@@ -6,7 +6,7 @@ pytest.importorskip("sqlalchemy")
 
 from api.application.contracts import EventEnvelope
 from api.config import Settings
-from api.infrastructure.orchestration.store import OrchestrationStore
+from api.infrastructure.orchestration.dispatch_store import DispatchStore
 
 
 class RecordingAsyncSession:
@@ -20,7 +20,7 @@ class RecordingAsyncSession:
 @pytest.mark.asyncio
 async def test_event_dispatch_notify_uses_configured_channel_and_core_statement() -> None:
     settings = Settings(EVENT_DISPATCH_NOTIFY_CHANNEL="custom_dispatch_channel")
-    store = OrchestrationStore(lambda: None, settings=settings)
+    store = DispatchStore(lambda: None, settings=settings)
     session = RecordingAsyncSession()
     envelope = EventEnvelope(
         event="httpx_scan_requested",
@@ -28,7 +28,7 @@ async def test_event_dispatch_notify_uses_configured_channel_and_core_statement(
         targets=["https://example.com"],
     )
 
-    await store._enqueue_dispatch(session, envelope)
+    await store.enqueue_dispatch(session, envelope)
 
     assert len(session.statements) == 2
     notify_statement = session.statements[1]

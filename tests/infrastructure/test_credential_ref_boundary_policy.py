@@ -207,7 +207,8 @@ def test_credential_management_api_boundary_is_documented_and_registered() -> No
     service_text = _read_text("src/api/application/credential_management.py")
     route_text = _read_text("src/api/presentation/rest/routes/credentials.py")
     router_text = _read_text("src/api/presentation/rest/routes/__init__.py")
-    di_text = _read_text("src/api/application/di.py")
+    container_text = _read_text("src/api/infrastructure/container.py")
+    credential_provider_text = _read_text("src/api/infrastructure/providers/credentials.py")
     doc_text = _read_text("docs/architecture/credential-ref-boundary.md")
     handoff_text = _read_text("HANDOFF_FOR_NEW_CHAT.md")
 
@@ -221,8 +222,8 @@ def test_credential_management_api_boundary_is_documented_and_registered() -> No
     assert "materialize_credential_for_runner" not in route_text
     assert "credentials_router" in router_text
     assert 'prefix="/api/v1/credentials"' in router_text
-    assert "class CredentialProvider" in di_text
-    assert "build_postgres_credential_store" in di_text
+    assert "CredentialProvider" in container_text
+    assert "build_postgres_credential_store" in credential_provider_text
     assert "CredentialManagementService" in doc_text
     assert "/api/v1/credentials" in doc_text
     assert "CredentialManagementService" in handoff_text

@@ -10,12 +10,12 @@ from tests.infrastructure.surface_graph_math_support import RecordingSession, pr
 def test_surface_component_coverage_joins_components_to_action_outcomes():
     sys.path.insert(0, str(Path("services/graph-projector").resolve()))
     from graph_projector.surface_gds import SURFACE_COMPONENT_COVERAGE_CYPHER, SurfaceGraphMathReader
-    from graph_projector.surface_gds_scores import _coverage_score, _exploration_priority_score
+    from graph_projector.surface_gds_signals import _coverage_signal, _exploration_pressure_signal
 
     coverage_cypher = SURFACE_COMPONENT_COVERAGE_CYPHER
     Reader = SurfaceGraphMathReader
-    coverage_score = _coverage_score
-    exploration_priority_score = _exploration_priority_score
+    coverage_score = _coverage_signal
+    exploration_priority_score = _exploration_pressure_signal
     session = RecordingSession()
 
     coverage = Reader().component_coverage(
@@ -66,7 +66,7 @@ def test_surface_component_coverage_joins_components_to_action_outcomes():
 def test_surface_component_action_candidates_compare_component_fingerprints_to_outcomes_without_probe_writes():
     sys.path.insert(0, str(Path("services/graph-projector").resolve()))
     from graph_projector.surface_gds import SURFACE_COMPONENT_ACTION_CANDIDATE_CYPHER, SurfaceGraphMathReader
-    from graph_projector.surface_gds_scores import _component_action_candidate_score
+    from graph_projector.surface_gds_signals import _component_action_candidate_signal
 
     session = RecordingSession()
 
@@ -104,14 +104,14 @@ def test_surface_component_action_candidates_compare_component_fingerprints_to_o
     assert parameters["similarity_cutoff"] == 0.03
     assert "probe_id" not in parameters
 
-    weak = _component_action_candidate_score(
+    weak = _component_action_candidate_signal(
         component_attention_score=15,
         sample_count=1,
         avg_similarity=0.05,
         utility_score=0.1,
         human_stop_rate=0.7,
     )
-    strong = _component_action_candidate_score(
+    strong = _component_action_candidate_signal(
         component_attention_score=80,
         sample_count=10,
         avg_similarity=0.5,

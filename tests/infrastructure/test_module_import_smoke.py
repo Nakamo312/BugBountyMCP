@@ -11,7 +11,7 @@ def test_split_application_modules_import_cleanly() -> None:
 
 
 def test_split_graph_projector_modules_import_cleanly() -> None:
-    importlib.import_module("graph_projector.action_experience_proposals")
+    importlib.import_module("graph_projector.action_experience.proposals")
     importlib.import_module("graph_projector.proposal_store_statements")
     importlib.import_module("graph_projector.proposal_upsert_statements")
 
@@ -34,16 +34,15 @@ def test_split_contract_modules_import_cleanly() -> None:
 
 
 def test_split_agent_task_langgraph_modules_import_cleanly() -> None:
-    facade = importlib.import_module("api.application.agent_task_langgraph_runtime")
-    models = importlib.import_module("api.application.agent_task_langgraph_models")
-    context = importlib.import_module("api.application.agent_task_langgraph_context")
-    factory = importlib.import_module("api.application.agent_task_langgraph_factory")
-    graph = importlib.import_module("api.application.agent_task_langgraph_graph")
-    result = importlib.import_module("api.application.agent_task_langgraph_result")
+    models = importlib.import_module("api.application.langgraph.task.agent.models")
+    context = importlib.import_module("api.application.langgraph.task.agent.context")
+    factory = importlib.import_module("api.application.langgraph.task.agent.factory")
+    graph = importlib.import_module("api.application.langgraph.task.agent.graph")
+    result = importlib.import_module("api.application.langgraph.task.agent.result")
 
-    assert facade.AgentTaskRuntimeFactory is factory.AgentTaskRuntimeFactory
-    assert facade.LangGraphAgentTaskRuntime is factory.LangGraphAgentTaskRuntime
-    assert facade.LangGraphAgentTaskGraphRunner is graph.LangGraphAgentTaskGraphRunner
-    assert facade.EmptyAgentTaskContextReader is context.EmptyAgentTaskContextReader
-    assert facade.AgentTaskGraphState is models.AgentTaskGraphState
-    assert facade._runtime_result_from_graph_state is result.runtime_result_from_graph_state
+    assert factory.AgentTaskRuntimeFactory.__name__ == "AgentTaskRuntimeFactory"
+    assert factory.LangGraphAgentTaskRuntime.__name__ == "LangGraphAgentTaskRuntime"
+    assert graph.LangGraphAgentTaskGraphRunner.__name__ == "LangGraphAgentTaskGraphRunner"
+    assert context.EmptyAgentTaskContextReader.__name__ == "EmptyAgentTaskContextReader"
+    assert models.AgentTaskGraphState.__name__ == "AgentTaskGraphState"
+    assert result.runtime_result_from_graph_state.__name__ == "runtime_result_from_graph_state"

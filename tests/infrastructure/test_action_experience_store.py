@@ -46,7 +46,7 @@ def test_proposal_store_persists_ranking_with_generic_explanation() -> None:
 def test_proposal_store_applies_review_prior_when_persisting_ranking() -> None:
     _, _, _, Store, _, _, _ = _symbols()
     sys.path.insert(0, str(Path("services/graph-projector").resolve()))
-    from graph_projector.action_experience_proposals import ActionExperienceProposalReviewPrior
+    from graph_projector.action_experience.proposals import ActionExperienceProposalReviewPrior
 
     connection = RecordingConnection()
     source = _source_row()
@@ -121,7 +121,7 @@ def test_proposal_store_appends_surface_component_candidates_to_existing_run() -
     assert insert_params["profile_id"] == "safe-crawl"
     assert insert_params["utility_score"] == 2.625
     assert insert_params["explanation"]["surface_candidate"]["candidate_score"] == 66
-    assert insert_params["explanation"]["surface_candidate"]["candidate_score_semantics"] == "heuristic ranking score; not outcome utility"
+    assert insert_params["explanation"]["surface_candidate"]["candidate_score_semantics"] == "uncalibrated heuristic ranking signal stored in the legacy candidate_score field; not outcome utility"
     assert insert_params["proposal_key"].startswith("surface-component-action-proposal:")
     assert insert_params["explanation"]["source"] == "neo4j-jaccard-surface-component"
     assert insert_params["explanation"]["snapshot_id"] == str(snapshot_id)
@@ -137,7 +137,7 @@ def test_proposal_store_appends_surface_component_candidates_to_existing_run() -
 def test_proposal_store_applies_review_prior_when_persisting_surface_component_candidate() -> None:
     _, _, _, Store, _, _, _ = _symbols()
     sys.path.insert(0, str(Path("services/graph-projector").resolve()))
-    from graph_projector.action_experience_proposals import ActionExperienceProposalReviewPrior
+    from graph_projector.action_experience.proposals import ActionExperienceProposalReviewPrior
     from graph_projector.surface_gds import SurfaceComponentActionCandidate
 
     connection = RecordingConnection()
@@ -246,7 +246,7 @@ def test_proposal_upserts_preserve_reviewed_status_and_review_payload() -> None:
 
 def test_action_experience_proposal_upsert_uses_shared_statement_for_all_sources() -> None:
     sys.path.insert(0, str(Path("services/graph-projector").resolve()))
-    import graph_projector.action_experience_proposals as proposals
+    import graph_projector.action_experience.proposals as proposals
     from graph_projector.surface_gds import SurfaceComponentActionCandidate
 
     assert proposals._ACTION_EXPERIENCE_PROPOSAL_UPSERT_SQL.count("INSERT INTO action_experience_proposals") == 1
@@ -254,7 +254,7 @@ def test_action_experience_proposal_upsert_uses_shared_statement_for_all_sources
     statement_source = Path("services/graph-projector/graph_projector/proposal_upsert_statements.py").read_text(
         encoding="utf-8"
     )
-    store_source = Path("services/graph-projector/graph_projector/action_experience_proposals.py").read_text(
+    store_source = Path("services/graph-projector/graph_projector/action_experience/proposals/store.py").read_text(
         encoding="utf-8"
     )
     assert statement_source.count("INSERT INTO action_experience_proposals") == 1

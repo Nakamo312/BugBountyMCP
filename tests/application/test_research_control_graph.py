@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from langgraph.checkpoint.memory import InMemorySaver
+import pytest
+
+memory_module = pytest.importorskip("langgraph.checkpoint.memory")
+InMemorySaver = memory_module.InMemorySaver
 
 from api.application.hypotheses import HypothesisBuildRequest, StoredHypothesis
 from api.application.hypothesis_critic import CriticDecision
@@ -123,12 +126,12 @@ def test_research_graph_is_compiled_and_wired_without_execution_authority() -> N
         "src/api/application/research_control_graph.py",
         encoding="utf-8",
     ).read()
-    di_source = open("src/api/application/di.py", encoding="utf-8").read()
+    wiring_source = open("src/api/infrastructure/providers/research_runtime.py", encoding="utf-8").read()
     requirements = open("requirements.txt", encoding="utf-8").read()
 
     assert "StateGraph" in graph_source
     assert ".compile(" in graph_source
-    assert "get_research_control_graph" in di_source
+    assert "get_research_control_graph" in wiring_source
     assert "langgraph==" in requirements
     for forbidden in (
         "RabbitMQ",
