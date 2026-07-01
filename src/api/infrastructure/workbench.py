@@ -15,6 +15,7 @@ from api.application.workbench import (
     WorkbenchLens,
     workbench_read_boundary,
 )
+from api.config import Settings
 from api.infrastructure.adapters.orm import (
     agent_action_proposals,
     research_hypotheses,
@@ -67,6 +68,13 @@ from api.infrastructure.workbench_hypothesis import (
     is_hypothesis_entity_key,
 )
 from api.infrastructure.workbench_memory import build_memory_lens_graph
+from api.infrastructure.workbench_neo4j import (
+    build_neo4j_lens_graph,
+    is_neo4j_entity_key,
+    neo4j_entity_actions,
+    neo4j_entity_memory,
+    neo4j_entity_profile,
+)
 from api.infrastructure.workbench_surface import (
     build_surface_lens_graph,
     latest_surface_snapshot,
@@ -192,8 +200,9 @@ _HYPOTHESIS_PROPOSAL_COLUMNS = (
 class WorkbenchGraphStore:
     """Route workbench reads to lens-specific read-model builders."""
 
-    def __init__(self, session_factory) -> None:
+    def __init__(self, session_factory, settings: Settings | None = None) -> None:
         self.session_factory = session_factory
+        self.settings = settings or Settings()
 
     async def surface_graph(
         self,
@@ -355,7 +364,27 @@ class WorkbenchGraphStore:
             limit=max(1, min(limit, 500)),
         )
 
+    async def neo4j_graph(
+        self,
+        *,
+        program_id: UUID,
+        lens: WorkbenchLens,
+        seed: str | None = None,
+        depth: int = 1,
+        limit: int = 250,
+    ) -> WorkbenchGraph | None:
+        return await build_neo4j_lens_graph(
+            settings=self.settings,
+            program_id=program_id,
+            lens=lens,
+            seed=seed,
+            depth=depth,
+            limit=limit,
+        )
+
     async def entity_profile(self, *, program_id: UUID, entity_key: str) -> WorkbenchEntityProfile | None:
+        if is_neo4j_entity_key(entity_key):
+            return await neo4j_entity_profile(settings=self.settings, program_id=program_id, entity_key=entity_key)
         if is_hypothesis_entity_key(entity_key):
             graph = await self.hypothesis_graph(program_id=program_id, seed=entity_key, depth=1, limit=100)
             if graph is None:
@@ -382,6 +411,8 @@ class WorkbenchGraphStore:
         entity_key: str,
         limit: int = 10,
     ) -> WorkbenchActionAffordanceList | None:
+        if is_neo4j_entity_key(entity_key):
+            return neo4j_entity_actions(program_id=program_id, entity_key=entity_key)
         if is_hypothesis_entity_key(entity_key):
             graph = await self.hypothesis_graph(program_id=program_id, seed=entity_key, depth=1, limit=100)
             if graph is None or hypothesis_entity_profile_from_graph(program_id=program_id, entity_key=entity_key, graph=graph) is None:
@@ -416,6 +447,8 @@ class WorkbenchGraphStore:
         entity_key: str,
         limit: int = 20,
     ) -> WorkbenchEntityMemory | None:
+        if is_neo4j_entity_key(entity_key):
+            return neo4j_entity_memory(program_id=program_id, entity_key=entity_key)
         if is_hypothesis_entity_key(entity_key):
             graph = await self.hypothesis_graph(program_id=program_id, seed=entity_key, depth=1, limit=100)
             if graph is None:

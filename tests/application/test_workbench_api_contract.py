@@ -72,6 +72,10 @@ class _GraphStore:
         self.calls.append({"method": "coverage_graph", **kwargs})
         return self.graph
 
+    async def neo4j_graph(self, **kwargs):
+        self.calls.append({"method": "neo4j_graph", **kwargs})
+        return self.graph
+
     async def entity_profile(self, **kwargs):
         self.calls.append({"method": "entity_profile", **kwargs})
         return None
@@ -123,6 +127,14 @@ def test_workbench_lenses_expose_surface_now_and_future_lens_contracts() -> None
         WorkbenchLens.HYPOTHESIS,
         WorkbenchLens.ACTION,
         WorkbenchLens.COVERAGE,
+        WorkbenchLens.NEO4J_EXPOSURE,
+        WorkbenchLens.NEO4J_ENDPOINT,
+        WorkbenchLens.NEO4J_EVIDENCE,
+        WorkbenchLens.NEO4J_SURFACE_MATH,
+        WorkbenchLens.NEO4J_ACTION_OUTCOME,
+        WorkbenchLens.NEO4J_JS,
+        WorkbenchLens.NEO4J_TECH,
+        WorkbenchLens.NEO4J_HYPOTHESIS,
     ]
     assert lenses[0].available is True
     assert lenses[0].default is True
@@ -492,3 +504,47 @@ def test_workbench_projection_control_contract_is_allowlisted_not_command_text()
     assert "request.command" not in infra
     assert "surface_engine" in infra
     assert "graph_projector" in infra
+
+
+@pytest.mark.asyncio
+async def test_neo4j_lenses_delegate_to_allowlisted_graph_projector_templates() -> None:
+    program_id = uuid4()
+    graph = WorkbenchGraph(program_id=program_id, lens=WorkbenchLens.NEO4J_EXPOSURE)
+    store = _GraphStore(graph)
+    service = WorkbenchReadService(
+        graph_store=store,
+        projection_overview=_OverviewService(_overview(program_id)),
+    )
+
+    result = await service.graph(program_id=program_id, lens=WorkbenchLens.NEO4J_EXPOSURE, depth=99, limit=999)
+
+    assert result is graph
+    assert store.calls == [
+        {
+            "method": "neo4j_graph",
+            "program_id": program_id,
+            "lens": WorkbenchLens.NEO4J_EXPOSURE,
+            "seed": None,
+            "depth": 4,
+            "limit": 500,
+        }
+    ]
+
+
+def test_workbench_exposes_neo4j_lenses_without_raw_cypher_or_gds_execution() -> None:
+    lenses = workbench_lenses(_overview(uuid4()))
+    neo4j_lenses = [lens for lens in lenses if lens.lens.value.startswith("neo4j_")]
+
+    assert [lens.lens for lens in neo4j_lenses] == [
+        WorkbenchLens.NEO4J_EXPOSURE,
+        WorkbenchLens.NEO4J_ENDPOINT,
+        WorkbenchLens.NEO4J_EVIDENCE,
+        WorkbenchLens.NEO4J_SURFACE_MATH,
+        WorkbenchLens.NEO4J_ACTION_OUTCOME,
+        WorkbenchLens.NEO4J_JS,
+        WorkbenchLens.NEO4J_TECH,
+        WorkbenchLens.NEO4J_HYPOTHESIS,
+    ]
+    assert all(lens.available for lens in neo4j_lenses)
+    assert workbench_read_boundary(surface="surface")["raw_cypher"] == "forbidden"
+    assert workbench_read_boundary(surface="surface")["neo4j_write"] == "forbidden"

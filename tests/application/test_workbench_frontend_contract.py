@@ -262,3 +262,32 @@ def test_surface_components_exposes_graph_projector_source_instead_of_raw_score_
     assert "surface_map_local_fallback" in backend
     assert "neo4j_gds_materialized" in backend
     assert "gds_execution" in backend
+
+
+def test_workbench_frontend_exposes_neo4j_projection_lenses_and_canvas_types() -> None:
+    app_models = _read("src/api/application/workbench.py")
+    backend = _read("src/api/infrastructure/workbench_neo4j.py")
+    canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
+
+    assert "NEO4J_EXPOSURE" in app_models
+    assert "NEO4J_ENDPOINT" in app_models
+    assert "NEO4J_EVIDENCE" in app_models
+    assert "NEO4J_SURFACE_MATH" in app_models
+    assert "NEO4J_ACTION_OUTCOME" in app_models
+    assert "NEO4J_JS" in app_models
+    assert "NEO4J_TECH" in app_models
+    assert "NEO4J_HYPOTHESIS" in app_models
+    assert "default_query_template_registry" in backend
+    assert "asset_exposure" in backend
+    assert "endpoint_neighborhood" in backend
+    assert "evidence_path" in backend
+    assert "surface_graph_math" in backend
+    assert "action_outcome_experience_neighborhood" in backend
+    assert "hidden_endpoints_from_js" in backend
+    assert "exposed_services_by_technology" in backend
+    assert "hypothesis_evidence_paths" in backend
+    assert "raw_cypher" in backend and "forbidden" in backend
+    assert "gds_execution" in backend and "forbidden_in_workbench_request_path" in backend
+    assert "neo4j_surface_node" in canvas
+    assert "neo4j_action_outcome" in canvas
+    assert "Neo4j projection" in canvas

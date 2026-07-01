@@ -33,6 +33,14 @@ class WorkbenchLens(StrEnum):
     HYPOTHESIS = "hypothesis"
     ACTION = "action"
     COVERAGE = "coverage"
+    NEO4J_EXPOSURE = "neo4j_exposure"
+    NEO4J_ENDPOINT = "neo4j_endpoint"
+    NEO4J_EVIDENCE = "neo4j_evidence"
+    NEO4J_SURFACE_MATH = "neo4j_surface_math"
+    NEO4J_ACTION_OUTCOME = "neo4j_action_outcome"
+    NEO4J_JS = "neo4j_js"
+    NEO4J_TECH = "neo4j_tech"
+    NEO4J_HYPOTHESIS = "neo4j_hypothesis"
 
 
 class WorkbenchNode(BaseModel):
@@ -246,6 +254,16 @@ class WorkbenchGraphStore(Protocol):
         limit: int = 250,
     ) -> WorkbenchGraph | None: ...
 
+    async def neo4j_graph(
+        self,
+        *,
+        program_id: UUID,
+        lens: WorkbenchLens,
+        seed: str | None = None,
+        depth: int = 1,
+        limit: int = 250,
+    ) -> WorkbenchGraph | None: ...
+
     async def entity_profile(self, *, program_id: UUID, entity_key: str) -> WorkbenchEntityProfile | None: ...
 
     async def entity_actions(
@@ -359,6 +377,17 @@ class WorkbenchReadService:
             if graph is None:
                 raise WorkbenchNotFound(f"Workbench coverage graph not found for program={program_id}")
             return graph
+        if is_neo4j_workbench_lens(lens):
+            graph = await self._graph_store.neo4j_graph(
+                program_id=program_id,
+                lens=lens,
+                seed=seed,
+                depth=clamped_depth,
+                limit=clamped_limit,
+            )
+            if graph is None:
+                raise WorkbenchNotFound(f"Workbench Neo4j graph not found for program={program_id} lens={lens.value}")
+            return graph
         return WorkbenchGraph(
             program_id=program_id,
             lens=lens,
@@ -423,6 +452,32 @@ class WorkbenchReadService:
 
 
 
+def is_neo4j_workbench_lens(lens: WorkbenchLens) -> bool:
+    return lens in {
+        WorkbenchLens.NEO4J_EXPOSURE,
+        WorkbenchLens.NEO4J_ENDPOINT,
+        WorkbenchLens.NEO4J_EVIDENCE,
+        WorkbenchLens.NEO4J_SURFACE_MATH,
+        WorkbenchLens.NEO4J_ACTION_OUTCOME,
+        WorkbenchLens.NEO4J_JS,
+        WorkbenchLens.NEO4J_TECH,
+        WorkbenchLens.NEO4J_HYPOTHESIS,
+    }
+
+
+def _neo4j_lens_descriptors() -> list[WorkbenchLensDescriptor]:
+    return [
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_EXPOSURE, label="Neo4j · Exposure", available=True),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_ENDPOINT, label="Neo4j · Endpoint", available=True, reason="select_endpoint_seed_for_neighborhood"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_EVIDENCE, label="Neo4j · Evidence", available=True, reason="select_entity_seed_for_evidence_path"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_SURFACE_MATH, label="Neo4j · Surface math", available=True, reason="select_surface_snapshot_seed"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_ACTION_OUTCOME, label="Neo4j · Outcomes", available=True),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_JS, label="Neo4j · JS refs", available=True),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_TECH, label="Neo4j · Services", available=True),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_HYPOTHESIS, label="Neo4j · Hypothesis evidence", available=True),
+    ]
+
+
 def workbench_lenses(overview: ProgramProjectionOverview | None = None) -> list[WorkbenchLensDescriptor]:
     components_available = bool(overview and overview.latest_surface_analysis)
     coverage_available = bool(overview and overview.latest_surface_snapshot)
@@ -443,6 +498,7 @@ def workbench_lenses(overview: ProgramProjectionOverview | None = None) -> list[
             available=coverage_available,
             reason=None if coverage_available else "no_surface_snapshot",
         ),
+        *_neo4j_lens_descriptors(),
     ]
 
 
@@ -479,6 +535,7 @@ def workbench_read_boundary(*, surface: str) -> dict[str, Any]:
             "research_hypothesis_events",
             "research_hypothesis_score_history",
             "agent_action_proposals",
+            "Neo4j graph-projector ontology via allowlisted templates",
         ],
     }
 

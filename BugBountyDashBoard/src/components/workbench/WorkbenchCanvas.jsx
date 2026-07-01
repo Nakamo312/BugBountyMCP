@@ -18,6 +18,24 @@ const colorByType = {
   param: '#d97706',
   response_shape: '#64748b',
   artifact_ref: '#475569',
+  neo4j_program: '#111827',
+  neo4j_scope: '#475569',
+  neo4j_ip: '#0369a1',
+  neo4j_asn: '#0f766e',
+  neo4j_cidr: '#0e7490',
+  neo4j_js_file: '#ca8a04',
+  neo4j_tool: '#78716c',
+  neo4j_tool_run: '#92400e',
+  neo4j_action_outcome: '#ea580c',
+  neo4j_capability_profile: '#7c3aed',
+  neo4j_outcome_feature: '#9333ea',
+  neo4j_observation: '#0891b2',
+  neo4j_evidence: '#0f766e',
+  neo4j_surface_snapshot: '#1d4ed8',
+  neo4j_surface_node: '#2563eb',
+  neo4j_surface_fingerprint: '#64748b',
+  neo4j_surface_delta: '#be123c',
+  neo4j_projection_status: '#64748b',
   memory_fragment: '#7c3aed',
   action_run: '#ea580c',
   research_hypothesis: '#be123c',
@@ -37,10 +55,28 @@ const radiusByType = {
   param: 3,
   response_shape: 3,
   artifact_ref: 2.8,
+  neo4j_program: 9,
+  neo4j_scope: 5,
+  neo4j_ip: 5,
+  neo4j_asn: 5,
+  neo4j_cidr: 5,
+  neo4j_js_file: 4,
+  neo4j_tool: 4,
+  neo4j_tool_run: 4,
+  neo4j_action_outcome: 5,
+  neo4j_capability_profile: 5,
+  neo4j_outcome_feature: 3.8,
+  neo4j_observation: 3.8,
+  neo4j_evidence: 3.8,
+  neo4j_surface_snapshot: 6,
+  neo4j_surface_node: 3.8,
+  neo4j_surface_fingerprint: 3.6,
+  neo4j_surface_delta: 4.2,
+  neo4j_projection_status: 6,
 }
 
-const overviewTypes = new Set(['program', 'host', 'service', 'route_family', 'surface_component'])
-const alwaysLabelTypes = new Set(['program', 'host', 'surface_component'])
+const overviewTypes = new Set(['program', 'host', 'service', 'route_family', 'surface_component', 'neo4j_program', 'neo4j_scope', 'neo4j_ip', 'neo4j_cidr', 'neo4j_asn', 'neo4j_surface_snapshot', 'neo4j_action_outcome'])
+const alwaysLabelTypes = new Set(['program', 'host', 'surface_component', 'neo4j_program', 'neo4j_surface_snapshot', 'neo4j_projection_status'])
 
 const useCanvasSize = () => {
   const containerRef = useRef(null)
@@ -234,6 +270,7 @@ const GraphLegend = memo(({ hiddenNodeCount, mode, totalNodes }) => (
       <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-green-600" /> endpoint 2xx</span>
       <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-purple-600" /> GDS signal</span>
       <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-orange-500" /> 4xx/redirect</span>
+      <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-sky-700" /> Neo4j projection</span>
     </div>
   </div>
 ))

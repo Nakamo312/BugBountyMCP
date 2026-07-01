@@ -36,8 +36,12 @@ class ReadModelProvider(Provider):
         return ProgramProjectionOverviewStore(session_factory)
 
     @provide(scope=Scope.APP)
-    def get_workbench_graph_store(self, session_factory: async_sessionmaker) -> WorkbenchGraphStore:
-        return WorkbenchGraphStore(session_factory)
+    def get_workbench_graph_store(
+        self,
+        session_factory: async_sessionmaker,
+        settings: Settings,
+    ) -> WorkbenchGraphStore:
+        return WorkbenchGraphStore(session_factory, settings)
 
     @provide(scope=Scope.APP)
     def get_workbench_projection_control_store(
