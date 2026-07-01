@@ -10,6 +10,7 @@ import {
   LensSelector,
   LowerEvidencePanel,
   NodeList,
+  ProjectionControlPanel,
   ProjectionStatus,
   WorkbenchAnswerCoverage,
   copyToClipboard,
@@ -37,7 +38,10 @@ const Workbench = () => {
     lenses,
     loading,
     memory,
+    projectionResult,
+    projectionRunning,
     reload,
+    runProjectionRefresh,
     retrieveQuery,
     selectedNode,
     selectNode,
@@ -63,6 +67,7 @@ const Workbench = () => {
   }
 
   const counts = graph?.counts || bootstrap?.counts || emptyCounts
+  const missingProjectionError = /graph not found|component graph not found/i.test(error || '')
   const saveCurrentView = () => {
     const seed = selectedNode?.entity_key || activeSeed || null
     const label = `${lens}${filterQuery ? ` · ${filterQuery}` : ''}${seed ? ' · focused' : ''}`
@@ -123,7 +128,16 @@ const Workbench = () => {
 
       <ProjectionStatus bootstrap={bootstrap} activeSeed={activeSeed} />
 
-      {error && (
+      <ProjectionControlPanel
+        bootstrap={bootstrap}
+        error={error}
+        graph={graph}
+        projectionResult={projectionResult}
+        projectionRunning={projectionRunning}
+        onRunProjection={runProjectionRefresh}
+      />
+
+      {error && !missingProjectionError && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error}
         </div>

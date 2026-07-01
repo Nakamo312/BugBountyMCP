@@ -6,6 +6,7 @@ import {
   getWorkbenchEntityMemory,
   getWorkbenchGraph,
   retrieveWorkbenchEvidence,
+  runWorkbenchProjectionRefresh,
 } from '../services/api'
 
 const defaultLens = 'surface'
@@ -22,6 +23,8 @@ export const useWorkbench = (selectedProgram) => {
   const [retrieveQuery, setRetrieveQuery] = useState('')
   const [activeSeed, setActiveSeed] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [projectionRunning, setProjectionRunning] = useState(false)
+  const [projectionResult, setProjectionResult] = useState(null)
   const [entityLoading, setEntityLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -89,6 +92,28 @@ export const useWorkbench = (selectedProgram) => {
     }
   }, [lens, programId, retrieveQuery])
 
+
+  const runProjectionRefresh = useCallback(async (operation = 'refresh_workbench') => {
+    if (!programId) return null
+    setProjectionRunning(true)
+    setError(null)
+    try {
+      const response = await runWorkbenchProjectionRefresh({
+        program_id: programId,
+        operation,
+      })
+      setProjectionResult(response.data)
+      await loadWorkbench({ nextLens: lens, seed: activeSeed, depth: activeSeed ? 2 : 1 })
+      return response.data
+    } catch (err) {
+      setProjectionResult(null)
+      setError(err.response?.data?.detail || err.message || 'Failed to refresh workbench projections')
+      return null
+    } finally {
+      setProjectionRunning(false)
+    }
+  }, [activeSeed, lens, loadWorkbench, programId])
+
   const focusNode = useCallback((node) => {
     if (!node?.entity_key) return
     loadWorkbench({ nextLens: lens, seed: node.entity_key, depth: 2 })
@@ -101,6 +126,7 @@ export const useWorkbench = (selectedProgram) => {
       setBootstrap(null)
       setGraph(null)
       setActiveSeed(null)
+      setProjectionResult(null)
       clearSelection()
       setError(null)
     }
@@ -122,8 +148,11 @@ export const useWorkbench = (selectedProgram) => {
     lenses,
     loading,
     memory,
+    projectionResult,
+    projectionRunning,
     reload: loadWorkbench,
     retrieveQuery,
+    runProjectionRefresh,
     selectedNode,
     selectNode,
     setLens,

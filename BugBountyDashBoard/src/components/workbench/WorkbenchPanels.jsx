@@ -2,12 +2,15 @@ import React, { useMemo, useState } from 'react'
 import {
   Boxes,
   CheckCircle2,
+  AlertCircle,
   Clipboard,
   Command,
   DatabaseZap,
   Filter,
   Save,
   Search,
+  Loader,
+  PlayCircle,
   Target,
   X,
 } from 'lucide-react'
@@ -615,6 +618,89 @@ export const WorkbenchAnswerCoverage = ({ entity, actions, memory, evidencePack,
       <p className="mt-3 text-xs text-gray-500">
         This checklist is computed from loaded read models. It is not a vulnerability verdict or confidence score.
       </p>
+    </div>
+  )
+}
+
+
+export const ProjectionControlPanel = ({
+  bootstrap,
+  error,
+  graph,
+  projectionResult,
+  projectionRunning,
+  onRunProjection,
+}) => {
+  const freshness = bootstrap?.projection_freshness || {}
+  const hasSnapshot = Boolean(freshness.latest_surface_snapshot)
+  const hasAnalysis = Boolean(freshness.latest_surface_analysis)
+  const graphEmpty = !graph || (graph.nodes || []).length === 0
+  const needsSurface = graphEmpty || !hasSnapshot || String(error || '').includes('surface graph not found')
+  const needsComponents = hasSnapshot && !hasAnalysis
+
+  if (!needsSurface && !needsComponents && !projectionResult) return null
+
+  const primaryOperation = needsSurface ? 'build_surface' : 'materialize_components'
+  const primaryLabel = needsSurface ? 'Build surface map' : 'Materialize components'
+  const primaryHint = needsSurface
+    ? 'Build a Surface Map snapshot from stored observations. No snapshot id or docker command required.'
+    : 'Build materialized component analysis from the latest surface snapshot. Snapshot id is resolved by backend.'
+
+  return (
+    <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-sm font-semibold text-blue-950">
+            <PlayCircle size={16} />
+            Workbench data setup
+          </div>
+          <p className="text-sm text-blue-800">
+            {primaryHint} This is an allowlisted backend operation, not arbitrary shell execution.
+          </p>
+          {needsComponents && needsSurface && (
+            <p className="text-xs text-blue-700">After surface is built, run component materialization from this same panel.</p>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => onRunProjection(primaryOperation)}
+            disabled={projectionRunning}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
+          >
+            {projectionRunning ? <Loader className="animate-spin" size={16} /> : <PlayCircle size={16} />}
+            <span>{primaryLabel}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onRunProjection('refresh_workbench')}
+            disabled={projectionRunning}
+            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+          >
+            {projectionRunning ? <Loader className="animate-spin" size={16} /> : <DatabaseZap size={16} />}
+            <span>Refresh all read models</span>
+          </button>
+        </div>
+      </div>
+
+      {projectionResult && (
+        <div className="mt-3 rounded-lg border border-blue-100 bg-white p-3 text-xs text-blue-900">
+          <div className="flex items-center gap-2 font-semibold">
+            {projectionResult.status === 'failed' ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
+            {projectionResult.status}: {projectionResult.message}
+          </div>
+          <div className="mt-2 grid gap-2 md:grid-cols-2">
+            {(projectionResult.steps || []).map((step) => (
+              <div key={step.step_id} className="rounded border border-gray-200 bg-gray-50 px-3 py-2">
+                <div className="font-semibold text-gray-900">{step.step_id} · {step.status}</div>
+                <div className="mt-1 text-gray-600">{step.message}</div>
+                {step.snapshot_id && <div className="mt-1 truncate text-gray-500">snapshot: {step.snapshot_id}</div>}
+                {step.analysis_run_id && <div className="mt-1 truncate text-gray-500">analysis: {step.analysis_run_id}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

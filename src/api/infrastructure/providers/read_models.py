@@ -1,5 +1,7 @@
-from dishka import Provider, Scope, provide
+from dishka import Provider, Scope, from_context, provide
 from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from api.config import Settings
 
 from api.application.agent_activity import AgentActivityService
 from api.application.agent_task_detail import AgentTaskDetailService
@@ -7,16 +9,19 @@ from api.application.campaign_workspace import CampaignWorkspaceService
 from api.application.program_projection_overview import ProgramProjectionOverviewService
 from api.application.surface_component_analysis import SurfaceComponentAnalysisService
 from api.application.workbench import WorkbenchReadService
+from api.application.workbench_projection_control import WorkbenchProjectionControlService
 from api.infrastructure.agent_activity import AgentActivityStore
 from api.infrastructure.agent_task_detail import AgentTaskDetailStore
 from api.infrastructure.campaign_workspace import CampaignWorkspaceStore
 from api.infrastructure.program_projection_overview import ProgramProjectionOverviewStore
 from api.infrastructure.surface_component_analysis import SurfaceComponentAnalysisStore
 from api.infrastructure.workbench import WorkbenchGraphStore
+from api.infrastructure.workbench_projection_control import WorkbenchProjectionControlStore
 
 
 class ReadModelProvider(Provider):
     scope = Scope.APP
+    settings = from_context(provides=Settings)
 
     @provide(scope=Scope.APP)
     def get_campaign_workspace_store(self, session_factory: async_sessionmaker) -> CampaignWorkspaceStore:
@@ -33,6 +38,14 @@ class ReadModelProvider(Provider):
     @provide(scope=Scope.APP)
     def get_workbench_graph_store(self, session_factory: async_sessionmaker) -> WorkbenchGraphStore:
         return WorkbenchGraphStore(session_factory)
+
+    @provide(scope=Scope.APP)
+    def get_workbench_projection_control_store(
+        self,
+        session_factory: async_sessionmaker,
+        settings: Settings,
+    ) -> WorkbenchProjectionControlStore:
+        return WorkbenchProjectionControlStore(session_factory, settings)
 
     @provide(scope=Scope.APP)
     def get_agent_task_detail_store(self, session_factory: async_sessionmaker) -> AgentTaskDetailStore:
@@ -87,3 +100,11 @@ class ReadModelProvider(Provider):
             graph_store=graph_store,
             projection_overview=projection_overview,
         )
+
+
+    @provide(scope=Scope.REQUEST)
+    def get_workbench_projection_control_service(
+        self,
+        store: WorkbenchProjectionControlStore,
+    ) -> WorkbenchProjectionControlService:
+        return WorkbenchProjectionControlService(store)

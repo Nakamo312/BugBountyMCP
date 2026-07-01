@@ -11,6 +11,10 @@ from api.application.workbench import (
     WorkbenchReadService,
     WorkbenchRetrieveRequest,
 )
+from api.application.workbench_projection_control import (
+    WorkbenchProjectionControlService,
+    WorkbenchProjectionRunRequest,
+)
 
 router = APIRouter(route_class=DishkaRoute)
 
@@ -116,3 +120,20 @@ async def retrieve_workbench_evidence(
 ) -> dict:
     pack = await service.retrieve(request)
     return pack.model_dump(mode="json")
+
+
+@router.post(
+    "/projections/run",
+    summary="Run controlled Workbench projection refresh",
+    description=(
+        "Runs one of a small set of backend-owned projection refresh operations. "
+        "The frontend never sends command text, snapshot IDs are optional, and no actions/tools are submitted."
+    ),
+    tags=["Workbench"],
+)
+async def run_workbench_projection_refresh(
+    request: WorkbenchProjectionRunRequest,
+    service: FromDishka[WorkbenchProjectionControlService],
+) -> dict:
+    result = await service.run_projection_operation(request)
+    return result.model_dump(mode="json")

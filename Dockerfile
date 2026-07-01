@@ -2,6 +2,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+ENV PYTHONPATH=/app/src:/app/services/surface-engine:/app/services/graph-projector:/app/services/search-indexer
+
 RUN apt-get update && apt-get install -y \
     gcc \
     postgresql-client \
@@ -33,6 +35,8 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir waymore
 
 COPY src/ ./src/
+COPY services/surface-engine/ ./services/surface-engine/
+COPY services/graph-projector/ ./services/graph-projector/
 
 RUN python -m grpc_tools.protoc -I./src/api/infrastructure/proto --python_out=./src --grpc_python_out=./src ./src/api/infrastructure/proto/scanner.proto
 

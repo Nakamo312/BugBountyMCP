@@ -282,6 +282,9 @@ export const getWorkbenchEntityMemory = (programId, entityKey) =>
 export const retrieveWorkbenchEvidence = (data) =>
   api.post('/workbench/retrieve', data)
 
+export const runWorkbenchProjectionRefresh = (data) =>
+  api.post('/workbench/projections/run', data)
+
 // Program projection overview
 export const getProgramProjectionOverview = (programId) =>
   api.get('/program-projection-overview', { params: { program_id: programId } })

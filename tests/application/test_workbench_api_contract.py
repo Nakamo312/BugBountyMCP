@@ -472,3 +472,23 @@ def test_workbench_read_service_delegates_retrieve_assembly_instead_of_importing
     assert "_redact_text" not in service_source
     assert "_temporal_scope" not in service_source
     assert "async def assemble_evidence_pack_payload" in retrieve_source
+
+
+def test_workbench_projection_control_contract_is_allowlisted_not_command_text() -> None:
+    source = Path("src/api/application/workbench_projection_control.py").read_text(encoding="utf-8")
+    route = Path("src/api/presentation/rest/routes/workbench.py").read_text(encoding="utf-8")
+    infra = Path("src/api/infrastructure/workbench_projection_control.py").read_text(encoding="utf-8")
+
+    assert "class WorkbenchProjectionOperation" in source
+    assert "BUILD_SURFACE" in source
+    assert "MATERIALIZE_COMPONENTS" in source
+    assert "REFRESH_WORKBENCH" in source
+    assert "user_supplied_command_text" in source
+    assert "arbitrary_command_execution" in source
+    assert '"/projections/run"' in route
+    assert "WorkbenchProjectionRunRequest" in route
+    assert "subprocess.run" in infra
+    assert "shell=True" not in infra
+    assert "request.command" not in infra
+    assert "surface_engine" in infra
+    assert "graph_projector" in infra

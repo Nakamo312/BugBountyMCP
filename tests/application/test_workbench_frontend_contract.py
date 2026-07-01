@@ -140,3 +140,20 @@ def test_workbench_page_is_thin_and_panels_live_below_workbench_components() -> 
     assert "export const NodeList" in panels
     assert "export const LowerEvidencePanel" in panels
     assert "export const Inspector" in panels
+
+
+def test_workbench_frontend_can_refresh_missing_read_models_without_manual_ids() -> None:
+    page = _read_workbench_page_bundle()
+    hook = _read("BugBountyDashBoard/src/hooks/useWorkbench.js")
+    api = _read("BugBountyDashBoard/src/services/api.js")
+
+    assert "ProjectionControlPanel" in page
+    assert "Build surface map" in page
+    assert "Materialize components" in page
+    assert "Refresh all read models" in page
+    assert "No snapshot id or docker command required" in page
+    assert "runWorkbenchProjectionRefresh" in api
+    assert "/workbench/projections/run" in api
+    assert "runProjectionRefresh" in hook
+    assert "operation" in hook
+    assert "snapshot_id" not in hook
