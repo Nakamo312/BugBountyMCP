@@ -19,15 +19,15 @@ import { useAgentTaskInteractions } from '../hooks/useAgentTaskInteractions'
 
 const LoadingTask = () => (
   <div className="flex min-h-[420px] items-center justify-center text-gray-500">
-    <Loader className="mr-2 animate-spin" size={20} /> Загрузка задачи
+    <Loader className="mr-2 animate-spin" size={20} /> Loading task
   </div>
 )
 
 const MissingTask = () => (
   <EmptyState
     icon={AlertTriangle}
-    title="Задача не найдена"
-    description="Проверь task id или вернись в рабочую комнату кампании."
+    title="Task not found"
+    description="Check the task id or return to Execution."
   />
 )
 

@@ -30,13 +30,13 @@ const OutcomeCard = ({ outcome }) => (
 
 export function AgentTaskOutcomes({ outcomes }) {
   return (
-    <SectionCard title="Связанные outcomes" icon={ShieldCheck}>
+    <SectionCard title="Related outcomes" icon={ShieldCheck}>
       {outcomes?.length > 0 ? (
         <div className="grid gap-4 lg:grid-cols-2">
           {outcomes.map((outcome) => <OutcomeCard key={outcome.outcome_id} outcome={outcome} />)}
         </div>
       ) : (
-        <EmptyState title="Outcome context пока нет" description="Когда принятые action’ы завершатся, здесь появится память исходов." />
+        <EmptyState title="No outcome context yet" description="Outcome memory appears here after accepted actions finish." />
       )}
     </SectionCard>
   )

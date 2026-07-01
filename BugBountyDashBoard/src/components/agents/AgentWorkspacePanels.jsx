@@ -44,8 +44,8 @@ export function AgentWorkspaceView({ state }) {
     return (
       <EmptyState
         icon={Target}
-        title="Выбери программу"
-        description="Рабочая комната агентов привязана к выбранной bug bounty программе."
+        title="Select a program"
+        description="Execution is scoped to the selected bug bounty program."
       />
     )
   }
@@ -54,6 +54,7 @@ export function AgentWorkspaceView({ state }) {
     <div className="space-y-6">
       <WorkspaceHeader state={state} />
       <WorkspaceError error={state.error} />
+      <ExecutionModel />
       <WorkspaceStats workspace={state.workspace} />
       <AgentRuntimeUsagePanel summary={state.workspace?.agent_runtime_usage} />
 
@@ -69,18 +70,47 @@ export function AgentWorkspaceView({ state }) {
   )
 }
 
+
+function ExecutionModel() {
+  const stages = [
+    ['Manual execution', 'Operator-controlled action creation from graph targets. No model call is implied.'],
+    ['Agent tasks', 'Planner or analyst threads. These are not executable tool runs.'],
+    ['Action queue', 'Concrete action requests after catalog, policy, and approval boundaries.'],
+    ['Runs', 'Dispatched tool executions with artifacts and terminal status.'],
+    ['Outcomes', 'Read-model memory projected back into graph and search surfaces.'],
+  ]
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-gray-900">Execution model</h2>
+          <p className="mt-1 text-sm text-gray-600">This page separates planning from execution. Agent tasks do not run tools directly; executable work enters ActionService.</p>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 xl:grid-cols-5 md:grid-cols-2">
+        {stages.map(([title, description]) => (
+          <div key={title} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+            <div className="text-sm font-semibold text-gray-900">{title}</div>
+            <p className="mt-1 text-xs leading-5 text-gray-500">{description}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function WorkspaceHeader({ state }) {
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
       <div>
         <div className="flex items-center gap-3">
-          <h1 className="text-3xl font-bold text-gray-900">Рабочая комната</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Execution</h1>
           <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-            агенты под контролем
+            operator-controlled
           </Badge>
         </div>
         <p className="mt-2 text-gray-600">
-          Промты, ответы агентов, предложения, решения и очередь действий для {state.selectedProgram.name}.
+          Agent tasks, proposals, decisions, and action queue for {state.selectedProgram.name}.
         </p>
       </div>
       <button
@@ -89,7 +119,7 @@ function WorkspaceHeader({ state }) {
         disabled={state.loading}
         className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:opacity-50"
       >
-        <RefreshCw className={state.loading ? 'animate-spin' : ''} size={16} /> Обновить
+        <RefreshCw className={state.loading ? 'animate-spin' : ''} size={16} /> Refresh
       </button>
     </div>
   )
@@ -109,17 +139,17 @@ function WorkspaceStats({ workspace }) {
   const pendingCount = (workspace?.counts?.pending_agent_proposals || 0) + (workspace?.counts?.pending_experience_proposals || 0)
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <StatTile title="Задачи" value={workspace?.counts?.tasks} icon={Inbox} tone="blue" />
-      <StatTile title="Сообщения" value={workspace?.counts?.visible_messages} icon={MessageSquare} tone="violet" />
-      <StatTile title="Ждут решения" value={pendingCount} icon={Sparkles} tone="amber" />
-      <StatTile title="Очередь действий" value={workspace?.counts?.action_queue} icon={PlayCircle} tone="emerald" />
+      <StatTile title="Agent tasks" value={workspace?.counts?.tasks} icon={Inbox} tone="blue" />
+      <StatTile title="Messages" value={workspace?.counts?.visible_messages} icon={MessageSquare} tone="violet" />
+      <StatTile title="Pending review" value={pendingCount} icon={Sparkles} tone="amber" />
+      <StatTile title="Action queue" value={workspace?.counts?.action_queue} icon={PlayCircle} tone="emerald" />
     </div>
   )
 }
 
 function NewAgentTaskPanel({ state }) {
   return (
-    <SectionCard title="Новая задача агенту" icon={Send}>
+    <SectionCard title="New agent task" icon={Send}>
       <form onSubmit={state.handleCreateTask} className="space-y-3">
         <select
           value={state.targetAgent}
@@ -134,7 +164,7 @@ function NewAgentTaskPanel({ state }) {
           value={state.prompt}
           onChange={(event) => state.setPrompt(event.target.value)}
           rows={5}
-          placeholder="Например: посмотри новые JS-пути и скажи, какие стоит разобрать дальше"
+          placeholder="Example: inspect newly discovered JavaScript paths and identify the next endpoints to review."
           className="w-full resize-none rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-100"
         />
         <AgentRuntimeModeControl
@@ -149,7 +179,7 @@ function NewAgentTaskPanel({ state }) {
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
         >
           {state.actionBusy ? <Loader className="animate-spin" size={16} /> : <Send size={16} />}
-          Создать задачу
+          Create task
         </button>
       </form>
     </SectionCard>
@@ -158,13 +188,13 @@ function NewAgentTaskPanel({ state }) {
 
 function TaskListPanel({ state }) {
   return (
-    <SectionCard title="Задачи" icon={GitBranch}>
+    <SectionCard title="Agent tasks" icon={GitBranch}>
       {state.loading && !state.workspace ? (
         <div className="flex items-center justify-center py-8 text-gray-500">
-          <Loader className="mr-2 animate-spin" size={18} /> Загрузка
+          <Loader className="mr-2 animate-spin" size={18} /> Loading
         </div>
       ) : state.tasks.length === 0 ? (
-        <EmptyState title="Задач пока нет" description="Создай промт агенту, и здесь появится рабочий thread." />
+        <EmptyState title="No agent tasks yet" description="Create an agent task and its thread will appear here." />
       ) : (
         <div className="space-y-3">
           {state.tasks.map((card) => (
@@ -200,19 +230,19 @@ function TaskListItem({ card, active, onSelect }) {
       </div>
       <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
         <span>{card.task.target_agent}</span>
-        <span>{card.proposals?.length || 0} предлож.</span>
+        <span>{card.proposals?.length || 0} proposals</span>
       </div>
     </button>
   )
 }
 
 function TaskThreadPanel({ state }) {
-  const title = state.selectedTaskCard?.task?.title || state.taskDetail?.task?.title || 'Живая лента агентов'
+  const title = state.selectedTaskCard?.task?.title || state.taskDetail?.task?.title || 'Agent thread'
   return (
     <div className="space-y-6">
       <SectionCard title={title} icon={Bot} action={taskThreadAction(state.selectedTaskId)}>
         {state.selectedTaskId ? <TaskThread state={state} /> : (
-          <EmptyState icon={Bot} title="Выбери задачу" description="Здесь будет thread с ответами агентов и твоими промтами." />
+          <EmptyState icon={Bot} title="Select a task" description="The selected task thread appears here." />
         )}
       </SectionCard>
     </div>
@@ -225,10 +255,10 @@ function taskThreadAction(selectedTaskId) {
     <div className="flex items-center gap-2">
       <Badge className="border-gray-200 bg-gray-50 text-gray-600">#{shortId(selectedTaskId)}</Badge>
       <Link
-        to={`/workspace/tasks/${selectedTaskId}`}
+        to={`/execution/tasks/${selectedTaskId}`}
         className="inline-flex items-center rounded-lg border border-primary-200 px-3 py-1 text-xs font-medium text-primary-700 hover:bg-primary-50"
       >
-        Открыть экран
+        Open detail
       </Link>
     </div>
   )
@@ -241,7 +271,7 @@ function TaskThread({ state }) {
         {state.messages.length > 0 ? (
           state.messages.map((message) => <MessageCard key={message.message_id} message={message} />)
         ) : (
-          <EmptyState icon={MessageSquare} title="Сообщений пока нет" description="Агент ответит после обработки inbox-сообщения." />
+          <EmptyState icon={MessageSquare} title="No messages yet" description="Messages appear after the task is processed by the inbox worker." />
         )}
       </div>
       <form onSubmit={state.handleFollowup} className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
@@ -251,14 +281,14 @@ function TaskThread({ state }) {
               value={state.followup}
               onChange={(event) => state.setFollowup(event.target.value)}
               rows={2}
-              placeholder="Спросить агента о текущей задаче..."
+              placeholder="Ask a follow-up about the selected task..."
               className="min-h-[52px] flex-1 resize-none rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-100"
             />
             <button
               type="submit"
               disabled={state.actionBusy || !state.followup.trim() || (isDeepRuntimeMode(state.followupRuntimeMode) && !state.followupDeepConfirmed)}
               className="inline-flex items-center justify-center rounded-xl bg-primary-600 px-4 text-white hover:bg-primary-700 disabled:opacity-50"
-              title="Отправить follow-up"
+              title="Send follow-up"
             >
               <Send size={18} />
             </button>
@@ -288,9 +318,9 @@ function WorkspaceSidebar({ state }) {
 
 function ProposalsPanel({ state }) {
   return (
-    <SectionCard title="Предложения" icon={Sparkles}>
+    <SectionCard title="Proposals" icon={Sparkles}>
       {state.visibleProposals.length === 0 ? (
-        <EmptyState title="Предложений пока нет" description="Агент сможет предложить задачу или action после анализа контекста." />
+        <EmptyState title="No proposals yet" description="Proposals appear after an agent or graph-experience process analyzes context." />
       ) : (
         <div className="space-y-3">
           {state.visibleProposals.map((proposal) => (
@@ -323,7 +353,7 @@ function ProposalsPanel({ state }) {
 
 function ActionQueuePanel({ workspace }) {
   return (
-    <SectionCard title="Очередь действий" icon={ShieldCheck}>
+    <SectionCard title="Action queue" icon={ShieldCheck}>
       {workspace?.action_queue?.length > 0 ? (
         <div className="space-y-3">
           {workspace.action_queue.slice(0, 8).map((action) => (
@@ -339,7 +369,7 @@ function ActionQueuePanel({ workspace }) {
           ))}
         </div>
       ) : (
-        <EmptyState title="Очередь пуста" description="Принятые предложения будут проходить через ActionService и появятся здесь." />
+        <EmptyState title="Action queue is empty" description="Accepted proposals enter ActionService and appear here as executable action requests." />
       )}
     </SectionCard>
   )
@@ -347,9 +377,9 @@ function ActionQueuePanel({ workspace }) {
 
 function ActivityPanel({ activity }) {
   return (
-    <SectionCard title="Активность" icon={Clock3}>
+    <SectionCard title="Activity" icon={Clock3}>
       {activity.length === 0 ? (
-        <EmptyState title="Новых событий нет" description="Лента обновляется polling-read моделью без запуска агентов или tools." />
+        <EmptyState title="No new events" description="This event stream is read-only polling. It does not start agents or tools." />
       ) : (
         <div className="max-h-[420px] overflow-y-auto pr-1">
           {activity.map((event) => <ActivityRow key={event.event_id} event={event} />)}

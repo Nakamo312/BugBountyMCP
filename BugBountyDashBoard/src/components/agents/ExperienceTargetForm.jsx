@@ -8,9 +8,9 @@ export const ExperienceTargetForm = ({ proposal, value, error, busy, onChange, o
     <form onSubmit={onSubmit} className="rounded-2xl border border-violet-200 bg-violet-50/60 p-4 shadow-sm">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h4 className="font-semibold text-gray-900">Targets для {proposal.capability_id}/{proposal.profile_id}</h4>
+          <h4 className="font-semibold text-gray-900">Targets for {proposal.capability_id}/{proposal.profile_id}</h4>
           <p className="mt-1 text-xs leading-5 text-gray-600">
-            Введи scope перед созданием ActionRequest. Значения разделяются запятыми.
+            Enter scope before creating an ActionRequest. Values can be separated by commas or new lines.
           </p>
         </div>
         <button
@@ -19,7 +19,7 @@ export const ExperienceTargetForm = ({ proposal, value, error, busy, onChange, o
           disabled={busy}
           className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50"
         >
-          <XCircle size={14} /> Отмена
+          <XCircle size={14} /> Cancel
         </button>
       </div>
       <textarea
@@ -31,14 +31,14 @@ export const ExperienceTargetForm = ({ proposal, value, error, busy, onChange, o
       />
       {error && <p className="mt-2 text-xs font-medium text-red-700">{error}</p>}
       <div className="mt-3 rounded-xl bg-white px-3 py-2 text-xs text-gray-600">
-        Preview: {targets.length > 0 ? targets.join(' · ') : 'targets не заданы'}
+        Preview: {targets.length > 0 ? targets.join(' · ') : 'targets not set'}
       </div>
       <button
         type="submit"
         disabled={busy || targets.length === 0}
         className="mt-3 inline-flex items-center gap-1 rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
       >
-        <PlayCircle size={15} /> Создать ActionRequest
+        <PlayCircle size={15} /> Create ActionRequest
       </button>
     </form>
   )

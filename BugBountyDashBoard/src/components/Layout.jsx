@@ -1,78 +1,57 @@
 import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { useProgram } from '../context/ProgramContext'
-import {
-  LayoutDashboard,
-  FolderKanban,
-  PlayCircle,
-  Server,
-  ShieldAlert,
-  Network,
-  GitBranch,
-  AlertCircle,
-  MessageSquare,
-  Workflow
-} from 'lucide-react'
+import { AlertCircle } from 'lucide-react'
 import ProgramSelector from './ProgramSelector'
+import { dashboardNavGroups, isNavItemActive } from '../navigation/dashboardNavigation'
 
 const Layout = ({ children }) => {
   const location = useLocation()
-  const { selectedProgram } = useProgram()
-
-  const navItems = [
-    { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/programs', icon: FolderKanban, label: 'Programs' },
-    { path: '/actions', icon: PlayCircle, label: 'Actions' },
-    { path: '/workbench', icon: Workflow, label: 'Workbench' },
-    { path: '/workspace', icon: MessageSquare, label: 'Agent Workspace' },
-    { path: '/hosts', icon: Server, label: 'Hosts' },
-    { path: '/analysis', icon: ShieldAlert, label: 'Analysis' },
-    { path: '/infrastructure', icon: Network, label: 'Infrastructure' },
-    { path: '/surface-components', icon: GitBranch, label: 'Surface Components' },
-  ]
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside className="fixed left-0 top-0 h-full w-64 bg-gray-900 text-white shadow-lg">
-        <div className="flex flex-col h-full">
-          {/* Logo */}
-          <div className="p-6 border-b border-gray-800">
+      <aside className="fixed left-0 top-0 h-full w-72 bg-gray-950 text-white shadow-lg">
+        <div className="flex h-full flex-col">
+          <div className="border-b border-gray-800 p-6">
             <h1 className="text-xl font-bold text-primary-400">Bug Bounty Dashboard</h1>
+            <p className="mt-1 text-xs text-gray-400">Program state, graph analysis, and execution control.</p>
           </div>
 
-          {/* Program Selector */}
-          <div className="p-4 border-b border-gray-800">
+          <div className="border-b border-gray-800 p-4">
             <ProgramSelector />
           </div>
 
-          {/* Navigation */}
-          <nav className="flex-1 p-4 space-y-2">
-            {navItems.map((item) => {
-              const Icon = item.icon
-              const isActive = item.path === '/workspace' ? location.pathname.startsWith('/workspace') : item.path === '/workbench' ? location.pathname.startsWith('/workbench') : location.pathname === item.path
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={`
-                    flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors
-                    ${isActive 
-                      ? 'bg-primary-600 text-white' 
-                      : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                    }
-                  `}
-                >
-                  <Icon size={20} />
-                  <span className="font-medium">{item.label}</span>
-                </Link>
-              )
-            })}
+          <nav className="flex-1 space-y-5 overflow-y-auto p-4">
+            {dashboardNavGroups.map((group) => (
+              <section key={group.id}>
+                <div className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">
+                  {group.label}
+                </div>
+                <div className="space-y-1">
+                  {group.items.map((item) => {
+                    const Icon = item.icon
+                    const active = isNavItemActive(item, location.pathname)
+                    return (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+                          active
+                            ? 'bg-primary-600 text-white'
+                            : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                        }`}
+                      >
+                        <Icon size={18} />
+                        <span className="font-medium">{item.label}</span>
+                      </Link>
+                    )
+                  })}
+                </div>
+              </section>
+            ))}
           </nav>
 
-          {/* Footer */}
-          <div className="p-4 border-t border-gray-800 text-sm text-gray-400">
-            <div className="flex items-center space-x-2">
+          <div className="border-t border-gray-800 p-4 text-sm text-gray-400">
+            <div className="flex items-center gap-2">
               <AlertCircle size={16} />
               <span>API v0.1.0</span>
             </div>
@@ -80,8 +59,7 @@ const Layout = ({ children }) => {
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="ml-64 p-8">
+      <main className="ml-72 p-8">
         {children}
       </main>
     </div>

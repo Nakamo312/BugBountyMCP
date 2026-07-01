@@ -33,14 +33,14 @@ const SurfaceSummary = ({ summary }) => {
         <StatTile title="HTTP obs" value={counts.http_observations} icon={Activity} tone="amber" />
         <StatTile title="JS refs" value={counts.javascript_references} icon={FileText} tone="emerald" />
       </div>
-      <ContextList title="HTTP samples" items={httpSamples.map((sample) => ({ kind: sample.method || 'HTTP', url: sample.url }))} empty="HTTP samples пока нет." />
-      <ContextList title="JS samples" items={jsSamples.map((sample) => ({ kind: sample.reference_type || 'JS', url: sample.referenced_url || sample.source_url }))} empty="JS samples пока нет." />
+      <ContextList title="HTTP samples" items={httpSamples.map((sample) => ({ kind: sample.method || 'HTTP', url: sample.url }))} empty="No HTTP samples yet." />
+      <ContextList title="JS samples" items={jsSamples.map((sample) => ({ kind: sample.reference_type || 'JS', url: sample.referenced_url || sample.source_url }))} empty="No JS samples yet." />
     </div>
   )
 }
 
 const ContextSnapshot = ({ context }) => (
-  <SectionCard title="Компактный контекст" icon={FileText}>
+  <SectionCard title="Compact context" icon={FileText}>
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <StatTile title="User msg" value={context.thread_summary?.user_messages} icon={MessageSquare} tone="blue" />
@@ -50,23 +50,23 @@ const ContextSnapshot = ({ context }) => (
       </div>
       {context.last_user_message_excerpt && (
         <div className="rounded-2xl bg-gray-50 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Последний промт</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Latest prompt</p>
           <p className="mt-2 text-sm leading-6 text-gray-700">{context.last_user_message_excerpt}</p>
         </div>
       )}
       {context.last_agent_message_excerpt && (
         <div className="rounded-2xl bg-primary-50 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-primary-600">Последний ответ агента</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-primary-600">Latest agent response</p>
           <p className="mt-2 text-sm leading-6 text-gray-700">{context.last_agent_message_excerpt}</p>
         </div>
       )}
-      <ContextList title="Context refs" items={context.context_refs || []} empty="Контекстные refs не прикреплены." />
+      <ContextList title="Context refs" items={context.context_refs || []} empty="No context refs attached." />
     </div>
   </SectionCard>
 )
 
 const AcceptedActions = ({ actions }) => (
-  <SectionCard title="Принятые action’ы" icon={PlayCircle}>
+  <SectionCard title="Accepted actions" icon={PlayCircle}>
     {actions?.length > 0 ? (
       <div className="space-y-3">
         {actions.map((action) => (
@@ -82,17 +82,17 @@ const AcceptedActions = ({ actions }) => (
         ))}
       </div>
     ) : (
-      <EmptyState title="Action’ов пока нет" description="Proposal должен быть явно принят, потом ActionService решит queued/approval/blocked." />
+      <EmptyState title="No actions yet" description="A proposal must be explicitly accepted before ActionService decides queued, approval, or blocked state." />
     )}
   </SectionCard>
 )
 
 const BoundaryNotes = () => (
-  <SectionCard title="Границы" icon={Target}>
+  <SectionCard title="Boundaries" icon={Target}>
     <div className="space-y-2 text-xs text-gray-600">
-      <div className="rounded-xl bg-gray-50 px-3 py-2">Tools запускаются только через ActionService.</div>
-      <div className="rounded-xl bg-gray-50 px-3 py-2">Raw artifacts и raw response bodies не читаются этим экраном.</div>
-      <div className="rounded-xl bg-gray-50 px-3 py-2">GDS/агенты не запускаются из detail read-model.</div>
+      <div className="rounded-xl bg-gray-50 px-3 py-2">Tools run only through ActionService.</div>
+      <div className="rounded-xl bg-gray-50 px-3 py-2">This screen does not read raw artifacts or raw response bodies.</div>
+      <div className="rounded-xl bg-gray-50 px-3 py-2">This read model does not start GDS or agents.</div>
     </div>
   </SectionCard>
 )

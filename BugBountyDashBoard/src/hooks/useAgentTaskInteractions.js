@@ -54,7 +54,7 @@ export function useAgentTaskInteractions({ onChanged, setError, taskId }) {
       setFollowupDeepConfirmed(false)
       await onChanged()
     } catch (err) {
-      setError(actionError(err, 'Не удалось отправить сообщение'))
+      setError(actionError(err, 'Failed to send message'))
     } finally {
       setActionBusy(false)
     }
@@ -73,7 +73,7 @@ export function useAgentTaskInteractions({ onChanged, setError, taskId }) {
       await reviewAction(proposal.proposal_id, proposalReviewPayload(decision))
       await onChanged()
     } catch (err) {
-      setError(actionError(err, 'Не удалось применить решение'))
+      setError(actionError(err, 'Failed to apply decision'))
     } finally {
       setActionBusy(false)
     }

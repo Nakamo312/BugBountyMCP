@@ -87,7 +87,7 @@ export const MessageCard = ({ message }) => {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-gray-900">{isUser ? 'Ты' : message.agent_key || 'Агент'}</span>
+            <span className="font-semibold text-gray-900">{isUser ? 'You' : message.agent_key || 'Agent'}</span>
             <Badge className={isDecision ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-gray-50 text-gray-600'}>
               {formatKind(message.message_kind)}
             </Badge>
@@ -130,13 +130,13 @@ export const ProposalCard = ({ proposal, onAccept, onReject, onSuppress, busy })
         <Sparkles className="shrink-0 text-violet-400" size={18} />
       </div>
       <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-gray-500 sm:grid-cols-2">
-        <div>{experience ? 'Источник' : 'Агент'}: <span className="font-medium text-gray-700">{sourceValue || 'не задано'}</span></div>
-        <div>Тип: <span className="font-medium text-gray-700">{proposal.proposal_type || kind}</span></div>
-        <div>Capability: <span className="font-medium text-gray-700">{proposal.capability_id || 'не задано'}</span></div>
-        <div>Profile: <span className="font-medium text-gray-700">{proposal.profile_id || 'не задано'}</span></div>
+        <div>{experience ? 'Source' : 'Agent'}: <span className="font-medium text-gray-700">{sourceValue || 'not set'}</span></div>
+        <div>Type: <span className="font-medium text-gray-700">{proposal.proposal_type || kind}</span></div>
+        <div>Capability: <span className="font-medium text-gray-700">{proposal.capability_id || 'not set'}</span></div>
+        <div>Profile: <span className="font-medium text-gray-700">{proposal.profile_id || 'not set'}</span></div>
       </div>
       {proposal.expected_gain && (
-        <p className="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-600">Ожидаемый gain: {proposal.expected_gain}</p>
+        <p className="mt-3 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-600">Expected gain: {proposal.expected_gain}</p>
       )}
       {(proposal.status === 'pending' || proposal.status === 'accept_failed') && (
         <div className="mt-4 flex flex-wrap gap-2">
@@ -144,10 +144,10 @@ export const ProposalCard = ({ proposal, onAccept, onReject, onSuppress, busy })
             type="button"
             onClick={() => onAccept(proposal)}
             disabled={busy || !canAccept}
-            title={canAccept ? 'Создать ActionRequest через ActionService' : 'Нужны capability, profile и targets'}
+            title={canAccept ? 'Create ActionRequest through ActionService' : 'Capability, profile, and targets are required'}
             className="inline-flex items-center gap-1 rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
           >
-            <PlayCircle size={15} /> {canAccept ? (proposal.status === 'accept_failed' ? 'Повторить' : 'Принять') : 'Не готово к запуску'}
+            <PlayCircle size={15} /> {canAccept ? (proposal.status === 'accept_failed' ? 'Retry' : 'Accept') : 'Not ready'}
           </button>
           <button
             type="button"
@@ -155,7 +155,7 @@ export const ProposalCard = ({ proposal, onAccept, onReject, onSuppress, busy })
             disabled={busy}
             className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
-            <ThumbsDown size={15} /> Отклонить
+            <ThumbsDown size={15} /> Reject
           </button>
           <button
             type="button"
@@ -163,7 +163,7 @@ export const ProposalCard = ({ proposal, onAccept, onReject, onSuppress, busy })
             disabled={busy}
             className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
           >
-            <XCircle size={15} /> Подавить похожее
+            <XCircle size={15} /> Suppress similar
           </button>
         </div>
       )}

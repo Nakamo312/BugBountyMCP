@@ -211,7 +211,8 @@ async def build_neo4j_lens_graph(
             template_name=template_name,
         )
 
-    parameters: dict[str, object] = {"program_id": str(program_id), "limit": max(1, min(limit, 500))}
+    safe_limit = _workbench_query_limit(settings, limit)
+    parameters: dict[str, object] = {"program_id": str(program_id), "limit": safe_limit}
     if lens in {WorkbenchLens.NEO4J_ENDPOINT, WorkbenchLens.NEO4J_EVIDENCE}:
         parameters["identity_key"] = identity_key or ""
     elif lens == WorkbenchLens.NEO4J_SURFACE_MATH:
@@ -262,8 +263,8 @@ async def build_neo4j_lens_graph(
         lens=lens,
         seed=seed,
         depth=depth,
-        nodes=list(nodes.values())[: max(1, min(limit, 500))],
-        edges=list(edges.values())[: max(1, min(limit * 4, 2000))],
+        nodes=list(nodes.values())[:safe_limit],
+        edges=list(edges.values())[: max(1, min(safe_limit * 4, 2000))],
         counts={
             "nodes": len(nodes),
             "edges": len(edges),
@@ -352,16 +353,33 @@ async def _execute_neo4j_read(settings: Settings, cypher: str, parameters: dict[
         raise RuntimeError("neo4j package is not installed in the API image") from exc
 
     def run() -> list[dict[str, Any]]:
-        driver = GraphDatabase.driver(settings.NEO4J_URI, auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD))
+        driver = GraphDatabase.driver(settings.NEO4J_URI, auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD), max_transaction_retry_time=_workbench_read_timeout(settings))
         try:
             with driver.session(database=settings.NEO4J_DATABASE, default_access_mode="READ") as session:
-                result = session.run(Query(cypher, timeout=3.0), parameters)
+                result = session.run(Query(cypher, timeout=_workbench_read_timeout(settings)), parameters)
                 return [dict(record) for record in result]
         finally:
             driver.close()
 
     return await asyncio.to_thread(run)
 
+
+
+def _workbench_read_timeout(settings: Settings) -> float:
+    try:
+        configured = float(settings.NEO4J_WORKBENCH_READ_TIMEOUT_SECONDS)
+    except (TypeError, ValueError):
+        configured = 20.0
+    return max(5.0, min(configured, 120.0))
+
+
+def _workbench_query_limit(settings: Settings, requested: int) -> int:
+    try:
+        configured_max = int(settings.NEO4J_WORKBENCH_MAX_LIMIT)
+    except (TypeError, ValueError):
+        configured_max = 200
+    bounded_max = max(25, min(configured_max, 500))
+    return max(1, min(int(requested or bounded_max), bounded_max))
 
 def _graph_from_records(records: Iterable[Mapping[str, Any]]) -> tuple[dict[str, WorkbenchNode], dict[str, WorkbenchEdge]]:
     nodes: dict[str, WorkbenchNode] = {}

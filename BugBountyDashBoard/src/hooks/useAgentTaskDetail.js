@@ -7,7 +7,7 @@ const DETAIL_LIMITS = {
   outcome_limit: 30,
 }
 
-const taskDetailError = (err) => err.response?.data?.detail || err.message || 'Не удалось загрузить задачу'
+const taskDetailError = (err) => err.response?.data?.detail || err.message || 'Failed to load task'
 
 export function useAgentTaskDetail(taskId) {
   const [detail, setDetail] = useState(null)

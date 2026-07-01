@@ -29,11 +29,14 @@ def test_workbench_frontend_uses_flowsint_style_canvas_renderer_for_large_graphs
 def test_workbench_frontend_has_dedicated_route_and_navigation_entry() -> None:
     app = _read("BugBountyDashBoard/src/App.jsx")
     layout = _read("BugBountyDashBoard/src/components/Layout.jsx")
+    navigation = _read("BugBountyDashBoard/src/navigation/dashboardNavigation.js")
 
     assert "./pages/Workbench" in app
     assert 'path="/workbench"' in app
-    assert "label: 'Workbench'" in layout
-    assert "label: 'Agent Workspace'" in layout
+    assert "dashboardNavGroups" in layout
+    assert "label: 'Workbench'" in navigation
+    assert "label: 'Execution'" in navigation
+    assert "Agent Workspace" not in navigation
 
 
 def test_workbench_frontend_calls_typed_workbench_read_apis_only() -> None:
@@ -80,6 +83,17 @@ def test_workbench_frontend_has_command_palette_filters_saved_views_and_projecti
     assert "setRetrieveQuery" in hook
     assert "query: retrieveQuery.trim() || undefined" in hook
     assert "seed: node.entity_key" in hook
+
+
+def test_projection_overview_hides_operator_commands_under_advanced_details() -> None:
+    overview = _read("BugBountyDashBoard/src/components/dashboard/ProjectionOverview.jsx")
+    plan = _read("BugBountyDashBoard/src/components/dashboard/OperatorPlan.jsx")
+
+    assert "Advanced local CLI fallbacks" in overview
+    assert "Advanced local projection diagnostics" in overview
+    assert "primary dashboard workflow" in overview
+    assert "Advanced local CLI fallback" in plan
+    assert "CLI fallbacks are hidden under advanced details" in plan
 
 
 def test_workbench_canvas_has_read_only_graph_context_menu() -> None:
@@ -202,6 +216,10 @@ def test_surface_components_page_can_materialize_latest_without_manual_snapshot_
     assert "Open in Workbench" in page
     assert "Neo4j/GDS materialized" in page
     assert "degraded fallback" in page
+    assert "Neo4j/GDS analysis is not available for this report" in page
+    assert "hidden from the main component UI" in page
+    assert "Retry Neo4j/GDS materialization" in page
+    assert "Show degraded fallback diagnostics" in page
     assert "Why inspect this component" in page
     assert "Graph-projector lanes" in page
     assert "Bridge-heavy" in page
@@ -209,6 +227,8 @@ def test_surface_components_page_can_materialize_latest_without_manual_snapshot_
     assert "Low coverage" in page
     assert "Action candidates" in page
     assert "Materialized graph-projector data" in page
+    assert "report && isFallbackReport(report)" in page
+    assert "report && !isFallbackReport(report)" in page
 
 
 def test_workbench_canvas_uses_progressive_investigation_controls_for_dense_graphs() -> None:
@@ -295,3 +315,39 @@ def test_workbench_frontend_exposes_neo4j_projection_lenses_and_canvas_types() -
     assert "neo4j_surface_node" in canvas
     assert "neo4j_action_outcome" in canvas
     assert "Neo4j projection" in canvas
+
+
+def test_dashboard_navigation_groups_workflows_instead_of_backend_pages() -> None:
+    navigation = _read("BugBountyDashBoard/src/navigation/dashboardNavigation.js")
+    layout = _read("BugBountyDashBoard/src/components/Layout.jsx")
+    app = _read("BugBountyDashBoard/src/App.jsx")
+    copy_guidelines = _read("docs/frontend/dashboard-copy-guidelines.md")
+
+    assert "Program Overview" in navigation
+    assert "Workbench" in navigation
+    assert "Component Analysis" in navigation
+    assert "Execution" in navigation
+    assert "Action Catalog" in navigation
+    assert "Evidence" in navigation
+    assert "dashboardNavGroups.map" in layout
+    assert 'path="/execution"' in app
+    assert 'path="/graph/components"' in app
+    assert 'path="/graph/pipeline"' in app
+    assert "Command Center" not in navigation
+    assert "Agent Workspace" not in navigation
+    assert "UI uses English interface text only" in copy_guidelines
+    assert "Command Center" in copy_guidelines
+
+
+def test_execution_copy_distinguishes_agent_tasks_from_executable_actions() -> None:
+    workspace = _read("BugBountyDashBoard/src/components/agents/AgentWorkspacePanels.jsx")
+    runtime = _read("BugBountyDashBoard/src/components/agents/AgentRuntimeControls.jsx")
+
+    assert "Execution model" in workspace
+    assert "Manual execution" in workspace
+    assert "Agent tasks" in workspace
+    assert "Action queue" in workspace
+    assert "Agent tasks do not run tools directly" in workspace
+    assert "ActionService" in workspace
+    assert "label: 'Manual'" in runtime
+    assert "No LLM call" in runtime

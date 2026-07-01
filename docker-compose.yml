@@ -26,7 +26,7 @@ services:
     profiles:
       - graph
     environment:
-      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-neo4j}
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-bugbounty-neo4j-local}
       NEO4J_dbms_default__database: ${NEO4J_DATABASE:-neo4j}
     volumes:
       - neo4j_data:/data
@@ -59,7 +59,7 @@ services:
       NEO4J_ENABLED: "true"
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: ${NEO4J_USER:-neo4j}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-bugbounty-neo4j-local}
       NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
       GRAPH_FACT_BATCH_POLL_SECONDS: ${GRAPH_FACT_BATCH_POLL_SECONDS:-1}
       GRAPH_FACT_BATCH_NOTIFY_CHANNEL: ${GRAPH_FACT_BATCH_NOTIFY_CHANNEL:-graph_fact_batches_changed}
@@ -203,8 +203,10 @@ services:
       RAW_OUTPUT_DIR: /app/data/raw_outputs
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: ${NEO4J_USER:-neo4j}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-bugbounty-neo4j-local}
       NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
+      NEO4J_WORKBENCH_READ_TIMEOUT_SECONDS: ${NEO4J_WORKBENCH_READ_TIMEOUT_SECONDS:-20}
+      NEO4J_WORKBENCH_MAX_LIMIT: ${NEO4J_WORKBENCH_MAX_LIMIT:-200}
     ports:
       - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
     volumes:

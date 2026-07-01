@@ -52,7 +52,7 @@ export default function BaseActionForm({
     try {
       setLocalLoading(true)
       const result = await onRun(preparedData)
-      setActionResult(result) // реальный ответ API
+      setActionResult(result) // API response
     } catch (err) {
       setActionResult({
         status: 'error',
@@ -65,7 +65,7 @@ export default function BaseActionForm({
 
   return (
     <div className="space-y-4">
-      {/* Всплывашка результата */}
+      {/* Result toast */}
       {actionResult && (
         <div className={clsx(
           'rounded-lg p-4 border flex items-start space-x-3',

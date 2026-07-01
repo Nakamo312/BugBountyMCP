@@ -212,6 +212,50 @@ const GraphProjectionBanner = ({ report, boundary }) => {
   )
 }
 
+
+const DegradedFallbackState = ({ report, onRetry, materializing }) => (
+  <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 shadow-sm">
+    <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="max-w-4xl">
+        <div className="text-lg font-semibold text-amber-950">Neo4j/GDS analysis is not available for this report</div>
+        <p className="mt-2 text-sm text-amber-900">
+          The current report is only a degraded local route-family grouping. It is hidden from the main component UI because it does not contain graph-projector bridges, outliers, drift, coverage, or action-candidate analytics.
+        </p>
+        <p className="mt-2 text-sm text-amber-900">
+          Fix the projection source first, then reload this page. The useful component UI starts after graph-projector materializes Neo4j/GDS results.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => onRetry('materialize_components')}
+          disabled={materializing}
+          className="inline-flex items-center gap-2 rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-800 disabled:opacity-50"
+        >
+          {materializing ? <Loader className="animate-spin" size={16} /> : <PlayCircle size={16} />}
+          <span>Retry Neo4j/GDS materialization</span>
+        </button>
+        <Link
+          to="/workbench?lens=surface"
+          className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+        >
+          Open Workbench
+        </Link>
+      </div>
+    </div>
+    <details className="mt-5 rounded-lg border border-amber-200 bg-white p-4">
+      <summary className="cursor-pointer text-sm font-semibold text-amber-950">Show degraded fallback diagnostics</summary>
+      <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
+        <div><span className="font-medium text-gray-500">Fallback algorithm:</span> <span className="font-mono text-xs text-gray-700">{report.algorithm_version || report.algorithm}</span></div>
+        <div><span className="font-medium text-gray-500">Fallback components:</span> <span className="font-mono text-xs text-gray-700">{report.item_count}</span></div>
+        <div><span className="font-medium text-gray-500">Snapshot:</span> <span className="font-mono text-xs text-gray-700">{report.snapshot_id}</span></div>
+        <div><span className="font-medium text-gray-500">Run:</span> <span className="font-mono text-xs text-gray-700">{report.analysis_run_id}</span></div>
+      </div>
+      <p className="mt-3 text-xs text-amber-800">Fallback diagnostics are not triage signals and are not shown as component cards.</p>
+    </details>
+  </div>
+)
+
 const ComponentCard = ({ item, report }) => {
   const candidates = item.action_candidates || []
   const signals = item.signals || {}
@@ -397,9 +441,9 @@ const SurfaceComponents = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Surface Components</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Component Analysis</h1>
           <p className="mt-2 text-gray-600">
-            Persisted graph-math read model for{' '}
+            Persisted Neo4j/GDS component read model for{' '}
             <span className="font-semibold text-primary-600">{selectedProgram.name}</span>
           </p>
         </div>
@@ -519,7 +563,14 @@ const SurfaceComponents = () => {
         </div>
       )}
 
-      {report && (
+      {report && isFallbackReport(report) && (
+        <>
+          <GraphProjectionBanner report={report} boundary={boundary} />
+          <DegradedFallbackState report={report} onRetry={materializeLatest} materializing={materializing} />
+        </>
+      )}
+
+      {report && !isFallbackReport(report) && (
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <StatCard icon={GitBranch} label="Components" value={report.item_count} />

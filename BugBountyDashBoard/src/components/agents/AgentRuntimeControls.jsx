@@ -3,27 +3,27 @@ import React from 'react'
 export const AGENT_RUNTIME_MODES = [
   {
     value: 'none',
-    label: 'Без модели',
+    label: 'Manual',
     shortLabel: 'none',
-    description: 'Дешёвый deterministic-ответ. Агент не тратит LLM-бюджет.',
+    description: 'No LLM call. Use this for manual execution notes, deterministic task shells, and operator-controlled follow-up.',
   },
   {
     value: 'cheap',
-    label: 'Экономный',
+    label: 'Cheap',
     shortLabel: 'cheap',
-    description: 'Короткий ответ модели по сжатому контексту.',
+    description: 'Short model response over compact context.',
   },
   {
     value: 'normal',
-    label: 'Обычный',
+    label: 'Normal',
     shortLabel: 'normal',
-    description: 'Больше контекста и длиннее ответ, но всё ещё bounded.',
+    description: 'Bounded model response with more context.',
   },
   {
     value: 'deep',
-    label: 'Глубокий',
+    label: 'Deep',
     shortLabel: 'deep',
-    description: 'Дорогой режим. Требует явного подтверждения и может быть понижен backend policy.',
+    description: 'Expensive mode. Requires explicit confirmation and can still be downgraded by backend policy.',
   },
 ]
 
@@ -71,7 +71,7 @@ export function AgentRuntimeModeControl({
     <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Режим агента</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Runtime mode</p>
           {!compact && <p className="mt-1 text-xs leading-5 text-gray-500">{selected.description}</p>}
         </div>
         <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-medium text-gray-600">
@@ -100,7 +100,7 @@ export function AgentRuntimeModeControl({
             className="mt-0.5 rounded border-red-300 text-red-600 focus:ring-red-200"
           />
           <span>
-            Подтверждаю дорогой режим. Backend всё равно может понизить его до normal, если deep отключён policy.
+            I confirm deep mode. Backend policy can still downgrade this request to normal.
           </span>
         </label>
       )}
@@ -123,39 +123,39 @@ const badgeClass = (mode) => {
 
 const deepApprovalCopy = {
   deep_mode_disabled: {
-    label: 'deep выключен policy',
-    description: 'Backend не разрешает дорогой режим глобально.',
+    label: 'deep disabled by policy',
+    description: 'Backend policy does not allow deep mode globally.',
     className: 'border-red-200 bg-red-50 text-red-700',
   },
   deep_mode_requires_explicit_confirmation: {
-    label: 'deep не подтверждён',
-    description: 'Нужно явное подтверждение дорогого режима.',
+    label: 'deep not confirmed',
+    description: 'Deep mode requires explicit confirmation.',
     className: 'border-amber-200 bg-amber-50 text-amber-700',
   },
   deep_mode_actor_not_allowed: {
-    label: 'actor без deep-доступа',
-    description: 'Текущий actor не входит в список разрешённых для deep.',
+    label: 'actor not allowed',
+    description: 'The current actor is not allowed to use deep mode.',
     className: 'border-red-200 bg-red-50 text-red-700',
   },
   deep_mode_approved: {
-    label: 'deep одобрен',
-    description: 'Backend разрешил глубокий режим для этого запуска.',
+    label: 'deep approved',
+    description: 'Backend policy allowed deep mode for this run.',
     className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
   },
 }
 
 const budgetReasonCopy = {
-  model_usage_disabled: 'модель выключена',
-  selected: 'режим выбран',
-  selected_with_truncation: 'контекст обрезан',
-  deep_mode_disabled: 'deep выключен policy',
-  deep_mode_disabled_with_truncation: 'deep выключен, контекст обрезан',
-  deep_mode_requires_explicit_confirmation: 'deep не подтверждён',
-  deep_mode_requires_explicit_confirmation_with_truncation: 'deep не подтверждён, контекст обрезан',
-  deep_mode_actor_not_allowed: 'actor без deep-доступа',
-  deep_mode_actor_not_allowed_with_truncation: 'actor без deep-доступа, контекст обрезан',
-  deep_mode_approved: 'deep одобрен',
-  deep_mode_approved_with_truncation: 'deep одобрен, контекст обрезан',
+  model_usage_disabled: 'model disabled',
+  selected: 'selected',
+  selected_with_truncation: 'context truncated',
+  deep_mode_disabled: 'deep disabled by policy',
+  deep_mode_disabled_with_truncation: 'deep disabled, context truncated',
+  deep_mode_requires_explicit_confirmation: 'deep not confirmed',
+  deep_mode_requires_explicit_confirmation_with_truncation: 'deep not confirmed, context truncated',
+  deep_mode_actor_not_allowed: 'actor not allowed',
+  deep_mode_actor_not_allowed_with_truncation: 'actor not allowed, context truncated',
+  deep_mode_approved: 'deep approved',
+  deep_mode_approved_with_truncation: 'deep approved, context truncated',
 }
 
 const formatBudgetReason = (reason) => budgetReasonCopy[reason] || reason
@@ -165,13 +165,13 @@ const formatDeepApprovalTitle = (deepApproval) => {
   const parts = []
   if (deepApproval.actor) parts.push(`actor: ${deepApproval.actor}`)
   if (deepApproval.confirmation_required) {
-    parts.push(`подтверждение: ${deepApproval.confirmation_provided ? 'есть' : 'нет'}`)
+    parts.push(`confirmation: ${deepApproval.confirmation_provided ? 'yes' : 'no'}`)
   }
   if (typeof deepApproval.globally_allowed === 'boolean') {
-    parts.push(`глобально: ${deepApproval.globally_allowed ? 'разрешено' : 'выключено'}`)
+    parts.push(`globally: ${deepApproval.globally_allowed ? 'allowed' : 'disabled'}`)
   }
   if (Array.isArray(deepApproval.allowed_actors) && deepApproval.allowed_actors.length > 0) {
-    parts.push(`разрешённые actors: ${deepApproval.allowed_actors.join(', ')}`)
+    parts.push(`allowed actors: ${deepApproval.allowed_actors.join(', ')}`)
   }
   return parts.join(' · ') || undefined
 }
@@ -190,16 +190,16 @@ export function AgentBudgetBadge({ metadata }) {
   return (
     <div className="mt-3 flex flex-wrap gap-2 text-xs">
       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 font-medium ${badgeClass(selectedMode)}`}>
-        режим: {selectedMode}
+        mode: {selectedMode}
       </span>
       {typeof llmAllowed === 'boolean' && (
         <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-600">
-          LLM: {llmAllowed ? 'да' : 'нет'}
+          LLM: {llmAllowed ? 'yes' : 'no'}
         </span>
       )}
       {downgraded && (
         <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium text-amber-700">
-          понижено: {requestedMode} → {selectedMode}
+          downgraded: {requestedMode} → {selectedMode}
         </span>
       )}
       {deepApproval && (
@@ -225,17 +225,17 @@ export function AgentBudgetBadge({ metadata }) {
 }
 
 const usageModeLabels = {
-  none: 'none',
+  none: 'manual',
   cheap: 'cheap',
   normal: 'normal',
   deep: 'deep',
 }
 
 const usageWarnings = {
-  no_runtime_decisions_yet: 'ответов агента ещё нет',
-  runtime_mode_downgraded: 'часть режимов понижена policy',
-  deep_mode_downgraded: 'deep был понижен',
-  context_truncated: 'контекст обрезался',
+  no_runtime_decisions_yet: 'no runtime decisions yet',
+  runtime_mode_downgraded: 'some modes were downgraded by policy',
+  deep_mode_downgraded: 'deep mode was downgraded',
+  context_truncated: 'context was truncated',
 }
 
 const count = (value) => Number(value || 0)
@@ -255,13 +255,13 @@ export function AgentRuntimeUsagePanel({ summary, compact = false }) {
     <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-gray-900">Расход агентов</p>
+          <p className="text-sm font-semibold text-gray-900">Runtime usage</p>
           <p className="mt-1 text-xs leading-5 text-gray-500">
-            По сохранённым ответам. Это не провайдерский биллинг, а контроль режимов runtime.
+            Based on stored agent messages. This is runtime policy accounting, not provider billing.
           </p>
         </div>
         <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-600">
-          {runtimeDecisions} ответов
+          {runtimeDecisions} messages
         </span>
       </div>
 
@@ -280,7 +280,7 @@ export function AgentRuntimeUsagePanel({ summary, compact = false }) {
           <p>{modelCalls}</p>
         </div>
         <div className="rounded-xl bg-gray-50 px-3 py-2">
-          <p className="font-medium text-gray-900">Без модели</p>
+          <p className="font-medium text-gray-900">Manual</p>
           <p>{noModel}</p>
         </div>
         <div className="rounded-xl bg-gray-50 px-3 py-2">
@@ -288,7 +288,7 @@ export function AgentRuntimeUsagePanel({ summary, compact = false }) {
           <p>{deepDowngraded}</p>
         </div>
         <div className="rounded-xl bg-gray-50 px-3 py-2">
-          <p className="font-medium text-gray-900">Обрезано</p>
+          <p className="font-medium text-gray-900">Truncated</p>
           <p>{truncated}</p>
         </div>
       </div>

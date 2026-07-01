@@ -4,7 +4,7 @@ import { EmptyState, ProposalCard, SectionCard } from '../AgentCards'
 
 export function AgentTaskProposals({ actionBusy, onReview, proposals }) {
   return (
-    <SectionCard title="Предложения агента" icon={Sparkles}>
+    <SectionCard title="Agent proposals" icon={Sparkles}>
       {proposals?.length > 0 ? (
         <div className="grid gap-4 lg:grid-cols-2">
           {proposals.map((proposal) => (
@@ -19,7 +19,7 @@ export function AgentTaskProposals({ actionBusy, onReview, proposals }) {
           ))}
         </div>
       ) : (
-        <EmptyState title="Предложений пока нет" description="Агент может создать proposal после обработки контекста задачи." />
+        <EmptyState title="No proposals yet" description="An agent can create a proposal after processing task context." />
       )}
     </SectionCard>
   )

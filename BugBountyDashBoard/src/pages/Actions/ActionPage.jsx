@@ -11,8 +11,8 @@ export default function ActionsPage() {
 
   if (!selectedProgram) {
     return (
-      <div className="text-center py-10 text-gray-500">
-        Loading program...
+      <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-6 text-sm text-yellow-800">
+        Select a program to load the action catalog.
       </div>
     )
   }
@@ -34,15 +34,21 @@ export default function ActionsPage() {
   }
 
   return (
-    <ActionGrid>
-      {actions.map(action => (
-        <ActionCard
-          key={action.id}
-          action={action}
-          actionRunner={actionRunner}
-          active={actionRunner?.activeAction === action.id}
-        />
-      ))}
-    </ActionGrid>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">Action Catalog</h1>
+        <p className="mt-2 text-gray-600">Executable capabilities available to ActionService. Workbench node actions should be derived from this catalog, not hardcoded in the browser.</p>
+      </div>
+      <ActionGrid>
+        {actions.map(action => (
+          <ActionCard
+            key={action.id}
+            action={action}
+            actionRunner={actionRunner}
+            active={actionRunner?.activeAction === action.id}
+          />
+        ))}
+      </ActionGrid>
+    </div>
   )
 }

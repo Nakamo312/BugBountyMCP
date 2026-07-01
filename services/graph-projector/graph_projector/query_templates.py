@@ -110,11 +110,13 @@ LIMIT $limit
                 name="asset_exposure",
                 description="Read exposed services and endpoints for one program.",
                 cypher="""
-MATCH (host:Host {program_id: $program_id})-[:RESOLVES_TO]->(ip:IP)
-MATCH (ip)-[:EXPOSES_SERVICE]->(service:Service)
-OPTIONAL MATCH (service)-[:HAS_ENDPOINT]->(endpoint:Endpoint)
-RETURN host, ip, service, collect(endpoint)[0..$limit] AS endpoints
-ORDER BY host.hostname, service.port
+MATCH (host:Host {program_id: $program_id})
+WITH host ORDER BY host.hostname LIMIT $limit
+OPTIONAL MATCH service_path = (host)-[:RESOLVES_TO]->(:IP {program_id: $program_id})-[:EXPOSES_SERVICE]->(:Service {program_id: $program_id})
+OPTIONAL MATCH endpoint_path = (host)-[:RESOLVES_TO]->(:IP {program_id: $program_id})-[:EXPOSES_SERVICE]->(:Service {program_id: $program_id})-[:HAS_ENDPOINT]->(:Endpoint {program_id: $program_id})
+RETURN host,
+       collect(service_path)[0..$limit] AS service_paths,
+       collect(endpoint_path)[0..$limit] AS endpoint_paths
 LIMIT $limit
 """.strip(),
                 required_parameters=("program_id",),
@@ -126,9 +128,9 @@ LIMIT $limit
                 cypher="""
 MATCH (endpoint:Endpoint {program_id: $program_id})
 WHERE endpoint.normalized_path IS NOT NULL
-OPTIONAL MATCH path = (endpoint)<-[:REFERENCES]-(js:JSFile {program_id: $program_id})
+WITH endpoint ORDER BY endpoint.normalized_path LIMIT $limit
+OPTIONAL MATCH path = (endpoint)<-[:REFERENCES]-(:JSFile {program_id: $program_id})
 RETURN endpoint, collect(path)[0..$limit] AS evidence_paths
-ORDER BY endpoint.normalized_path
 LIMIT $limit
 """.strip(),
                 required_parameters=("program_id",),
@@ -142,9 +144,9 @@ MATCH (service:Service {program_id: $program_id})
 WHERE $technology IS NULL
    OR any(technology IN coalesce(service.technologies, [])
           WHERE toLower(toString(technology)) = toLower(toString($technology)))
-OPTIONAL MATCH (service)-[:HAS_ENDPOINT]->(endpoint:Endpoint {program_id: $program_id})
-RETURN service, collect(endpoint)[0..$limit] AS endpoints
-ORDER BY service.port, service.scheme
+WITH service ORDER BY service.port, service.scheme LIMIT $limit
+OPTIONAL MATCH path = (service)-[:HAS_ENDPOINT]->(:Endpoint {program_id: $program_id})
+RETURN service, collect(path)[0..$limit] AS endpoint_paths
 LIMIT $limit
 """.strip(),
                 required_parameters=("program_id",),
@@ -170,6 +172,7 @@ LIMIT $limit
                 cypher="""
 MATCH (outcome:ActionOutcome {program_id: $program_id})
 WHERE $outcome_id IS NULL OR outcome.outcome_id = $outcome_id
+WITH outcome ORDER BY outcome.finished_at DESC LIMIT $limit
 OPTIONAL MATCH feature_path = (outcome)-[:HAS_OUTCOME_FEATURE]->(:OutcomeFeature {program_id: $program_id})
 OPTIONAL MATCH capability_path = (outcome)-[:USED_CAPABILITY_PROFILE]->(:CapabilityProfile {program_id: $program_id})
 OPTIONAL MATCH run_path = (outcome)-[:OUTCOME_OF_RUN]->(:ToolRun {program_id: $program_id})
@@ -177,7 +180,6 @@ RETURN outcome,
        collect(feature_path)[0..$limit] AS feature_paths,
        collect(capability_path)[0..$limit] AS capability_paths,
        collect(run_path)[0..$limit] AS run_paths
-ORDER BY outcome.finished_at DESC
 LIMIT $limit
 """.strip(),
                 required_parameters=("program_id",),
@@ -189,9 +191,10 @@ LIMIT $limit
                 cypher="""
 MATCH (snapshot:SurfaceSnapshot {program_id: $program_id, snapshot_id: $snapshot_id})
 OPTIONAL MATCH node_path = (snapshot)-[:HAS_SURFACE_NODE]->(:SurfaceNode {program_id: $program_id})
+WITH snapshot, collect(node_path)[0..$limit] AS node_paths
 OPTIONAL MATCH delta_path = (snapshot)-[:HAS_SURFACE_DELTA]->(:SurfaceDelta {program_id: $program_id})
 RETURN snapshot,
-       collect(node_path)[0..$limit] AS node_paths,
+       node_paths,
        collect(delta_path)[0..$limit] AS delta_paths
 LIMIT $limit
 """.strip(),

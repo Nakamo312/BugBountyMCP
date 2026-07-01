@@ -59,7 +59,7 @@ export function useAgentWorkspace() {
       const firstTaskId = snapshot.tasks?.[0]?.task?.task_id
       setSelectedTaskId((current) => current || firstTaskId || null)
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Не удалось загрузить рабочее пространство')
+      setError(err.response?.data?.detail || err.message || 'Failed to load execution workspace')
     } finally {
       setLoading(false)
     }
@@ -74,7 +74,7 @@ export function useAgentWorkspace() {
       const response = await getAgentTaskDetail(taskId)
       setTaskDetail(response.data)
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Не удалось загрузить задачу')
+      setError(err.response?.data?.detail || err.message || 'Failed to load task')
     }
   }, [])
 
@@ -160,7 +160,7 @@ export function useAgentWorkspace() {
       await loadWorkspace()
       if (newTaskId) setSelectedTaskId(newTaskId)
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Не удалось создать задачу')
+      setError(err.response?.data?.detail || err.message || 'Failed to create task')
     } finally {
       setActionBusy(false)
     }
@@ -188,7 +188,7 @@ export function useAgentWorkspace() {
       await loadTaskDetail(selectedTaskId)
       await loadWorkspace()
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Не удалось отправить сообщение')
+      setError(err.response?.data?.detail || err.message || 'Failed to send message')
     } finally {
       setActionBusy(false)
     }
@@ -204,7 +204,7 @@ export function useAgentWorkspace() {
       await loadWorkspace()
       if (selectedTaskId) await loadTaskDetail(selectedTaskId)
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Не удалось применить решение')
+      setError(err.response?.data?.detail || err.message || 'Failed to apply decision')
     } finally {
       setActionBusy(false)
     }
@@ -225,7 +225,7 @@ export function useAgentWorkspace() {
         setExperienceTargetReview((current) => ({
           ...current,
           proposalId: proposal.proposal_id,
-          error: 'Нужно указать хотя бы один target',
+          error: 'At least one target is required',
         }))
         return false
       }
@@ -297,7 +297,7 @@ export function useAgentWorkspace() {
     event.preventDefault()
     const targets = parseTargetList(experienceTargetReview.value)
     if (targets.length === 0) {
-      setExperienceTargetReview((current) => ({ ...current, error: 'Нужно указать хотя бы один target' }))
+      setExperienceTargetReview((current) => ({ ...current, error: 'At least one target is required' }))
       return
     }
     reviewProposal(proposal, 'accept', { targets })

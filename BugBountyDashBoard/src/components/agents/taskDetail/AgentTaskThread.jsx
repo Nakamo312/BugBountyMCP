@@ -13,14 +13,14 @@ function FollowupComposer({ actionBusy, deepConfirmed, followup, mode, onDeepCon
             value={followup}
             onChange={(event) => onFollowupChange(event.target.value)}
             rows={3}
-            placeholder="Спросить агента по этой задаче..."
+            placeholder="Ask a follow-up about this task..."
             className="min-h-[72px] flex-1 resize-none rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-100"
           />
           <button
             type="submit"
             disabled={disabled}
             className="inline-flex items-center justify-center rounded-xl bg-primary-600 px-4 text-white hover:bg-primary-700 disabled:opacity-50"
-            title="Отправить follow-up"
+            title="Send follow-up"
           >
             {actionBusy ? <Loader className="animate-spin" size={18} /> : <Send size={18} />}
           </button>
@@ -44,7 +44,7 @@ export function AgentTaskThread({ actionBusy, followupState, messages, onSubmit,
         {messages.length > 0 ? (
           messages.map((message) => <MessageCard key={message.message_id} message={message} />)
         ) : (
-          <EmptyState icon={MessageSquare} title="Сообщений пока нет" description="Здесь появятся промты и ответы агента." />
+          <EmptyState icon={MessageSquare} title="No messages yet" description="Prompts and agent responses appear here." />
         )}
         <FollowupComposer actionBusy={actionBusy} onSubmit={onSubmit} {...followupState} />
       </div>

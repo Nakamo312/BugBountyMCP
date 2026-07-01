@@ -38,8 +38,10 @@ class Settings(BaseSettings):
 
     NEO4J_URI: str = "bolt://localhost:7687"
     NEO4J_USER: str = "neo4j"
-    NEO4J_PASSWORD: str = "neo4j"
+    NEO4J_PASSWORD: str = "bugbounty-neo4j-local"
     NEO4J_DATABASE: str = "neo4j"
+    NEO4J_WORKBENCH_READ_TIMEOUT_SECONDS: float = 20.0
+    NEO4J_WORKBENCH_MAX_LIMIT: int = 200
 
     # Durable event dispatch from PostgreSQL event_store to RabbitMQ.
     USE_EVENT_DISPATCHER: bool = True

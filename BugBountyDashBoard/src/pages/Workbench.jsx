@@ -93,9 +93,9 @@ const Workbench = () => {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Research Workbench</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Workbench</h1>
           <p className="mt-2 text-gray-600">
-            Entity graph, inspector, evidence, memory, and contextual actions for{' '}
+            Entity graph, evidence, memory, and backend-derived action affordances for{' '}
             <span className="font-semibold text-primary-600">{selectedProgram.name}</span>
           </p>
         </div>

@@ -35,7 +35,7 @@ function ActionCard({ action, actionRunner }) {
 
   return (
     <>
-      {/* Карточка action */}
+      {/* Action card */}
       <div
         className={clsx(
           'bg-white rounded-lg p-6 border-2 transition-colors cursor-pointer hover:shadow-lg',
@@ -57,7 +57,7 @@ function ActionCard({ action, actionRunner }) {
         </header>
       </div>
 
-      {/* Модальное окно с формой */}
+      {/* Action form modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md relative">
@@ -81,7 +81,7 @@ function ActionCard({ action, actionRunner }) {
         </div>
       )}
 
-      {/* Toast результата */}
+      {/* Result toast */}
       <ActionToast actionResult={toastResult} onClose={() => setToastResult(null)} />
     </>
   )

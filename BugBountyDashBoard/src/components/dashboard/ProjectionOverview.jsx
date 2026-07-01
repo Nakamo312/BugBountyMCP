@@ -42,11 +42,10 @@ const ProjectionAuditCommands = ({ programId }) => {
         <div>
           <h3 className="flex items-center gap-2 font-semibold text-gray-900">
             <Terminal className="text-gray-500" size={18} />
-            Local run-step audit
+            Advanced local run-step audit
           </h3>
           <p className="mt-1 text-sm text-gray-600">
-            The dashboard cannot read the operator&apos;s local JSONL audit file. Use the guarded bb CLI to inspect
-            preview/execute history for projection run-step invocations.
+            Hidden diagnostic fallback for local JSONL audit files. The primary UI should expose backend projection controls instead of asking the user to run commands.
           </p>
         </div>
         <StatusBadge ok label="CLI-local" />
@@ -100,13 +99,13 @@ const ProjectionQueues = ({ overview }) => [
 
 const ProjectionLinks = () => (
   <div className="mt-5 flex flex-wrap gap-2">
-    <Link to="/surface-components" className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-3 py-2 text-sm text-white hover:bg-primary-700">
+    <Link to="/graph/components" className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-3 py-2 text-sm text-white hover:bg-primary-700">
       <GitBranch size={16} />
-      Surface components
+      Component analysis
     </Link>
-    <Link to="/workspace" className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+    <Link to="/execution" className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
       <Activity size={16} />
-      Review proposals
+      Review execution
     </Link>
   </div>
 )
@@ -114,10 +113,11 @@ const ProjectionLinks = () => (
 const SuggestedCommands = ({ commands }) => {
   if (!commands.length) return null
   return (
-    <div className="mt-5 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4">
-      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Suggested operator commands</div>
+    <details className="mt-5 rounded-lg border border-gray-200 bg-gray-50 p-4">
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-gray-500">Advanced local CLI fallbacks</summary>
       <CommandList commands={commands.slice(0, 5)} />
-    </div>
+      <p className="mt-3 text-xs text-gray-500">These are not the primary dashboard workflow. They remain only for local diagnostics when backend projection controls are unavailable.</p>
+    </details>
   )
 }
 
@@ -179,7 +179,10 @@ export const ProjectionOverview = ({ overview, operatorPlan, loading, error, onR
       <ProjectionLinks />
       <SuggestedCommands commands={overview.suggested_commands || []} />
       <OperatorPlan plan={operatorPlan} />
-      <ProjectionAuditCommands programId={overview.program_id} />
+      <details className="mt-5">
+        <summary className="cursor-pointer text-sm font-medium text-gray-700">Advanced local projection diagnostics</summary>
+        <ProjectionAuditCommands programId={overview.program_id} />
+      </details>
     </div>
   )
 }

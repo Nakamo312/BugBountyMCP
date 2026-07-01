@@ -27,13 +27,16 @@ const OperatorPlanStep = ({ step }) => (
       </div>
     </div>
     {step.commands?.length > 0 && (
-      <div className="mt-3 space-y-2">
-        {step.commands.map((command) => (
-          <code key={command} className="block overflow-x-auto rounded bg-gray-900 px-3 py-2 text-xs text-gray-100">
-            {command}
-          </code>
-        ))}
-      </div>
+      <details className="mt-3 rounded border border-gray-200 bg-white p-3">
+        <summary className="cursor-pointer text-xs font-semibold text-gray-600">Advanced local CLI fallback</summary>
+        <div className="mt-2 space-y-2">
+          {step.commands.map((command) => (
+            <code key={command} className="block overflow-x-auto rounded bg-gray-900 px-3 py-2 text-xs text-gray-100">
+              {command}
+            </code>
+          ))}
+        </div>
+      </details>
     )}
   </div>
 )
@@ -49,7 +52,7 @@ export const OperatorPlan = ({ plan }) => {
         <div>
           <h3 className="font-semibold text-blue-950">Operator plan</h3>
           <p className="mt-1 text-sm text-blue-800">
-            Read-only ordered ops steps derived from the projection overview. The dashboard never executes these commands.
+            Projection health derived from backend read models. CLI fallbacks are hidden under advanced details.
           </p>
         </div>
         <StatusBadge ok={plan.ui_data_fresh} label={plan.ui_data_fresh ? 'fresh' : `${plan.step_count || 0} steps`} />

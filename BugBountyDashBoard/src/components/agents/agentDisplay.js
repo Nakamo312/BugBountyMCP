@@ -1,34 +1,33 @@
 export const STATUS_LABELS = {
-  pending: 'ждёт',
-  running: 'в работе',
-  completed: 'готово',
-  failed: 'ошибка',
-  cancelled: 'отменено',
-  pending_approval: 'нужен approve',
-  requires_approval: 'нужен approve',
-  queued: 'в очереди',
-  blocked: 'заблокировано',
-  accepting: 'принимается',
-  accepted: 'принято',
-  accept_failed: 'ошибка принятия',
-  rejected: 'отклонено',
-  suppressed: 'подавлено',
+  pending: 'pending',
+  running: 'running',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'cancelled',
+  pending_approval: 'pending approval',
+  requires_approval: 'requires approval',
+  queued: 'queued',
+  blocked: 'blocked',
+  accepting: 'accepting',
+  accepted: 'accepted',
+  accept_failed: 'accept failed',
+  rejected: 'rejected',
+  suppressed: 'suppressed',
 }
 
 export const KIND_LABELS = {
-  note: 'заметка',
-  finding: 'находка',
-  proposal: 'предложение',
-  question: 'вопрос',
-  decision: 'решение',
-  error: 'ошибка',
+  note: 'note',
+  finding: 'finding',
+  proposal: 'proposal',
+  question: 'question',
+  decision: 'decision',
+  error: 'error',
 }
 
 export const priorityClass = (priority) => {
   switch ((priority || '').toLowerCase()) {
     case 'high':
     case 'critical':
-    case 'важно':
       return 'border-red-200 bg-red-50 text-red-700'
     case 'low':
       return 'border-emerald-200 bg-emerald-50 text-emerald-700'
@@ -63,16 +62,16 @@ export const statusClass = (status) => {
 }
 
 export const formatStatus = (status) => STATUS_LABELS[status] || status || '—'
-export const formatKind = (kind) => KIND_LABELS[kind] || kind || 'сообщение'
+export const formatKind = (kind) => KIND_LABELS[kind] || kind || 'message'
 
 export const formatTime = (value) => {
   if (!value) return '—'
   try {
-    return new Intl.DateTimeFormat('ru-RU', {
+    return new Intl.DateTimeFormat('en-US', {
       hour: '2-digit',
       minute: '2-digit',
       day: '2-digit',
-      month: '2-digit',
+      month: 'short',
     }).format(new Date(value))
   } catch (error) {
     return value

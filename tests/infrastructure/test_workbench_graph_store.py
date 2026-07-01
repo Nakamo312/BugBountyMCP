@@ -801,3 +801,34 @@ def test_workbench_projection_control_falls_back_to_surface_snapshot_components_
     assert "Neo4j/GDS component analytics were unavailable" in source
     assert "gds_execution" in source
     assert "not_performed" in source
+
+
+def test_workbench_neo4j_read_timeout_is_not_three_second_ui_request_limit() -> None:
+    from api.config import Settings
+    from api.infrastructure import workbench_neo4j
+
+    settings = Settings(NEO4J_WORKBENCH_READ_TIMEOUT_SECONDS=20.0, NEO4J_WORKBENCH_MAX_LIMIT=200)
+
+    assert workbench_neo4j._workbench_read_timeout(settings) == 20.0
+    assert workbench_neo4j._workbench_query_limit(settings, 500) == 200
+
+
+def test_graph_projector_templates_limit_before_expanding_heavy_neo4j_lenses() -> None:
+    import sys
+    from pathlib import Path
+
+    graph_projector_path = Path("services/graph-projector").resolve()
+    if str(graph_projector_path) not in sys.path:
+        sys.path.insert(0, str(graph_projector_path))
+
+    from graph_projector.query_templates import default_query_template_registry
+
+    registry = default_query_template_registry()
+    asset = registry.get("asset_exposure").cypher
+    js = registry.get("hidden_endpoints_from_js").cypher
+    outcome = registry.get("action_outcome_experience_neighborhood").cypher
+
+    assert "WITH host ORDER BY host.hostname LIMIT $limit" in asset
+    assert "collect(service_path)[0..$limit]" in asset
+    assert "WITH endpoint ORDER BY endpoint.normalized_path LIMIT $limit" in js
+    assert "WITH outcome ORDER BY outcome.finished_at DESC LIMIT $limit" in outcome
