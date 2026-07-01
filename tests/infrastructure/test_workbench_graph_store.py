@@ -782,3 +782,16 @@ def test_workbench_hypothesis_lens_builds_reasoning_graph_without_finding_promot
     assert memory.summaries[0]["not_semantics"] == "finding/proof/verdict/confirmed_vulnerability"
     assert actions.actions == []
     assert actions.boundary["surface"] == "hypothesis_lens_read_only_no_action_affordances"
+
+
+def test_workbench_projection_control_falls_back_to_surface_snapshot_components_when_neo4j_is_unavailable() -> None:
+    from api.infrastructure import workbench_projection_control
+
+    source = workbench_projection_control.__loader__.get_source(workbench_projection_control.__name__)
+
+    assert "_materialize_surface_components_from_surface_snapshot" in source
+    assert "surface-local-route-family-components" in source
+    assert "surface_snapshot_route_family_grouping" in source
+    assert "Neo4j/GDS component analytics were unavailable" in source
+    assert "gds_execution" in source
+    assert "not_performed" in source

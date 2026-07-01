@@ -14,14 +14,16 @@ def _read_workbench_page_bundle() -> str:
     ])
 
 
-def test_workbench_frontend_uses_react_flow_as_primary_canvas() -> None:
+def test_workbench_frontend_uses_flowsint_style_canvas_renderer_for_large_graphs() -> None:
     package = _read("BugBountyDashBoard/package.json")
     canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
 
-    assert '"@xyflow/react"' in package
-    assert "from '@xyflow/react'" in canvas
-    assert "react-force-graph-2d" not in canvas
-    assert "nodeTypes" in canvas
+    assert '"react-force-graph-2d"' in package
+    assert "from 'react-force-graph-2d'" in canvas
+    assert "ForceGraph2D" in canvas
+    assert "nodeCanvasObject" in canvas
+    assert "ReactFlow" not in canvas
+    assert "@xyflow/react" not in canvas
 
 
 def test_workbench_frontend_has_dedicated_route_and_navigation_entry() -> None:
@@ -84,8 +86,9 @@ def test_workbench_canvas_has_read_only_graph_context_menu() -> None:
     canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
     page = _read_workbench_page_bundle()
 
-    assert "onNodeContextMenu" in canvas
+    assert "onNodeRightClick" in canvas
     assert "GraphContextMenu" in canvas
+    assert "onBackgroundRightClick" in canvas
     assert "Focus graph from this seed" in canvas
     assert "Copy entity key" in canvas
     assert "Filter left rail by this node type" in canvas
@@ -159,13 +162,16 @@ def test_workbench_frontend_can_refresh_missing_read_models_without_manual_ids()
     assert "snapshot_id" not in hook
 
 
-def test_workbench_surface_canvas_uses_layered_graph_layout_not_plain_grid_cards() -> None:
+def test_workbench_surface_canvas_uses_canvas_investigation_map_not_card_grid() -> None:
     canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
 
-    assert "nodePositionMap" in canvas
-    assert "rankForNode" in canvas
+    assert "Investigation graph" in canvas
+    assert "nodeCanvasObject" in canvas
+    assert "paintNode" in canvas
     assert "route_family" in canvas
-    assert "smoothstep" in canvas
+    assert "GraphLegend" in canvas
+    assert "WorkbenchNodeCard" not in canvas
+    assert "nodePositionMap" not in canvas
     assert "const columns =" not in canvas
     assert "nodePosition(index)" not in canvas
 
@@ -189,3 +195,15 @@ def test_surface_components_page_can_materialize_latest_without_manual_snapshot_
     assert "backend resolves snapshot ids" in page
     assert "Advanced: load a specific snapshot by UUID" in page
     assert "runWorkbenchProjectionRefresh" in page
+
+
+def test_workbench_canvas_uses_progressive_investigation_controls_for_dense_graphs() -> None:
+    canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
+
+    assert "DENSE_GRAPH_LIMIT" in canvas
+    assert "selectCanvasGraph" in canvas
+    assert "Canvas renderer, hover/select to reveal labels" in canvas
+    assert "double click to focus" in canvas
+    assert "onNodeDoubleClick" in canvas
+    assert "zoomToFit" in canvas
+    assert "WorkbenchNodeCard" not in canvas

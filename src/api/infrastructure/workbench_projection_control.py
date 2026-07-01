@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -8,9 +9,9 @@ import subprocess
 import sys
 from collections.abc import Mapping
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from api.application.workbench_projection_control import (
@@ -21,7 +22,12 @@ from api.application.workbench_projection_control import (
     workbench_projection_control_boundary,
 )
 from api.config import Settings
-from api.infrastructure.adapters.orm_tables.surface_map import surface_snapshots
+from api.infrastructure.adapters.orm_tables.surface_map import (
+    surface_component_analysis_items,
+    surface_component_analysis_runs,
+    surface_nodes,
+    surface_snapshots,
+)
 
 
 class WorkbenchProjectionControlStore:
@@ -74,6 +80,12 @@ class WorkbenchProjectionControlStore:
                     request,
                     snapshot_id,
                 )
+                if component_step.status == "failed":
+                    component_step = await self._materialize_surface_components_from_surface_snapshot(
+                        request,
+                        snapshot_id,
+                        fallback_reason=component_step.message,
+                    )
                 steps.append(component_step)
 
         status = "completed"
@@ -177,6 +189,122 @@ class WorkbenchProjectionControlStore:
             },
         )
 
+    async def _materialize_surface_components_from_surface_snapshot(
+        self,
+        request: WorkbenchProjectionRunRequest,
+        snapshot_id: UUID,
+        *,
+        fallback_reason: str,
+    ) -> WorkbenchProjectionStepResult:
+        """Materialize a bounded component read model without Neo4j/GDS.
+
+        This is not a replacement for GDS component analytics. It is the UI-safe
+        fallback that prevents the dashboard from becoming unusable when the
+        graph profile is not running. Components are deterministic route-family
+        groups derived from the already persisted Surface Map snapshot.
+        """
+        async with self._session_factory() as session:
+            rows = await self._surface_nodes_for_snapshot(session, request.program_id, snapshot_id)
+        if not rows:
+            return WorkbenchProjectionStepResult(
+                step_id="materialize-components",
+                status="skipped",
+                message="Surface snapshot has no nodes to group into components.",
+                snapshot_id=snapshot_id,
+                details={"fallback_reason": fallback_reason},
+            )
+        grouped = _local_component_groups(rows, limit=request.component_limit)
+        run_id = uuid4()
+        fingerprint = _local_component_fingerprint(
+            program_id=request.program_id,
+            snapshot_id=snapshot_id,
+            grouped=grouped,
+            run_id=run_id,
+        )
+        async with self._session_factory() as session:
+            async with session.begin():
+                await session.execute(
+                    insert(surface_component_analysis_runs).values(
+                        id=run_id,
+                        program_id=request.program_id,
+                        snapshot_id=snapshot_id,
+                        previous_snapshot_id=None,
+                        algorithm="surface-local-route-family-components",
+                        algorithm_version="surface-local-route-family-components-v1",
+                        report_fingerprint=fingerprint,
+                        settings_json={
+                            "source": "workbench_projection_control",
+                            "fallback": "neo4j_unavailable",
+                            "component_limit": request.component_limit,
+                            "candidate_limit": request.candidate_limit,
+                        },
+                        stats_json={
+                            "component_count": len(grouped),
+                            "source_node_count": len(rows),
+                            "neo4j_fallback": True,
+                        },
+                    )
+                )
+                for component_id, group in enumerate(grouped):
+                    await session.execute(
+                        insert(surface_component_analysis_items).values(
+                            id=uuid4(),
+                            analysis_run_id=run_id,
+                            program_id=request.program_id,
+                            snapshot_id=snapshot_id,
+                            component_id=component_id,
+                            node_count=group["node_count"],
+                            changed_node_count=0,
+                            structural_pressure_score=group["structural_pressure_score"],
+                            drift_score=None,
+                            bridge_pressure_score=None,
+                            outlier_score=None,
+                            coverage_score=group["coverage_score"],
+                            exploration_priority_score=group["exploration_priority_score"],
+                            action_candidate_count=0,
+                            metrics_json={
+                                "source": "surface_snapshot_route_family_grouping",
+                                "host": group["host"],
+                                "route_family": group["route_family"],
+                                "examples": group["examples"],
+                                "note": "Deterministic UI fallback; not Neo4j/GDS analytics.",
+                            },
+                            action_candidates_json=[],
+                        )
+                    )
+        return WorkbenchProjectionStepResult(
+            step_id="materialize-components",
+            status="completed",
+            message="Neo4j/GDS component analytics were unavailable; materialized deterministic Surface Map route-family components so the dashboard remains usable.",
+            snapshot_id=snapshot_id,
+            analysis_run_id=run_id,
+            counts={"items": len(grouped), "action_candidates": 0},
+            details={
+                "fallback": "surface_snapshot_route_family_grouping",
+                "fallback_reason": _friendly_projection_error(fallback_reason),
+                "gds_execution": "not_performed",
+            },
+        )
+
+    async def _surface_nodes_for_snapshot(self, session: Any, program_id: UUID, snapshot_id: UUID) -> list[Mapping[str, Any]]:
+        result = await session.execute(
+            select(
+                surface_nodes.c.id,
+                surface_nodes.c.node_type,
+                surface_nodes.c.host,
+                surface_nodes.c.path,
+                surface_nodes.c.route_template,
+                surface_nodes.c.method,
+                surface_nodes.c.status_code,
+                surface_nodes.c.content_type,
+            )
+            .where(surface_nodes.c.program_id == program_id)
+            .where(surface_nodes.c.snapshot_id == snapshot_id)
+            .order_by(surface_nodes.c.host.asc().nulls_last(), surface_nodes.c.route_template.asc().nulls_last())
+            .limit(5000)
+        )
+        return list(result.mappings().all())
+
     def _run(self, command: list[str], *, timeout_seconds: int) -> subprocess.CompletedProcess[str]:
         env = dict(os.environ)
         env.update(
@@ -240,6 +368,67 @@ class WorkbenchProjectionControlStore:
             boundary=workbench_projection_control_boundary(),
         )
 
+
+
+def _local_component_groups(rows: list[Mapping[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    buckets: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+    for row in rows:
+        host = str(row.get("host") or "unknown-host")
+        route = _route_family(row.get("route_template") or row.get("path") or "/")
+        buckets.setdefault((host, route), []).append(row)
+    groups: list[dict[str, Any]] = []
+    for (host, route), members in buckets.items():
+        node_count = len(members)
+        status_kinds = {str(item.get("status_code")) for item in members if item.get("status_code") is not None}
+        structural = max(1, min(100, 20 + node_count * 3 + len(status_kinds) * 4))
+        coverage = max(1, min(100, 35 + min(node_count, 20) * 2))
+        exploration = max(1, min(100, round(structural * 0.65 + coverage * 0.35)))
+        examples = [
+            _example_label(item)
+            for item in sorted(members, key=lambda value: str(value.get("route_template") or value.get("path") or ""))[:6]
+        ]
+        groups.append({
+            "host": host,
+            "route_family": route,
+            "node_count": node_count,
+            "structural_pressure_score": structural,
+            "coverage_score": coverage,
+            "exploration_priority_score": exploration,
+            "examples": examples,
+        })
+    return sorted(groups, key=lambda item: (-item["exploration_priority_score"], -item["node_count"], item["host"], item["route_family"]))[: max(1, limit)]
+
+
+def _route_family(path: Any) -> str:
+    parts = str(path or "/").split("?")[0].strip("/").split("/")
+    first = next((part for part in parts if part), "root")
+    return f"/{first}"
+
+
+def _example_label(row: Mapping[str, Any]) -> str:
+    method = str(row.get("method") or "GET")
+    path = str(row.get("route_template") or row.get("path") or "/")
+    status = row.get("status_code")
+    suffix = f" · {status}" if status is not None else ""
+    return f"{method} {path}{suffix}"
+
+
+def _local_component_fingerprint(*, program_id: UUID, snapshot_id: UUID, grouped: list[dict[str, Any]], run_id: UUID) -> str:
+    payload = {
+        "algorithm": "surface-local-route-family-components-v1",
+        "program_id": str(program_id),
+        "snapshot_id": str(snapshot_id),
+        "run_id": str(run_id),
+        "groups": grouped,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def _friendly_projection_error(message: str) -> str:
+    cleaned = _redact_text(str(message or ""))
+    if "Name or service not known" in cleaned or "getaddrinfo" in cleaned or "Failed to resolve" in cleaned:
+        return "Neo4j is not reachable from the API container. The dashboard used the local Surface Map fallback."
+    return cleaned[:600]
 
 def _postgres_dsn(settings: Settings) -> str:
     return (
