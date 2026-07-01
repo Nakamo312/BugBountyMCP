@@ -246,8 +246,10 @@ def test_workbench_deep_links_component_lens_and_keeps_canvas_inside_bounds() ->
     assert "pointer-events-auto" in panels
     assert "relative z-30" in panels
     assert "onMouseDownCapture={(event) => event.stopPropagation()}" in panels
-    assert "contain: layout paint size" in canvas
+    assert "touch-action: none" in canvas
     assert "max-width: 100% !important" in canvas
+    assert "onMouseDownCapture={(event) => event.stopPropagation()}" not in canvas
+    assert "Projection unavailable" in canvas
 
 
 def test_surface_components_exposes_graph_projector_source_instead_of_raw_score_dump() -> None:
@@ -288,6 +290,8 @@ def test_workbench_frontend_exposes_neo4j_projection_lenses_and_canvas_types() -
     assert "hypothesis_evidence_paths" in backend
     assert "raw_cypher" in backend and "forbidden" in backend
     assert "gds_execution" in backend and "forbidden_in_workbench_request_path" in backend
+    assert "render_as_graph_node" in backend
+    assert "neo4j-message" not in backend
     assert "neo4j_surface_node" in canvas
     assert "neo4j_action_outcome" in canvas
     assert "Neo4j projection" in canvas

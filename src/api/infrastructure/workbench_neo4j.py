@@ -618,23 +618,24 @@ def _message_graph(
     reason: str,
     template_name: str | None = None,
 ) -> WorkbenchGraph:
-    node = WorkbenchNode(
-        id=f"neo4j-message:{lens.value}",
-        entity_key=f"neo4j-message:{lens.value}",
-        node_type="neo4j_projection_status",
-        label=message,
-        caption=reason,
-        properties={"reason": reason, "template": template_name},
-        badges=["Neo4j", "status"],
-        confidence=1.0,
+    boundary = _neo4j_boundary(surface=f"neo4j_{reason}", template_name=template_name or "none")
+    boundary.update(
+        {
+            "status": "unavailable",
+            "reason": reason,
+            "message": message,
+            "ui_empty_state": True,
+            "render_as_graph_node": False,
+        }
     )
     return WorkbenchGraph(
         program_id=program_id,
         lens=lens,
         seed=seed,
-        nodes=[node],
-        counts={"nodes": 1, "edges": 0},
-        boundary=_neo4j_boundary(surface=f"neo4j_{reason}", template_name=template_name or "none"),
+        nodes=[],
+        edges=[],
+        counts={"nodes": 0, "edges": 0},
+        boundary=boundary,
     )
 
 

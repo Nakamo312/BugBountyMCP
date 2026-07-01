@@ -163,7 +163,7 @@ const Workbench = () => {
           savedViews={savedViews}
           onApplyView={applySavedView}
         />
-        <div className="relative z-0 isolate h-full min-w-0 overflow-hidden bg-gray-50" style={{ contain: 'layout paint size' }}>
+        <div className="relative z-0 h-full min-w-0 overflow-hidden bg-gray-50">
           {loading && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70">
               <Loader className="animate-spin text-primary-500" size={32} />
@@ -178,13 +178,19 @@ const Workbench = () => {
             onFilterNodeType={(node) => setFilterQuery(`type:${node.node_type}`)}
           />
         </div>
-        <Inspector
-          entity={entity}
-          actions={actions}
-          memory={memory}
-          loading={entityLoading}
-          selectedNode={selectedNode}
-        />
+        <div
+          className="relative z-30 h-full min-w-0 overflow-hidden bg-white pointer-events-auto"
+          onMouseDownCapture={(event) => event.stopPropagation()}
+          onClickCapture={(event) => event.stopPropagation()}
+        >
+          <Inspector
+            entity={entity}
+            actions={actions}
+            memory={memory}
+            loading={entityLoading}
+            selectedNode={selectedNode}
+          />
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">

@@ -296,20 +296,29 @@ const GraphToolbar = ({ onZoomToFit, onFocusSelected, selectedNode }) => (
   </div>
 )
 
-const EmptyCanvas = () => (
-  <div className="flex h-full items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50">
-    <div className="text-center">
-      <div className="text-sm font-semibold text-gray-700">No graph projection loaded</div>
-      <div className="mt-1 text-sm text-gray-500">Use Workbench data setup to build the read model.</div>
+const EmptyCanvas = ({ graph }) => {
+  const boundary = graph?.boundary || {}
+  const title = boundary.status === 'unavailable'
+    ? 'Projection unavailable'
+    : 'No graph projection loaded'
+  const message = boundary.message || 'Use Workbench data setup to build the read model.'
+  const reason = boundary.reason || boundary.surface || ''
+  return (
+    <div className="flex h-full items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 px-6">
+      <div className="max-w-xl text-center">
+        <div className="text-sm font-semibold text-gray-800">{title}</div>
+        <div className="mt-1 text-sm text-gray-600">{message}</div>
+        {reason && <div className="mt-2 text-xs text-gray-500">{reason}</div>}
+      </div>
     </div>
-  </div>
-)
+  )
+}
 
 const CanvasBoundsStyle = () => (
   <style>{`
-    .workbench-canvas-bounds { contain: layout paint size; }
+    .workbench-canvas-bounds { position: relative; overflow: hidden; isolation: isolate; }
     .workbench-canvas-bounds > div { max-width: 100% !important; max-height: 100% !important; overflow: hidden !important; }
-    .workbench-canvas-bounds canvas { display: block !important; max-width: 100% !important; max-height: 100% !important; }
+    .workbench-canvas-bounds canvas { display: block !important; max-width: 100% !important; max-height: 100% !important; touch-action: none; }
   `}</style>
 )
 
@@ -481,12 +490,10 @@ const WorkbenchCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode, onCop
       ref={containerRef}
       className="workbench-canvas-bounds relative isolate z-0 h-full w-full min-w-0 overflow-hidden bg-gray-50"
       data-testid="workbench-canvas-bounds"
-      onMouseDownCapture={(event) => event.stopPropagation()}
-      onClickCapture={(event) => event.stopPropagation()}
     >
       <CanvasBoundsStyle />
       {!canvasGraph.nodes.length ? (
-        <EmptyCanvas />
+        <EmptyCanvas graph={graph} />
       ) : (
         <>
           <GraphLegend
