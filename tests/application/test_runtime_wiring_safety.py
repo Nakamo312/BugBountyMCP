@@ -180,6 +180,48 @@ async def test_node_registry_claim_path_uses_claim_port_request_only() -> None:
     assert run_claims.requests[0].event_name == "host.discovered"
 
 
+
+@pytest.mark.asyncio
+async def test_node_registry_direct_action_event_reuses_preallocated_run() -> None:
+    run_claims = _RunClaims()
+    registry = NodeRegistry(
+        SimpleNamespace(),
+        Settings(),
+        node_run_claims=run_claims,
+    )
+    registry._nodes["ffuf"] = SimpleNamespace(
+        execution_mode=ExecutionMode.INLINE,
+        max_expansion_depth=6,
+        cooldown_seconds=300,
+        token_cost=1,
+    )
+    run_id = uuid4()
+    event = {
+        "event_id": str(uuid4()),
+        "job_id": str(uuid4()),
+        "run_id": str(run_id),
+        "program_id": str(uuid4()),
+        "targets": ["https://example.com"],
+        "payload": {
+            "action_invocation": {
+                "schema": "action-invocation-v1",
+                "action_id": str(uuid4()),
+                "capability_id": "ffuf",
+                "profile_id": "content-discovery-light",
+            }
+        },
+    }
+
+    claimed_event = await registry._claim_event_for_node(
+        "ffuf",
+        "ffuf_scan_requested",
+        event,
+    )
+
+    assert claimed_event is not None
+    assert claimed_event["run_id"] == str(run_id)
+    assert run_claims.requests == []
+
 def test_node_registry_constructor_rejects_combined_orchestration_store_path() -> None:
     with pytest.raises(TypeError):
         NodeRegistry(  # type: ignore[call-arg]

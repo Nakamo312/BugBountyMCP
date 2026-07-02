@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict
+
+from api.application.action_invocation_payload import action_invocation_mapping
 from uuid import UUID
 
 from api.application.contracts import ExecutionMode, NodeRunClaimRequest
@@ -25,11 +27,14 @@ class NodeRegistryClaimingMixin:
         event_name: str,
         event: Dict[str, Any],
     ) -> Dict[str, Any] | None:
+        node = self._nodes[node_id]
+        if self._uses_preallocated_action_run(node, event):
+            return dict(event)
+
         store = await self._get_node_run_claims()
         if store is None:
             return dict(event)
 
-        node = self._nodes[node_id]
         trigger_event_id = UUID(str(event["event_id"]))
         claim_events = self._claim_events_for_node(node, event)
         last_claim = None
@@ -95,6 +100,31 @@ class NodeRegistryClaimingMixin:
         claimed_event = dict(claim_events[0])
         claimed_event["run_id"] = str(last_claim.run_id)
         return claimed_event
+
+    @staticmethod
+    def _uses_preallocated_action_run(node: Node, event: Dict[str, Any]) -> bool:
+        """Use the already-created action run for initial ActionService events.
+
+        ActionService records a job/run/event-store row before the event is
+        published. The registry must execute that run instead of creating a
+        second claimed run; otherwise the dashboard follows the preallocated
+        run forever while the worker state is written elsewhere. Downstream
+        pipeline events do not carry the action_invocation payload and still go
+        through normal claim/deduplication.
+        """
+        if node.execution_mode != ExecutionMode.INLINE:
+            return False
+        if not event.get("run_id") or not event.get("job_id"):
+            return False
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            return False
+        invocation = action_invocation_mapping(payload)
+        return bool(
+            invocation.get("action_id")
+            and invocation.get("capability_id")
+            and invocation.get("profile_id")
+        )
 
     def _claim_events_for_node(self, node: Node, event: Dict[str, Any]) -> list[Dict[str, Any]]:
         if node.execution_mode != ExecutionMode.SCHEDULED:
@@ -210,3 +240,4 @@ class NodeRegistryClaimingMixin:
             ),
         }
         return {key: value for key, value in identity.items() if value not in (None, "")}
+
