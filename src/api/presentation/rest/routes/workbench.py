@@ -11,6 +11,14 @@ from api.application.workbench import (
     WorkbenchReadService,
     WorkbenchRetrieveRequest,
 )
+from api.application.workbench_action_affordances import (
+    ActionAffordanceUnavailable,
+    WorkbenchActionAffordanceService,
+    WorkbenchAvailableActionsRequest,
+    WorkbenchSubmitActionRequest,
+)
+from api.application.action_catalog import CatalogItemNotFound, CatalogNotReady
+from api.application.execution_limits import ActionInputValidationError
 from api.application.workbench_projection_control import (
     WorkbenchProjectionControlService,
     WorkbenchProjectionRunRequest,
@@ -106,6 +114,55 @@ async def get_workbench_entity_memory(
 ) -> dict:
     memory = await service.entity_memory(program_id=program_id, entity_key=entity_key)
     return memory.model_dump(mode="json")
+
+
+@router.post(
+    "/actions/available",
+    summary="Read Workbench action affordances",
+    description=(
+        "Computes available actions from the active capability catalog, selected graph entity, "
+        "and backend target contracts. The frontend does not contain node-type tool rules."
+    ),
+    tags=["Workbench"],
+)
+async def read_workbench_available_actions(
+    request: WorkbenchAvailableActionsRequest,
+    service: FromDishka[WorkbenchActionAffordanceService],
+) -> dict:
+    try:
+        result = await service.available(request)
+    except WorkbenchNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CatalogNotReady as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return result.model_dump(mode="json")
+
+
+@router.post(
+    "/actions/submit",
+    summary="Submit Workbench action",
+    description=(
+        "Submits a selected Workbench affordance into the existing ActionService lifecycle. "
+        "This endpoint does not execute tools directly."
+    ),
+    tags=["Workbench"],
+    status_code=202,
+)
+async def submit_workbench_action(
+    request: WorkbenchSubmitActionRequest,
+    service: FromDishka[WorkbenchActionAffordanceService],
+) -> dict:
+    try:
+        result = await service.submit(request)
+    except WorkbenchNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CatalogNotReady as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except CatalogItemNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ActionAffordanceUnavailable, ActionInputValidationError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return result.model_dump(mode="json")
 
 
 @router.post(

@@ -11,6 +11,7 @@ import {
   Search,
   Loader,
   PlayCircle,
+  Send,
   Target,
   X,
 } from 'lucide-react'
@@ -472,9 +473,9 @@ export const LowerEvidencePanel = ({ actions, memory, evidencePack, selectedNode
           </section>
 
           <section className="space-y-3">
-            <div className="text-sm font-semibold text-gray-900">Backend action affordances</div>
+            <div className="text-sm font-semibold text-gray-900">Available actions</div>
             {affordances.length === 0 ? (
-              <p className="text-sm text-gray-500">No matching prior or queued actions are exposed for this entity.</p>
+              <p className="text-sm text-gray-500">No catalog-derived actions are available for this entity.</p>
             ) : (
               <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                 {affordances.slice(0, 8).map((action) => (
@@ -498,36 +499,78 @@ const groupedActionAffordances = (affordances) => ({
   blocked: affordances.filter((action) => !action.enabled),
 })
 
-const ActionAffordanceList = ({ affordances }) => {
+const actionStateLabel = (action) => {
+  if (action.approval_required) return 'approval required'
+  if (action.risk_class) return action.risk_class.replaceAll('_', ' ')
+  return action.state || 'available'
+}
+
+const ActionCard = ({ action, disabled = false, submitting = false, onSubmitAction }) => (
+  <div className={`rounded-lg border p-3 ${disabled ? 'border-orange-100 bg-orange-50' : 'border-green-100 bg-green-50'}`}>
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-gray-900">{action.label}</div>
+        <div className="mt-1 text-xs text-gray-600">
+          {action.tool || 'catalog'} · {action.profile} · {actionStateLabel(action)}
+        </div>
+      </div>
+      {!disabled && (
+        <button
+          type="button"
+          disabled={submitting}
+          onClick={() => onSubmitAction?.(action)}
+          className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-primary-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Send size={13} />
+          Submit action
+        </button>
+      )}
+    </div>
+    <div className="mt-2 text-xs text-gray-600">{action.reason || (action.disabled_reasons || []).join(', ') || 'Catalog-derived action contract.'}</div>
+    {(action.inputs?.target || action.submit_payload?.targets?.[0]) && (
+      <div className="mt-2 truncate rounded bg-white/70 px-2 py-1 font-mono text-[11px] text-gray-700" title={action.inputs?.target || action.submit_payload?.targets?.[0]}>
+        target: {action.inputs?.target || action.submit_payload?.targets?.[0]}
+      </div>
+    )}
+  </div>
+)
+
+const ActionAffordanceList = ({ affordances, rejected = [], submitting = false, onSubmitAction, submission }) => {
   const groups = groupedActionAffordances(affordances)
-  if (affordances.length === 0) {
-    return <p className="text-sm text-gray-500">No executable affordances are exposed by the backend for this entity yet.</p>
+  if (affordances.length === 0 && rejected.length === 0) {
+    return <p className="text-sm text-gray-500">No catalog target contracts match this entity.</p>
   }
   return (
     <div className="space-y-3">
+      {submission && (
+        <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+          submitted: {submission.submission?.status} · action {submission.submission?.action_id}
+        </div>
+      )}
       {groups.enabled.length > 0 && (
         <div className="space-y-2">
-          <div className="text-xs font-semibold uppercase tracking-wide text-green-700">Enabled by backend</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-green-700">Available from catalog contracts</div>
           {groups.enabled.map((action, index) => (
-            <div key={`${action.catalog_id}-enabled-${index}`} className="rounded-lg border border-green-100 bg-green-50 p-3">
-              <div className="text-sm font-semibold text-gray-900">{action.label}</div>
-              <div className="mt-1 text-xs text-gray-600">{action.catalog_id} · {action.profile}</div>
-            </div>
+            <ActionCard
+              key={`${action.catalog_id}-enabled-${index}`}
+              action={action}
+              submitting={submitting}
+              onSubmitAction={onSubmitAction}
+            />
           ))}
         </div>
       )}
-      {groups.blocked.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-xs font-semibold uppercase tracking-wide text-orange-700">Blocked or read-only</div>
-          {groups.blocked.map((action, index) => (
-            <div key={`${action.catalog_id}-blocked-${index}`} className="rounded-lg border border-orange-100 bg-orange-50 p-3">
-              <div className="text-sm font-semibold text-gray-900">{action.label}</div>
-              <div className="mt-1 text-xs text-gray-600">{action.catalog_id} · {(action.disabled_reasons || []).join(', ') || 'disabled'}</div>
-            </div>
-          ))}
-        </div>
+      {(groups.blocked.length > 0 || rejected.length > 0) && (
+        <details className="rounded-lg border border-orange-100 bg-orange-50 p-3">
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-orange-700">Not applicable / blocked</summary>
+          <div className="mt-3 space-y-2">
+            {[...groups.blocked, ...rejected].slice(0, 12).map((action, index) => (
+              <ActionCard key={`${action.catalog_id}-blocked-${index}`} action={action} disabled />
+            ))}
+          </div>
+        </details>
       )}
-      <p className="text-xs text-gray-500">Affordances are backend read-side state. This inspector does not submit actions.</p>
+      <p className="text-xs text-gray-500">Actions are derived from the active catalog target contracts. Canvas selection never executes tools directly.</p>
     </div>
   )
 }
@@ -551,9 +594,10 @@ export const InspectorTabs = ({ activeSection, sections, onChange }) => (
   </div>
 )
 
-export const Inspector = ({ entity, actions, memory, loading, selectedNode }) => {
+export const Inspector = ({ entity, actions, memory, loading, selectedNode, actionSubmission, actionSubmitting, onSubmitAction }) => {
   const [activeSection, setActiveSection] = useState('profile')
   const affordances = actions?.actions || []
+  const rejectedAffordances = actions?.rejected || []
   const fragments = memory?.fragments || []
   const evidenceRefs = entity?.evidence_refs?.length ? entity.evidence_refs : selectedNode?.evidence_refs || []
   const sections = [
@@ -634,7 +678,13 @@ export const Inspector = ({ entity, actions, memory, loading, selectedNode }) =>
       {activeSection === 'actions' && (
         <section className="mt-5 space-y-2">
           <div className="text-sm font-semibold text-gray-900">Action affordances</div>
-          <ActionAffordanceList affordances={affordances} />
+          <ActionAffordanceList
+            affordances={affordances}
+            rejected={rejectedAffordances}
+            submitting={actionSubmitting}
+            submission={actionSubmission}
+            onSubmitAction={onSubmitAction}
+          />
         </section>
       )}
 

@@ -276,6 +276,24 @@ export const getWorkbenchEntity = (programId, entityKey) =>
 export const getWorkbenchEntityActions = (programId, entityKey) =>
   api.get(`/workbench/entities/${encodeURIComponent(entityKey)}/actions`, { params: { program_id: programId } })
 
+export const getWorkbenchAvailableActions = ({ programId, entityKey, lens, context = {} }) =>
+  api.post('/workbench/actions/available', {
+    program_id: programId,
+    entity_key: entityKey,
+    context: { lens, ...context },
+  })
+
+export const submitWorkbenchAction = ({ programId, entityKey, catalogId, targets, options = {}, lens, context = {} }) =>
+  api.post('/workbench/actions/submit', {
+    program_id: programId,
+    entity_key: entityKey,
+    catalog_id: catalogId,
+    targets,
+    options,
+    requested_by: 'workbench',
+    context: { lens, ...context },
+  })
+
 export const getWorkbenchEntityMemory = (programId, entityKey) =>
   api.get(`/workbench/entities/${encodeURIComponent(entityKey)}/memory`, { params: { program_id: programId } })
 

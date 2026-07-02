@@ -75,6 +75,15 @@ capabilities:
     queue: discovery
     default_profile: passive-recon
     scope: none
+    frontend:
+      workbench:
+        produces: [Host, Observation, Artifact]
+        target_contracts:
+          - kind: domain
+            labels: [Host, Scope]
+            required_any_properties: [hostname, host, domain, name]
+            target_property: hostname
+            reason: Domain-like entity can seed passive subdomain discovery.
     profiles:
       passive-recon:
         label: Passive subdomain discovery
@@ -87,6 +96,15 @@ capabilities:
     queue: analysis
     default_profile: safe-web-probe
     scope: confidence
+    frontend:
+      workbench:
+        produces: [Service, Endpoint, Observation, Artifact]
+        target_contracts:
+          - kind: web-origin
+            labels: [Host, Service, Endpoint]
+            required_any_properties: [base_url, url, hostname, host]
+            target_property: base_url
+            reason: Entity can be probed as an HTTP origin or URL.
     profiles:
       safe-web-probe:
         label: Safe HTTP probing
@@ -109,6 +127,15 @@ capabilities:
     queue: analysis
     default_profile: safe-crawl
     scope: confidence
+    frontend:
+      workbench:
+        produces: [Endpoint, JSFile, Parameter, Observation, Artifact]
+        target_contracts:
+          - kind: web-url
+            labels: [Endpoint, Service, Host]
+            required_any_properties: [url, base_url, hostname, host]
+            target_property: url
+            reason: Entity can seed a bounded HTTP crawl.
     profiles:
       safe-crawl:
         label: Safe crawl
@@ -142,6 +169,15 @@ capabilities:
     queue: analysis
     default_profile: browser-crawl
     scope: strict
+    frontend:
+      workbench:
+        produces: [Endpoint, JSFile, Observation, Artifact]
+        target_contracts:
+          - kind: browser-url
+            labels: [Endpoint, Service]
+            required_any_properties: [url, base_url]
+            target_property: url
+            reason: Entity can seed browser network capture after approval.
     profiles:
       browser-crawl:
         label: Browser crawl with network capture
@@ -155,6 +191,15 @@ capabilities:
     queue: analysis
     default_profile: archive-url-discovery
     scope: strict
+    frontend:
+      workbench:
+        produces: [Endpoint, Observation, Artifact]
+        target_contracts:
+          - kind: domain
+            labels: [Host, Scope]
+            required_any_properties: [hostname, host, domain, name]
+            target_property: hostname
+            reason: Domain-like entity can seed archive URL discovery.
     profiles:
       archive-url-discovery:
         label: Archived URL discovery
@@ -167,6 +212,15 @@ capabilities:
     queue: analysis
     default_profile: js-endpoint-extraction
     scope: confidence
+    frontend:
+      workbench:
+        produces: [Endpoint, Observation, Artifact]
+        target_contracts:
+          - kind: javascript-url
+            labels: [JSFile]
+            required_any_properties: [js_url, url]
+            target_property: js_url
+            reason: JavaScript file can be statically inspected for endpoint references.
     profiles:
       js-endpoint-extraction:
         label: JavaScript endpoint extraction
@@ -179,6 +233,15 @@ capabilities:
     queue: analysis
     default_profile: content-discovery-light
     scope: strict
+    frontend:
+      workbench:
+        produces: [Endpoint, Observation, Artifact]
+        target_contracts:
+          - kind: web-origin
+            labels: [Endpoint, Service, Host]
+            required_any_properties: [base_url, url, hostname, host]
+            target_property: base_url
+            reason: Entity can seed controlled content discovery after approval.
     profiles:
       content-discovery-light:
         label: Light content discovery
@@ -202,6 +265,15 @@ capabilities:
     queue: discovery
     default_profile: passive-enum
     scope: none
+    frontend:
+      workbench:
+        produces: [Host, IP, ASN, CIDR, Observation, Artifact]
+        target_contracts:
+          - kind: domain
+            labels: [Host, Scope]
+            required_any_properties: [hostname, host, domain, name]
+            target_property: hostname
+            reason: Domain-like entity can seed infrastructure enumeration.
     profiles:
       passive-enum:
         label: Passive infrastructure enumeration
@@ -219,6 +291,15 @@ capabilities:
     queue: validation
     default_profile: dns-validate
     scope: none
+    frontend:
+      workbench:
+        produces: [Host, IP, Observation, Artifact]
+        target_contracts:
+          - kind: domain
+            labels: [Host, Scope]
+            required_any_properties: [hostname, host, domain, name]
+            target_property: hostname
+            reason: Domain-like entity can be validated through DNS.
     profiles:
       dns-validate:
         label: DNS validation
@@ -231,6 +312,15 @@ capabilities:
     queue: validation
     default_profile: reverse-dns
     scope: none
+    frontend:
+      workbench:
+        produces: [Host, Observation, Artifact]
+        target_contracts:
+          - kind: ip-or-cidr
+            labels: [IP, CIDR]
+            required_any_properties: [address, cidr]
+            target_property: address
+            reason: IP-like entity can seed reverse DNS lookup.
     profiles:
       reverse-dns:
         label: Reverse DNS lookup
@@ -243,6 +333,15 @@ capabilities:
     queue: analysis
     default_profile: takeover-check
     scope: confidence
+    frontend:
+      workbench:
+        produces: [Observation, Artifact]
+        target_contracts:
+          - kind: domain
+            labels: [Host]
+            required_any_properties: [hostname, host, domain, name]
+            target_property: hostname
+            reason: Host entity can be checked for takeover indicators.
     profiles:
       takeover-check:
         label: Subdomain takeover check
@@ -255,6 +354,15 @@ capabilities:
     queue: discovery
     default_profile: asn-discovery
     scope: none
+    frontend:
+      workbench:
+        produces: [ASN, CIDR, Observation, Artifact]
+        target_contracts:
+          - kind: asn-or-domain
+            labels: [ASN, Host, Scope]
+            required_any_properties: [asn, hostname, host, domain, name]
+            target_property: asn
+            reason: ASN or domain-like entity can seed ASN/CIDR discovery.
     profiles:
       asn-discovery:
         label: ASN and CIDR discovery
@@ -267,6 +375,15 @@ capabilities:
     queue: enumeration
     default_profile: cidr-expand
     scope: none
+    frontend:
+      workbench:
+        produces: [IP, Observation, Artifact]
+        target_contracts:
+          - kind: cidr
+            labels: [CIDR]
+            required_any_properties: [cidr]
+            target_property: cidr
+            reason: CIDR entity can be expanded into IP targets.
     profiles:
       cidr-expand:
         label: CIDR expansion
@@ -279,6 +396,15 @@ capabilities:
     queue: analysis
     default_profile: passive-ports
     scope: strict
+    frontend:
+      workbench:
+        produces: [Service, Observation, Artifact]
+        target_contracts:
+          - kind: host-or-ip
+            labels: [IP, Host, CIDR]
+            required_any_properties: [address, hostname, host, cidr]
+            target_property: address
+            reason: Host/IP/CIDR entity can seed port discovery.
     profiles:
       passive-ports:
         label: Passive port discovery
@@ -360,6 +486,15 @@ capabilities:
     queue: analysis
     default_profile: js-secret-analysis
     scope: confidence
+    frontend:
+      workbench:
+        produces: [Observation, Evidence, Artifact]
+        target_contracts:
+          - kind: javascript-url
+            labels: [JSFile]
+            required_any_properties: [js_url, url]
+            target_property: js_url
+            reason: JavaScript file can be inspected for secret-like evidence.
     profiles:
       js-secret-analysis:
         label: JavaScript secret analysis

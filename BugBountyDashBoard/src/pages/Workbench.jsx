@@ -26,6 +26,8 @@ const Workbench = () => {
   const [showReadModelDetails, setShowReadModelDetails] = useState(false)
   const programId = selectedProgram?.id
   const {
+    actionSubmission,
+    actionSubmitting,
     actions,
     activeSeed,
     bootstrap,
@@ -46,6 +48,7 @@ const Workbench = () => {
     retrieveQuery,
     selectedNode,
     selectNode,
+    submitSelectedAction,
     setRetrieveQuery,
   } = useWorkbench(selectedProgram)
 
@@ -189,6 +192,9 @@ const Workbench = () => {
             memory={memory}
             loading={entityLoading}
             selectedNode={selectedNode}
+            actionSubmission={actionSubmission}
+            actionSubmitting={actionSubmitting}
+            onSubmitAction={submitSelectedAction}
           />
         </div>
       </div>
@@ -214,6 +220,9 @@ const Workbench = () => {
             memory={memory}
             evidencePack={evidencePack}
             selectedNode={selectedNode}
+            actionSubmission={actionSubmission}
+            actionSubmitting={actionSubmitting}
+            onSubmitAction={submitSelectedAction}
           />
 
           <WorkbenchAnswerCoverage
@@ -222,6 +231,9 @@ const Workbench = () => {
             memory={memory}
             evidencePack={evidencePack}
             selectedNode={selectedNode}
+            actionSubmission={actionSubmission}
+            actionSubmitting={actionSubmitting}
+            onSubmitAction={submitSelectedAction}
           />
         </>
       )}

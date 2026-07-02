@@ -9,7 +9,10 @@ from api.application.campaign_workspace import CampaignWorkspaceService
 from api.application.program_projection_overview import ProgramProjectionOverviewService
 from api.application.surface_component_analysis import SurfaceComponentAnalysisService
 from api.application.workbench import WorkbenchReadService
+from api.application.workbench_action_affordances import WorkbenchActionAffordanceService
 from api.application.workbench_projection_control import WorkbenchProjectionControlService
+from api.application.services.action import ActionService
+from api.application.services.action_catalog import ActionCatalogService
 from api.infrastructure.agent_activity import AgentActivityStore
 from api.infrastructure.agent_task_detail import AgentTaskDetailStore
 from api.infrastructure.campaign_workspace import CampaignWorkspaceStore
@@ -103,6 +106,19 @@ class ReadModelProvider(Provider):
         return WorkbenchReadService(
             graph_store=graph_store,
             projection_overview=projection_overview,
+        )
+
+    @provide(scope=Scope.REQUEST)
+    def get_workbench_action_affordance_service(
+        self,
+        workbench: WorkbenchReadService,
+        catalog_service: ActionCatalogService,
+        action_service: ActionService,
+    ) -> WorkbenchActionAffordanceService:
+        return WorkbenchActionAffordanceService(
+            workbench=workbench,
+            catalog=catalog_service,
+            actions=action_service,
         )
 
 

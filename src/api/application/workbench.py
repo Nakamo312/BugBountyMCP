@@ -143,6 +143,13 @@ class WorkbenchActionAffordance(BaseModel):
     prefilled_options: dict[str, Any] = Field(default_factory=dict)
     enabled: bool
     disabled_reasons: list[str] = Field(default_factory=list)
+    tool: str | None = None
+    state: str = "unknown"
+    approval_required: bool = False
+    risk_class: str | None = None
+    reason: str | None = None
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    submit_payload: dict[str, Any] = Field(default_factory=dict)
     policy_preview: dict[str, Any] = Field(default_factory=dict)
     budget_preview: dict[str, Any] = Field(default_factory=dict)
     expected_delta: list[dict[str, Any]] = Field(default_factory=list)
@@ -154,7 +161,9 @@ class WorkbenchActionAffordanceList(BaseModel):
 
     program_id: UUID
     entity_key: str
+    target: dict[str, Any] = Field(default_factory=dict)
     actions: list[WorkbenchActionAffordance] = Field(default_factory=list)
+    rejected: list[WorkbenchActionAffordance] = Field(default_factory=list)
     boundary: dict[str, Any] = Field(default_factory=dict)
 
 

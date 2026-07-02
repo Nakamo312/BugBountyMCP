@@ -548,3 +548,103 @@ def test_workbench_exposes_neo4j_lenses_without_raw_cypher_or_gds_execution() ->
     assert all(lens.available for lens in neo4j_lenses)
     assert workbench_read_boundary(surface="surface")["raw_cypher"] == "forbidden"
     assert workbench_read_boundary(surface="surface")["neo4j_write"] == "forbidden"
+
+from api.application.action_catalog import CatalogDetail, CatalogItem
+from api.application.execution_limits import ExecutionBudget
+from api.application.workbench import WorkbenchEntityProfile
+from api.application.workbench_action_affordances import (
+    WorkbenchActionAffordanceService,
+    WorkbenchAvailableActionsRequest,
+)
+
+
+class _AffordanceWorkbench:
+    def __init__(self, profile: WorkbenchEntityProfile) -> None:
+        self.profile = profile
+
+    async def entity_profile(self, *, program_id, entity_key):
+        return self.profile
+
+
+class _AffordanceCatalog:
+    def __init__(self, detail: CatalogDetail) -> None:
+        self.detail = detail
+
+    async def list_items(self):
+        return [
+            CatalogItem(
+                id=self.detail.id,
+                capability=self.detail.capability,
+                profile=self.detail.profile,
+                capability_label=self.detail.capability_label,
+                profile_label=self.detail.profile_label,
+                safety_level=self.detail.safety_level,
+                requires_approval=self.detail.requires_approval,
+            )
+        ]
+
+    async def get_detail(self, item_id):
+        assert item_id == self.detail.id
+        return self.detail
+
+
+class _NoopActionService:
+    pass
+
+
+@pytest.mark.asyncio
+async def test_workbench_action_affordances_are_derived_from_catalog_target_contracts() -> None:
+    program_id = uuid4()
+    catalog_id = uuid4()
+    detail = CatalogDetail(
+        id=catalog_id,
+        snapshot_id=uuid4(),
+        capability="naabu",
+        profile="passive-ports",
+        capability_label="Naabu",
+        profile_label="Passive port discovery",
+        safety_level="passive",
+        requires_approval=False,
+        queue="analysis",
+        request_event="naabu_scan_requested",
+        default_profile="passive-ports",
+        scope_policy="strict",
+        execution_budget=ExecutionBudget(max_targets=100),
+        frontend={
+            "workbench": {
+                "produces": ["Service", "Observation", "Artifact"],
+                "target_contracts": [
+                    {
+                        "kind": "host-or-ip",
+                        "labels": ["IP", "Host"],
+                        "required_any_properties": ["address", "hostname"],
+                        "target_property": "address",
+                        "reason": "IP can seed port discovery.",
+                    }
+                ],
+            }
+        },
+        submit={},
+    )
+    profile = WorkbenchEntityProfile(
+        program_id=program_id,
+        entity_key="neo4j:IP:ip%3A1.2.3.4",
+        profile={"labels": ["IP"], "label": "1.2.3.4", "projection_source": "neo4j"},
+        properties={"address": "1.2.3.4"},
+    )
+    service = WorkbenchActionAffordanceService(
+        workbench=_AffordanceWorkbench(profile),
+        catalog=_AffordanceCatalog(detail),
+        actions=_NoopActionService(),
+    )
+
+    result = await service.available(
+        WorkbenchAvailableActionsRequest(program_id=program_id, entity_key=profile.entity_key)
+    )
+
+    assert result.actions[0].catalog_id == str(catalog_id)
+    assert result.actions[0].tool == "naabu"
+    assert result.actions[0].inputs == {"targets": ["1.2.3.4"], "target": "1.2.3.4"}
+    assert result.actions[0].enabled is True
+    assert result.actions[0].policy_preview["scope_policy"] == "strict"
+    assert result.boundary["raw_frontend_tool_rules"] == "forbidden"

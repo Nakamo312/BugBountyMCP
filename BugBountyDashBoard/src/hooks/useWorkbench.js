@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   getWorkbenchBootstrap,
   getWorkbenchEntity,
-  getWorkbenchEntityActions,
+  getWorkbenchAvailableActions,
   getWorkbenchEntityMemory,
   getWorkbenchGraph,
   retrieveWorkbenchEvidence,
   runWorkbenchProjectionRefresh,
+  submitWorkbenchAction,
 } from '../services/api'
 
 const defaultLens = 'surface'
@@ -34,6 +35,8 @@ export const useWorkbench = (selectedProgram) => {
   const [loading, setLoading] = useState(false)
   const [projectionRunning, setProjectionRunning] = useState(false)
   const [projectionResult, setProjectionResult] = useState(null)
+  const [actionSubmission, setActionSubmission] = useState(null)
+  const [actionSubmitting, setActionSubmitting] = useState(false)
   const [entityLoading, setEntityLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -45,6 +48,7 @@ export const useWorkbench = (selectedProgram) => {
     setActions(null)
     setMemory(null)
     setEvidencePack(null)
+    setActionSubmission(null)
   }, [])
 
   const loadWorkbench = useCallback(async ({ nextLens = lens, seed = null, depth = seed ? 2 : 1 } = {}) => {
@@ -77,7 +81,7 @@ export const useWorkbench = (selectedProgram) => {
     try {
       const [entityResponse, actionsResponse, memoryResponse, evidencePackResponse] = await Promise.all([
         getWorkbenchEntity(programId, node.entity_key),
-        getWorkbenchEntityActions(programId, node.entity_key),
+        getWorkbenchAvailableActions({ programId, entityKey: node.entity_key, lens }),
         getWorkbenchEntityMemory(programId, node.entity_key),
         retrieveWorkbenchEvidence({
           program_id: programId,
@@ -90,16 +94,49 @@ export const useWorkbench = (selectedProgram) => {
       setActions(actionsResponse.data)
       setMemory(memoryResponse.data)
       setEvidencePack(evidencePackResponse.data)
+      setActionSubmission(null)
     } catch (err) {
       setEntity(null)
       setActions(null)
       setMemory(null)
       setEvidencePack(null)
+      setActionSubmission(null)
       setError(err.response?.data?.detail || err.message || 'Failed to load entity')
     } finally {
       setEntityLoading(false)
     }
   }, [lens, programId, retrieveQuery])
+
+
+  const submitSelectedAction = useCallback(async (action) => {
+    if (!programId || !selectedNode?.entity_key || !action?.catalog_id) return null
+    setActionSubmitting(true)
+    setError(null)
+    try {
+      const response = await submitWorkbenchAction({
+        programId,
+        entityKey: selectedNode.entity_key,
+        catalogId: action.catalog_id,
+        targets: action.inputs?.targets,
+        options: action.prefilled_options || {},
+        lens,
+      })
+      setActionSubmission(response.data)
+      const actionsResponse = await getWorkbenchAvailableActions({
+        programId,
+        entityKey: selectedNode.entity_key,
+        lens,
+      })
+      setActions(actionsResponse.data)
+      return response.data
+    } catch (err) {
+      setActionSubmission(null)
+      setError(err.response?.data?.detail || err.message || 'Failed to submit Workbench action')
+      return null
+    } finally {
+      setActionSubmitting(false)
+    }
+  }, [lens, programId, selectedNode])
 
 
   const runProjectionRefresh = useCallback(async (operation = 'refresh_workbench') => {
@@ -145,6 +182,8 @@ export const useWorkbench = (selectedProgram) => {
   const lenses = useMemo(() => bootstrap?.lenses || [], [bootstrap])
 
   return {
+    actionSubmission,
+    actionSubmitting,
     actions,
     activeSeed,
     bootstrap,
@@ -164,6 +203,7 @@ export const useWorkbench = (selectedProgram) => {
     retrieveQuery,
     runProjectionRefresh,
     selectedNode,
+    submitSelectedAction,
     selectNode,
     setLens,
     setRetrieveQuery,

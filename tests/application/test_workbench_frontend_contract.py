@@ -48,14 +48,20 @@ def test_workbench_frontend_calls_typed_workbench_read_apis_only() -> None:
     assert "getWorkbenchGraph" in api
     assert "getWorkbenchEntity" in api
     assert "getWorkbenchEntityActions" in api
+    assert "getWorkbenchAvailableActions" in api
+    assert "submitWorkbenchAction" in api
     assert "getWorkbenchEntityMemory" in api
     assert "retrieveWorkbenchEvidence" in api
     assert "/workbench/graph" in api
     assert "/workbench/entities/" in api
+    assert "/workbench/actions/available" in api
+    assert "/workbench/actions/submit" in api
     assert "getInfrastructureGraph" not in page
     assert "getInfrastructureGraph" not in hook
     assert "runKatana" not in page
     assert "createAction" not in page
+    assert "runSubfinder" not in page
+    assert "runFFUF" not in page
 
 
 def test_workbench_lower_panel_renders_materialized_read_side_fragments() -> None:
@@ -65,7 +71,7 @@ def test_workbench_lower_panel_renders_materialized_read_side_fragments() -> Non
     assert "Evidence timeline / memory tree / action run log / delta panel" in page
     assert "Recent memory fragments" in page
     assert "Delta summary" in page
-    assert "Backend action affordances" in page
+    assert "Available actions" in page
     assert "retrieveWorkbenchEvidence" in hook
     assert "setEvidencePack" in hook
 
@@ -122,9 +128,9 @@ def test_workbench_inspector_groups_sections_and_affordances() -> None:
     assert "Evidence" in page
     assert "Actions" in page
     assert "Memory" in page
-    assert "Enabled by backend" in page
-    assert "Blocked or read-only" in page
-    assert "does not submit actions" in page
+    assert "Available from catalog contracts" in page
+    assert "Not applicable / blocked" in page
+    assert "Canvas selection never executes tools directly" in page
 
 def test_workbench_frontend_persists_saved_views_and_shows_acceptance_coverage() -> None:
     page = _read_workbench_page_bundle()
