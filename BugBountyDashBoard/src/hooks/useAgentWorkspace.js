@@ -3,11 +3,13 @@ import {
   acceptActionExperienceProposal,
   acceptAgentActionProposal,
   appendAgentTaskMessage,
+  approveAction,
   createAgentTask,
   getAgentActivity,
   getAgentTaskDetail,
   getCampaignWorkspace,
   rejectActionExperienceProposal,
+  rejectAction,
   rejectAgentActionProposal,
   retryAcceptActionExperienceProposal,
   suppressActionExperienceProposal,
@@ -303,6 +305,30 @@ export function useAgentWorkspace() {
     reviewProposal(proposal, 'accept', { targets })
   }
 
+  const reviewQueuedAction = async (action, decision) => {
+    if (!action?.action_id) return
+    setActionBusy(true)
+    setError(null)
+    try {
+      if (decision === 'approve') {
+        await approveAction(action.action_id, {
+          approved_by: 'human',
+          reason: 'Approved from campaign workspace action queue',
+        })
+      } else {
+        await rejectAction(action.action_id, {
+          rejected_by: 'human',
+          reason: 'Rejected from campaign workspace action queue',
+        })
+      }
+      await loadWorkspace()
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Failed to review queued action')
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
   return {
     selectedProgram,
     workspace,
@@ -338,6 +364,7 @@ export function useAgentWorkspace() {
     handleFollowup,
     beginAcceptProposal,
     reviewProposal,
+    reviewQueuedAction,
     submitExperienceTargets,
   }
 }

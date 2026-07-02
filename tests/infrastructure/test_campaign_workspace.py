@@ -267,6 +267,9 @@ async def test_campaign_workspace_read_model_assembles_ui_payload_without_runnin
     assert any("action_experience_proposals.status IN" in query for query in session.queries)
     assert snapshot.recent_decisions[0].message_kind.value == "decision"
     assert snapshot.action_queue[0].capability_id == "katana"
+    assert snapshot.action_queue[0].queue_stage == "job_missing"
+    assert "execution job row is missing" in snapshot.action_queue[0].queue_reason
+    assert snapshot.action_queue[0].can_approve is False
     assert snapshot.counts == {
         "tasks": 1,
         "visible_messages": 2,
@@ -286,6 +289,18 @@ async def test_campaign_workspace_read_model_assembles_ui_payload_without_runnin
     assert snapshot.boundaries["tool_execution"] == "must_go_through_action_service"
     assert not any("raw_artifacts" in query for query in session.queries)
 
+
+
+def test_campaign_workspace_action_queue_joins_runtime_and_dispatch_state() -> None:
+    source = Path("src/api/infrastructure/campaign_workspace.py").read_text(encoding="utf-8")
+    frontend = Path("BugBountyDashBoard/src/components/agents/AgentWorkspacePanels.jsx").read_text(encoding="utf-8")
+
+    assert "outerjoin(jobs" in source
+    assert "outerjoin(runs" in source
+    assert "event_dispatches," in source and "event_dispatches.c.event_id" in source
+    assert "Event was published to RabbitMQ" in source
+    assert "Approve and queue" in frontend
+    assert "Why it is here" in frontend
 
 def test_campaign_workspace_experience_query_includes_failed_acceptance_for_retry_surface() -> None:
     source = Path("src/api/infrastructure/campaign_workspace.py").read_text(encoding="utf-8")

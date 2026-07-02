@@ -28,7 +28,15 @@ class CampaignWorkspaceActionStatus(str, Enum):
 
 
 class CampaignWorkspaceActionQueueItem(BaseModel):
-    """Compact action queue item for the campaign workroom."""
+    """Action execution card for the campaign workroom.
+
+    The action request status is not enough to explain runtime state. Actions in
+    ``queued`` state can still be waiting for approval, event dispatch, RabbitMQ
+    delivery, a pipeline worker, an active run, or a terminal run that should no
+    longer appear in the active queue. Keep the UI payload explicit so the
+    dashboard can explain the next operational step instead of rendering a dead
+    badge.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -41,6 +49,33 @@ class CampaignWorkspaceActionQueueItem(BaseModel):
     requested_by: str
     kind: str
     metadata: dict[str, Any] = Field(default_factory=dict)
+    targets: list[str] = Field(default_factory=list)
+    target_count: int = 0
+    options: dict[str, Any] = Field(default_factory=dict)
+    job_id: UUID | None = None
+    job_status: str | None = None
+    run_id: UUID | None = None
+    run_status: str | None = None
+    run_attempt: int | None = None
+    run_error: str | None = None
+    run_started_at: datetime | None = None
+    run_finished_at: datetime | None = None
+    run_updated_at: datetime | None = None
+    lease_owner: str | None = None
+    lease_expires_at: datetime | None = None
+    event_id: UUID | None = None
+    event_type: str | None = None
+    dispatch_status: str | None = None
+    dispatch_attempts: int = 0
+    dispatch_routing_key: str | None = None
+    dispatch_last_error: str | None = None
+    dispatch_locked_by: str | None = None
+    dispatch_locked_until: datetime | None = None
+    dispatched_at: datetime | None = None
+    queue_stage: str
+    queue_reason: str
+    can_approve: bool = False
+    can_reject: bool = False
     created_at: datetime
     updated_at: datetime
 

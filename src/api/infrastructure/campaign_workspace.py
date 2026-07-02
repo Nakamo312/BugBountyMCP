@@ -7,7 +7,7 @@ from uuid import UUID
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import desc, select
+from sqlalchemy import and_, desc, or_, select
 
 from api.application.agent_action_proposals import AgentActionProposalStatus
 from api.application.campaign_workspace import (
@@ -32,6 +32,10 @@ from api.infrastructure.adapters.orm import (
     agent_runtime_usage_daily,
     agent_task_messages,
     agent_tasks,
+    event_dispatches,
+    event_store,
+    jobs,
+    runs,
 )
 from api.infrastructure.agent_action_proposals import AgentActionProposalStore
 from api.infrastructure.agent_tasks import AgentTaskStore
@@ -218,16 +222,60 @@ class CampaignWorkspaceStore:
         campaign_id: UUID | None,
         limit: int,
     ) -> list[dict[str, Any]]:
-        active_statuses = [
-            CampaignWorkspaceActionStatus.QUEUED.value,
+        active_run_statuses = ["queued", "leased", "running", "flushing", "failed"]
+        visible_request_statuses = [
             CampaignWorkspaceActionStatus.REQUIRES_APPROVAL.value,
             CampaignWorkspaceActionStatus.ALLOWED.value,
             CampaignWorkspaceActionStatus.BLOCKED.value,
         ]
+        execution_join = (
+            action_requests
+            .outerjoin(jobs, jobs.c.action_id == action_requests.c.id)
+            .outerjoin(runs, runs.c.job_id == jobs.c.id)
+            .outerjoin(event_store, event_store.c.run_id == runs.c.id)
+            .outerjoin(
+                event_dispatches,
+                and_(
+                    event_dispatches.c.event_id == event_store.c.event_id,
+                    event_dispatches.c.destination == "rabbitmq",
+                ),
+            )
+        )
         statement = (
-            select(action_requests)
+            select(
+                action_requests,
+                jobs.c.id.label("job_id"),
+                jobs.c.status.label("job_status"),
+                runs.c.id.label("run_id"),
+                runs.c.status.label("run_status"),
+                runs.c.attempt.label("run_attempt"),
+                runs.c.error.label("run_error"),
+                runs.c.started_at.label("run_started_at"),
+                runs.c.finished_at.label("run_finished_at"),
+                runs.c.updated_at.label("run_updated_at"),
+                runs.c.lease_owner.label("lease_owner"),
+                runs.c.lease_expires_at.label("lease_expires_at"),
+                event_store.c.event_id.label("event_id"),
+                event_store.c.event_type.label("event_type"),
+                event_dispatches.c.status.label("dispatch_status"),
+                event_dispatches.c.attempts.label("dispatch_attempts"),
+                event_dispatches.c.routing_key.label("dispatch_routing_key"),
+                event_dispatches.c.last_error.label("dispatch_last_error"),
+                event_dispatches.c.locked_by.label("dispatch_locked_by"),
+                event_dispatches.c.locked_until.label("dispatch_locked_until"),
+                event_dispatches.c.dispatched_at.label("dispatched_at"),
+            )
+            .select_from(execution_join)
             .where(action_requests.c.program_id == program_id)
-            .where(action_requests.c.status.in_(active_statuses))
+            .where(
+                or_(
+                    action_requests.c.status.in_(visible_request_statuses),
+                    and_(
+                        action_requests.c.status == CampaignWorkspaceActionStatus.QUEUED.value,
+                        or_(runs.c.status.is_(None), runs.c.status.in_(active_run_statuses)),
+                    ),
+                )
+            )
         )
         if campaign_id is not None:
             statement = statement.where(action_requests.c.campaign_id == campaign_id)
@@ -342,16 +390,94 @@ def _experience_proposal_item(row: dict[str, Any]) -> CampaignWorkspaceExperienc
 
 
 def _action_queue_item(row: dict[str, Any]) -> CampaignWorkspaceActionQueueItem:
+    request = row.get("request") or {}
+    targets = [str(item) for item in request.get("targets") or [] if item]
+    queue_stage, queue_reason = _action_queue_explanation(row)
+    status = CampaignWorkspaceActionStatus(row["status"])
     return CampaignWorkspaceActionQueueItem(
         action_id=row["id"],
         program_id=row["program_id"],
         campaign_id=row.get("campaign_id"),
-        status=CampaignWorkspaceActionStatus(row["status"]),
+        status=status,
         capability_id=row["capability_id"],
         profile_id=row["profile_id"],
         requested_by=row["requested_by"],
         kind=row["kind"],
         metadata=row.get("metadata") or {},
+        targets=targets,
+        target_count=len(targets),
+        options=dict(request.get("options") or {}),
+        job_id=row.get("job_id"),
+        job_status=row.get("job_status"),
+        run_id=row.get("run_id"),
+        run_status=row.get("run_status"),
+        run_attempt=row.get("run_attempt"),
+        run_error=row.get("run_error"),
+        run_started_at=row.get("run_started_at"),
+        run_finished_at=row.get("run_finished_at"),
+        run_updated_at=row.get("run_updated_at"),
+        lease_owner=row.get("lease_owner"),
+        lease_expires_at=row.get("lease_expires_at"),
+        event_id=row.get("event_id"),
+        event_type=row.get("event_type"),
+        dispatch_status=row.get("dispatch_status"),
+        dispatch_attempts=int(row.get("dispatch_attempts") or 0),
+        dispatch_routing_key=row.get("dispatch_routing_key"),
+        dispatch_last_error=row.get("dispatch_last_error"),
+        dispatch_locked_by=row.get("dispatch_locked_by"),
+        dispatch_locked_until=row.get("dispatch_locked_until"),
+        dispatched_at=row.get("dispatched_at"),
+        queue_stage=queue_stage,
+        queue_reason=queue_reason,
+        can_approve=status is CampaignWorkspaceActionStatus.REQUIRES_APPROVAL,
+        can_reject=status is CampaignWorkspaceActionStatus.REQUIRES_APPROVAL,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
+
+
+def _action_queue_explanation(row: dict[str, Any]) -> tuple[str, str]:
+    status = str(row.get("status") or "")
+    run_status = row.get("run_status")
+    dispatch_status = row.get("dispatch_status")
+    if status == CampaignWorkspaceActionStatus.REQUIRES_APPROVAL.value:
+        return (
+            "approval",
+            "Waiting for human approval. No execution job is released until this action is approved.",
+        )
+    if status == CampaignWorkspaceActionStatus.BLOCKED.value:
+        return ("policy", "Blocked by scope, policy, or budget before execution was queued.")
+    if status == CampaignWorkspaceActionStatus.ALLOWED.value:
+        return ("policy", "Allowed by policy, but no execution job has been released yet.")
+    if not row.get("job_id"):
+        return (
+            "job_missing",
+            "Action request is queued, but the execution job row is missing. This is an inconsistent control-plane state.",
+        )
+    if not row.get("event_id"):
+        return (
+            "event_missing",
+            "Execution job exists, but no durable event was recorded for the pipeline dispatcher.",
+        )
+    if dispatch_status in {"pending", "locked", "failed", "dead"}:
+        if dispatch_status == "pending":
+            return ("dispatch", "Waiting for the event dispatcher to publish the stored event to RabbitMQ.")
+        if dispatch_status == "locked":
+            return ("dispatch", "Event dispatcher has leased this event and is publishing it to RabbitMQ.")
+        if dispatch_status == "failed":
+            return ("dispatch", "Event dispatch to RabbitMQ failed and is waiting for retry.")
+        return ("dispatch", "Event dispatch to RabbitMQ is dead after retry exhaustion.")
+    if dispatch_status == "dispatched" and run_status == "queued":
+        return (
+            "worker",
+            "Event was published to RabbitMQ. Waiting for NodeRegistry/pipeline worker to consume the routing key and claim the run.",
+        )
+    if run_status == "leased":
+        return ("worker", "Pipeline worker leased the run and should move it to running before the lease expires.")
+    if run_status == "running":
+        return ("running", "Tool runner is executing this action.")
+    if run_status == "flushing":
+        return ("flushing", "Tool output is being ingested into artifacts, surface, projections, and outcomes.")
+    if run_status == "failed":
+        return ("retry", "Run failed and may be retried or reconciled by the pipeline scheduler.")
+    return ("queued", "Queued for execution, but no more specific runtime state is available.")
