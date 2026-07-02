@@ -268,9 +268,9 @@ def test_workbench_deep_links_component_lens_and_keeps_canvas_inside_bounds() ->
     assert "touch-action: none" in canvas
     assert "max-width: 100% !important" in canvas
     assert "onMouseDownCapture={(event) => event.stopPropagation()}" not in canvas
-    assert "Projection unavailable" in canvas
-    assert "Select a seed node" in canvas
-    assert "Neo4j read failed" in canvas
+    assert "Relationship view unavailable" in canvas
+    assert "Select an entity first" in canvas
+    assert "Relationship view is not ready" in canvas
 
 
 def test_surface_components_exposes_graph_projector_source_instead_of_raw_score_dump() -> None:
@@ -315,7 +315,7 @@ def test_workbench_frontend_exposes_neo4j_projection_lenses_and_canvas_types() -
     assert "neo4j-message" not in backend
     assert "neo4j_surface_node" in canvas
     assert "neo4j_action_outcome" in canvas
-    assert "Neo4j projection" in canvas
+    assert "relationship data" in canvas
 
 
 def test_dashboard_navigation_groups_workflows_instead_of_backend_pages() -> None:

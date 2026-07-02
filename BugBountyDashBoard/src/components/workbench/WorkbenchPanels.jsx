@@ -87,7 +87,7 @@ export const LensSelector = ({ lens, lenses, onChange }) => (
         }`}
       >
         <span>{item.label}</span>
-        {item.seed_required && <span className="ml-1 rounded bg-white/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">seed</span>}
+        {item.seed_required && <span className="ml-1 rounded bg-white/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">select</span>}
       </button>
     ))}
   </div>
@@ -244,7 +244,7 @@ export const ProjectionStatus = ({ bootstrap, activeSeed }) => {
           <span className="rounded bg-gray-50 px-2 py-1 text-gray-600">surface analysis: {String(freshness.surface_analysis_fresh ?? 'unknown')}</span>
           <span className="rounded bg-gray-50 px-2 py-1 text-gray-600">search index: {String(freshness.search_index_fresh ?? 'unknown')}</span>
           <span className="rounded bg-gray-50 px-2 py-1 text-gray-600">ui data: {String(freshness.ui_data_fresh ?? 'unknown')}</span>
-          <span className="rounded bg-gray-50 px-2 py-1 text-gray-600">seed: {activeSeed || 'none'}</span>
+          <span className="rounded bg-gray-50 px-2 py-1 text-gray-600">focused entity: {activeSeed || 'none'}</span>
         </div>
       </div>
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -398,7 +398,7 @@ const GraphProjectorPayloads = ({ profile, properties }) => {
   if (!entries.length) return null
   return (
     <details className="rounded-lg border border-purple-100 bg-purple-50 p-3">
-      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-purple-800">Graph-projector / Neo4j GDS payloads</summary>
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-purple-800">Advanced graph signal payloads</summary>
       <div className="mt-3 space-y-3">
         {entries.map(([name, value]) => (
           <div key={name} className="rounded-lg border border-purple-100 bg-white p-3">

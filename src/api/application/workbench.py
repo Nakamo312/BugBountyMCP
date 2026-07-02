@@ -403,7 +403,16 @@ class WorkbenchReadService:
                 limit=clamped_limit,
             )
             if graph is None:
-                raise WorkbenchNotFound(f"Workbench Neo4j graph not found for program={program_id} lens={lens.value}")
+                raise WorkbenchNotFound(f"Workbench relationship graph not found for program={program_id} lens={lens.value}")
+            if _needs_operator_fallback_graph(graph):
+                fallback = await self._graph_store.surface_graph(
+                    program_id=program_id,
+                    seed=None,
+                    depth=1,
+                    limit=max(clamped_limit, 500),
+                )
+                if fallback is not None and fallback.nodes:
+                    return _operator_fallback_graph(fallback, requested_lens=lens, requested_seed=seed, source_graph=graph)
             return graph
         return WorkbenchGraph(
             program_id=program_id,
@@ -469,6 +478,50 @@ class WorkbenchReadService:
 
 
 
+def _needs_operator_fallback_graph(graph: WorkbenchGraph) -> bool:
+    boundary = graph.boundary or {}
+    reason = str(boundary.get("reason") or "")
+    status = str(boundary.get("status") or "")
+    if graph.nodes:
+        return False
+    return reason in {
+        "seed_required_for_template",
+        "snapshot_seed_required_for_surface_graph_math",
+        "neo4j_template_empty_result",
+        "neo4j_read_failed",
+        "graph_projector_templates_unavailable",
+    } or status in {"seed_required", "empty", "unavailable"}
+
+
+def _operator_fallback_graph(
+    graph: WorkbenchGraph,
+    *,
+    requested_lens: WorkbenchLens,
+    requested_seed: str | None,
+    source_graph: WorkbenchGraph,
+) -> WorkbenchGraph:
+    source_boundary = source_graph.boundary or {}
+    boundary = {
+        **(graph.boundary or {}),
+        "status": "fallback",
+        "reason": "relationship_projection_preparing",
+        "message": "Relationship view is still preparing. Showing the latest discovered assets from the canonical surface map.",
+        "requested_lens": requested_lens.value,
+        "requested_seed": requested_seed,
+        "source_status": source_boundary.get("status"),
+        "source_reason": source_boundary.get("reason"),
+        "ui_empty_state": False,
+        "technical_projection_hidden_from_operator": True,
+    }
+    return graph.model_copy(
+        update={
+            "lens": requested_lens,
+            "seed": requested_seed,
+            "boundary": boundary,
+        }
+    )
+
+
 def is_neo4j_workbench_lens(lens: WorkbenchLens) -> bool:
     return lens in {
         WorkbenchLens.NEO4J_EXPOSURE,
@@ -484,14 +537,14 @@ def is_neo4j_workbench_lens(lens: WorkbenchLens) -> bool:
 
 def _neo4j_lens_descriptors() -> list[WorkbenchLensDescriptor]:
     return [
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_EXPOSURE, label="Neo4j · Exposure", available=True, template_name="asset_exposure"),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_ENDPOINT, label="Neo4j · Endpoint", available=True, reason="select_endpoint_seed_for_neighborhood", seed_required=True, seed_kinds=["endpoint"], template_name="endpoint_neighborhood"),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_EVIDENCE, label="Neo4j · Evidence", available=True, reason="select_entity_seed_for_evidence_path", seed_required=True, seed_kinds=["entity"], template_name="evidence_path"),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_SURFACE_MATH, label="Neo4j · Surface math", available=True, reason="select_surface_snapshot_seed", seed_required=True, seed_kinds=["surface_snapshot"], template_name="surface_graph_math"),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_ACTION_OUTCOME, label="Neo4j · Outcomes", available=True, template_name="action_outcome_experience_neighborhood"),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_JS, label="Neo4j · JS refs", available=True, template_name="hidden_endpoints_from_js"),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_TECH, label="Neo4j · Services", available=True, template_name="exposed_services_by_technology"),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_HYPOTHESIS, label="Neo4j · Hypothesis evidence", available=True, template_name="hypothesis_evidence_paths"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_EXPOSURE, label="Exposure map", available=True, template_name="asset_exposure"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_ENDPOINT, label="Endpoint map", available=True, reason="select_endpoint_seed_for_neighborhood", seed_required=True, seed_kinds=["endpoint"], template_name="endpoint_neighborhood"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_EVIDENCE, label="Evidence paths", available=True, reason="select_entity_seed_for_evidence_path", seed_required=True, seed_kinds=["entity"], template_name="evidence_path"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_SURFACE_MATH, label="Graph signals", available=True, reason="select_surface_snapshot_seed", seed_required=True, seed_kinds=["surface_snapshot"], template_name="surface_graph_math"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_ACTION_OUTCOME, label="Outcomes", available=True, template_name="action_outcome_experience_neighborhood"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_JS, label="JS references", available=True, template_name="hidden_endpoints_from_js"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_TECH, label="Services", available=True, template_name="exposed_services_by_technology"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_HYPOTHESIS, label="Hypothesis evidence", available=True, template_name="hypothesis_evidence_paths"),
     ]
 
 

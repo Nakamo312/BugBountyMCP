@@ -270,7 +270,7 @@ const GraphLegend = memo(({ hiddenNodeCount, mode, totalNodes }) => (
       <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-green-600" /> endpoint 2xx</span>
       <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-purple-600" /> GDS signal</span>
       <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-orange-500" /> 4xx/redirect</span>
-      <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-sky-700" /> Neo4j projection</span>
+      <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-sky-700" /> relationship data</span>
     </div>
   </div>
 ))
@@ -299,21 +299,23 @@ const GraphToolbar = ({ onZoomToFit, onFocusSelected, selectedNode }) => (
 const emptyCanvasTitle = (boundary) => {
   const reason = boundary?.reason || ''
   if (['seed_required_for_template', 'snapshot_seed_required_for_surface_graph_math'].includes(reason)) {
-    return 'Select a seed node'
+    return 'Select an entity first'
   }
-  if (reason === 'neo4j_template_empty_result') return 'Neo4j projection returned no rows'
-  if (reason === 'neo4j_read_failed') return 'Neo4j read failed'
-  if (reason === 'graph_projector_templates_unavailable') return 'Graph-projector templates unavailable'
-  if (boundary?.status === 'unavailable') return 'Projection unavailable'
-  return 'No graph projection loaded'
+  if (reason === 'neo4j_template_empty_result') return 'No relationship rows yet'
+  if (reason === 'neo4j_read_failed') return 'Relationship view is not ready'
+  if (reason === 'graph_projector_templates_unavailable') return 'Relationship templates are not ready'
+  if (boundary?.status === 'fallback') return 'Showing discovered assets while relationships prepare'
+  if (boundary?.status === 'unavailable') return 'Relationship view unavailable'
+  return 'No graph data loaded'
 }
 
 const EmptyCanvas = ({ graph }) => {
   const boundary = graph?.boundary || {}
   const title = emptyCanvasTitle(boundary)
-  const message = boundary.message || 'Use Workbench data setup to build the read model.'
-  const reason = boundary.reason || boundary.surface || ''
-  const template = boundary.template_name || boundary.template
+  const message = boundary.message || 'Run discovery or open a discovered entity to build this view.'
+  const showTechnical = boundary.technical_projection_hidden_from_operator === false || boundary.show_technical === true
+  const reason = showTechnical ? (boundary.reason || boundary.surface || '') : ''
+  const template = showTechnical ? (boundary.template_name || boundary.template) : ''
   return (
     <div className="flex h-full items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 px-6">
       <div className="max-w-xl text-center">

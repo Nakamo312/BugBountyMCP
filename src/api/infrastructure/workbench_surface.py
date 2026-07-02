@@ -7,7 +7,7 @@ import re
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import bindparam, desc, func, or_, select
+from sqlalchemy import bindparam, case, desc, func, or_, select
 
 from api.application.workbench import (
     WorkbenchActionAffordanceList,
@@ -80,7 +80,12 @@ async def build_surface_lens_graph(
         snapshot = await _latest_snapshot(session, program_id)
         if snapshot is None:
             return None
-        node_rows = await _nodes_for_snapshot(session, program_id, snapshot["id"], limit=limit)
+        node_rows = await _nodes_for_snapshot(
+            session,
+            program_id,
+            snapshot["id"],
+            limit=_surface_overview_fetch_limit(limit, seeded=bool(seed)),
+        )
         edge_rows = await _edges_for_snapshot(session, program_id, snapshot["id"])
         delta_by_subject = await _deltas_for_snapshot(session, program_id, snapshot["id"])
 
@@ -242,6 +247,16 @@ async def surface_entity_memory(
         evidence_refs=_dedupe_dicts(evidence_refs),
         boundary=workbench_read_boundary(surface="entity_memory_from_action_outcomes"),
     )
+
+
+def _surface_overview_fetch_limit(limit: int, *, seeded: bool) -> int:
+    if seeded:
+        return max(1, min(limit, 1000))
+    # The operator overview must not be filled by the first alphabetical node_type
+    # bucket. Fetch a broader surface sample so hosts, route families, endpoints,
+    # response shapes, and parameters can be grouped before the canvas applies its
+    # own display cap.
+    return max(limit, 2000)
 
 
 def _surface_ui_grouping(node_rows: list[Mapping[str, Any]]) -> tuple[list[WorkbenchNode], list[WorkbenchEdge]]:
@@ -572,11 +587,19 @@ async def _latest_snapshot(session: Any, program_id: UUID) -> Mapping[str, Any] 
 
 
 async def _nodes_for_snapshot(session: Any, program_id: UUID, snapshot_id: UUID, *, limit: int) -> list[Mapping[str, Any]]:
+    node_priority = case(
+        (surface_nodes.c.node_type == "host", 0),
+        (surface_nodes.c.node_type.in_(("service", "port")), 1),
+        (surface_nodes.c.node_type.in_(("endpoint", "route_template")), 2),
+        (surface_nodes.c.node_type == "param", 3),
+        (surface_nodes.c.node_type == "response_shape", 4),
+        else_=9,
+    )
     statement = (
         select(*_NODE_COLUMNS)
         .where(surface_nodes.c.program_id == bindparam("program_id"))
         .where(surface_nodes.c.snapshot_id == bindparam("snapshot_id"))
-        .order_by(surface_nodes.c.node_type.asc(), surface_nodes.c.host.asc(), surface_nodes.c.route_template.asc())
+        .order_by(node_priority.asc(), surface_nodes.c.host.asc(), surface_nodes.c.route_template.asc().nulls_last(), surface_nodes.c.path.asc().nulls_last())
         .limit(max(limit, 1))
     )
     result = await session.execute(statement, {"program_id": program_id, "snapshot_id": snapshot_id})
