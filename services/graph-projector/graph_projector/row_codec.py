@@ -89,6 +89,21 @@ def optional_int(value: Any) -> int | None:
     return None if value is None else int(value)
 
 
+def optional_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"true", "t", "yes", "y", "1"}:
+        return True
+    if text in {"false", "f", "no", "n", "0"}:
+        return False
+    raise ValueError(f"unsupported boolean value: {value}")
+
+
 def adapt_json_parameters_for_cursor(cursor: CursorLike, parameters: dict[str, object], *, json_keys: set[str] | frozenset[str]) -> dict[str, object]:
     if not any(key in parameters for key in json_keys):
         return parameters

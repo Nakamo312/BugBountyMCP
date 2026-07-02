@@ -254,14 +254,13 @@ def test_http_observation_producer_projects_query_parameters() -> None:
     assert ("Parameter", debug_key) in node_facts
 
     user_id = next(fact for fact in batch.facts if getattr(fact, "key", None) == user_id_key)
-    assert user_id.properties == {
-        "endpoint_location_name": user_id_key,
-        "endpoint_key": endpoint_key,
-        "location": "query",
-        "name": "user_id",
-        "param_type": "string",
-        "is_array": False,
-    }
+    assert user_id.properties["endpoint_location_name"] == user_id_key
+    assert user_id.properties["endpoint_key"] == endpoint_key
+    assert user_id.properties["location"] == "query"
+    assert user_id.properties["name"] == "user_id"
+    assert user_id.properties["param_type"] == "string"
+    assert user_id.properties["is_array"] is False
+    assert user_id.properties["display_label"] == "query:user_id @ GET /v1/users/{id} @ api.example.com:443"
     assert all("123" not in fact.properties.values() for fact in batch.facts)
 
     edge_facts = {
@@ -287,9 +286,21 @@ def test_http_observation_producer_deduplicates_repeated_rows() -> None:
     batch = HttpObservationGraphFactProducer().produce([row, dict(row, observation_id=uuid4())])
 
     assert batch is not None
-    assert len(batch.facts) == 20
     identity_keys = [fact.identity_key for fact in batch.facts]
     assert len(identity_keys) == len(set(identity_keys))
+    endpoint_facts = [
+        fact
+        for fact in batch.facts
+        if getattr(fact, "kind", None) == "Endpoint"
+        and fact.key == "api.example.com:443/https:GET:/v1/users/{id}"
+    ]
+    request_shape_facts = [fact for fact in batch.facts if getattr(fact, "kind", None) == "RequestShape"]
+    observation_facts = [fact for fact in batch.facts if getattr(fact, "kind", None) == "Observation"]
+    evidence_facts = [fact for fact in batch.facts if getattr(fact, "kind", None) == "Evidence"]
+    assert len(endpoint_facts) == 1
+    assert len(request_shape_facts) == 1
+    assert len(observation_facts) == 2
+    assert len(evidence_facts) == 2
 
 
 def test_http_observation_producer_preserves_distinct_lineage_for_same_graph_identity() -> None:
@@ -314,7 +325,6 @@ def test_http_observation_producer_preserves_distinct_lineage_for_same_graph_ide
     batch = HttpObservationGraphFactProducer().produce([first, second])
 
     assert batch is not None
-    assert len(batch.facts) == 28
     endpoint_facts = [
         fact
         for fact in batch.facts
@@ -329,6 +339,16 @@ def test_http_observation_producer_preserves_distinct_lineage_for_same_graph_ide
         (first_raw_artifact_id, first_run_id),
         (second_raw_artifact_id, second_run_id),
     }
+    request_shape_facts = [fact for fact in batch.facts if getattr(fact, "kind", None) == "RequestShape"]
+    evidence_facts = [fact for fact in batch.facts if getattr(fact, "kind", None) == "Evidence"]
+    assert {
+        (fact.source_artifact_id, fact.tool_run_id)
+        for fact in request_shape_facts
+    } == {
+        (first_raw_artifact_id, first_run_id),
+        (second_raw_artifact_id, second_run_id),
+    }
+    assert len(evidence_facts) == 2
 
 
 def test_http_observation_producer_skips_rows_without_run_or_artifact_lineage() -> None:
@@ -479,7 +499,13 @@ def test_http_observation_enqueuer_claims_ready_events_and_enqueues_one_batch_pe
     assert parameters["max_attempts"] == 3
     batch, dedupe_key = store.calls[0]
     assert batch.program_id == row["program_id"]
-    assert len(batch.facts) == 22
+    node_facts = {(fact.kind, fact.key) for fact in batch.facts if hasattr(fact, "kind")}
+    edge_kinds = {fact.edge_kind for fact in batch.facts if hasattr(fact, "edge_kind")}
+    assert any(kind == "RequestShape" for kind, _ in node_facts)
+    assert any(kind == "Parameter" for kind, _ in node_facts)
+    assert "HAS_REQUEST_SHAPE" in edge_kinds
+    assert "HAS_ASSET" in edge_kinds
+    assert "SUPPORTS_EVIDENCE" in edge_kinds
     assert dedupe_key == dedupe_key_fn(raw_artifact_id, "http-observations.v1")
     processed_call = next(call for call in connection.cursor_obj.calls if "SET status = 'processed'" in call[0])
     assert "WHERE id = %(event_id)s" in processed_call[0]

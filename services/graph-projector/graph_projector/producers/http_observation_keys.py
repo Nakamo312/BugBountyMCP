@@ -17,5 +17,11 @@ def parameter_key(*, endpoint_key: str, location: str, name: str) -> str:
     return f"{endpoint_key.strip()}:{location.strip().lower()}:{name.strip()}"
 
 
+def request_shape_key(*, endpoint_key: str, method: str, path_params: tuple[str, ...], query_params: tuple[str, ...]) -> str:
+    path_part = ",".join(path_params) or "-"
+    query_part = ",".join(query_params) or "-"
+    return f"{endpoint_key.strip()}:request:{method.strip().upper()}:path={path_part}:query={query_part}"
+
+
 def http_observations_dedupe_key(raw_artifact_id: UUID | str, parser_version: str) -> str:
     return f"http-observations:{raw_artifact_id}:{parser_version}"

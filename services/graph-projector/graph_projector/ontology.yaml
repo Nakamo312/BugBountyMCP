@@ -355,6 +355,8 @@ nodes:
   - source_artifact_id
   - tool_run_id
   projections:
+  - asset_exposure
+  - program_exposure_topology
   - endpoint_neighborhood
   - evidence_path
   level: L2_WEB_API
@@ -384,6 +386,60 @@ nodes:
     - location
     - name
     key_policy: endpoint_key_location_name
+- description: Safe request shape observed for an endpoint without raw body or secret material.
+  label: RequestShape
+  layer: surface
+  identity_properties:
+  - program_id
+  - request_shape_key
+  required_properties:
+  - program_id
+  - request_shape_key
+  - endpoint_key
+  - method
+  - normalized_path
+  - path_param_keys
+  - query_keys
+  optional_properties:
+  - hostname
+  - port
+  - scheme
+  - content_type
+  - status_code
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  - program_exposure_topology
+  - endpoint_neighborhood
+  - evidence_path
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - httpx
+  - katana
+  - ffuf
+  - playwright
+  parser_outputs:
+  - http_observations
+  query_templates:
+  - program_exposure_topology
+  - endpoint_neighborhood
+  - evidence_path
+  property_vs_node_rationale: RequestShape is a node because the graph needs request-level context without storing raw request bodies, header values, cookies, or secrets.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use parser-backed shape confidence; omit raw payload values.
+  stale_policy: Refresh last_seen from repeated observations; request shapes remain stable by endpoint and safe key sets.
+  identity:
+    graph_key: request_shape_key
+    source_properties:
+    - endpoint_key
+    - method
+    - path_param_keys
+    - query_keys
+    key_policy: endpoint_method_safe_key_sets
 - description: JavaScript file that references web/API endpoints.
   label: JSFile
   layer: surface
@@ -1054,6 +1110,88 @@ relationships:
   sensitivity: normal
   confidence_policy: Use deterministic surface-engine confidence.
   stale_policy: Delta membership is immutable.
+- description: Snapshot-local surface node points to the canonical ontology entity it can exactly represent.
+  relationship_type: REPRESENTS
+  source_labels:
+  - SurfaceNode
+  target_labels:
+  - Host
+  - Service
+  - Endpoint
+  - Parameter
+  - RequestShape
+  required_properties:
+  - program_id
+  optional_properties:
+  - bridge_type
+  source_references: []
+  projections:
+  - surface_graph_math
+  - program_exposure_topology
+  - evidence_path
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - surface_map
+  parser_outputs:
+  - surface_nodes
+  query_templates:
+  - surface_graph_math
+  - program_exposure_topology
+  property_vs_node_rationale: Surface Map graph math uses snapshot-local nodes; REPRESENTS bridges exact surface nodes back to canonical assets when the source schema has enough identity.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use deterministic surface-engine confidence.
+  stale_policy: Snapshot-local representation edges are immutable within a snapshot.
+- description: Program owns or has discovered a canonical asset node.
+  relationship_type: HAS_ASSET
+  source_labels:
+  - Program
+  target_labels:
+  - Host
+  - IP
+  - ASN
+  - CIDR
+  - Service
+  - Endpoint
+  - Parameter
+  - RequestShape
+  - JSFile
+  required_properties:
+  - program_id
+  optional_properties: []
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  - program_exposure_topology
+  - endpoint_neighborhood
+  - evidence_path
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - canonical_inventory
+  - httpx
+  - katana
+  - ffuf
+  - playwright
+  parser_outputs:
+  - hosts
+  - ip_addresses
+  - asns
+  - cidrs
+  - services
+  - endpoints
+  - http_observations
+  query_templates:
+  - program_exposure_topology
+  - asset_exposure
+  property_vs_node_rationale: Program asset anchoring is a relationship because every visual topology needs an explicit program root instead of relying only on program_id properties.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use the producing parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh when the target asset is re-observed.
 - description: Program includes a declared scope item.
   relationship_type: HAS_SCOPE
   source_labels:
@@ -1220,6 +1358,7 @@ relationships:
 - description: IP address exposes a network service.
   relationship_type: EXPOSES_SERVICE
   source_labels:
+  - Host
   - IP
   target_labels:
   - Service
@@ -1306,6 +1445,8 @@ relationships:
   - source_artifact_id
   - tool_run_id
   projections:
+  - asset_exposure
+  - program_exposure_topology
   - endpoint_neighborhood
   - evidence_path
   level: L2_WEB_API
@@ -1328,6 +1469,42 @@ relationships:
     repeated observations.
   stale_policy: Refresh last_seen from repeated observations; mark stale when source
     evidence stops reproducing the relationship.
+- description: Endpoint has one safe request shape observed from traffic or crawling.
+  relationship_type: HAS_REQUEST_SHAPE
+  source_labels:
+  - Endpoint
+  target_labels:
+  - RequestShape
+  required_properties:
+  - program_id
+  optional_properties:
+  - method
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  - program_exposure_topology
+  - endpoint_neighborhood
+  - evidence_path
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - httpx
+  - katana
+  - ffuf
+  - playwright
+  parser_outputs:
+  - http_observations
+  query_templates:
+  - program_exposure_topology
+  - endpoint_neighborhood
+  - evidence_path
+  property_vs_node_rationale: Request shapes are related to endpoints so traversal can show request context without raw request content.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations.
 - description: JavaScript file references a web/API endpoint.
   relationship_type: REFERENCES
   source_labels:
@@ -1677,6 +1854,7 @@ relationships:
   - Service
   - Endpoint
   - Parameter
+  - RequestShape
   - JSFile
   required_properties:
   - program_id
@@ -1703,6 +1881,37 @@ relationships:
     repeated observations.
   stale_policy: Refresh last_seen from repeated observations; mark stale when source
     evidence stops reproducing the relationship.
+- description: Safe request shape is supported by an observation or artifact.
+  relationship_type: SUPPORTED_BY
+  source_labels:
+  - RequestShape
+  target_labels:
+  - Observation
+  - Artifact
+  required_properties:
+  - program_id
+  optional_properties:
+  - confidence
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - evidence_path
+  - program_exposure_topology
+  level: L0_CORE
+  maturity: experimental
+  sources:
+  - parser_output
+  parser_outputs:
+  - http_observations
+  query_templates:
+  - evidence_path
+  - program_exposure_topology
+  property_vs_node_rationale: Request shapes are evidence-backed but must not embed raw request content.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence.
+  stale_policy: Refresh last_seen from repeated observations.
 - description: Observation supports an evidence item.
   relationship_type: SUPPORTS_EVIDENCE
   source_labels:
@@ -1771,12 +1980,14 @@ projections:
   - SurfaceNode
   - SurfaceFingerprint
   - SurfaceDelta
+  - Host
   - ActionOutcome
   relationship_types:
   - HAS_SURFACE_NODE
   - HAS_SURFACE_FINGERPRINT
   - SURFACE_EDGE
   - HAS_SURFACE_DELTA
+  - REPRESENTS
   - BEFORE_SURFACE_SNAPSHOT
   - AFTER_SURFACE_SNAPSHOT
   use_case: Run graph algorithms over surface-shape topology, structural deltas, and measured action coverage.
@@ -1796,21 +2007,61 @@ projections:
   - CIDR
   - Service
   - Endpoint
+  - Parameter
+  - RequestShape
   relationship_types:
   - HAS_SCOPE
+  - HAS_ASSET
   - MATCHES_SCOPE
   - RESOLVES_TO
   - IN_CIDR
   - ANNOUNCED_BY
   - EXPOSES_SERVICE
   - HAS_ENDPOINT
+  - HAS_PARAM
+  - HAS_REQUEST_SHAPE
   use_case: Analyze scoped asset exposure without lineage fan-out.
   version: 1
   level: L1_INFRASTRUCTURE
   query_templates:
   - asset_exposure
+  - program_exposure_topology
   - asn_cidr_asset_expansion
   expected_output: Program-bounded asset exposure graph without lineage fan-out.
+- description: Program-rooted exposure topology for visual graph rendering.
+  name: program_exposure_topology
+  node_labels:
+  - Program
+  - ASN
+  - CIDR
+  - IP
+  - Host
+  - Service
+  - Endpoint
+  - Parameter
+  - RequestShape
+  - SurfaceNode
+  - Observation
+  - Artifact
+  relationship_types:
+  - HAS_ASSET
+  - ANNOUNCED_BY
+  - IN_CIDR
+  - RESOLVES_TO
+  - EXPOSES_SERVICE
+  - HAS_ENDPOINT
+  - HAS_PARAM
+  - HAS_REQUEST_SHAPE
+  - REPRESENTS
+  - SUPPORTED_BY
+  - PRODUCED_OBSERVATION
+  - DESCRIBES
+  use_case: Render ASN/CIDR/IP/Host/Service/Endpoint/Parameter/Request topology from one program root.
+  version: 1
+  level: L2_WEB_API
+  query_templates:
+  - program_exposure_topology
+  expected_output: Program-rooted topology paths suitable for the Workbench graph renderer.
 - description: Endpoint-focused slice for query templates and local traversal.
   name: endpoint_neighborhood
   node_labels:
@@ -1819,6 +2070,7 @@ projections:
   - Service
   - Endpoint
   - Parameter
+  - RequestShape
   - JSFile
   relationship_types:
   - RESOLVES_TO
@@ -1867,6 +2119,7 @@ projections:
   - Service
   - Endpoint
   - Parameter
+  - RequestShape
   - JSFile
   - Tool
   - ToolRun
@@ -1879,6 +2132,8 @@ projections:
   - EXPOSES_SERVICE
   - HAS_ENDPOINT
   - HAS_PARAM
+  - HAS_REQUEST_SHAPE
+  - SUPPORTED_BY
   - REFERENCES
   - HAS_TOOL_RUN
   - USED_TOOL

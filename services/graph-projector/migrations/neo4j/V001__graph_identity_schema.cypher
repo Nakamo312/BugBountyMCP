@@ -34,6 +34,10 @@ CREATE CONSTRAINT graph_node_parameter_identity IF NOT EXISTS
 FOR (node:Parameter)
 REQUIRE (node.program_id, node.key) IS UNIQUE;
 
+CREATE CONSTRAINT graph_node_requestshape_identity IF NOT EXISTS
+FOR (node:RequestShape)
+REQUIRE (node.program_id, node.key) IS UNIQUE;
+
 CREATE CONSTRAINT graph_node_jsfile_identity IF NOT EXISTS
 FOR (node:JSFile)
 REQUIRE (node.program_id, node.key) IS UNIQUE;
@@ -110,6 +114,14 @@ CREATE INDEX graph_rel_has_surface_delta_identity IF NOT EXISTS
 FOR ()-[rel:HAS_SURFACE_DELTA]-()
 ON (rel.identity_key);
 
+CREATE INDEX graph_rel_represents_identity IF NOT EXISTS
+FOR ()-[rel:REPRESENTS]-()
+ON (rel.identity_key);
+
+CREATE INDEX graph_rel_has_asset_identity IF NOT EXISTS
+FOR ()-[rel:HAS_ASSET]-()
+ON (rel.identity_key);
+
 CREATE INDEX graph_rel_has_scope_identity IF NOT EXISTS
 FOR ()-[rel:HAS_SCOPE]-()
 ON (rel.identity_key);
@@ -140,6 +152,10 @@ ON (rel.identity_key);
 
 CREATE INDEX graph_rel_has_param_identity IF NOT EXISTS
 FOR ()-[rel:HAS_PARAM]-()
+ON (rel.identity_key);
+
+CREATE INDEX graph_rel_has_request_shape_identity IF NOT EXISTS
+FOR ()-[rel:HAS_REQUEST_SHAPE]-()
 ON (rel.identity_key);
 
 CREATE INDEX graph_rel_references_identity IF NOT EXISTS
@@ -192,6 +208,10 @@ ON (rel.identity_key);
 
 CREATE INDEX graph_rel_describes_identity IF NOT EXISTS
 FOR ()-[rel:DESCRIBES]-()
+ON (rel.identity_key);
+
+CREATE INDEX graph_rel_supported_by_identity IF NOT EXISTS
+FOR ()-[rel:SUPPORTED_BY]-()
 ON (rel.identity_key);
 
 CREATE INDEX graph_rel_supports_evidence_identity IF NOT EXISTS

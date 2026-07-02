@@ -89,6 +89,7 @@ def _surface_node_facts(projection: SurfaceMapProjection, *, lineage: dict[str, 
             dst_kind="SurfaceFingerprint",
             dst_key=projection.node_fingerprint,
         ),
+        *_surface_representation_edges(projection, lineage=lineage, node_key=node_key),
     ]
 
 
@@ -107,11 +108,56 @@ def _surface_node(
             "node_fingerprint": projection.node_fingerprint,
             "node_type": projection.node_type,
             "feature_fingerprint": projection.feature_fingerprint,
+            "ref_type": projection.ref_type,
+            "ref_id": projection.ref_id,
+            "host": projection.host,
+            "path": projection.path,
+            "route_template": projection.route_template,
             "method": projection.method,
             "status_code": projection.status_code,
             "content_type": projection.content_type,
+            "canonical_entity_key": _surface_canonical_entity_key(projection),
         },
     )
+
+
+def _surface_representation_edges(
+    projection: SurfaceMapProjection,
+    *,
+    lineage: dict[str, object],
+    node_key: str,
+) -> list[SurfaceFact]:
+    if not projection.host:
+        return []
+    # Exact bridge available with the current surface schema: a surface node observed
+    # on a host can point to the canonical Host node. Endpoint/request bridges need
+    # service_key; do not fake them from route text alone.
+    return [
+        GraphNodeFact(
+            **lineage,
+            kind="Host",
+            key=projection.host,
+            properties={"hostname": projection.host, "display_label": projection.host},
+        ),
+        GraphEdgeFact(
+            **lineage,
+            src_kind="SurfaceNode",
+            src_key=node_key,
+            edge_kind="REPRESENTS",
+            dst_kind="Host",
+            dst_key=projection.host,
+            properties={"bridge_type": "surface_host"},
+        ),
+    ]
+
+
+def _surface_canonical_entity_key(projection: SurfaceMapProjection) -> str | None:
+    if projection.host and projection.method and (projection.route_template or projection.path):
+        route = projection.route_template or projection.path
+        return f"surface:{projection.host}:{projection.method}:{route}"
+    if projection.host:
+        return f"host:{projection.host}"
+    return None
 
 
 def _surface_fingerprint(projection: SurfaceMapProjection, *, lineage: dict[str, object]) -> GraphNodeFact:

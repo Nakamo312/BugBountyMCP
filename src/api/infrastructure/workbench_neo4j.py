@@ -39,7 +39,7 @@ _SECRET_VALUE_RE = re.compile(
 )
 
 _TEMPLATE_BY_LENS: dict[WorkbenchLens, str] = {
-    WorkbenchLens.NEO4J_EXPOSURE: "asset_exposure",
+    WorkbenchLens.NEO4J_EXPOSURE: "program_exposure_topology",
     WorkbenchLens.NEO4J_ENDPOINT: "endpoint_neighborhood",
     WorkbenchLens.NEO4J_EVIDENCE: "evidence_path",
     WorkbenchLens.NEO4J_SURFACE_MATH: "surface_graph_math",
@@ -50,20 +50,20 @@ _TEMPLATE_BY_LENS: dict[WorkbenchLens, str] = {
 }
 
 _LENS_LABELS: dict[WorkbenchLens, str] = {
-    WorkbenchLens.NEO4J_EXPOSURE: "Exposure map",
-    WorkbenchLens.NEO4J_ENDPOINT: "Endpoint map",
-    WorkbenchLens.NEO4J_EVIDENCE: "Evidence paths",
-    WorkbenchLens.NEO4J_SURFACE_MATH: "Graph signals",
-    WorkbenchLens.NEO4J_ACTION_OUTCOME: "Outcomes",
-    WorkbenchLens.NEO4J_JS: "JS references",
-    WorkbenchLens.NEO4J_TECH: "Services",
-    WorkbenchLens.NEO4J_HYPOTHESIS: "Hypothesis evidence",
+    WorkbenchLens.NEO4J_EXPOSURE: "Neo4j · Exposure",
+    WorkbenchLens.NEO4J_ENDPOINT: "Neo4j · Endpoint neighborhood",
+    WorkbenchLens.NEO4J_EVIDENCE: "Neo4j · Evidence paths",
+    WorkbenchLens.NEO4J_SURFACE_MATH: "Neo4j · Surface math",
+    WorkbenchLens.NEO4J_ACTION_OUTCOME: "Neo4j · Action outcomes",
+    WorkbenchLens.NEO4J_JS: "Neo4j · JS references",
+    WorkbenchLens.NEO4J_TECH: "Neo4j · Services by technology",
+    WorkbenchLens.NEO4J_HYPOTHESIS: "Neo4j · Hypothesis evidence",
 }
 
-# These lenses read the existing graph materialization as-is. They must not
-# synthesize PostgreSQL fallback nodes or require the operator to understand
-# Neo4j/template internals. Seed values narrow the graph when available; they
-# are not required for the default overview.
+_SEED_REQUIRED = {
+    WorkbenchLens.NEO4J_ENDPOINT: "Select or focus an Endpoint node from any Neo4j view.",
+    WorkbenchLens.NEO4J_EVIDENCE: "Select or focus a Neo4j entity to read its evidence path.",
+}
 
 _ENTITY_LABEL_PRIORITY = (
     "Program",
@@ -75,6 +75,7 @@ _ENTITY_LABEL_PRIORITY = (
     "Service",
     "Endpoint",
     "Parameter",
+    "RequestShape",
     "JSFile",
     "Tool",
     "ToolRun",
@@ -100,6 +101,7 @@ _NODE_TYPE_BY_LABEL = {
     "Service": "service",
     "Endpoint": "endpoint",
     "Parameter": "param",
+    "RequestShape": "request_shape",
     "JSFile": "neo4j_js_file",
     "Tool": "neo4j_tool",
     "ToolRun": "neo4j_tool_run",
@@ -148,62 +150,27 @@ _CAPTION_FIELDS = (
     "last_seen",
 )
 
-_LABEL_VISUALS: dict[str, dict[str, Any]] = {
-    "Program": {"lane": "Program", "tier": 0, "priority": 100, "radius": 9, "color": "#111827", "label_policy": "always", "overview_limit": 8},
-    "Scope": {"lane": "Scope", "tier": 0, "priority": 92, "radius": 7, "color": "#475569", "label_policy": "always", "overview_limit": 12},
-    "ASN": {"lane": "Network", "tier": 1, "priority": 94, "radius": 7, "color": "#0f766e", "label_policy": "always", "overview_limit": 30},
-    "CIDR": {"lane": "Network", "tier": 2, "priority": 92, "radius": 7, "color": "#0e7490", "label_policy": "always", "overview_limit": 60},
-    "IP": {"lane": "Network", "tier": 3, "priority": 86, "radius": 6, "color": "#0369a1", "label_policy": "important", "overview_limit": 90},
-    "Host": {"lane": "Assets", "tier": 4, "priority": 84, "radius": 6.5, "color": "#0f172a", "label_policy": "important", "overview_limit": 110},
-    "Service": {"lane": "Services", "tier": 5, "priority": 80, "radius": 5.5, "color": "#334155", "label_policy": "important", "overview_limit": 100},
-    "Endpoint": {"lane": "HTTP", "tier": 6, "priority": 54, "radius": 3.6, "color": "#059669", "label_policy": "hover", "overview_limit": 70},
-    "Parameter": {"lane": "Inputs", "tier": 7, "priority": 42, "radius": 3.2, "color": "#d97706", "label_policy": "hover", "overview_limit": 40},
-    "JSFile": {"lane": "Client JS", "tier": 5, "priority": 72, "radius": 4.8, "color": "#ca8a04", "label_policy": "important", "overview_limit": 70},
-    "Evidence": {"lane": "Evidence", "tier": 8, "priority": 64, "radius": 4.2, "color": "#0f766e", "label_policy": "hover", "overview_limit": 50},
-    "Observation": {"lane": "Evidence", "tier": 8, "priority": 58, "radius": 3.8, "color": "#0891b2", "label_policy": "hover", "overview_limit": 50},
-    "Artifact": {"lane": "Evidence", "tier": 8, "priority": 50, "radius": 3.4, "color": "#475569", "label_policy": "hover", "overview_limit": 40},
-    "ActionOutcome": {"lane": "Outcomes", "tier": 8, "priority": 76, "radius": 5.2, "color": "#ea580c", "label_policy": "important", "overview_limit": 60},
-    "ToolRun": {"lane": "Outcomes", "tier": 7, "priority": 68, "radius": 4.5, "color": "#92400e", "label_policy": "hover", "overview_limit": 60},
-    "Tool": {"lane": "Outcomes", "tier": 6, "priority": 60, "radius": 4.2, "color": "#78716c", "label_policy": "hover", "overview_limit": 40},
-    "CapabilityProfile": {"lane": "Outcomes", "tier": 6, "priority": 60, "radius": 4.2, "color": "#7c3aed", "label_policy": "hover", "overview_limit": 40},
-    "OutcomeFeature": {"lane": "Outcomes", "tier": 9, "priority": 44, "radius": 3.6, "color": "#9333ea", "label_policy": "hover", "overview_limit": 40},
-    "SurfaceSnapshot": {"lane": "Surface", "tier": 1, "priority": 86, "radius": 6, "color": "#1d4ed8", "label_policy": "always", "overview_limit": 10},
-    "SurfaceNode": {"lane": "Surface", "tier": 2, "priority": 46, "radius": 3.8, "color": "#2563eb", "label_policy": "hover", "overview_limit": 80},
-    "SurfaceFingerprint": {"lane": "Surface", "tier": 3, "priority": 42, "radius": 3.5, "color": "#64748b", "label_policy": "hover", "overview_limit": 60},
-    "SurfaceDelta": {"lane": "Surface", "tier": 4, "priority": 60, "radius": 4.2, "color": "#be123c", "label_policy": "important", "overview_limit": 60},
-}
 
-_LENS_LAYOUTS: dict[WorkbenchLens, dict[str, Any]] = {
-    WorkbenchLens.NEO4J_EXPOSURE: {"title": "Exposure map", "lanes": ["Scope", "Network", "Assets", "Services", "HTTP", "Inputs"]},
-    WorkbenchLens.NEO4J_ENDPOINT: {"title": "Endpoint map", "lanes": ["Assets", "Services", "HTTP", "Inputs", "Client JS", "Evidence"]},
-    WorkbenchLens.NEO4J_EVIDENCE: {"title": "Evidence paths", "lanes": ["Assets", "Services", "HTTP", "Evidence"]},
-    WorkbenchLens.NEO4J_SURFACE_MATH: {"title": "Graph signals", "lanes": ["Surface"]},
-    WorkbenchLens.NEO4J_ACTION_OUTCOME: {"title": "Outcomes", "lanes": ["Assets", "Services", "HTTP", "Outcomes"]},
-    WorkbenchLens.NEO4J_JS: {"title": "JS references", "lanes": ["Assets", "Services", "HTTP", "Inputs", "Client JS"]},
-    WorkbenchLens.NEO4J_TECH: {"title": "Services", "lanes": ["Network", "Assets", "Services", "HTTP", "Inputs"]},
-    WorkbenchLens.NEO4J_HYPOTHESIS: {"title": "Hypothesis evidence", "lanes": ["Assets", "Services", "HTTP", "Evidence"]},
-}
 
-_NATIVE_LABELS_BY_LENS: dict[WorkbenchLens, tuple[str, ...]] = {
-    WorkbenchLens.NEO4J_EXPOSURE: ("ASN", "CIDR", "IP", "Host", "Scope", "Service", "Endpoint", "Parameter"),
-    WorkbenchLens.NEO4J_ENDPOINT: ("Endpoint", "Parameter", "Service", "Host", "IP", "JSFile", "Observation", "Artifact"),
-    WorkbenchLens.NEO4J_EVIDENCE: ("Evidence", "Observation", "Artifact", "Endpoint", "Service", "Host", "IP"),
-    WorkbenchLens.NEO4J_SURFACE_MATH: ("SurfaceSnapshot", "SurfaceNode", "SurfaceFingerprint", "SurfaceDelta", "SurfaceComponentProbe"),
-    WorkbenchLens.NEO4J_ACTION_OUTCOME: ("ActionOutcome", "ToolRun", "Tool", "CapabilityProfile", "OutcomeFeature", "Endpoint", "Service", "Host"),
-    WorkbenchLens.NEO4J_JS: ("JSFile", "Endpoint", "Parameter", "Service", "Host", "Observation", "Artifact"),
-    WorkbenchLens.NEO4J_TECH: ("Service", "Endpoint", "Parameter", "Host", "IP"),
-    WorkbenchLens.NEO4J_HYPOTHESIS: ("Hypothesis", "HypothesisCandidate", "Evidence", "Observation", "Artifact", "Endpoint", "Service", "Host"),
-}
-
-_NATIVE_RELATIONSHIPS_BY_LENS: dict[WorkbenchLens, tuple[str, ...]] = {
-    WorkbenchLens.NEO4J_EXPOSURE: ("HAS_SCOPE", "MATCHES_SCOPE", "RESOLVES_TO", "IN_CIDR", "ANNOUNCED_BY", "EXPOSES_SERVICE", "HAS_ENDPOINT", "HAS_PARAM"),
-    WorkbenchLens.NEO4J_ENDPOINT: ("RESOLVES_TO", "EXPOSES_SERVICE", "HAS_ENDPOINT", "HAS_PARAM", "REFERENCES", "PRODUCED_OBSERVATION", "DESCRIBES"),
-    WorkbenchLens.NEO4J_EVIDENCE: ("PRODUCED_ARTIFACT", "PRODUCED_OBSERVATION", "DESCRIBES", "SUPPORTS_EVIDENCE", "DERIVED_FROM"),
-    WorkbenchLens.NEO4J_SURFACE_MATH: ("HAS_SURFACE_NODE", "HAS_SURFACE_FINGERPRINT", "SURFACE_EDGE", "HAS_SURFACE_DELTA", "HAS_SURFACE_FINGERPRINT_FEATURE"),
-    WorkbenchLens.NEO4J_ACTION_OUTCOME: ("HAS_TOOL_RUN", "HAS_ACTION_OUTCOME", "OUTCOME_OF_RUN", "USED_CAPABILITY_PROFILE", "HAS_OUTCOME_FEATURE", "BEFORE_SURFACE_SNAPSHOT", "AFTER_SURFACE_SNAPSHOT", "USED_TOOL"),
-    WorkbenchLens.NEO4J_JS: ("REFERENCES", "HAS_ENDPOINT", "HAS_PARAM", "DESCRIBES", "PRODUCED_OBSERVATION"),
-    WorkbenchLens.NEO4J_TECH: ("EXPOSES_SERVICE", "HAS_ENDPOINT", "HAS_PARAM", "DESCRIBES"),
-    WorkbenchLens.NEO4J_HYPOTHESIS: ("SUPPORTS_EVIDENCE", "DERIVED_FROM", "DESCRIBES"),
+_REQUIRED_SCHEMA_BY_TEMPLATE: dict[str, dict[str, set[str]]] = {
+    "asset_exposure": {
+        "labels": {"Program", "Host", "IP", "Service", "Endpoint"},
+        "relationships": {"HAS_ASSET", "RESOLVES_TO", "EXPOSES_SERVICE", "HAS_ENDPOINT"},
+    },
+    "program_exposure_topology": {
+        "labels": {"Program", "Host", "IP", "Service", "Endpoint"},
+        "relationships": {"HAS_ASSET", "RESOLVES_TO", "EXPOSES_SERVICE", "HAS_ENDPOINT"},
+    },
+    "endpoint_neighborhood": {"labels": {"Endpoint"}, "relationships": set()},
+    "evidence_path": {"labels": {"Artifact", "Observation"}, "relationships": {"PRODUCED_OBSERVATION", "DESCRIBES"}},
+    "hidden_endpoints_from_js": {"labels": {"Endpoint", "JSFile"}, "relationships": {"REFERENCES"}},
+    "exposed_services_by_technology": {"labels": {"Service", "Endpoint"}, "relationships": {"HAS_ENDPOINT"}},
+    "action_outcome_experience_neighborhood": {
+        "labels": {"ActionOutcome"},
+        "relationships": {"HAS_OUTCOME_FEATURE", "USED_CAPABILITY_PROFILE", "OUTCOME_OF_RUN"},
+    },
+    "surface_graph_math": {"labels": {"SurfaceSnapshot", "SurfaceNode"}, "relationships": {"HAS_SURFACE_NODE"}},
+    "hypothesis_evidence_paths": {"labels": {"Hypothesis", "HypothesisCandidate"}, "relationships": set()},
 }
 
 
@@ -211,17 +178,18 @@ _NATIVE_RELATIONSHIPS_BY_LENS: dict[WorkbenchLens, tuple[str, ...]] = {
 class Neo4jSchemaState:
     labels: frozenset[str]
     relationships: frozenset[str]
-    properties: frozenset[str]
+
+    def missing_for_template(self, template_name: str) -> dict[str, list[str]]:
+        required = _REQUIRED_SCHEMA_BY_TEMPLATE.get(template_name, {})
+        missing_labels = sorted(set(required.get("labels", set())) - set(self.labels))
+        missing_relationships = sorted(set(required.get("relationships", set())) - set(self.relationships))
+        return {
+            "labels": missing_labels,
+            "relationships": missing_relationships,
+        }
 
     def has_any_graph_content(self) -> bool:
-        return bool(self.labels or self.relationships or self.properties)
-
-    def labels_for_lens(self, lens: WorkbenchLens) -> tuple[str, ...]:
-        return tuple(label for label in _NATIVE_LABELS_BY_LENS.get(lens, ()) if label in self.labels)
-
-    def relationships_for_lens(self, lens: WorkbenchLens) -> tuple[str, ...]:
-        return tuple(rel for rel in _NATIVE_RELATIONSHIPS_BY_LENS.get(lens, ()) if rel in self.relationships)
-
+        return bool(self.labels or self.relationships)
 
 @dataclass(frozen=True)
 class Neo4jTemplateSpec:
@@ -260,61 +228,77 @@ async def build_neo4j_lens_graph(
             program_id=program_id,
             lens=lens,
             seed=seed,
-            message=f"Unsupported relationship graph view: {lens.value}",
-            reason="unsupported_relationship_lens",
+            message=f"Unsupported Neo4j workbench lens: {lens.value}",
+            reason="unsupported_neo4j_lens",
         )
-
-    schema_state = await _neo4j_schema_state(settings)
-    template_name = _TEMPLATE_BY_LENS[lens]
-    if "program_id" not in schema_state.properties:
+    if default_query_template_registry is None:
         return _message_graph(
             program_id=program_id,
             lens=lens,
             seed=seed,
-            message="Relationship graph has not been built for this database yet.",
-            reason="relationship_graph_not_built",
+            message="graph-projector query template registry is not importable in the API image.",
+            reason="graph_projector_templates_unavailable",
+        )
+
+    template_name = _TEMPLATE_BY_LENS[lens]
+    schema_state = await _neo4j_schema_state(settings)
+    missing_schema = schema_state.missing_for_template(template_name)
+    if missing_schema["labels"]:
+        status = "empty" if not schema_state.has_any_graph_content() else "preparing"
+        return _message_graph(
+            program_id=program_id,
+            lens=lens,
+            seed=seed,
+            message=(
+                "Relationship graph is not ready for this view yet. "
+                "Use the canonical surface map while the graph projection catches up."
+            ),
+            reason="neo4j_projection_schema_not_ready",
             template_name=template_name,
-            status="not_built",
+            status=status,
             details={
+                "missing_labels": missing_schema["labels"],
+                "missing_relationships": missing_schema["relationships"],
                 "available_labels": sorted(schema_state.labels),
                 "available_relationships": sorted(schema_state.relationships),
             },
         )
+    required_seed_reason = _SEED_REQUIRED.get(lens)
+    identity_key = _identity_key_from_seed(seed)
+    if required_seed_reason and not identity_key:
+        return _message_graph(
+            program_id=program_id,
+            lens=lens,
+            seed=seed,
+            message=required_seed_reason,
+            reason="seed_required_for_template",
+            template_name=template_name,
+        )
 
-    graph = await _build_native_neo4j_lens_graph(
-        settings=settings,
-        program_id=program_id,
-        lens=lens,
-        seed=seed,
-        depth=depth,
-        limit=limit,
-        schema_state=schema_state,
-        template_name=template_name,
-    )
-    if graph.nodes or (graph.boundary or {}).get("reason") != "relationship_graph_view_not_represented":
-        return graph
+    safe_limit = _workbench_query_limit(settings, limit)
+    parameters: dict[str, object] = {"program_id": str(program_id), "limit": safe_limit}
+    if lens in {WorkbenchLens.NEO4J_ENDPOINT, WorkbenchLens.NEO4J_EVIDENCE}:
+        parameters["identity_key"] = identity_key or ""
+    elif lens == WorkbenchLens.NEO4J_SURFACE_MATH:
+        snapshot_id = _snapshot_id_from_seed(seed)
+        if not snapshot_id:
+            return _message_graph(
+                program_id=program_id,
+                lens=lens,
+                seed=seed,
+                message="Focus a SurfaceSnapshot node or open Surface Components to select the snapshot-local graph math view.",
+                reason="snapshot_seed_required_for_surface_graph_math",
+                template_name=template_name,
+            )
+        parameters["snapshot_id"] = snapshot_id
+    elif lens == WorkbenchLens.NEO4J_ACTION_OUTCOME:
+        parameters["outcome_id"] = _outcome_id_from_seed(seed)
+    elif lens == WorkbenchLens.NEO4J_TECH:
+        parameters["technology"] = _technology_from_seed(seed)
+    elif lens == WorkbenchLens.NEO4J_HYPOTHESIS:
+        parameters["hypothesis_id"] = _hypothesis_id_from_seed(seed)
 
-    # The native graph reader is the default because it displays the ontology as
-    # stored in Neo4j. Keep the allowlisted template path only as a compatibility
-    # fallback for older graph-projector images that materialize a narrower shape.
-    if default_query_template_registry is None:
-        return graph
     try:
-        safe_limit = _workbench_query_limit(settings, limit)
-        parameters: dict[str, object] = {"program_id": str(program_id), "limit": safe_limit}
-        identity_key = _identity_key_from_seed(seed)
-        if lens in {WorkbenchLens.NEO4J_ENDPOINT, WorkbenchLens.NEO4J_EVIDENCE}:
-            parameters["identity_key"] = identity_key or ""
-        elif lens == WorkbenchLens.NEO4J_SURFACE_MATH:
-            snapshot_id = _snapshot_id_from_seed(seed)
-            if snapshot_id:
-                parameters["snapshot_id"] = snapshot_id
-        elif lens == WorkbenchLens.NEO4J_ACTION_OUTCOME:
-            parameters["outcome_id"] = _outcome_id_from_seed(seed)
-        elif lens == WorkbenchLens.NEO4J_TECH:
-            parameters["technology"] = _technology_from_seed(seed)
-        elif lens == WorkbenchLens.NEO4J_HYPOTHESIS:
-            parameters["hypothesis_id"] = _hypothesis_id_from_seed(seed)
         registry = default_query_template_registry()
         rendered = registry.get(template_name).render(parameters)
         rows = await _execute_neo4j_read(settings, rendered.cypher, dict(rendered.parameters))
@@ -323,14 +307,21 @@ async def build_neo4j_lens_graph(
             program_id=program_id,
             lens=lens,
             seed=seed,
-            message=f"Relationship graph read failed: {_redact_text(str(exc))}",
-            reason="relationship_graph_read_failed",
+            message=f"Neo4j read failed: {_redact_text(str(exc))}",
+            reason="neo4j_read_failed",
             template_name=template_name,
         )
 
     nodes, edges = _graph_from_records(rows)
     if not nodes:
-        return graph
+        return _message_graph(
+            program_id=program_id,
+            lens=lens,
+            seed=seed,
+            message=f"Neo4j template {template_name} returned no graph rows for this program/seed.",
+            reason="neo4j_template_empty_result",
+            template_name=template_name,
+        )
     return WorkbenchGraph(
         program_id=program_id,
         lens=lens,
@@ -338,195 +329,13 @@ async def build_neo4j_lens_graph(
         depth=depth,
         nodes=list(nodes.values())[:safe_limit],
         edges=list(edges.values())[: max(1, min(safe_limit * 4, 2000))],
-        counts={"nodes": len(nodes), "edges": len(edges), "template_rows": len(rows)},
-        boundary=_neo4j_boundary(surface=f"relationship_template_{template_name}", template_name=template_name),
-    )
-
-
-async def _build_native_neo4j_lens_graph(
-    *,
-    settings: Settings,
-    program_id: UUID,
-    lens: WorkbenchLens,
-    seed: str | None,
-    depth: int,
-    limit: int,
-    schema_state: Neo4jSchemaState,
-    template_name: str,
-) -> WorkbenchGraph:
-    labels = schema_state.labels_for_lens(lens)
-    relationships = schema_state.relationships_for_lens(lens)
-    if not labels:
-        return _message_graph(
-            program_id=program_id,
-            lens=lens,
-            seed=seed,
-            message="This graph view is not represented in the current relationship graph yet.",
-            reason="relationship_graph_view_not_represented",
-            template_name=template_name,
-            status="empty",
-            details={
-                "available_labels": sorted(schema_state.labels),
-                "available_relationships": sorted(schema_state.relationships),
-            },
-        )
-
-    safe_limit = _workbench_query_limit(settings, limit)
-    safe_depth = max(1, min(int(depth or 1), 3))
-    identity_key = _identity_key_from_seed(seed)
-    per_label_limit = max(8, min(90, safe_limit // max(1, len(labels))))
-    parameters: dict[str, object] = {
-        "program_id": str(program_id),
-        "labels": list(labels),
-        "relationships": list(relationships),
-        "limit": safe_limit,
-        "per_label_limit": per_label_limit,
-        "path_limit": max(1, min(safe_limit * 4, 2000)),
-    }
-    if identity_key and _seed_predicate(schema_state):
-        parameters["identity_key"] = identity_key
-        cypher = _native_seed_cypher(schema_state=schema_state, relationships=relationships, depth=safe_depth)
-    else:
-        cypher = _native_overview_cypher(schema_state=schema_state, relationships=relationships, depth=safe_depth)
-
-    try:
-        rows = await _execute_neo4j_read(settings, cypher, parameters)
-    except Exception as exc:  # noqa: BLE001
-        return _message_graph(
-            program_id=program_id,
-            lens=lens,
-            seed=seed,
-            message=f"Relationship graph read failed: {_redact_text(str(exc))}",
-            reason="relationship_graph_read_failed",
-            template_name=template_name,
-            details={"view": lens.value},
-        )
-
-    nodes, edges = _graph_from_records(rows)
-    if not nodes:
-        return _message_graph(
-            program_id=program_id,
-            lens=lens,
-            seed=seed,
-            message="No matching nodes are present in this relationship graph view.",
-            reason="relationship_graph_view_empty",
-            template_name=template_name,
-            status="empty",
-            details={
-                "labels_used": list(labels),
-                "relationships_used": list(relationships),
-                "seed": seed,
-            },
-        )
-
-    visible_nodes = list(nodes.values())[:safe_limit]
-    node_ids = {node.id for node in visible_nodes}
-    visible_edges = [edge for edge in edges.values() if edge.source in node_ids and edge.target in node_ids]
-    return WorkbenchGraph(
-        program_id=program_id,
-        lens=lens,
-        seed=seed,
-        depth=safe_depth,
-        nodes=visible_nodes,
-        edges=visible_edges[: max(1, min(safe_limit * 4, 2000))],
         counts={
-            "nodes": len(visible_nodes),
-            "edges": len(visible_edges),
-            "neo4j_nodes_seen": len(nodes),
-            "neo4j_edges_seen": len(edges),
-            **_label_counts(visible_nodes),
+            "nodes": len(nodes),
+            "edges": len(edges),
+            "neo4j_rows": len(rows),
         },
-        boundary={
-            **_neo4j_boundary(surface="relationship_graph_native_read", template_name=template_name),
-            "status": "ready",
-            "view_labels": list(labels),
-            "view_relationships": list(relationships),
-            "operator_projection": "existing_neo4j_relationship_graph",
-            "layout": _lens_layout(lens),
-            "label_counts": _label_count_map(visible_nodes),
-        },
+        boundary=_neo4j_boundary(surface=f"neo4j_template_{template_name}", template_name=template_name),
     )
-
-
-def _native_overview_cypher(*, schema_state: Neo4jSchemaState, relationships: tuple[str, ...], depth: int) -> str:
-    order_expr = _node_order_expression("n", schema_state)
-    if not relationships:
-        return f"""
-MATCH (n)
-WHERE n.program_id = $program_id
-  AND any(label IN labels(n) WHERE label IN $labels)
-WITH n, [label IN $labels WHERE label IN labels(n)][0] AS lens_label
-ORDER BY lens_label, {order_expr}
-WITH lens_label, collect(n)[0..$per_label_limit] AS label_nodes
-WITH reduce(selected = [], group IN collect(label_nodes) | selected + group)[0..$limit] AS selected_nodes
-RETURN selected_nodes AS nodes, [] AS paths
-""".strip()
-    return f"""
-MATCH (n)
-WHERE n.program_id = $program_id
-  AND any(label IN labels(n) WHERE label IN $labels)
-WITH n, [label IN $labels WHERE label IN labels(n)][0] AS lens_label
-ORDER BY lens_label, {order_expr}
-WITH lens_label, collect(n)[0..$per_label_limit] AS label_nodes
-WITH reduce(selected = [], group IN collect(label_nodes) | selected + group)[0..$limit] AS selected_nodes
-UNWIND selected_nodes AS n
-OPTIONAL MATCH path = (n)-[*1..{depth}]-(neighbor)
-WHERE all(node IN nodes(path) WHERE node.program_id = $program_id)
-  AND all(rel IN relationships(path) WHERE type(rel) IN $relationships)
-RETURN collect(DISTINCT n) AS nodes, collect(path)[0..$path_limit] AS paths
-""".strip()
-
-
-def _native_seed_cypher(*, schema_state: Neo4jSchemaState, relationships: tuple[str, ...], depth: int) -> str:
-    predicate = _seed_predicate(schema_state) or "seed.identity_key = $identity_key"
-    if not relationships:
-        return f"""
-MATCH (seed {{program_id: $program_id}})
-WHERE {predicate}
-RETURN collect(DISTINCT seed)[0..$limit] AS nodes, [] AS paths
-""".strip()
-    return f"""
-MATCH (seed {{program_id: $program_id}})
-WHERE {predicate}
-WITH seed LIMIT 1
-OPTIONAL MATCH path = (seed)-[*1..{depth}]-(neighbor)
-WHERE all(node IN nodes(path) WHERE node.program_id = $program_id)
-  AND all(rel IN relationships(path) WHERE type(rel) IN $relationships)
-RETURN collect(DISTINCT seed) AS nodes, collect(path)[0..$path_limit] AS paths
-""".strip()
-
-
-def _seed_predicate(schema_state: Neo4jSchemaState) -> str | None:
-    predicates = []
-    if "identity_key" in schema_state.properties:
-        predicates.append("seed.identity_key = $identity_key")
-    if "key" in schema_state.properties:
-        predicates.append("seed.key = $identity_key")
-    if "hostname" in schema_state.properties:
-        predicates.append("seed.hostname = $identity_key")
-    if "service_key" in schema_state.properties:
-        predicates.append("seed.service_key = $identity_key")
-    if not predicates:
-        return None
-    return " OR ".join(predicates)
-
-
-def _node_order_expression(alias: str, schema_state: Neo4jSchemaState) -> str:
-    candidates = [
-        "hostname",
-        "address",
-        "service_key",
-        "service_method_normalized_path",
-        "normalized_path",
-        "route_template",
-        "url",
-        "key",
-        "identity_key",
-    ]
-    expressions = [f"{alias}.{field}" for field in candidates if field in schema_state.properties]
-    if not expressions:
-        return f"elementId({alias})"
-    return "coalesce(" + ", ".join(expressions + [f"elementId({alias})"]) + ")"
 
 
 async def neo4j_entity_profile(
@@ -621,19 +430,16 @@ async def _neo4j_schema_state(settings: Settings) -> Neo4jSchemaState:
 CALL db.labels() YIELD label
 WITH collect(label) AS labels
 CALL db.relationshipTypes() YIELD relationshipType
-WITH labels, collect(relationshipType) AS relationships
-CALL db.propertyKeys() YIELD propertyKey
-RETURN labels, relationships, collect(propertyKey) AS properties
+RETURN labels, collect(relationshipType) AS relationships
 """.strip(),
             {},
         )
     except Exception:
-        return Neo4jSchemaState(labels=frozenset(), relationships=frozenset(), properties=frozenset())
+        return Neo4jSchemaState(labels=frozenset(), relationships=frozenset())
     row = rows[0] if rows else {}
     labels = frozenset(str(item) for item in row.get("labels", []) if item)
     relationships = frozenset(str(item) for item in row.get("relationships", []) if item)
-    properties = frozenset(str(item) for item in row.get("properties", []) if item)
-    return Neo4jSchemaState(labels=labels, relationships=relationships, properties=properties)
+    return Neo4jSchemaState(labels=labels, relationships=relationships)
 
 
 async def _execute_neo4j_read(settings: Settings, cypher: str, parameters: dict[str, object]) -> list[dict[str, Any]]:
@@ -747,8 +553,7 @@ def _add_node(raw_node: Any, nodes: dict[str, WorkbenchNode]) -> None:
                 "values": action_target.get("values", {}),
             },
         },
-        visual=_node_visual(primary_label=primary_label, labels=labels, properties=properties),
-        badges=[primary_label],
+        badges=["Neo4j", primary_label],
         metrics=_node_metrics(properties),
         evidence_refs=_evidence_refs_from_properties(properties),
         staleness="unknown",
@@ -821,6 +626,7 @@ def _action_target_properties(
     if primary_label == "Endpoint":
         enriched.setdefault("path", enriched.get("normalized_path") or enriched.get("route_template"))
         enriched.setdefault("method", enriched.get("method"))
+        enriched.setdefault("display_label", enriched.get("display_label") or _endpoint_context_label(enriched, identity_value or label))
         if service_parts:
             hostname, port, scheme = service_parts
             path = str(enriched.get("path") or "/")
@@ -828,6 +634,10 @@ def _action_target_properties(
             port_suffix = "" if (scheme == "https" and port == "443") or (scheme == "http" and port == "80") else f":{port}"
             enriched.setdefault("url", f"{scheme}://{hostname}{port_suffix}{suffix}")
             enriched.setdefault("base_url", f"{scheme}://{hostname}{port_suffix}")
+    if primary_label == "RequestShape":
+        enriched.setdefault("path", enriched.get("normalized_path") or enriched.get("route_template"))
+        enriched.setdefault("method", enriched.get("method"))
+        enriched.setdefault("display_label", enriched.get("display_label") or _endpoint_context_label(enriched, identity_value or label))
     if primary_label == "JSFile":
         enriched.setdefault("js_url", enriched.get("url") or enriched.get("source_url") or identity_value)
     enriched.setdefault("identity", identity_value or identity)
@@ -857,6 +667,8 @@ def _action_target_values(*, primary_label: str, properties: Mapping[str, Any], 
         values["cidr"] = _hostlike(display)
     if primary_label == "ASN" and not values["asn"]:
         values["asn"] = _hostlike(display)
+    if primary_label == "RequestShape" and not values["path"]:
+        values["path"] = _first_text(properties, "normalized_path", "path")
     if primary_label == "JSFile" and not values["js_url"]:
         values["js_url"] = values.get("url") or _hostlike(display)
     return {key: str(value) for key, value in values.items() if value not in (None, "", [])}
@@ -872,6 +684,7 @@ def _target_kind(primary_label: str, node_type: str) -> str:
         "Service": "service",
         "Endpoint": "endpoint",
         "Parameter": "parameter",
+        "RequestShape": "request_shape",
         "JSFile": "javascript",
         "SurfaceSnapshot": "surface_snapshot",
         "ActionOutcome": "action_outcome",
@@ -893,6 +706,18 @@ def _strip_identity_prefix(identity: str, primary_label: str) -> str:
     if text.lower().startswith(prefix):
         return text[len(prefix):]
     return text
+
+
+def _endpoint_context_label(properties: Mapping[str, Any], fallback: str) -> str:
+    method = properties.get("method")
+    path = properties.get("route_template") or properties.get("normalized_path") or properties.get("path")
+    host = properties.get("hostname") or properties.get("host")
+    port = properties.get("port")
+    if method and path and host and port:
+        return f"{method} {path} @ {host}:{port}"
+    if method and path and host:
+        return f"{method} {path} @ {host}"
+    return str(fallback)
 
 
 def _service_key_parts(value: str) -> tuple[str, str, str] | None:
@@ -988,12 +813,17 @@ def _primary_label(labels: list[str]) -> str:
 
 
 def _best_label(properties: Mapping[str, Any], labels: list[str], fallback: str) -> str:
+    display_label = properties.get("display_label")
+    if display_label not in (None, "", []):
+        return str(display_label)
     method = properties.get("method")
     path = properties.get("route_template") or properties.get("normalized_path") or properties.get("path")
     if method and path:
-        return f"{method} {path}"
+        return _endpoint_context_label(properties, f"{method} {path}")
     if properties.get("scheme") and properties.get("port"):
-        return f"{properties.get('scheme')}:{properties.get('port')}"
+        host = properties.get("hostname") or properties.get("host") or properties.get("address")
+        suffix = f" @ {host}" if host else ""
+        return f"{properties.get('scheme')}:{properties.get('port')}{suffix}"
     for field in _LABEL_FIELDS:
         value = properties.get(field)
         if value not in (None, "", []):

@@ -53,23 +53,70 @@ LIMIT %(limit)s;
 
 
 CANONICAL_INVENTORY_REBUILD_SQL = """
-SELECT
-    h.program_id,
-    h.id AS host_id,
-    h.host AS hostname,
-    ip.id AS ip_id,
-    ip.address AS ip_address,
-    hi.source AS host_ip_source,
-    s.id AS service_id,
-    s.scheme AS service_scheme,
-    s.port AS service_port,
-    s.technologies
-FROM host_ips hi
-JOIN hosts h ON h.id = hi.host_id
-JOIN ip_addresses ip ON ip.id = hi.ip_id
-LEFT JOIN services s ON s.ip_id = ip.id
-WHERE (%(program_id)s IS NULL OR h.program_id = %(program_id)s)
-ORDER BY h.program_id ASC, h.host ASC, ip.address ASC, s.port ASC
+WITH host_ip_service AS (
+    SELECT
+        h.program_id,
+        h.id AS host_id,
+        h.host AS hostname,
+        ip.id AS ip_id,
+        ip.address AS ip_address,
+        hi.source AS host_ip_source,
+        s.id AS service_id,
+        s.scheme AS service_scheme,
+        s.port AS service_port,
+        s.technologies,
+        cidr.id AS cidr_id,
+        cidr.cidr,
+        cidr.ip_count AS cidr_ip_count,
+        cidr.in_scope AS cidr_in_scope,
+        asn.id AS asn_id,
+        asn.asn_number,
+        asn.organization_name AS asn_name,
+        asn.country_code AS asn_country
+    FROM host_ips hi
+    JOIN hosts h ON h.id = hi.host_id
+    JOIN ip_addresses ip ON ip.id = hi.ip_id
+    LEFT JOIN services s ON s.ip_id = ip.id
+    LEFT JOIN LATERAL (
+        SELECT c.*
+        FROM cidrs c
+        WHERE c.program_id = h.program_id
+          AND ip.address ~ '^[0-9A-Fa-f:.]+$'
+          AND c.cidr ~ '^[0-9A-Fa-f:.]+/[0-9]+$'
+          AND ip.address::inet << c.cidr::cidr
+        ORDER BY masklen(c.cidr::cidr) DESC, c.cidr ASC
+        LIMIT 1
+    ) cidr ON TRUE
+    LEFT JOIN asns asn ON asn.id = cidr.asn_id
+    WHERE (%(program_id)s IS NULL OR h.program_id = %(program_id)s)
+), network_inventory AS (
+    SELECT
+        coalesce(c.program_id, a.program_id) AS program_id,
+        NULL::uuid AS host_id,
+        NULL::text AS hostname,
+        NULL::uuid AS ip_id,
+        NULL::text AS ip_address,
+        NULL::text AS host_ip_source,
+        NULL::uuid AS service_id,
+        NULL::text AS service_scheme,
+        NULL::integer AS service_port,
+        NULL::jsonb AS technologies,
+        c.id AS cidr_id,
+        c.cidr,
+        c.ip_count AS cidr_ip_count,
+        c.in_scope AS cidr_in_scope,
+        a.id AS asn_id,
+        a.asn_number,
+        a.organization_name AS asn_name,
+        a.country_code AS asn_country
+    FROM cidrs c
+    FULL OUTER JOIN asns a ON a.id = c.asn_id
+    WHERE (%(program_id)s IS NULL OR coalesce(c.program_id, a.program_id) = %(program_id)s)
+)
+SELECT * FROM host_ip_service
+UNION ALL
+SELECT * FROM network_inventory
+ORDER BY program_id ASC, hostname ASC NULLS LAST, ip_address ASC NULLS LAST, cidr ASC NULLS LAST, asn_number ASC NULLS LAST, service_port ASC NULLS LAST
 LIMIT %(limit)s;
 """
 
@@ -165,8 +212,13 @@ SELECT
     ss.input_watermark,
     sn.id AS node_id,
     sn.node_type,
+    sn.ref_type,
+    sn.ref_id,
     sn.node_fingerprint,
     sn.feature_fingerprint,
+    sn.host,
+    sn.path,
+    sn.route_template,
     sn.method,
     sn.status_code,
     sn.content_type,

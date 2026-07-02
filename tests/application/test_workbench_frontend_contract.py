@@ -176,15 +176,17 @@ def test_workbench_frontend_can_refresh_missing_read_models_without_manual_ids()
 
 
 
-def test_workbench_surface_lens_uses_surface_map_renderer_before_force_graph() -> None:
+def test_workbench_surface_lens_uses_library_force_graph_without_card_renderer_detour() -> None:
     canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
 
-    assert "SurfaceMapCanvas" in canvas
-    assert "surface-map-canvas" in canvas
-    assert "Host → route family → endpoint topology" in canvas
-    assert "buildSurfaceMap(graph)" in canvas
-    assert "graph?.lens === 'surface' && !graph?.seed" in canvas
-    assert "surface_nodes: hosts, route families, endpoints, params, responses" in canvas
+    assert "ForceGraph2D" in canvas
+    assert "GraphCanvasOnly" in canvas
+    assert "nodeCanvasObject" in canvas
+    assert "useSurfaceMapRenderer" not in canvas
+    assert "graph?.lens === 'surface' && !graph?.seed" not in canvas
+    assert "<SurfaceMapCanvas" not in canvas
+    assert "<LensStory" not in canvas
+    assert "<SignalBoard" not in canvas
 
 def test_workbench_surface_canvas_uses_canvas_investigation_map_not_card_grid() -> None:
     canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
@@ -205,20 +207,23 @@ def test_workbench_surface_canvas_uses_canvas_investigation_map_not_card_grid() 
 
 
 
-def test_workbench_exposure_lens_uses_layered_topology_instead_of_raw_force_cloud() -> None:
+def test_workbench_exposure_lens_uses_program_topology_query_with_library_renderer() -> None:
     canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
     templates = _read("services/graph-projector/graph_projector/query_templates.py")
+    workbench_neo4j = _read("src/api/infrastructure/workbench_neo4j.py")
 
-    assert "ExposureTopologyCanvas" in canvas
-    assert "exposure-topology-canvas" in canvas
-    assert "graph?.lens === 'neo4j_exposure' && !graph?.seed" in canvas
-    assert "ASN → CIDR → IP → Host → Service → Endpoint → Parameter → Request" in canvas
-    assert "neo4j_asn" in canvas
-    assert "neo4j_cidr" in canvas
-    assert "neo4j_ip" in canvas
-    assert "parameter_path" in templates
-    assert "HAS_PARAM" in templates
+    assert "ForceGraph2D" in canvas
+    assert "GraphCanvasOnly" in canvas
+    assert "useExposureTopologyRenderer" not in canvas
+    assert "graph?.lens === 'neo4j_exposure' && !graph?.seed" not in canvas
+    assert "<ExposureTopologyCanvas" not in canvas
+    assert "program_exposure_topology" in templates
+    assert "MATCH (program:Program {program_id: $program_id})" in templates
+    assert "HAS_ASSET" in templates
+    assert "HAS_REQUEST_SHAPE" in templates
+    assert "RequestShape" in templates
     assert "ANNOUNCED_BY" in templates
+    assert 'NEO4J_EXPOSURE: "program_exposure_topology"' in workbench_neo4j
 
 def test_workbench_inspector_prefers_readable_profile_summary_over_empty_json_blob() -> None:
     panels = _read("BugBountyDashBoard/src/components/workbench/WorkbenchPanels.jsx")

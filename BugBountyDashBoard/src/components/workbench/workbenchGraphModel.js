@@ -9,6 +9,7 @@ export const nodeTypeLabel = (type) => ({
   route_template: 'Route template',
   param: 'Parameter',
   response_shape: 'Response shape',
+  request_shape: 'Request shape',
   artifact_ref: 'Artifact',
   surface_component: 'Surface component',
   surface_component_graph_signal: 'Graph signal',

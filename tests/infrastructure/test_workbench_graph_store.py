@@ -838,11 +838,16 @@ def test_graph_projector_templates_limit_before_expanding_heavy_neo4j_lenses() -
     js = registry.get("hidden_endpoints_from_js").cypher
     outcome = registry.get("action_outcome_experience_neighborhood").cypher
 
-    assert "WITH host ORDER BY host.hostname LIMIT $limit" in asset
+    assert "MATCH (program:Program {program_id: $program_id})" in asset
+    assert "HAS_ASSET" in asset
+    assert "collect(asset_path)[0..$limit]" in asset
     assert "collect(infra_path)[0..$limit]" in asset
     assert "collect(service_path)[0..$limit]" in asset
     assert "collect(parameter_path)[0..$limit]" in asset
+    assert "collect(request_shape_path)[0..$limit]" in asset
     assert "ANNOUNCED_BY" in asset
     assert "HAS_PARAM" in asset
+    assert "HAS_REQUEST_SHAPE" in asset
+    assert "WITH host ORDER BY host.hostname LIMIT $limit" not in asset
     assert "WITH endpoint ORDER BY endpoint.normalized_path LIMIT $limit" in js
     assert "WITH outcome ORDER BY outcome.finished_at DESC LIMIT $limit" in outcome

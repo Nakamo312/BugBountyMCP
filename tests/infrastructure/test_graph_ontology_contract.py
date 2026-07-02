@@ -290,7 +290,7 @@ def test_default_ontology_uses_source_backed_network_paths() -> None:
     assert announced_by.parser_outputs == ("cidrs",)
 
     exposes_service = relationships["EXPOSES_SERVICE"]
-    assert exposes_service.source_labels == ("IP",)
+    assert exposes_service.source_labels == ("Host", "IP")
     assert exposes_service.target_labels == ("Service",)
     assert exposes_service.parser_outputs == ("services",)
 

@@ -8,8 +8,15 @@ def canonical_inventory_dedupe_key(program_id: UUID | str, parser_version: str) 
     return f"canonical-inventory:{program_id}:{parser_version}"
 
 
-def inventory_service_key(*, ip: str, port: int, scheme: str) -> str:
-    return f"{canonical_ip_address(ip)}:{int(port)}/{scheme.strip().lower()}"
+def inventory_service_key(*, origin: str, port: int, scheme: str) -> str:
+    return f"{canonical_service_origin(origin)}:{int(port)}/{scheme.strip().lower()}"
+
+
+def canonical_service_origin(value: str) -> str:
+    text = value.strip().lower().rstrip(".")
+    if not text:
+        return text
+    return canonical_ip_address(text)
 
 
 def canonical_ip_address(value: str) -> str:
