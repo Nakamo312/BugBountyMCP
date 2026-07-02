@@ -1,28 +1,37 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, DatabaseZap, Loader, RefreshCw } from 'lucide-react'
 import WorkbenchCanvas from '../components/workbench/WorkbenchCanvas'
 import { useProgram } from '../context/ProgramContext'
 import { useWorkbench } from '../hooks/useWorkbench'
-import {
-  CommandBar,
-  CountBadge,
-  Inspector,
-  LensSelector,
-  LowerEvidencePanel,
-  NodeList,
-  ProjectionControlPanel,
-  ProjectionStatus,
-  copyToClipboard,
-  emptyCounts,
-  loadSavedViews,
-  persistSavedViews,
-} from '../components/workbench/WorkbenchPanels'
+import { CommandBar, CountBadge, Inspector, LensSelector, NodeList, ProjectionControlPanel, ProjectionRepairBanner, ProjectionStatus, copyToClipboard, emptyCounts, loadSavedViews, persistSavedViews } from '../components/workbench/WorkbenchPanels'
+
+
+const routeFilterQuery = () => {
+  if (typeof window === 'undefined') return ''
+  return new URLSearchParams(window.location.search).get('filter') || ''
+}
+
+const writeRouteFilterQuery = (value) => {
+  if (typeof window === 'undefined') return
+  const params = new URLSearchParams(window.location.search)
+  if (value) params.set('filter', value)
+  else params.delete('filter')
+  const query = params.toString()
+  window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}`)
+}
 
 const Workbench = () => {
   const { selectedProgram } = useProgram()
-  const [filterQuery, setFilterQuery] = useState('')
+  const [filterQuery, setFilterQueryState] = useState(routeFilterQuery)
   const [savedViews, setSavedViews] = useState([])
-  const [showReadModelDetails, setShowReadModelDetails] = useState(false)
+  const [showDiagnostics, setShowDiagnostics] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return new URLSearchParams(window.location.search).get('diagnostics') === 'projection'
+  })
+  const setFilterQuery = useCallback((value) => {
+    setFilterQueryState(value)
+    writeRouteFilterQuery(value)
+  }, [])
   const programId = selectedProgram?.id
   const {
     actionSubmission,
@@ -130,15 +139,13 @@ const Workbench = () => {
         onRerunSelected={rerankSelected}
       />
 
-      <ProjectionStatus bootstrap={bootstrap} activeSeed={activeSeed} />
-
-      <ProjectionControlPanel
+      <ProjectionRepairBanner
         bootstrap={bootstrap}
         error={error}
         graph={graph}
-        projectionResult={projectionResult}
         projectionRunning={projectionRunning}
         onRunProjection={runProjectionRefresh}
+        onShowDiagnostics={() => setShowDiagnostics(true)}
       />
 
       {error && !missingProjectionError && (
@@ -191,6 +198,7 @@ const Workbench = () => {
             entityErrors={entityErrors}
             actions={actions}
             memory={memory}
+            evidencePack={evidencePack}
             loading={entityLoading}
             selectedNode={selectedNode}
             actionSubmission={actionSubmission}
@@ -202,30 +210,30 @@ const Workbench = () => {
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
         <div>
-          <div className="text-sm font-semibold text-gray-900">Details</div>
-          <div className="text-xs text-gray-500">Evidence, memory, and read-model checks.</div>
+          <div className="text-sm font-semibold text-gray-900">Projection diagnostics</div>
+          <div className="text-xs text-gray-500">Read-model freshness, queue health, and repair operations.</div>
         </div>
         <button
           type="button"
-          onClick={() => setShowReadModelDetails((value) => !value)}
+          onClick={() => setShowDiagnostics((value) => !value)}
           className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
         >
-          {showReadModelDetails ? 'Hide details' : 'Show details'}
+          {showDiagnostics ? 'Hide diagnostics' : 'Show diagnostics'}
         </button>
       </div>
 
-      {showReadModelDetails && (
-        <>
-          <LowerEvidencePanel
-            actions={actions}
-            memory={memory}
-            evidencePack={evidencePack}
-            selectedNode={selectedNode}
-            actionSubmission={actionSubmission}
-            actionSubmitting={actionSubmitting}
-            onSubmitAction={submitSelectedAction}
+      {showDiagnostics && (
+        <div className="space-y-3">
+          <ProjectionStatus bootstrap={bootstrap} activeSeed={activeSeed} />
+          <ProjectionControlPanel
+            bootstrap={bootstrap}
+            error={error}
+            graph={graph}
+            projectionResult={projectionResult}
+            projectionRunning={projectionRunning}
+            onRunProjection={runProjectionRefresh}
           />
-        </>
+        </div>
       )}
     </div>
   )

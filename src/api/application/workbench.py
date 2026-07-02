@@ -105,6 +105,9 @@ class WorkbenchLensDescriptor(BaseModel):
     available: bool
     default: bool = False
     reason: str | None = None
+    seed_required: bool = False
+    seed_kinds: list[str] = Field(default_factory=list)
+    template_name: str | None = None
 
 
 class WorkbenchBootstrap(BaseModel):
@@ -150,6 +153,9 @@ class WorkbenchActionAffordance(BaseModel):
     approval_required: bool = False
     risk_class: str | None = None
     reason: str | None = None
+    seed_required: bool = False
+    seed_kinds: list[str] = Field(default_factory=list)
+    template_name: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     submit_payload: dict[str, Any] = Field(default_factory=dict)
     policy_preview: dict[str, Any] = Field(default_factory=dict)
@@ -478,14 +484,14 @@ def is_neo4j_workbench_lens(lens: WorkbenchLens) -> bool:
 
 def _neo4j_lens_descriptors() -> list[WorkbenchLensDescriptor]:
     return [
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_EXPOSURE, label="Neo4j · Exposure", available=True),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_ENDPOINT, label="Neo4j · Endpoint", available=True, reason="select_endpoint_seed_for_neighborhood"),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_EVIDENCE, label="Neo4j · Evidence", available=True, reason="select_entity_seed_for_evidence_path"),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_SURFACE_MATH, label="Neo4j · Surface math", available=True, reason="select_surface_snapshot_seed"),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_ACTION_OUTCOME, label="Neo4j · Outcomes", available=True),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_JS, label="Neo4j · JS refs", available=True),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_TECH, label="Neo4j · Services", available=True),
-        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_HYPOTHESIS, label="Neo4j · Hypothesis evidence", available=True),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_EXPOSURE, label="Neo4j · Exposure", available=True, template_name="asset_exposure"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_ENDPOINT, label="Neo4j · Endpoint", available=True, reason="select_endpoint_seed_for_neighborhood", seed_required=True, seed_kinds=["endpoint"], template_name="endpoint_neighborhood"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_EVIDENCE, label="Neo4j · Evidence", available=True, reason="select_entity_seed_for_evidence_path", seed_required=True, seed_kinds=["entity"], template_name="evidence_path"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_SURFACE_MATH, label="Neo4j · Surface math", available=True, reason="select_surface_snapshot_seed", seed_required=True, seed_kinds=["surface_snapshot"], template_name="surface_graph_math"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_ACTION_OUTCOME, label="Neo4j · Outcomes", available=True, template_name="action_outcome_experience_neighborhood"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_JS, label="Neo4j · JS refs", available=True, template_name="hidden_endpoints_from_js"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_TECH, label="Neo4j · Services", available=True, template_name="exposed_services_by_technology"),
+        WorkbenchLensDescriptor(lens=WorkbenchLens.NEO4J_HYPOTHESIS, label="Neo4j · Hypothesis evidence", available=True, template_name="hypothesis_evidence_paths"),
     ]
 
 

@@ -85,7 +85,8 @@ export const LensSelector = ({ lens, lenses, onChange }) => (
             : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-45'
         }`}
       >
-        {item.label}
+        <span>{item.label}</span>
+        {item.seed_required && <span className="ml-1 rounded bg-white/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">seed</span>}
       </button>
     ))}
   </div>
@@ -261,6 +262,56 @@ export const ProjectionStatus = ({ bootstrap, activeSeed }) => {
             ))}
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+
+export const ProjectionRepairBanner = ({ bootstrap, error, graph, projectionRunning, onRunProjection, onShowDiagnostics }) => {
+  const freshness = bootstrap?.projection_freshness || {}
+  const hasSnapshot = Boolean(freshness.latest_surface_snapshot)
+  const hasAnalysis = Boolean(freshness.latest_surface_analysis)
+  const graphEmpty = !graph || (graph.nodes || []).length === 0
+  const needsSurface = graphEmpty || !hasSnapshot || String(error || '').includes('surface graph not found')
+  const needsComponents = hasSnapshot && !hasAnalysis
+  const stale = freshness.ui_data_fresh === false || freshness.surface_analysis_fresh === false || freshness.search_index_fresh === false
+
+  if (!needsSurface && !needsComponents && !stale) return null
+
+  const primaryOperation = needsSurface ? 'build_surface' : needsComponents ? 'materialize_components' : 'refresh_workbench'
+  const primaryLabel = needsSurface ? 'Repair surface map' : needsComponents ? 'Materialize components' : 'Refresh read models'
+  const message = needsSurface
+    ? 'The Workbench has no usable surface graph for this program.'
+    : needsComponents
+      ? 'The latest surface snapshot exists, but component analysis is missing.'
+      : 'One or more Workbench read models are stale.'
+
+  return (
+    <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-blue-950">Projection needs repair</div>
+          <div className="mt-1 text-sm text-blue-800">{message}</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => onRunProjection(primaryOperation)}
+            disabled={projectionRunning}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
+          >
+            {projectionRunning ? <Loader className="animate-spin" size={16} /> : <PlayCircle size={16} />}
+            <span>{primaryLabel}</span>
+          </button>
+          <button
+            type="button"
+            onClick={onShowDiagnostics}
+            className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100"
+          >
+            Diagnostics
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -599,6 +650,46 @@ const ContextLoadWarnings = ({ errors }) => {
   )
 }
 
+
+const EvidencePackSummary = ({ evidencePack }) => {
+  const rankedContext = evidencePack?.ranked_context || []
+  const fragments = rankedContext.length
+    ? rankedContext.map((item) => ({ ...item.fragment, rank: item.rank, score: item.score, reasons: item.reasons }))
+    : evidencePack?.fragments || []
+  const graphSummary = evidencePack?.graph_context_summary || {}
+  const searchRefs = evidencePack?.search_projection_refs || []
+
+  if (!evidencePack && !fragments.length && !searchRefs.length && !graphSummary.available) return null
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+        <div className="font-semibold">Retrieved context</div>
+        <div className="mt-1">
+          {fragments.length} fragments · {searchRefs.length} search refs
+          {graphSummary.available ? ` · ${graphSummary.node_count || 0} graph nodes` : ''}
+        </div>
+      </div>
+      {fragments.length > 0 && (
+        <div className="space-y-2">
+          {fragments.slice(0, 8).map((fragment, index) => (
+            <div key={fragment.id || fragment.outcome_id || fragment.run_id || index} className="rounded-lg border border-gray-200 bg-white p-3 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <div className="truncate font-semibold text-gray-900">{fragment.capability_id || fragment.kind || fragment.entity_key || 'evidence'}</div>
+                <span className="shrink-0 rounded bg-gray-100 px-2 py-0.5 text-gray-600">
+                  {fragment.rank ? `#${fragment.rank}` : fragment.terminal_outcome || fragment.status || 'context'}
+                </span>
+              </div>
+              {fragment.entity_key && <div className="mt-1 truncate text-gray-500" title={fragment.entity_key}>{fragment.entity_key}</div>}
+              {fragment.reasons?.length > 0 && <div className="mt-2 text-gray-500">{fragment.reasons.join(', ')}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const ActionTargetSummary = ({ entity, selectedNode }) => {
   const target = entity?.profile?.action_target || selectedNode?.action_target || selectedNode?.metadata?.action_bridge
   const values = target?.values || selectedNode?.metadata?.action_bridge?.values || {}
@@ -613,15 +704,16 @@ const ActionTargetSummary = ({ entity, selectedNode }) => {
   )
 }
 
-export const Inspector = ({ entity, entityErrors = {}, actions, memory, loading, selectedNode, actionSubmission, actionSubmitting, onSubmitAction }) => {
+export const Inspector = ({ entity, entityErrors = {}, actions, memory, evidencePack, loading, selectedNode, actionSubmission, actionSubmitting, onSubmitAction }) => {
   const [activeSection, setActiveSection] = useState('profile')
   const affordances = actions?.actions || []
   const rejectedAffordances = actions?.rejected || []
   const fragments = memory?.fragments || []
   const evidenceRefs = entity?.evidence_refs?.length ? entity.evidence_refs : selectedNode?.evidence_refs || []
+  const retrievedEvidenceCount = (evidencePack?.ranked_context || []).length || (evidencePack?.fragments || []).length
   const sections = [
     { id: 'profile', label: 'Profile' },
-    { id: 'evidence', label: 'Evidence', count: evidenceRefs.length },
+    { id: 'evidence', label: 'Evidence', count: evidenceRefs.length + retrievedEvidenceCount },
     { id: 'actions', label: 'Actions', count: affordances.length },
     { id: 'memory', label: 'Memory', count: fragments.length },
   ]
@@ -682,9 +774,10 @@ export const Inspector = ({ entity, entityErrors = {}, actions, memory, loading,
       {activeSection === 'evidence' && (
         <section className="mt-5 space-y-2">
           <div className="text-sm font-semibold text-gray-900">Evidence</div>
-          {evidenceRefs.length === 0 ? (
+          <EvidencePackSummary evidencePack={evidencePack} />
+          {evidenceRefs.length === 0 && !retrievedEvidenceCount ? (
             <p className="text-sm text-gray-500">No evidence refs exposed for this entity.</p>
-          ) : (
+          ) : evidenceRefs.length > 0 ? (
             <div className="space-y-2">
               {evidenceRefs.map((ref, index) => (
                 <div key={`${ref.type}-${ref.id}-${index}`} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
@@ -692,7 +785,7 @@ export const Inspector = ({ entity, entityErrors = {}, actions, memory, loading,
                 </div>
               ))}
             </div>
-          )}
+          ) : null}
         </section>
       )}
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   getWorkbenchBootstrap,
   getWorkbenchEntity,
@@ -13,12 +13,25 @@ import {
 const defaultLens = 'surface'
 
 const routeWorkbenchState = () => {
-  if (typeof window === 'undefined') return { lens: defaultLens, seed: null }
+  if (typeof window === 'undefined') return { lens: defaultLens, seed: null, selected: null }
   const params = new URLSearchParams(window.location.search)
   return {
     lens: params.get('lens') || defaultLens,
     seed: params.get('seed') || null,
+    selected: params.get('selected') || null,
   }
+}
+
+const writeWorkbenchRouteState = ({ lens, seed, selected }) => {
+  if (typeof window === 'undefined') return
+  const params = new URLSearchParams(window.location.search)
+  params.set('lens', lens || defaultLens)
+  if (seed) params.set('seed', seed)
+  else params.delete('seed')
+  if (selected) params.set('selected', selected)
+  else params.delete('selected')
+  const next = `${window.location.pathname}?${params.toString()}`
+  window.history.replaceState({}, '', next)
 }
 
 export const useWorkbench = (selectedProgram) => {
@@ -40,6 +53,9 @@ export const useWorkbench = (selectedProgram) => {
   const [entityLoading, setEntityLoading] = useState(false)
   const [entityErrors, setEntityErrors] = useState({})
   const [error, setError] = useState(null)
+  const [pendingSelectedEntity, setPendingSelectedEntity] = useState(null)
+  const loadRequestRef = useRef(0)
+  const selectionRequestRef = useRef(0)
 
   const programId = selectedProgram?.id
 
@@ -79,8 +95,10 @@ export const useWorkbench = (selectedProgram) => {
     return result.reason?.response?.data?.detail || result.reason?.message || 'request failed'
   }
 
-  const loadWorkbench = useCallback(async ({ nextLens = lens, seed = null, depth = seed ? 2 : 1 } = {}) => {
+  const loadWorkbench = useCallback(async ({ nextLens = lens, seed = null, depth = seed ? 2 : 1, selected = null } = {}) => {
     if (!programId) return
+    const requestId = loadRequestRef.current + 1
+    loadRequestRef.current = requestId
     setLoading(true)
     setError(null)
     try {
@@ -88,22 +106,29 @@ export const useWorkbench = (selectedProgram) => {
         getWorkbenchBootstrap(programId),
         getWorkbenchGraph({ programId, lens: nextLens, seed, depth }),
       ])
+      if (requestId !== loadRequestRef.current) return
       setBootstrap(bootstrapResponse.data)
       setGraph(graphResponse.data)
       setLens(nextLens)
       setActiveSeed(seed)
       clearSelection()
+      setPendingSelectedEntity(selected)
+      writeWorkbenchRouteState({ lens: nextLens, seed, selected })
     } catch (err) {
+      if (requestId !== loadRequestRef.current) return
       setGraph(null)
       setError(err.response?.data?.detail || err.message || 'Failed to load workbench')
     } finally {
-      setLoading(false)
+      if (requestId === loadRequestRef.current) setLoading(false)
     }
   }, [clearSelection, lens, programId])
 
   const selectNode = useCallback(async (node) => {
     if (!programId || !node?.entity_key) return
+    const requestId = selectionRequestRef.current + 1
+    selectionRequestRef.current = requestId
     setSelectedNode(node)
+    writeWorkbenchRouteState({ lens, seed: activeSeed, selected: node.entity_key })
     setEntityLoading(true)
     setError(null)
     setEntityErrors({})
@@ -119,6 +144,7 @@ export const useWorkbench = (selectedProgram) => {
           query: retrieveQuery.trim() || undefined,
         }),
       ])
+      if (requestId !== selectionRequestRef.current) return
       setEntity(unwrapSettled(entityResponse))
       setActions(unwrapSettled(actionsResponse))
       setMemory(unwrapSettled(memoryResponse))
@@ -136,6 +162,7 @@ export const useWorkbench = (selectedProgram) => {
         setError('Failed to load selected entity context')
       }
     } catch (err) {
+      if (requestId !== selectionRequestRef.current) return
       setEntity(null)
       setActions(null)
       setMemory(null)
@@ -144,9 +171,9 @@ export const useWorkbench = (selectedProgram) => {
       setEntityErrors({ selection: err.response?.data?.detail || err.message || 'Failed to load entity' })
       setError(err.response?.data?.detail || err.message || 'Failed to load entity')
     } finally {
-      setEntityLoading(false)
+      if (requestId === selectionRequestRef.current) setEntityLoading(false)
     }
-  }, [actionEntityFromNode, lens, programId, retrieveQuery])
+  }, [actionEntityFromNode, activeSeed, lens, programId, retrieveQuery])
 
 
   const submitSelectedAction = useCallback(async (action) => {
@@ -210,7 +237,7 @@ export const useWorkbench = (selectedProgram) => {
   useEffect(() => {
     if (programId) {
       const routeState = routeWorkbenchState()
-      loadWorkbench({ nextLens: routeState.lens, seed: routeState.seed, depth: routeState.seed ? 2 : 1 })
+      loadWorkbench({ nextLens: routeState.lens, seed: routeState.seed, depth: routeState.seed ? 2 : 1, selected: routeState.selected })
     } else {
       setBootstrap(null)
       setGraph(null)
@@ -220,6 +247,15 @@ export const useWorkbench = (selectedProgram) => {
       setError(null)
     }
   }, [programId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+
+  useEffect(() => {
+    if (!pendingSelectedEntity || !graph?.nodes?.length) return
+    const node = graph.nodes.find((item) => item.entity_key === pendingSelectedEntity || item.id === pendingSelectedEntity)
+    if (!node) return
+    setPendingSelectedEntity(null)
+    selectNode(node)
+  }, [graph, pendingSelectedEntity, selectNode])
 
   const lenses = useMemo(() => bootstrap?.lenses || [], [bootstrap])
 

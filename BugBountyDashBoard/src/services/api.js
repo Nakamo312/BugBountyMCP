@@ -142,7 +142,7 @@ export const runGAU = (data) =>
   asAction('gau', 'archive-url-discovery', data)
 
 export const runWaymore = (data) =>
-  asAction('gau', 'archive-url-discovery', data)
+  asAction('waymore', 'archive-url-discovery', data)
 
 export const runKatana = (data) =>
   asAction('katana', 'safe-crawl', data)

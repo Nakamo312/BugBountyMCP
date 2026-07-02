@@ -1,4 +1,3 @@
-export { ACTIONS } from './configs/actions.config'
 export { default as useActionRunner } from './hooks/useActionRunner'
 export { default as ActionFormFactory } from './ui/ActionFormFactory'
 export { default as ActionCard } from './ui/ActionCard'

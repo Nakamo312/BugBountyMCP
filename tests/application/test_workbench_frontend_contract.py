@@ -322,16 +322,18 @@ def test_dashboard_navigation_groups_workflows_instead_of_backend_pages() -> Non
 
     assert "Program Overview" in navigation
     assert "Workbench" in navigation
-    assert "Component Analysis" in navigation
-    assert "Infrastructure Map" not in navigation
-    assert "graph/infrastructure" not in app
     assert "Execution" in navigation
     assert "Action Catalog" in navigation
-    assert "Evidence" in navigation
+    assert "Component Analysis" not in navigation
+    assert "Evidence" not in navigation
+    assert "Infrastructure Map" not in navigation
+    assert "graph/infrastructure" not in app
     assert "dashboardNavGroups.map" in layout
     assert 'path="/execution"' in app
-    assert 'path="/graph/components"' in app
-    assert 'path="/graph/pipeline"' in app
+    assert 'path="/graph/components"' in app and 'lens="components"' in app
+    assert 'path="/graph/pipeline"' in app and 'diagnostics="projection"' in app
+    assert 'path="/hosts"' in app and 'lens="surface"' in app
+    assert 'path="/analysis"' in app and 'lens="coverage"' in app
     assert "Command Center" not in navigation
     assert "Agent Workspace" not in navigation
     assert "UI uses English interface text only" in copy_guidelines

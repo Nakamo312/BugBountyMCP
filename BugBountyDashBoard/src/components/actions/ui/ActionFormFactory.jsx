@@ -1,9 +1,7 @@
 import { useState } from 'react'
 import BaseActionForm from '../forms/BaseActionForm'
-import { ACTIONS } from '@/components/actions/configs/actions.config'
-
 export default function ActionFormFactory({ action, type, onRun, actionColor, loading: parentLoading = false }) {
-  const resolvedAction = action || ACTIONS.find(s => s.form === type)
+  const resolvedAction = action
   const [loading, setLoading] = useState(false)
 
   if (!resolvedAction) {
