@@ -833,7 +833,7 @@ def _message_graph(
     boundary = _neo4j_boundary(surface=f"neo4j_{reason}", template_name=template_name or "none")
     boundary.update(
         {
-            "status": "unavailable",
+            "status": _message_graph_status(reason),
             "reason": reason,
             "message": message,
             "ui_empty_state": True,
@@ -850,6 +850,13 @@ def _message_graph(
         boundary=boundary,
     )
 
+
+def _message_graph_status(reason: str) -> str:
+    if reason in {"seed_required_for_template", "snapshot_seed_required_for_surface_graph_math"}:
+        return "seed_required"
+    if reason == "neo4j_template_empty_result":
+        return "empty"
+    return "unavailable"
 
 def _neo4j_boundary(*, surface: str, template_name: str) -> dict[str, Any]:
     return {

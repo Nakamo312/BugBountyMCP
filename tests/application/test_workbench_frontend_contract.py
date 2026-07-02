@@ -262,11 +262,15 @@ def test_workbench_deep_links_component_lens_and_keeps_canvas_inside_bounds() ->
     assert "overflow-hidden bg-gray-50" in canvas
     assert "pointer-events-auto" in panels
     assert "relative z-30" in panels
-    assert "onMouseDownCapture={(event) => event.stopPropagation()}" in panels
+    assert "onMouseDown={(event) => event.stopPropagation()}" in panels
+    assert "onClick={(event) => event.stopPropagation()}" in panels
+    assert "onMouseDownCapture={(event) => event.stopPropagation()}" not in panels
     assert "touch-action: none" in canvas
     assert "max-width: 100% !important" in canvas
     assert "onMouseDownCapture={(event) => event.stopPropagation()}" not in canvas
     assert "Projection unavailable" in canvas
+    assert "Select a seed node" in canvas
+    assert "Neo4j read failed" in canvas
 
 
 def test_surface_components_exposes_graph_projector_source_instead_of_raw_score_dump() -> None:

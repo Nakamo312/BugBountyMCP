@@ -190,8 +190,8 @@ const Workbench = () => {
         </div>
         <div
           className="relative z-30 h-full min-w-0 overflow-hidden bg-white pointer-events-auto"
-          onMouseDownCapture={(event) => event.stopPropagation()}
-          onClickCapture={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
         >
           <Inspector
             entity={entity}

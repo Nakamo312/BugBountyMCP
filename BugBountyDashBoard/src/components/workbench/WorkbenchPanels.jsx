@@ -720,7 +720,7 @@ export const Inspector = ({ entity, entityErrors = {}, actions, memory, evidence
 
   if (!selectedNode) {
     return (
-      <aside className="relative z-30 h-full border-l border-gray-200 bg-white p-5 pointer-events-auto" onMouseDownCapture={(event) => event.stopPropagation()} onClickCapture={(event) => event.stopPropagation()}>
+      <aside className="relative z-30 h-full border-l border-gray-200 bg-white p-5 pointer-events-auto" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
         <div className="text-sm font-semibold text-gray-900">Inspector</div>
         <p className="mt-2 text-sm text-gray-500">Select a graph node.</p>
       </aside>
@@ -729,14 +729,14 @@ export const Inspector = ({ entity, entityErrors = {}, actions, memory, evidence
 
   if (loading) {
     return (
-      <aside className="relative z-30 flex h-full items-center justify-center border-l border-gray-200 bg-white pointer-events-auto" onMouseDownCapture={(event) => event.stopPropagation()} onClickCapture={(event) => event.stopPropagation()}>
+      <aside className="relative z-30 flex h-full items-center justify-center border-l border-gray-200 bg-white pointer-events-auto" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
         <Loader className="animate-spin text-primary-500" size={28} />
       </aside>
     )
   }
 
   return (
-    <aside className="relative z-30 h-full overflow-y-auto border-l border-gray-200 bg-white p-5 pointer-events-auto" onMouseDownCapture={(event) => event.stopPropagation()} onClickCapture={(event) => event.stopPropagation()}>
+    <aside className="relative z-30 h-full overflow-y-auto border-l border-gray-200 bg-white p-5 pointer-events-auto" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Inspector</div>

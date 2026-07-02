@@ -296,19 +296,34 @@ const GraphToolbar = ({ onZoomToFit, onFocusSelected, selectedNode }) => (
   </div>
 )
 
+const emptyCanvasTitle = (boundary) => {
+  const reason = boundary?.reason || ''
+  if (['seed_required_for_template', 'snapshot_seed_required_for_surface_graph_math'].includes(reason)) {
+    return 'Select a seed node'
+  }
+  if (reason === 'neo4j_template_empty_result') return 'Neo4j projection returned no rows'
+  if (reason === 'neo4j_read_failed') return 'Neo4j read failed'
+  if (reason === 'graph_projector_templates_unavailable') return 'Graph-projector templates unavailable'
+  if (boundary?.status === 'unavailable') return 'Projection unavailable'
+  return 'No graph projection loaded'
+}
+
 const EmptyCanvas = ({ graph }) => {
   const boundary = graph?.boundary || {}
-  const title = boundary.status === 'unavailable'
-    ? 'Projection unavailable'
-    : 'No graph projection loaded'
+  const title = emptyCanvasTitle(boundary)
   const message = boundary.message || 'Use Workbench data setup to build the read model.'
   const reason = boundary.reason || boundary.surface || ''
+  const template = boundary.template_name || boundary.template
   return (
     <div className="flex h-full items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 px-6">
       <div className="max-w-xl text-center">
         <div className="text-sm font-semibold text-gray-800">{title}</div>
         <div className="mt-1 text-sm text-gray-600">{message}</div>
-        {reason && <div className="mt-2 text-xs text-gray-500">{reason}</div>}
+        {(reason || template) && (
+          <div className="mt-2 text-xs text-gray-500">
+            {reason}{template ? ` · ${template}` : ''}
+          </div>
+        )}
       </div>
     </div>
   )

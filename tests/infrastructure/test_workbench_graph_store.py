@@ -813,6 +813,16 @@ def test_workbench_neo4j_read_timeout_is_not_three_second_ui_request_limit() -> 
     assert workbench_neo4j._workbench_query_limit(settings, 500) == 200
 
 
+
+def test_workbench_neo4j_empty_states_distinguish_seed_from_outage() -> None:
+    from api.infrastructure import workbench_neo4j
+
+    assert workbench_neo4j._message_graph_status("seed_required_for_template") == "seed_required"
+    assert workbench_neo4j._message_graph_status("snapshot_seed_required_for_surface_graph_math") == "seed_required"
+    assert workbench_neo4j._message_graph_status("neo4j_template_empty_result") == "empty"
+    assert workbench_neo4j._message_graph_status("neo4j_read_failed") == "unavailable"
+
+
 def test_graph_projector_templates_limit_before_expanding_heavy_neo4j_lenses() -> None:
     import sys
     from pathlib import Path
