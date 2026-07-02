@@ -119,6 +119,7 @@ class ScanNode(Node):
             runner_name=self.runner_key,
             semaphore=self._scan_semaphore,
             enforce_execution_context=self._enforce_execution_context,
+            target_shape=self.target_shape,
         )
 
     def _runner_name(self) -> str:

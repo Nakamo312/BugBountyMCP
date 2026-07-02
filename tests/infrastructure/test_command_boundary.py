@@ -202,3 +202,35 @@ async def test_command_executor_logs_env_names_without_values(caplog) -> None:
     log_text = caplog.text
     assert "TOOL_TOKEN" in log_text
     assert secret_value not in log_text
+
+@pytest.mark.asyncio
+async def test_command_executor_drains_stdout_after_fast_process_exit() -> None:
+    executor = CommandExecutor(
+        command_invocation(
+            [
+                sys.executable,
+                "-c",
+                "for i in range(200): print(f'line-{i}')",
+            ],
+            timeout=5,
+        )
+    )
+
+    events = [event async for event in executor.run()]
+    stdout = [event.payload for event in events if event.type == "stdout"]
+
+    assert len(stdout) == 200
+    assert stdout[0] == "line-0"
+    assert stdout[-1] == "line-199"
+    assert any(event.type == "terminated" and event.payload == "0" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_command_executor_reports_nonzero_returncode_in_terminated_event() -> None:
+    executor = CommandExecutor(
+        command_invocation([sys.executable, "-c", "import sys; sys.exit(7)"], timeout=5)
+    )
+
+    events = [event async for event in executor.run()]
+
+    assert any(event.type == "terminated" and event.payload == "7" for event in events)

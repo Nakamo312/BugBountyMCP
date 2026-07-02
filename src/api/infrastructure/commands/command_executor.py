@@ -99,8 +99,6 @@ class CommandExecutor:
                 try:
                     async for event in self._stream_output():
                         yield event
-                        if wait_task.done():
-                            break
 
                     if not wait_task.done():
                         return_code = await wait_task
@@ -108,7 +106,7 @@ class CommandExecutor:
                         return_code = wait_task.result()
 
                     self.state = ProcessState.TERMINATED
-                    yield ProcessEvent(type="terminated")
+                    yield ProcessEvent(type="terminated", payload=str(return_code))
 
                     logger.info("Process finished with returncode=%s", return_code)
                 finally:

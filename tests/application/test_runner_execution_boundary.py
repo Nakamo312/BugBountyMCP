@@ -85,3 +85,57 @@ def test_tool_runner_factory_port_returns_runner_with_raw_and_parsed_contract() 
     assert hints["return"] is ToolRunnerPort
     assert hasattr(ToolRunnerPort, "run_raw")
     assert hasattr(ToolRunnerPort, "run")
+
+from api.application.pipeline.scan_execution import (
+    process_event_failure,
+    run_raw_with_runtime_limit,
+)
+from api.application.process_event_contracts import ProcessEvent
+
+
+class RecordingRunner:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def run_raw(self, targets, **options):
+        self.calls.append(targets)
+        yield ProcessEvent(type="stdout", payload=str(targets))
+        yield ProcessEvent(type="terminated", payload="0")
+
+
+class AsyncNoopSemaphore:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+@pytest.mark.asyncio
+async def test_scan_execution_honors_scalar_target_shape() -> None:
+    runner = RecordingRunner()
+    stream = run_raw_with_runtime_limit(
+        AsyncNoopSemaphore(),
+        runner,
+        ["https://one.example", "https://two.example"],
+        None,
+        target_shape="scalar",
+    )
+
+    events = [event async for event in stream]
+
+    assert runner.calls == ["https://one.example", "https://two.example"]
+    assert [event.payload for event in events if event.type == "stdout"] == [
+        "https://one.example",
+        "https://two.example",
+    ]
+
+
+def test_process_event_failure_detects_nonzero_returncode() -> None:
+    assert process_event_failure(ProcessEvent(type="terminated", payload="3")) == (
+        "process exited with returncode=3"
+    )
+    assert process_event_failure(ProcessEvent(type="terminated", payload="0")) is None
+    assert process_event_failure(ProcessEvent(type="failed", payload="missing binary")) == (
+        "process failed: missing binary"
+    )

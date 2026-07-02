@@ -312,6 +312,9 @@ class PipelineContext:
         )
 
     async def _mark_run_needs_reconcile(self, reason: str) -> None:
+        await self.mark_run_needs_reconcile(reason)
+
+    async def mark_run_needs_reconcile(self, reason: str) -> None:
         await self._run_completion_reporter.mark_run_needs_reconcile(reason)
 
     async def mark_run_started(self) -> bool:

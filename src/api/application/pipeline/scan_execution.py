@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List
 from uuid import UUID, uuid4
 
@@ -16,6 +16,7 @@ from api.application.pipeline.invocation import (
     run_raw,
 )
 from api.application.event_contracts import EventType
+from api.application.process_event_contracts import ProcessEvent
 from api.application.ports.runners import ToolRunnerFactoryPort, ToolRunnerRef
 
 
@@ -42,6 +43,42 @@ class ScanRuntime:
         [Dict[str, Any], ToolInvocation | None, RunnerInvocationContext | None],
         None,
     ]
+    target_shape: str = "list"
+
+
+@dataclass(slots=True)
+class ProcessEventSummary:
+    stdout: int = 0
+    stderr: int = 0
+    started: int = 0
+    terminated: int = 0
+    failed: int = 0
+    timeout: int = 0
+    returncode: int | None = None
+    first_failure: str | None = None
+
+    def observe(self, event: ProcessEvent) -> None:
+        if event.type == "stdout":
+            self.stdout += 1
+        elif event.type == "stderr":
+            self.stderr += 1
+        elif event.type == "started":
+            self.started += 1
+        elif event.type == "terminated":
+            self.terminated += 1
+            self.returncode = _parse_returncode(event.payload)
+        elif event.type == "failed":
+            self.failed += 1
+            if self.first_failure is None:
+                self.first_failure = str(event.payload or "process failed")
+        elif event.type == "timeout":
+            self.timeout += 1
+            if self.first_failure is None:
+                self.first_failure = "process timeout"
+
+    @property
+    def has_stdout(self) -> bool:
+        return self.stdout > 0
 
 
 @dataclass(slots=True)
@@ -62,6 +99,7 @@ class ScanExecutionContext:
     runner_context: RunnerInvocationContext | None
     raw_artifact_id: UUID
     ingest_context: Any | None = None
+    process_summary: ProcessEventSummary = field(default_factory=ProcessEventSummary)
 
 
 async def run_scan_execution(
@@ -100,8 +138,10 @@ async def prepare_scan_execution(
     targets = runtime.target_extractor(event)
 
     if not targets:
-        runtime.logger.warning(f"No targets in event: {event.get('_event_type')}")
-        return None
+        event_name = event.get("_event_type") or event.get("event") or runtime.node_id
+        raise RuntimeError(
+            f"ScanNode '{runtime.node_id}' cannot run {event_name}: no targets extracted"
+        )
 
     runtime.logger.info(
         f"Starting scan: node={runtime.node_id} program={program_id} targets={len(targets)}"
@@ -142,11 +182,13 @@ async def run_scan_stream(
     """Capture runner output, parse it, batch it when configured, then ingest."""
     stream = capture_raw_artifact(runtime, event, ctx, execution)
     batch_count = 0
+    item_count = 0
     if execution.processor is not None:
         async for batch in execution.processor.batch_stream(stream):
             if not batch:
                 continue
             batch_count += 1
+            item_count += len(batch)
             await ingest_and_emit(
                 runtime,
                 ctx=ctx,
@@ -154,13 +196,16 @@ async def run_scan_stream(
                 items=batch,
                 allow_passthrough=True,
             )
+        await report_empty_parse_if_needed(runtime, ctx, execution, item_count)
         return batch_count
 
     results = []
     async for parsed_event in stream:
         if parsed_event.type == "result" and parsed_event.payload:
             results.append(parsed_event.payload)
+    item_count = len(results)
     if not results:
+        await report_empty_parse_if_needed(runtime, ctx, execution, item_count)
         return 0
 
     await ingest_and_emit(
@@ -170,6 +215,7 @@ async def run_scan_stream(
         items=results,
         allow_passthrough=False,
     )
+    await report_empty_parse_if_needed(runtime, ctx, execution, item_count)
     return 1
 
 
@@ -216,6 +262,7 @@ def capture_raw_artifact(
         execution.runner,
         execution.targets,
         effective_context,
+        target_shape=runtime.target_shape,
     )
 
     if isinstance(ctx, PipelineContext):
@@ -241,7 +288,66 @@ def capture_raw_artifact(
         )
         execution.ingest_context = ctx.ingest_context(execution.raw_artifact_id)
 
-    return execution.parser.parse_stream(stream)
+    return execution.parser.parse_stream(checked_process_stream(stream, execution))
+
+
+
+async def checked_process_stream(
+    stream,
+    execution: ScanExecutionContext,
+):
+    async for event in stream:
+        execution.process_summary.observe(event)
+        failure = process_event_failure(event)
+        if failure is not None:
+            raise RuntimeError(failure)
+        yield event
+
+
+def process_event_failure(event: ProcessEvent) -> str | None:
+    if event.type == "failed":
+        return f"process failed: {event.payload or 'unknown error'}"
+    if event.type == "timeout":
+        return "process timed out"
+    if event.type == "terminated":
+        returncode = _parse_returncode(event.payload)
+        if returncode is not None and returncode != 0:
+            return f"process exited with returncode={returncode}"
+    return None
+
+
+def _parse_returncode(value: object) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+async def report_empty_parse_if_needed(
+    runtime: ScanRuntime,
+    ctx: PipelineContext,
+    execution: ScanExecutionContext,
+    item_count: int,
+) -> None:
+    if item_count > 0:
+        return
+    summary = execution.process_summary
+    if summary.has_stdout:
+        reason = "parser_produced_no_records_from_stdout"
+        runtime.logger.warning(
+            "Parser produced no records from non-empty stdout: "
+            "node=%s program=%s stdout_events=%s stderr_events=%s returncode=%s parser=%s",
+            runtime.node_id,
+            execution.program_id,
+            summary.stdout,
+            summary.stderr,
+            summary.returncode,
+            execution.parser_name,
+        )
+        if isinstance(ctx, PipelineContext):
+            await ctx.mark_run_needs_reconcile(reason)
 
 
 def context_value(execution: ScanExecutionContext, name: str):
@@ -333,11 +439,20 @@ def run_raw_with_runtime_limit(
     runner: Any,
     targets: List[str],
     context: ToolInvocation | RunnerInvocationContext | None,
+    *,
+    target_shape: str = "list",
 ):
-    """Run the CLI runner while honoring manifest runtime.concurrency."""
+    """Run the CLI runner while honoring manifest runtime target shape."""
 
     async def limited_stream():
         async with semaphore:
+            if target_shape == "scalar":
+                for target in targets:
+                    stream = run_raw(runner, target, context)
+                    async for item in stream:
+                        yield item
+                return
+
             stream = run_raw(runner, targets, context)
             async for item in stream:
                 yield item
