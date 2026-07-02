@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any, Dict
 
 from api.application.action_invocation_payload import action_invocation_mapping
@@ -108,23 +109,47 @@ class NodeRegistryClaimingMixin:
         ActionService records a job/run/event-store row before the event is
         published. The registry must execute that run instead of creating a
         second claimed run; otherwise the dashboard follows the preallocated
-        run forever while the worker state is written elsewhere. Downstream
-        pipeline events do not carry the action_invocation payload and still go
-        through normal claim/deduplication.
+        run forever while the worker state is written elsewhere.
+
+        The event path has two currently-supported shapes:
+
+        * canonical envelope payload: ``payload.action_invocation``;
+        * legacy RabbitMQ dict: top-level ``action_invocation`` after
+          ``EventEnvelope.to_legacy_dict()`` flattens payload values.
+
+        The previous check accepted only the first shape. When the dispatcher
+        replayed a flattened stored event, the registry treated the action as a
+        normal trigger, claimed a second run, and left the dashboard-visible
+        preallocated run stuck in ``queued`` forever.
         """
         if node.execution_mode != ExecutionMode.INLINE:
             return False
         if not event.get("run_id") or not event.get("job_id"):
             return False
-        payload = event.get("payload")
-        if not isinstance(payload, dict):
-            return False
-        invocation = action_invocation_mapping(payload)
+
+        invocation = NodeRegistryClaimingMixin._action_invocation_for_event(event)
         return bool(
             invocation.get("action_id")
             and invocation.get("capability_id")
             and invocation.get("profile_id")
         )
+
+    @staticmethod
+    def _action_invocation_for_event(event: Mapping[str, Any]) -> Mapping[str, Any]:
+        payload = event.get("payload")
+        if isinstance(payload, Mapping):
+            invocation = action_invocation_mapping(payload)
+            if invocation:
+                return invocation
+
+        flattened = event.get("action_invocation")
+        if isinstance(flattened, Mapping):
+            return flattened
+
+        if all(event.get(key) for key in ("action_id", "capability_id", "profile_id")):
+            return event
+
+        return {}
 
     def _claim_events_for_node(self, node: Node, event: Dict[str, Any]) -> list[Dict[str, Any]]:
         if node.execution_mode != ExecutionMode.SCHEDULED:

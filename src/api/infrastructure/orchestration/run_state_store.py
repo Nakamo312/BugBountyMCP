@@ -13,7 +13,12 @@ from api.infrastructure.adapters.orm import runs
 
 _TERMINAL_SOURCE_STATUSES = {
     ExecutionStatus.COMPLETED: (ExecutionStatus.FLUSHING,),
-    ExecutionStatus.FAILED: (ExecutionStatus.RUNNING, ExecutionStatus.FLUSHING),
+    ExecutionStatus.FAILED: (
+        ExecutionStatus.QUEUED,
+        ExecutionStatus.LEASED,
+        ExecutionStatus.RUNNING,
+        ExecutionStatus.FLUSHING,
+    ),
     ExecutionStatus.DEAD: (ExecutionStatus.FAILED,),
     ExecutionStatus.CANCELLED: (
         ExecutionStatus.QUEUED,
@@ -57,7 +62,7 @@ class RunStateStore:
             result = await session.execute(
                 update(runs)
                 .where(runs.c.id == run_id)
-                .where(self._scheduled_guard(ExecutionStatus.LEASED))
+                .where(self._start_guard())
                 .values(**values)
             )
             await session.commit()
@@ -135,6 +140,12 @@ class RunStateStore:
                 .values(needs_reconcile=False, reconcile_reason=None, updated_at=now)
             )
             await session.commit()
+
+    @staticmethod
+    def _start_guard():
+        return runs.c.status.in_(
+            [ExecutionStatus.QUEUED.value, ExecutionStatus.LEASED.value]
+        )
 
     @staticmethod
     def _validate_terminal_status(status: ExecutionStatus) -> None:

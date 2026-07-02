@@ -146,13 +146,22 @@ class Node(ABC):
 
                 started = await ctx.mark_run_started()
                 if not started:
-                    self.logger.warning(
-                        "Skipping node execution because run start transition was rejected: "
-                        "node=%s run_id=%s event_type=%s",
-                        self.node_id,
-                        event.get("run_id"),
-                        event.get("_event_type") or event.get("event"),
+                    reason = (
+                        "run start transition was rejected before tool execution: "
+                        f"node={self.node_id} run_id={event.get('run_id')} "
+                        f"event_type={event.get('_event_type') or event.get('event')}"
                     )
+                    self.logger.warning("Skipping node execution because %s", reason)
+                    try:
+                        if ctx is not None:
+                            failed = await ctx.mark_run_failed(RuntimeError(reason))
+                            if not failed:
+                                await ctx.mark_run_needs_reconcile("start_transition_rejected")
+                    except Exception:
+                        self.logger.warning(
+                            "Failed to mark start-rejected run as failed",
+                            exc_info=True,
+                        )
                     return
 
                 await self.execute(event, ctx)
