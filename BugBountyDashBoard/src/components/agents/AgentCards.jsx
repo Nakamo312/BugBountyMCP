@@ -31,7 +31,7 @@ export const EmptyState = ({ icon: Icon = Inbox, title, description }) => (
   <div className="rounded-2xl border border-dashed border-gray-300 bg-white/70 p-8 text-center">
     <Icon className="mx-auto text-gray-400" size={32} />
     <h3 className="mt-3 font-semibold text-gray-900">{title}</h3>
-    <p className="mt-1 text-sm text-gray-500">{description}</p>
+    {description && <p className="mt-1 text-sm text-gray-500">{description}</p>}
   </div>
 )
 
@@ -144,7 +144,7 @@ export const ProposalCard = ({ proposal, onAccept, onReject, onSuppress, busy })
             type="button"
             onClick={() => onAccept(proposal)}
             disabled={busy || !canAccept}
-            title={canAccept ? 'Create ActionRequest through ActionService' : 'Capability, profile, and targets are required'}
+            title={canAccept ? 'Accept proposal' : 'Missing capability, profile, or target'}
             className="inline-flex items-center gap-1 rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
           >
             <PlayCircle size={15} /> {canAccept ? (proposal.status === 'accept_failed' ? 'Retry' : 'Accept') : 'Not ready'}

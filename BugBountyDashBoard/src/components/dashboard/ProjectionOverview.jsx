@@ -45,13 +45,13 @@ const ProjectionAuditCommands = ({ programId }) => {
             Advanced local run-step audit
           </h3>
           <p className="mt-1 text-sm text-gray-600">
-            Hidden diagnostic fallback for local JSONL audit files. The primary UI should expose backend projection controls instead of asking the user to run commands.
+            Local audit commands.
           </p>
         </div>
         <StatusBadge ok label="CLI-local" />
       </div>
       <CommandList commands={commands} />
-      <p className="mt-3 text-xs text-gray-500">Read-only guidance only. Browser UI does not execute commands and does not access local files.</p>
+      <p className="mt-3 text-xs text-gray-500"></p>
     </div>
   )
 }
@@ -116,7 +116,7 @@ const SuggestedCommands = ({ commands }) => {
     <details className="mt-5 rounded-lg border border-gray-200 bg-gray-50 p-4">
       <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-gray-500">Advanced local CLI fallbacks</summary>
       <CommandList commands={commands.slice(0, 5)} />
-      <p className="mt-3 text-xs text-gray-500">These are not the primary dashboard workflow. They remain only for local diagnostics when backend projection controls are unavailable.</p>
+      <p className="mt-3 text-xs text-gray-500">Local fallback commands.</p>
     </details>
   )
 }
@@ -166,7 +166,7 @@ export const ProjectionOverview = ({ overview, operatorPlan, loading, error, onR
             <GitBranch className="text-primary-500" size={22} />
             Projection Pipeline
           </h2>
-          <p className="mt-1 text-sm text-gray-600">End-to-end read-only state for Surface Map, component analysis, search projection, and experience proposals.</p>
+          <p className="mt-1 text-sm text-gray-600">Surface Map, component analysis, search projection, and proposals.</p>
         </div>
         <button onClick={onRefresh} className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
           <RefreshCw size={16} />

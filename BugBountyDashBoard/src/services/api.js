@@ -321,7 +321,5 @@ export const getLatestSurfaceComponentAnalysis = (programId) =>
   api.get('/surface-component-analysis/latest', { params: { program_id: programId } })
 
 // Infrastructure
-export const getInfrastructureGraph = (programId) =>
-  api.get(`/infrastructure/program/${programId}/graph`)
 
 export default api

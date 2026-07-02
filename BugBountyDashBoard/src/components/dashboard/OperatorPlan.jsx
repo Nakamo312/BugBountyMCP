@@ -52,7 +52,7 @@ export const OperatorPlan = ({ plan }) => {
         <div>
           <h3 className="font-semibold text-blue-950">Operator plan</h3>
           <p className="mt-1 text-sm text-blue-800">
-            Projection health derived from backend read models. CLI fallbacks are hidden under advanced details.
+            Projection readiness from backend read models.
           </p>
         </div>
         <StatusBadge ok={plan.ui_data_fresh} label={plan.ui_data_fresh ? 'fresh' : `${plan.step_count || 0} steps`} />
@@ -77,7 +77,7 @@ export const OperatorPlan = ({ plan }) => {
       )}
 
       {steps.length === 0 && (
-        <p className="mt-3 text-sm text-blue-800">No operator steps are required for the current projection state.</p>
+        <p className="mt-3 text-sm text-blue-800">No pending steps.</p>
       )}
     </div>
   )

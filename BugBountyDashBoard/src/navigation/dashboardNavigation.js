@@ -5,7 +5,6 @@ import {
   FolderKanban,
   GitBranch,
   LayoutDashboard,
-  Network,
   PlayCircle,
   Search,
   Server,
@@ -36,7 +35,6 @@ export const dashboardNavGroups = [
     label: 'Graph',
     items: [
       { path: '/graph/components', icon: GitBranch, label: 'Component Analysis', aliases: ['/surface-components'] },
-      { path: '/graph/infrastructure', icon: Network, label: 'Infrastructure Map', aliases: ['/infrastructure'] },
       { path: '/graph/pipeline', icon: BarChart3, label: 'Projection Pipeline' },
     ],
   },

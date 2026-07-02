@@ -16,9 +16,6 @@ export function AgentTaskHeader({ loading, onRefresh, task }) {
           <Badge className={statusClass(task?.status)}>{formatStatus(task?.status)}</Badge>
           <Badge className="border-gray-200 bg-gray-50 text-gray-600">#{shortId(task?.task_id)}</Badge>
         </div>
-        <p className="mt-2 max-w-4xl text-gray-600">
-          Task detail: live thread, proposals, accepted actions, related outcomes, and compact context. The UI does not start GDS or tools from this screen.
-        </p>
       </div>
       <button
         type="button"

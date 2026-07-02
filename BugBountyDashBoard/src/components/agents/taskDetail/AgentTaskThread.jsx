@@ -39,12 +39,12 @@ function FollowupComposer({ actionBusy, deepConfirmed, followup, mode, onDeepCon
 
 export function AgentTaskThread({ actionBusy, followupState, messages, onSubmit, targetAgent }) {
   return (
-    <SectionCard title="Live thread" icon={Bot} action={<Badge className="border-gray-200 bg-gray-50 text-gray-600">{targetAgent || 'agent'}</Badge>}>
+    <SectionCard title="Thread" icon={Bot} action={<Badge className="border-gray-200 bg-gray-50 text-gray-600">{targetAgent || 'agent'}</Badge>}>
       <div className="space-y-4">
         {messages.length > 0 ? (
           messages.map((message) => <MessageCard key={message.message_id} message={message} />)
         ) : (
-          <EmptyState icon={MessageSquare} title="No messages yet" description="Prompts and agent responses appear here." />
+          <EmptyState icon={MessageSquare} title="No messages" description="" />
         )}
         <FollowupComposer actionBusy={actionBusy} onSubmit={onSubmit} {...followupState} />
       </div>

@@ -36,7 +36,7 @@ export function AgentTaskOutcomes({ outcomes }) {
           {outcomes.map((outcome) => <OutcomeCard key={outcome.outcome_id} outcome={outcome} />)}
         </div>
       ) : (
-        <EmptyState title="No outcome context yet" description="Outcome memory appears here after accepted actions finish." />
+        <EmptyState title="No outcomes" description="" />
       )}
     </SectionCard>
   )

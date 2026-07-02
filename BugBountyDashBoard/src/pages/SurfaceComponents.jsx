@@ -86,7 +86,7 @@ const signalReasons = (item, report) => {
   const signals = item.signals || {}
   const reasons = []
   if (isFallbackReport(report)) {
-    reasons.push('Degraded local grouping: Neo4j/GDS was unavailable, so bridge/outlier/candidate analytics are not authoritative.')
+    reasons.push('Degraded local grouping.')
   }
   if ((item.changed_node_count || 0) > 0) reasons.push(`${item.changed_node_count} changed nodes since previous snapshot.`)
   if ((item.action_candidates || []).length > 0) reasons.push(`${item.action_candidates.length} backend action candidate signals.`)
@@ -147,7 +147,7 @@ const GraphProjectorLanes = ({ report, items }) => {
               <div className="text-sm font-semibold text-gray-900">{lane.label}</div>
               <span className="rounded bg-white px-2 py-0.5 text-xs text-gray-600">{fallback ? 'n/a' : lane.items.length}</span>
             </div>
-            <p className="mt-1 min-h-[32px] text-xs text-gray-500">{fallback ? 'Neo4j/GDS was not available for this report.' : lane.description}</p>
+            <p className="mt-1 min-h-[32px] text-xs text-gray-500">{fallback ? 'Neo4j/GDS unavailable.' : lane.description}</p>
             <div className="mt-3 space-y-2">
               {!fallback && lane.items.length > 0 ? lane.items.map((item) => (
                 <Link
@@ -176,7 +176,7 @@ const ComponentSignalPayloads = ({ item, report }) => {
     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
       <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Materialized graph-projector data</div>
       {fallback ? (
-        <p className="mt-2 text-sm text-amber-800">Fallback grouping only. Neo4j/GDS profile, bridge, outlier, coverage, drift and candidate payloads are not authoritative here.</p>
+        <p className="mt-2 text-sm text-amber-800">Fallback grouping only.</p>
       ) : capabilities.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-2">
           {capabilities.map((capability) => (
@@ -200,8 +200,8 @@ const GraphProjectionBanner = ({ report, boundary }) => {
           <div className="text-sm font-semibold">Projection source: {projectionMode(report)}</div>
           <p className="mt-1 max-w-4xl text-sm">
             {fallback
-              ? 'Neo4j/GDS component analytics were unavailable. This page is showing degraded Surface Map route-family groups, not full graph-projector math.'
-              : 'This analysis was materialized from graph-projector output. Use it to open component subgraphs, inspect bridge/outlier/coverage signals, and review backend action candidate signals.'}
+              ? 'Neo4j/GDS unavailable. Fallback data is hidden from component analysis.'
+              : 'Materialized graph-projector analysis.'}
           </p>
         </div>
         <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold">
@@ -217,12 +217,12 @@ const DegradedFallbackState = ({ report, onRetry, materializing }) => (
   <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 shadow-sm">
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div className="max-w-4xl">
-        <div className="text-lg font-semibold text-amber-950">Neo4j/GDS analysis is not available for this report</div>
+        <div className="text-lg font-semibold text-amber-950">Neo4j/GDS unavailable</div>
         <p className="mt-2 text-sm text-amber-900">
-          The current report is only a degraded local route-family grouping. It is hidden from the main component UI because it does not contain graph-projector bridges, outliers, drift, coverage, or action-candidate analytics.
+          The current report is a degraded local grouping.
         </p>
         <p className="mt-2 text-sm text-amber-900">
-          Fix the projection source first, then reload this page. The useful component UI starts after graph-projector materializes Neo4j/GDS results.
+          Materialize Neo4j/GDS results and reload.
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -244,14 +244,14 @@ const DegradedFallbackState = ({ report, onRetry, materializing }) => (
       </div>
     </div>
     <details className="mt-5 rounded-lg border border-amber-200 bg-white p-4">
-      <summary className="cursor-pointer text-sm font-semibold text-amber-950">Show degraded fallback diagnostics</summary>
+      <summary className="cursor-pointer text-sm font-semibold text-amber-950">Fallback diagnostics</summary>
       <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
         <div><span className="font-medium text-gray-500">Fallback algorithm:</span> <span className="font-mono text-xs text-gray-700">{report.algorithm_version || report.algorithm}</span></div>
         <div><span className="font-medium text-gray-500">Fallback components:</span> <span className="font-mono text-xs text-gray-700">{report.item_count}</span></div>
         <div><span className="font-medium text-gray-500">Snapshot:</span> <span className="font-mono text-xs text-gray-700">{report.snapshot_id}</span></div>
         <div><span className="font-medium text-gray-500">Run:</span> <span className="font-mono text-xs text-gray-700">{report.analysis_run_id}</span></div>
       </div>
-      <p className="mt-3 text-xs text-amber-800">Fallback diagnostics are not triage signals and are not shown as component cards.</p>
+      <p className="mt-3 text-xs text-amber-800"></p>
     </details>
   </div>
 )
@@ -275,7 +275,7 @@ const ComponentCard = ({ item, report }) => {
             </span>
           </div>
           <p className="mt-1 text-sm text-gray-500">
-            Graph-projector component profile. Signals are for triage and drilldown; they are not vulnerability verdicts.
+            Graph-projector component profile.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -291,7 +291,7 @@ const ComponentCard = ({ item, report }) => {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr_1fr]">
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Why inspect this component</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Signals</div>
           <ul className="mt-2 space-y-1 text-sm text-gray-700">
             {reasons.map((reason) => <li key={reason}>• {reason}</li>)}
           </ul>
@@ -315,7 +315,7 @@ const ComponentCard = ({ item, report }) => {
 
       {candidates.length > 0 ? (
         <div className="mt-4 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Backend action candidate signals</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Action candidates</div>
           <div className="mt-2 flex flex-wrap gap-2">
             {candidates.slice(0, 8).map((candidate, index) => (
               <span key={`${item.component_id}-candidate-${index}`} className="rounded bg-white px-2 py-1 text-xs text-gray-700 shadow-sm">
@@ -327,7 +327,7 @@ const ComponentCard = ({ item, report }) => {
         </div>
       ) : (
         <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
-          No materialized action candidates. {fallback ? 'Expected in fallback mode.' : 'Check graph-projector candidate generation.'}
+          No action candidates. {fallback ? '' : ''}
         </div>
       )}
     </div>
@@ -465,7 +465,7 @@ const SurfaceComponents = () => {
               Component data setup
             </div>
             <p className="mt-1 max-w-3xl text-sm text-blue-800">
-              Build component analysis from the latest Surface Map snapshot. The backend resolves snapshot ids; this page should not make you paste UUIDs or run graph-projector commands.
+              Build component analysis from the latest Surface Map snapshot.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -505,7 +505,7 @@ const SurfaceComponents = () => {
         )}
 
         <details className="mt-4 rounded-lg border border-blue-100 bg-white p-3">
-          <summary className="cursor-pointer text-xs font-semibold text-blue-900">Advanced: load a specific snapshot by UUID</summary>
+          <summary className="cursor-pointer text-xs font-semibold text-blue-900">Load snapshot by UUID</summary>
           <form onSubmit={loadSnapshot} className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
             <label className="block">
               <span className="text-sm font-medium text-gray-700">Snapshot ID</span>

@@ -5,25 +5,25 @@ export const AGENT_RUNTIME_MODES = [
     value: 'none',
     label: 'Manual',
     shortLabel: 'none',
-    description: 'No LLM call. Use this for manual execution notes, deterministic task shells, and operator-controlled follow-up.',
+    description: 'No model call.',
   },
   {
     value: 'cheap',
     label: 'Cheap',
     shortLabel: 'cheap',
-    description: 'Short model response over compact context.',
+    description: 'Compact context.',
   },
   {
     value: 'normal',
     label: 'Normal',
     shortLabel: 'normal',
-    description: 'Bounded model response with more context.',
+    description: 'Expanded context.',
   },
   {
     value: 'deep',
     label: 'Deep',
     shortLabel: 'deep',
-    description: 'Expensive mode. Requires explicit confirmation and can still be downgraded by backend policy.',
+    description: 'Large context.',
   },
 ]
 
@@ -100,7 +100,7 @@ export function AgentRuntimeModeControl({
             className="mt-0.5 rounded border-red-300 text-red-600 focus:ring-red-200"
           />
           <span>
-            I confirm deep mode. Backend policy can still downgrade this request to normal.
+            Confirm deep mode.
           </span>
         </label>
       )}
@@ -124,7 +124,7 @@ const badgeClass = (mode) => {
 const deepApprovalCopy = {
   deep_mode_disabled: {
     label: 'deep disabled by policy',
-    description: 'Backend policy does not allow deep mode globally.',
+    description: 'Deep mode disabled.',
     className: 'border-red-200 bg-red-50 text-red-700',
   },
   deep_mode_requires_explicit_confirmation: {
@@ -134,7 +134,7 @@ const deepApprovalCopy = {
   },
   deep_mode_actor_not_allowed: {
     label: 'actor not allowed',
-    description: 'The current actor is not allowed to use deep mode.',
+    description: 'Actor not allowed.',
     className: 'border-red-200 bg-red-50 text-red-700',
   },
   deep_mode_approved: {
@@ -257,7 +257,7 @@ export function AgentRuntimeUsagePanel({ summary, compact = false }) {
         <div>
           <p className="text-sm font-semibold text-gray-900">Runtime usage</p>
           <p className="mt-1 text-xs leading-5 text-gray-500">
-            Based on stored agent messages. This is runtime policy accounting, not provider billing.
+            Stored runtime decisions.
           </p>
         </div>
         <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-600">

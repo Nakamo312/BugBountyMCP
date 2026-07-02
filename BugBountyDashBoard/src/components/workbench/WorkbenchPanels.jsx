@@ -138,7 +138,7 @@ const SavedViews = ({ views, onApplyView, onSaveView }) => (
       </button>
     </div>
     {views.length === 0 ? (
-      <p className="text-xs text-gray-500">Saved views persist locally per program: lens, filter, selected seed.</p>
+      <p className="text-xs text-gray-500">No saved views.</p>
     ) : (
       <div className="space-y-1">
         {views.map((view) => (
@@ -274,7 +274,7 @@ export const CommandBar = ({ retrieveQuery, setRetrieveQuery, onRerunSelected, s
         <input
           value={retrieveQuery}
           onChange={(event) => setRetrieveQuery(event.target.value)}
-          placeholder="retrieve query for selected entity, not a prompt blob"
+          placeholder="Retrieve context"
           className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
         />
         {retrieveQuery && (
@@ -292,9 +292,6 @@ export const CommandBar = ({ retrieveQuery, setRetrieveQuery, onRerunSelected, s
         Re-rank evidence
       </button>
     </div>
-    <p className="mt-2 text-xs text-gray-500">
-      This bar only affects read-side retrieval ranking for the selected entity. It does not submit actions or assemble prompts.
-    </p>
   </div>
 )
 
@@ -409,7 +406,7 @@ export const LowerEvidencePanel = ({ actions, memory, evidencePack, selectedNode
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
           <Search size={16} />
-          Evidence timeline / memory tree / action run log / delta panel
+          Evidence / Memory / Actions
         </div>
         <div className="text-xs text-gray-500">
           {selectedNode ? selectedNode.entity_key : 'No entity selected'}
@@ -417,11 +414,11 @@ export const LowerEvidencePanel = ({ actions, memory, evidencePack, selectedNode
       </div>
 
       {!selectedNode ? (
-        <p className="mt-3 text-sm text-gray-500">Select an entity to load read-only evidence, prior outcomes, and backend action affordances.</p>
+        <p className="mt-3 text-sm text-gray-500">Select an entity.</p>
       ) : (
         <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_1fr_1fr]">
           <section className="space-y-3">
-            <div className="text-sm font-semibold text-gray-900">Retrieved context / Recent memory fragments</div>
+            <div className="text-sm font-semibold text-gray-900">Context</div>
             {graphSummary.available && (
               <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
                 graph context: {graphSummary.node_count || 0} nodes · {graphSummary.edge_count || 0} edges · {graphSummary.neighbor_count || 0} neighbors
@@ -429,11 +426,11 @@ export const LowerEvidencePanel = ({ actions, memory, evidencePack, selectedNode
             )}
             {searchRefs.length > 0 && (
               <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-                {searchRefs.length} search projection references are linked to this pack.
+                {searchRefs.length} search references
               </div>
             )}
             {fragments.length === 0 ? (
-              <p className="text-sm text-gray-500">No action outcomes or evidence fragments are linked to this entity yet.</p>
+              <p className="text-sm text-gray-500">No linked evidence.</p>
             ) : (
               <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                 {fragments.slice(0, 10).map((fragment, index) => (
@@ -467,15 +464,12 @@ export const LowerEvidencePanel = ({ actions, memory, evidencePack, selectedNode
               <SmallMetric label="New nodes" value={summary.new_surface_nodes_total} />
               <SmallMetric label="New deltas" value={summary.new_surface_deltas_total} />
             </div>
-            <div className="text-xs text-gray-500">
-              Summaries are pointers over fragments, not truth. They can be rebuilt from action outcomes and evidence references.
-            </div>
           </section>
 
           <section className="space-y-3">
             <div className="text-sm font-semibold text-gray-900">Available actions</div>
             {affordances.length === 0 ? (
-              <p className="text-sm text-gray-500">No catalog-derived actions are available for this entity.</p>
+              <p className="text-sm text-gray-500">No available actions.</p>
             ) : (
               <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                 {affordances.slice(0, 8).map((action) => (
@@ -526,7 +520,7 @@ const ActionCard = ({ action, disabled = false, submitting = false, onSubmitActi
         </button>
       )}
     </div>
-    <div className="mt-2 text-xs text-gray-600">{action.reason || (action.disabled_reasons || []).join(', ') || 'Catalog-derived action contract.'}</div>
+    <div className="mt-2 text-xs text-gray-600">{action.reason || (action.disabled_reasons || []).join(', ') || 'Catalog match.'}</div>
     {(action.inputs?.target || action.submit_payload?.targets?.[0]) && (
       <div className="mt-2 truncate rounded bg-white/70 px-2 py-1 font-mono text-[11px] text-gray-700" title={action.inputs?.target || action.submit_payload?.targets?.[0]}>
         target: {action.inputs?.target || action.submit_payload?.targets?.[0]}
@@ -538,7 +532,7 @@ const ActionCard = ({ action, disabled = false, submitting = false, onSubmitActi
 const ActionAffordanceList = ({ affordances, rejected = [], submitting = false, onSubmitAction, submission }) => {
   const groups = groupedActionAffordances(affordances)
   if (affordances.length === 0 && rejected.length === 0) {
-    return <p className="text-sm text-gray-500">No catalog target contracts match this entity.</p>
+    return <p className="text-sm text-gray-500">No matching actions.</p>
   }
   return (
     <div className="space-y-3">
@@ -549,7 +543,7 @@ const ActionAffordanceList = ({ affordances, rejected = [], submitting = false, 
       )}
       {groups.enabled.length > 0 && (
         <div className="space-y-2">
-          <div className="text-xs font-semibold uppercase tracking-wide text-green-700">Available from catalog contracts</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-green-700">Available</div>
           {groups.enabled.map((action, index) => (
             <ActionCard
               key={`${action.catalog_id}-enabled-${index}`}
@@ -562,7 +556,7 @@ const ActionAffordanceList = ({ affordances, rejected = [], submitting = false, 
       )}
       {(groups.blocked.length > 0 || rejected.length > 0) && (
         <details className="rounded-lg border border-orange-100 bg-orange-50 p-3">
-          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-orange-700">Not applicable / blocked</summary>
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-orange-700">Blocked</summary>
           <div className="mt-3 space-y-2">
             {[...groups.blocked, ...rejected].slice(0, 12).map((action, index) => (
               <ActionCard key={`${action.catalog_id}-blocked-${index}`} action={action} disabled />
@@ -570,7 +564,6 @@ const ActionAffordanceList = ({ affordances, rejected = [], submitting = false, 
           </div>
         </details>
       )}
-      <p className="text-xs text-gray-500">Actions are derived from the active catalog target contracts. Canvas selection never executes tools directly.</p>
     </div>
   )
 }
@@ -611,7 +604,7 @@ export const Inspector = ({ entity, actions, memory, loading, selectedNode, acti
     return (
       <aside className="relative z-30 h-full border-l border-gray-200 bg-white p-5 pointer-events-auto" onMouseDownCapture={(event) => event.stopPropagation()} onClickCapture={(event) => event.stopPropagation()}>
         <div className="text-sm font-semibold text-gray-900">Inspector</div>
-        <p className="mt-2 text-sm text-gray-500">Select a graph node to read profile, evidence, memory pointers, and backend action affordances.</p>
+        <p className="mt-2 text-sm text-gray-500">Select a graph node.</p>
       </aside>
     )
   }
@@ -677,7 +670,7 @@ export const Inspector = ({ entity, actions, memory, loading, selectedNode, acti
 
       {activeSection === 'actions' && (
         <section className="mt-5 space-y-2">
-          <div className="text-sm font-semibold text-gray-900">Action affordances</div>
+          <div className="text-sm font-semibold text-gray-900">Actions</div>
           <ActionAffordanceList
             affordances={affordances}
             rejected={rejectedAffordances}
@@ -703,66 +696,6 @@ export const Inspector = ({ entity, actions, memory, loading, selectedNode, acti
 }
 
 
-const hasDeltaSignal = (memory, evidencePack) => {
-  const summaries = memory?.summaries || []
-  const fragments = evidencePack?.fragments || memory?.fragments || []
-  const ranked = evidencePack?.ranked_context || []
-  return summaries.some((summary) => (summary.new_surface_deltas_total || summary.new_surface_nodes_total || 0) > 0)
-    || fragments.some((fragment) => (fragment.delta?.surface_nodes || fragment.delta?.surface_edges || fragment.delta?.surface_deltas || 0) > 0)
-    || ranked.some((item) => item.reasons?.includes('delta_signal'))
-}
-
-const workbenchAnswerChecks = ({ entity, actions, memory, evidencePack, selectedNode }) => {
-  const profile = entity?.profile || {}
-  const affordances = actions?.actions || []
-  const evidenceRefs = entity?.evidence_refs || evidencePack?.evidence_refs || []
-  const fragments = memory?.fragments || evidencePack?.fragments || []
-  const rankedContext = evidencePack?.ranked_context || []
-  const summaries = memory?.summaries || []
-  return [
-    { label: 'What is this entity?', passed: Boolean(selectedNode || profile.label || entity?.entity_key) },
-    { label: 'Where did it come from?', passed: Boolean(evidenceRefs.length || selectedNode?.source_refs?.length || profile.source_projection) },
-    { label: 'What changed recently?', passed: hasDeltaSignal(memory, evidencePack) },
-    { label: 'What evidence supports it?', passed: Boolean(evidenceRefs.length || rankedContext.length) },
-    { label: 'What actions were already tried?', passed: Boolean((entity?.related_actions || []).length || summaries.some((summary) => summary.outcome_count > 0)) },
-    { label: 'Which actions are available now?', passed: affordances.some((action) => action.enabled) },
-    { label: 'Which actions are blocked and why?', passed: affordances.some((action) => !action.enabled && (action.disabled_reasons || []).length) },
-    { label: 'Which related hypotheses exist?', passed: Boolean((entity?.related_hypotheses || []).length || String(selectedNode?.node_type || '').includes('hypothesis')) },
-    { label: 'Which memory explains the state?', passed: Boolean(fragments.length || summaries.length || evidencePack?.entity_summaries?.length) },
-    { label: 'What delta appeared after the last action?', passed: hasDeltaSignal(memory, evidencePack) },
-  ]
-}
-
-export const WorkbenchAnswerCoverage = ({ entity, actions, memory, evidencePack, selectedNode }) => {
-  const checks = workbenchAnswerChecks({ entity, actions, memory, evidencePack, selectedNode })
-  const passed = checks.filter((item) => item.passed).length
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-          <CheckCircle2 size={16} />
-          Workbench answer coverage
-        </div>
-        <div className="text-xs font-semibold text-gray-600">{passed}/{checks.length}</div>
-      </div>
-      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
-        {checks.map((item) => (
-          <div
-            key={item.label}
-            className={`rounded-lg border px-3 py-2 text-xs ${item.passed ? 'border-green-100 bg-green-50 text-green-700' : 'border-gray-200 bg-gray-50 text-gray-500'}`}
-          >
-            {item.label}
-          </div>
-        ))}
-      </div>
-      <p className="mt-3 text-xs text-gray-500">
-        This checklist is computed from loaded read models. It is not a vulnerability verdict or confidence score.
-      </p>
-    </div>
-  )
-}
-
-
 export const ProjectionControlPanel = ({
   bootstrap,
   error,
@@ -783,8 +716,8 @@ export const ProjectionControlPanel = ({
   const primaryOperation = needsSurface ? 'build_surface' : 'materialize_components'
   const primaryLabel = needsSurface ? 'Build surface map' : 'Materialize components'
   const primaryHint = needsSurface
-    ? 'Build a Surface Map snapshot from stored observations. No snapshot id or docker command required.'
-    : 'Build materialized component analysis from the latest surface snapshot. Snapshot id is resolved by backend.'
+    ? 'Build a Surface Map snapshot from stored observations.'
+    : 'Build component analysis from the latest surface snapshot.'
 
   return (
     <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 shadow-sm">
@@ -795,10 +728,10 @@ export const ProjectionControlPanel = ({
             Workbench data setup
           </div>
           <p className="text-sm text-blue-800">
-            {primaryHint} This is an allowlisted backend operation, not arbitrary shell execution.
+            {primaryHint}
           </p>
           {needsComponents && needsSurface && (
-            <p className="text-xs text-blue-700">After surface is built, run component materialization from this same panel.</p>
+            <p className="text-xs text-blue-700">Run component materialization after the surface snapshot is ready.</p>
           )}
         </div>
         <div className="flex flex-wrap gap-2">

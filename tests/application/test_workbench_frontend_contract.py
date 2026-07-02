@@ -68,8 +68,8 @@ def test_workbench_lower_panel_renders_materialized_read_side_fragments() -> Non
     page = _read_workbench_page_bundle()
     hook = _read("BugBountyDashBoard/src/hooks/useWorkbench.js")
 
-    assert "Evidence timeline / memory tree / action run log / delta panel" in page
-    assert "Recent memory fragments" in page
+    assert "Evidence / Memory / Actions" in page
+    assert "Context" in page
     assert "Delta summary" in page
     assert "Available actions" in page
     assert "retrieveWorkbenchEvidence" in hook
@@ -80,7 +80,7 @@ def test_workbench_frontend_has_command_palette_filters_saved_views_and_projecti
     hook = _read("BugBountyDashBoard/src/hooks/useWorkbench.js")
 
     assert "CommandBar" in page
-    assert "retrieve query for selected entity, not a prompt blob" in page
+    assert "Retrieve context" in page
     assert "filter, type:endpoint, gap, stale, has:actions" in page
     assert "Saved views" in page
     assert "Projection status" in page
@@ -97,9 +97,9 @@ def test_projection_overview_hides_operator_commands_under_advanced_details() ->
 
     assert "Advanced local CLI fallbacks" in overview
     assert "Advanced local projection diagnostics" in overview
-    assert "primary dashboard workflow" in overview
+    assert "Local fallback commands" in overview
     assert "Advanced local CLI fallback" in plan
-    assert "CLI fallbacks are hidden under advanced details" in plan
+    assert "Projection readiness from backend read models" in plan
 
 
 def test_workbench_canvas_has_read_only_graph_context_menu() -> None:
@@ -112,7 +112,6 @@ def test_workbench_canvas_has_read_only_graph_context_menu() -> None:
     assert "Focus graph from this seed" in canvas
     assert "Copy entity key" in canvas
     assert "Filter left rail by this node type" in canvas
-    assert "does not submit actions, proposals, or graph mutations" in canvas
     assert "onFocusNode={focusNode}" in page
     assert "onCopyNodeKey={copyToClipboard}" in page
     assert "onFilterNodeType={(node) => setFilterQuery(`type:${node.node_type}`)}" in page
@@ -128,23 +127,16 @@ def test_workbench_inspector_groups_sections_and_affordances() -> None:
     assert "Evidence" in page
     assert "Actions" in page
     assert "Memory" in page
-    assert "Available from catalog contracts" in page
-    assert "Not applicable / blocked" in page
-    assert "Canvas selection never executes tools directly" in page
+    assert "Available" in page
+    assert "Blocked" in page
 
 def test_workbench_frontend_persists_saved_views_and_shows_acceptance_coverage() -> None:
     page = _read_workbench_page_bundle()
 
     assert "localStorage.setItem(savedViewsStorageKey(programId)" in page
     assert "localStorage.getItem(savedViewsStorageKey(programId))" in page
-    assert "Saved views persist locally per program" in page
-    assert "Workbench answer coverage" in page
-    assert "What is this entity?" in page
-    assert "Where did it come from?" in page
-    assert "What changed recently?" in page
-    assert "What evidence supports it?" in page
-    assert "Which actions are available now?" in page
-    assert "not a vulnerability verdict or confidence score" in page
+    assert "Saved views" in page
+    assert "Workbench answer coverage" not in page
     assert "document.execCommand('copy')" in page
 
 
@@ -174,7 +166,7 @@ def test_workbench_frontend_can_refresh_missing_read_models_without_manual_ids()
     assert "Build surface map" in page
     assert "Materialize components" in page
     assert "Refresh all read models" in page
-    assert "No snapshot id or docker command required" in page
+    assert "Build a Surface Map snapshot" in page
     assert "runWorkbenchProjectionRefresh" in api
     assert "/workbench/projections/run" in api
     assert "runProjectionRefresh" in hook
@@ -216,17 +208,16 @@ def test_surface_components_page_can_materialize_latest_without_manual_snapshot_
     assert "Component data setup" in page
     assert "Materialize latest components" in page
     assert "Build surface + components" in page
-    assert "backend resolves snapshot ids" in page
-    assert "Advanced: load a specific snapshot by UUID" in page
+    assert "Load snapshot by UUID" in page
     assert "runWorkbenchProjectionRefresh" in page
     assert "Open in Workbench" in page
     assert "Neo4j/GDS materialized" in page
     assert "degraded fallback" in page
-    assert "Neo4j/GDS analysis is not available for this report" in page
-    assert "hidden from the main component UI" in page
+    assert "Neo4j/GDS unavailable" in page
+    assert "The current report is a degraded local grouping." in page
     assert "Retry Neo4j/GDS materialization" in page
-    assert "Show degraded fallback diagnostics" in page
-    assert "Why inspect this component" in page
+    assert "Fallback diagnostics" in page
+    assert "Signals" in page
     assert "Graph-projector lanes" in page
     assert "Bridge-heavy" in page
     assert "Outliers" in page
@@ -284,8 +275,8 @@ def test_surface_components_exposes_graph_projector_source_instead_of_raw_score_
 
     assert "Projection source:" in components
     assert "Neo4j/GDS materialized" in components
-    assert "Neo4j/GDS component analytics were unavailable" in components
-    assert "Backend action candidate signals" in components
+    assert "Neo4j/GDS unavailable" in components
+    assert "Action candidates" in components
     assert "Open in Workbench" in components
     assert "surface_map_local_fallback" in backend
     assert "neo4j_gds_materialized" in backend
@@ -332,6 +323,8 @@ def test_dashboard_navigation_groups_workflows_instead_of_backend_pages() -> Non
     assert "Program Overview" in navigation
     assert "Workbench" in navigation
     assert "Component Analysis" in navigation
+    assert "Infrastructure Map" not in navigation
+    assert "graph/infrastructure" not in app
     assert "Execution" in navigation
     assert "Action Catalog" in navigation
     assert "Evidence" in navigation
@@ -349,11 +342,9 @@ def test_execution_copy_distinguishes_agent_tasks_from_executable_actions() -> N
     workspace = _read("BugBountyDashBoard/src/components/agents/AgentWorkspacePanels.jsx")
     runtime = _read("BugBountyDashBoard/src/components/agents/AgentRuntimeControls.jsx")
 
-    assert "Execution model" in workspace
-    assert "Manual execution" in workspace
+    assert "Execution" in workspace
     assert "Agent tasks" in workspace
     assert "Action queue" in workspace
-    assert "Agent tasks do not run tools directly" in workspace
-    assert "ActionService" in workspace
+    assert "operator-controlled" not in workspace
     assert "label: 'Manual'" in runtime
-    assert "No LLM call" in runtime
+    assert "No model call" in runtime

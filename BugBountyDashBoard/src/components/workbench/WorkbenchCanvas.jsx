@@ -347,9 +347,6 @@ const GraphContextMenu = ({ menu, onClose, onInspect, onFocus, onCopyKey, onFilt
       <button type="button" onClick={() => { onFilterType(node); onClose() }} className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">
         Filter left rail by this node type
       </button>
-      <div className="border-t border-gray-100 px-3 py-2 text-[11px] text-gray-500">
-        Read-only menu. It does not submit actions, proposals, or graph mutations.
-      </div>
     </div>
   )
 }

@@ -54,7 +54,6 @@ export function AgentWorkspaceView({ state }) {
     <div className="space-y-6">
       <WorkspaceHeader state={state} />
       <WorkspaceError error={state.error} />
-      <ExecutionModel />
       <WorkspaceStats workspace={state.workspace} />
       <AgentRuntimeUsagePanel summary={state.workspace?.agent_runtime_usage} />
 
@@ -71,47 +70,12 @@ export function AgentWorkspaceView({ state }) {
 }
 
 
-function ExecutionModel() {
-  const stages = [
-    ['Manual execution', 'Operator-controlled action creation from graph targets. No model call is implied.'],
-    ['Agent tasks', 'Planner or analyst threads. These are not executable tool runs.'],
-    ['Action queue', 'Concrete action requests after catalog, policy, and approval boundaries.'],
-    ['Runs', 'Dispatched tool executions with artifacts and terminal status.'],
-    ['Outcomes', 'Read-model memory projected back into graph and search surfaces.'],
-  ]
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="font-semibold text-gray-900">Execution model</h2>
-          <p className="mt-1 text-sm text-gray-600">This page separates planning from execution. Agent tasks do not run tools directly; executable work enters ActionService.</p>
-        </div>
-      </div>
-      <div className="mt-4 grid gap-3 xl:grid-cols-5 md:grid-cols-2">
-        {stages.map(([title, description]) => (
-          <div key={title} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
-            <div className="text-sm font-semibold text-gray-900">{title}</div>
-            <p className="mt-1 text-xs leading-5 text-gray-500">{description}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 function WorkspaceHeader({ state }) {
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
       <div>
-        <div className="flex items-center gap-3">
-          <h1 className="text-3xl font-bold text-gray-900">Execution</h1>
-          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-            operator-controlled
-          </Badge>
-        </div>
-        <p className="mt-2 text-gray-600">
-          Agent tasks, proposals, decisions, and action queue for {state.selectedProgram.name}.
-        </p>
+        <h1 className="text-3xl font-bold text-gray-900">Execution</h1>
+        <p className="mt-2 text-gray-600">{state.selectedProgram.name}</p>
       </div>
       <button
         type="button"
@@ -271,7 +235,7 @@ function TaskThread({ state }) {
         {state.messages.length > 0 ? (
           state.messages.map((message) => <MessageCard key={message.message_id} message={message} />)
         ) : (
-          <EmptyState icon={MessageSquare} title="No messages yet" description="Messages appear after the task is processed by the inbox worker." />
+          <EmptyState icon={MessageSquare} title="No messages" description="Waiting for worker output." />
         )}
       </div>
       <form onSubmit={state.handleFollowup} className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
@@ -320,7 +284,7 @@ function ProposalsPanel({ state }) {
   return (
     <SectionCard title="Proposals" icon={Sparkles}>
       {state.visibleProposals.length === 0 ? (
-        <EmptyState title="No proposals yet" description="Proposals appear after an agent or graph-experience process analyzes context." />
+        <EmptyState title="No proposals" description="" />
       ) : (
         <div className="space-y-3">
           {state.visibleProposals.map((proposal) => (
@@ -369,7 +333,7 @@ function ActionQueuePanel({ workspace }) {
           ))}
         </div>
       ) : (
-        <EmptyState title="Action queue is empty" description="Accepted proposals enter ActionService and appear here as executable action requests." />
+        <EmptyState title="Action queue empty" description="" />
       )}
     </SectionCard>
   )
@@ -379,7 +343,7 @@ function ActivityPanel({ activity }) {
   return (
     <SectionCard title="Activity" icon={Clock3}>
       {activity.length === 0 ? (
-        <EmptyState title="No new events" description="This event stream is read-only polling. It does not start agents or tools." />
+        <EmptyState title="No events" description="" />
       ) : (
         <div className="max-h-[420px] overflow-y-auto pr-1">
           {activity.map((event) => <ActivityRow key={event.event_id} event={event} />)}

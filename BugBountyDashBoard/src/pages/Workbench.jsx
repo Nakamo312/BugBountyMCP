@@ -12,7 +12,6 @@ import {
   NodeList,
   ProjectionControlPanel,
   ProjectionStatus,
-  WorkbenchAnswerCoverage,
   copyToClipboard,
   emptyCounts,
   loadSavedViews,
@@ -98,7 +97,7 @@ const Workbench = () => {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Workbench</h1>
           <p className="mt-2 text-gray-600">
-            Entity graph, evidence, memory, and backend-derived action affordances for{' '}
+            Graph, evidence, memory, and actions for{' '}
             <span className="font-semibold text-primary-600">{selectedProgram.name}</span>
           </p>
         </div>
@@ -118,7 +117,7 @@ const Workbench = () => {
           <LensSelector lens={lens} lenses={lenses} onChange={(nextLens) => reload({ nextLens })} />
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <DatabaseZap size={16} />
-            <span>{bootstrap?.projection_freshness?.ui_data_fresh ? 'fresh projections' : 'projection freshness unknown or stale'}</span>
+            <span>{bootstrap?.projection_freshness?.ui_data_fresh ? 'fresh' : 'stale or unknown'}</span>
           </div>
         </div>
       </div>
@@ -201,32 +200,21 @@ const Workbench = () => {
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
         <div>
-          <div className="text-sm font-semibold text-gray-900">Evidence and acceptance details</div>
-          <div className="text-xs text-gray-500">Kept collapsed by default so the graph remains the primary workspace. Inspector tabs show the useful entity details.</div>
+          <div className="text-sm font-semibold text-gray-900">Details</div>
+          <div className="text-xs text-gray-500">Evidence, memory, and read-model checks.</div>
         </div>
         <button
           type="button"
           onClick={() => setShowReadModelDetails((value) => !value)}
           className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
         >
-          {showReadModelDetails ? 'Hide read-model details' : 'Show evidence / memory details'}
+          {showReadModelDetails ? 'Hide details' : 'Show details'}
         </button>
       </div>
 
       {showReadModelDetails && (
         <>
           <LowerEvidencePanel
-            actions={actions}
-            memory={memory}
-            evidencePack={evidencePack}
-            selectedNode={selectedNode}
-            actionSubmission={actionSubmission}
-            actionSubmitting={actionSubmitting}
-            onSubmitAction={submitSelectedAction}
-          />
-
-          <WorkbenchAnswerCoverage
-            entity={entity}
             actions={actions}
             memory={memory}
             evidencePack={evidencePack}

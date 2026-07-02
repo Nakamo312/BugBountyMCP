@@ -28,7 +28,7 @@ export function AgentTaskActivity({ activity }) {
   return (
     <SectionCard title="Activity" icon={Clock3}>
       {activity.length === 0 ? (
-        <EmptyState title="No new events" description="The lightweight activity stream updates this view without a full refresh." />
+        <EmptyState title="No events" description="" />
       ) : (
         <div className="max-h-[360px] overflow-y-auto pr-1">
           {activity.map((event) => <ActivityRow key={event.event_id} event={event} />)}

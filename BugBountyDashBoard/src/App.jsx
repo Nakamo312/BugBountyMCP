@@ -6,7 +6,6 @@ import Dashboard from './pages/Dashboard'
 import Programs from './pages/Programs'
 import Hosts from './pages/Hosts'
 import Analysis from './pages/Analysis'
-import InfrastructureMap from './pages/InfrastructureMap'
 import SurfaceComponents from './pages/SurfaceComponents'
 import Workbench from './pages/Workbench'
 import AgentWorkspace from './pages/AgentWorkspace'
@@ -31,8 +30,6 @@ function App() {
             <Route path="/workspace/tasks/:taskId" element={<AgentTaskDetailPage />} />
             <Route path="/hosts" element={<Hosts />} />
             <Route path="/analysis" element={<Analysis />} />
-            <Route path="/graph/infrastructure" element={<InfrastructureMap />} />
-            <Route path="/infrastructure" element={<InfrastructureMap />} />
             <Route path="/graph/components" element={<SurfaceComponents />} />
             <Route path="/surface-components" element={<SurfaceComponents />} />
             <Route path="/graph/pipeline" element={<Dashboard focus="projection" />} />
@@ -41,7 +38,7 @@ function App() {
               element={(
                 <PlaceholderPage
                   title="Evidence"
-                  description="Evidence paths are currently available through the Workbench inspector and Neo4j evidence lenses. A dedicated evidence inventory can be added after action affordances are wired into the graph workflow."
+                  description="Evidence paths are available in Workbench and Neo4j evidence lenses."
                 />
               )}
             />
@@ -50,7 +47,7 @@ function App() {
               element={(
                 <PlaceholderPage
                   title="Search Index"
-                  description="Search projection status is reported from Program Overview. A dedicated search index browser should expose indexed documents, stale projections, and retrieval packs without raw backend payloads."
+                  description="Search projection status is reported from Program Overview."
                   primaryPath="/"
                   primaryLabel="Open Program Overview"
                 />

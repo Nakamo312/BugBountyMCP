@@ -19,7 +19,7 @@ export function AgentTaskProposals({ actionBusy, onReview, proposals }) {
           ))}
         </div>
       ) : (
-        <EmptyState title="No proposals yet" description="An agent can create a proposal after processing task context." />
+        <EmptyState title="No proposals" description="" />
       )}
     </SectionCard>
   )

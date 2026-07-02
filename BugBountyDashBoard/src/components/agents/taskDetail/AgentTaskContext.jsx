@@ -40,7 +40,7 @@ const SurfaceSummary = ({ summary }) => {
 }
 
 const ContextSnapshot = ({ context }) => (
-  <SectionCard title="Compact context" icon={FileText}>
+  <SectionCard title="Context" icon={FileText}>
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <StatTile title="User msg" value={context.thread_summary?.user_messages} icon={MessageSquare} tone="blue" />
@@ -56,7 +56,7 @@ const ContextSnapshot = ({ context }) => (
       )}
       {context.last_agent_message_excerpt && (
         <div className="rounded-2xl bg-primary-50 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-primary-600">Latest agent response</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-primary-600">Latest response</p>
           <p className="mt-2 text-sm leading-6 text-gray-700">{context.last_agent_message_excerpt}</p>
         </div>
       )}
@@ -82,18 +82,8 @@ const AcceptedActions = ({ actions }) => (
         ))}
       </div>
     ) : (
-      <EmptyState title="No actions yet" description="A proposal must be explicitly accepted before ActionService decides queued, approval, or blocked state." />
+      <EmptyState title="No actions" description="" />
     )}
-  </SectionCard>
-)
-
-const BoundaryNotes = () => (
-  <SectionCard title="Boundaries" icon={Target}>
-    <div className="space-y-2 text-xs text-gray-600">
-      <div className="rounded-xl bg-gray-50 px-3 py-2">Tools run only through ActionService.</div>
-      <div className="rounded-xl bg-gray-50 px-3 py-2">This screen does not read raw artifacts or raw response bodies.</div>
-      <div className="rounded-xl bg-gray-50 px-3 py-2">This read model does not start GDS or agents.</div>
-    </div>
   </SectionCard>
 )
 
@@ -105,7 +95,6 @@ export function AgentTaskContextSidebar({ acceptedActions, context }) {
         <SurfaceSummary summary={context.surface_summary || {}} />
       </SectionCard>
       <AcceptedActions actions={acceptedActions} />
-      <BoundaryNotes />
     </div>
   )
 }
