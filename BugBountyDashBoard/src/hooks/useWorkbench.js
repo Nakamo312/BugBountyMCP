@@ -185,6 +185,7 @@ export const useWorkbench = (selectedProgram) => {
         programId,
         entityKey: selectedNode.entity_key,
         catalogId: action.catalog_id,
+        entity: actionEntityFromNode(selectedNode),
         targets: action.inputs?.targets,
         options: action.prefilled_options || {},
         lens,

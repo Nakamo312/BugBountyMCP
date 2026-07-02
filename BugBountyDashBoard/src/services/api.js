@@ -284,11 +284,12 @@ export const getWorkbenchAvailableActions = ({ programId, entityKey, entity, len
     context: { lens, ...context },
   })
 
-export const submitWorkbenchAction = ({ programId, entityKey, catalogId, targets, options = {}, lens, context = {} }) =>
+export const submitWorkbenchAction = ({ programId, entityKey, catalogId, entity, targets, options = {}, lens, context = {} }) =>
   api.post('/workbench/actions/submit', {
     program_id: programId,
     entity_key: entityKey,
     catalog_id: catalogId,
+    entity,
     targets,
     options,
     requested_by: 'workbench',

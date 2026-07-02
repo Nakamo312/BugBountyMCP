@@ -54,6 +54,7 @@ class WorkbenchSubmitActionRequest(BaseModel):
     program_id: UUID
     entity_key: str
     catalog_id: UUID
+    entity: WorkbenchActionEntity | None = None
     targets: list[str] | None = None
     options: dict[str, Any] = Field(default_factory=dict)
     requested_by: str = "workbench"
@@ -148,6 +149,7 @@ class WorkbenchActionAffordanceService:
             WorkbenchAvailableActionsRequest(
                 program_id=request.program_id,
                 entity_key=request.entity_key,
+                entity=request.entity,
                 context=request.context,
                 include_rejected=False,
                 limit=100,
@@ -174,6 +176,7 @@ class WorkbenchActionAffordanceService:
                     "source": "workbench",
                     "entity_key": request.entity_key,
                     "target_display": available.target.get("display"),
+                    "projection_entity": request.entity.model_dump(mode="json") if request.entity is not None else None,
                     "context": request.context,
                 },
             )

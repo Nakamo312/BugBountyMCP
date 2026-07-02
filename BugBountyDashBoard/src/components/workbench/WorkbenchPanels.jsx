@@ -567,7 +567,7 @@ const ActionCard = ({ action, disabled = false, submitting = false, onSubmitActi
           className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-primary-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Send size={13} />
-          Submit action
+          {action.approval_required ? 'Request approval' : 'Start scan'}
         </button>
       )}
     </div>
