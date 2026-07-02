@@ -248,15 +248,12 @@ def resolve_execution_budget(
         profile_value = getattr(profile, field_name)
         requested_value = getattr(requested, field_name) if requested else None
 
-        if (
-            system_value is not None
-            and profile_value is not None
-            and profile_value > system_value
-        ):
-            raise ActionInputValidationError(
-                f"profile {field_name} exceeds system ceiling"
-            )
-
+        # The system budget is the hard runtime ceiling. A catalog/profile budget
+        # may be larger because profiles are reusable across deployments with
+        # different capacity. Treat that as a desired profile cap and clamp it
+        # to the system ceiling instead of failing an otherwise valid Workbench
+        # action submission at runtime. Caller-provided budgets still may only
+        # tighten the effective ceiling below.
         ceilings = [
             value
             for value in (system_value, profile_value)

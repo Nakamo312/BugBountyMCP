@@ -96,16 +96,12 @@ def test_requested_budget_can_only_reduce_profile_and_system_ceilings() -> None:
         )
 
 
-def test_profile_budget_cannot_expand_system_ceiling() -> None:
-    with pytest.raises(
-        ActionInputValidationError,
-        match="profile concurrency exceeds system ceiling",
-    ):
-        resolve_execution_budget(
-            system=ExecutionBudget(concurrency=5),
-            profile=ExecutionBudget(concurrency=6),
-            requested=None,
-        )
+def test_profile_budget_larger_than_system_is_clamped_to_system_ceiling() -> None:
+    assert resolve_execution_budget(
+        system=ExecutionBudget(concurrency=5),
+        profile=ExecutionBudget(concurrency=6),
+        requested=None,
+    ) == ExecutionBudget(concurrency=5)
 
 
 def test_execution_budget_requires_positive_strict_values() -> None:

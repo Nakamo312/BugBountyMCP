@@ -35,6 +35,7 @@ const Workbench = () => {
   const programId = selectedProgram?.id
   const {
     actionSubmission,
+    autoProjection,
     actionSubmitting,
     actions,
     activeSeed,
@@ -52,6 +53,7 @@ const Workbench = () => {
     memory,
     projectionResult,
     projectionRunning,
+    openLens,
     reload,
     runProjectionRefresh,
     retrieveQuery,
@@ -100,7 +102,6 @@ const Workbench = () => {
   const rerankSelected = () => {
     if (selectedNode) selectNode(selectedNode)
   }
-
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -124,7 +125,7 @@ const Workbench = () => {
 
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <LensSelector lens={lens} lenses={lenses} onChange={(nextLens) => reload({ nextLens })} />
+          <LensSelector lens={lens} lenses={lenses} onChange={openLens} />
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <DatabaseZap size={16} />
             <span>{bootstrap?.projection_freshness?.ui_data_fresh ? 'fresh' : 'stale or unknown'}</span>
@@ -138,6 +139,12 @@ const Workbench = () => {
         selectedNode={selectedNode}
         onRerunSelected={rerankSelected}
       />
+
+      {autoProjection && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 shadow-sm">
+          <span className="font-semibold text-blue-950">Preparing projection</span> · {autoProjection.operation} for {autoProjection.lens}
+        </div>
+      )}
 
       <ProjectionRepairBanner
         bootstrap={bootstrap}

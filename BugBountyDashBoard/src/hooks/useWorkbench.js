@@ -12,6 +12,75 @@ import {
 
 const defaultLens = 'surface'
 
+const neo4jLens = (value) => String(value || '').startsWith('neo4j_')
+
+const settledData = (result) => (result.status === 'fulfilled' ? result.value?.data : null)
+
+const settledMessage = (result) => {
+  if (result.status !== 'rejected') return null
+  return result.reason?.response?.data?.detail || result.reason?.message || 'request failed'
+}
+
+const fetchWorkbenchState = async ({ programId, nextLens, seed, depth }) => {
+  const [bootstrapResult, graphResult] = await Promise.allSettled([
+    getWorkbenchBootstrap(programId),
+    getWorkbenchGraph({ programId, lens: nextLens, seed, depth }),
+  ])
+  const bootstrap = settledData(bootstrapResult)
+  const graph = settledData(graphResult)
+  const bootstrapError = settledMessage(bootstrapResult)
+  const graphError = settledMessage(graphResult)
+  if (!bootstrap && !graph) {
+    throw new Error(graphError || bootstrapError || 'Failed to load workbench')
+  }
+  return { bootstrap, graph, error: graphError || bootstrapError }
+}
+
+const queueHasWork = (queue) => {
+  if (!queue || typeof queue !== 'object') return false
+  return Object.values(queue).some((stats) => (
+    stats && typeof stats === 'object' && ((stats.pending || 0) > 0 || (stats.locked || 0) > 0)
+  ))
+}
+
+const projectionRepairPlan = ({ nextLens, seed, graph, bootstrap, error }) => {
+  const freshness = bootstrap?.projection_freshness || {}
+  const queueHealth = bootstrap?.queue_health || {}
+  const status = graph?.boundary?.status
+  const reason = graph?.boundary?.reason || error || null
+  const graphEmpty = !graph || (graph.nodes || []).length === 0
+  const hasSnapshot = Boolean(freshness.latest_surface_snapshot)
+  const hasAnalysis = Boolean(freshness.latest_surface_analysis)
+
+  if (neo4jLens(nextLens)) {
+    if (status === 'seed_required' || (!seed && ['neo4j_endpoint', 'neo4j_evidence', 'neo4j_surface_math'].includes(nextLens))) {
+      return null
+    }
+    if (status === 'empty' || status === 'unavailable' || graphEmpty || queueHasWork({ graph_projection_events: queueHealth.graph_projection_events, graph_fact_batches: queueHealth.graph_fact_batches })) {
+      return { operation: 'sync_neo4j', reason: reason || 'neo4j_projection_not_ready' }
+    }
+    return null
+  }
+
+  if (nextLens === 'components') {
+    if (!hasSnapshot || !hasAnalysis || graphEmpty || /component graph not found/i.test(error || '')) {
+      return { operation: 'refresh_workbench', reason: reason || 'surface_components_not_ready' }
+    }
+    return null
+  }
+
+  if (nextLens === 'surface' || nextLens === 'coverage') {
+    if (!hasSnapshot || graphEmpty || /surface graph not found|coverage graph not found/i.test(error || '')) {
+      return { operation: 'build_surface', reason: reason || 'surface_projection_not_ready' }
+    }
+    if (freshness.ui_data_fresh === false || freshness.surface_analysis_fresh === false || freshness.search_index_fresh === false) {
+      return { operation: 'refresh_workbench', reason: 'workbench_read_models_stale' }
+    }
+  }
+
+  return null
+}
+
 const routeWorkbenchState = () => {
   if (typeof window === 'undefined') return { lens: defaultLens, seed: null, selected: null }
   const params = new URLSearchParams(window.location.search)
@@ -48,6 +117,7 @@ export const useWorkbench = (selectedProgram) => {
   const [loading, setLoading] = useState(false)
   const [projectionRunning, setProjectionRunning] = useState(false)
   const [projectionResult, setProjectionResult] = useState(null)
+  const [autoProjection, setAutoProjection] = useState(null)
   const [actionSubmission, setActionSubmission] = useState(null)
   const [actionSubmitting, setActionSubmitting] = useState(false)
   const [entityLoading, setEntityLoading] = useState(false)
@@ -56,6 +126,7 @@ export const useWorkbench = (selectedProgram) => {
   const [pendingSelectedEntity, setPendingSelectedEntity] = useState(null)
   const loadRequestRef = useRef(0)
   const selectionRequestRef = useRef(0)
+  const autoProjectionAttemptsRef = useRef(new Set())
 
   const programId = selectedProgram?.id
 
@@ -88,32 +159,61 @@ export const useWorkbench = (selectedProgram) => {
     },
   }), [])
 
-  const unwrapSettled = (result) => (result.status === 'fulfilled' ? result.value?.data : null)
 
-  const settledError = (result) => {
-    if (result.status !== 'rejected') return null
-    return result.reason?.response?.data?.detail || result.reason?.message || 'request failed'
-  }
-
-  const loadWorkbench = useCallback(async ({ nextLens = lens, seed = null, depth = seed ? 2 : 1, selected = null } = {}) => {
+  const loadWorkbench = useCallback(async ({ nextLens = lens, seed = null, depth = seed ? 2 : 1, selected = null, autoRepair = true } = {}) => {
     if (!programId) return
     const requestId = loadRequestRef.current + 1
     loadRequestRef.current = requestId
     setLoading(true)
     setError(null)
     try {
-      const [bootstrapResponse, graphResponse] = await Promise.all([
-        getWorkbenchBootstrap(programId),
-        getWorkbenchGraph({ programId, lens: nextLens, seed, depth }),
-      ])
+      const state = await fetchWorkbenchState({ programId, nextLens, seed, depth })
       if (requestId !== loadRequestRef.current) return
-      setBootstrap(bootstrapResponse.data)
-      setGraph(graphResponse.data)
+
+      const repair = autoRepair ? projectionRepairPlan({
+        nextLens,
+        seed,
+        graph: state.graph,
+        bootstrap: state.bootstrap,
+        error: state.error,
+      }) : null
+      const repairKey = repair ? `${programId}:${nextLens}:${seed || 'root'}:${repair.operation}:${repair.reason || 'repair'}` : null
+      if (repair && !autoProjectionAttemptsRef.current.has(repairKey)) {
+        autoProjectionAttemptsRef.current.add(repairKey)
+        setAutoProjection({ operation: repair.operation, reason: repair.reason, lens: nextLens, seed })
+        setProjectionRunning(true)
+        try {
+          const response = await runWorkbenchProjectionRefresh({
+            program_id: programId,
+            operation: repair.operation,
+          })
+          if (requestId !== loadRequestRef.current) return
+          setProjectionResult(response.data)
+          const refreshed = await fetchWorkbenchState({ programId, nextLens, seed, depth })
+          if (requestId !== loadRequestRef.current) return
+          state.bootstrap = refreshed.bootstrap || state.bootstrap
+          state.graph = refreshed.graph
+          state.error = refreshed.error
+        } catch (projectionError) {
+          if (requestId !== loadRequestRef.current) return
+          setProjectionResult(null)
+          state.error = projectionError.response?.data?.detail || projectionError.message || 'Failed to auto-build Workbench projection'
+        } finally {
+          if (requestId === loadRequestRef.current) {
+            setProjectionRunning(false)
+            setAutoProjection(null)
+          }
+        }
+      }
+
+      setBootstrap(state.bootstrap)
+      setGraph(state.graph)
       setLens(nextLens)
       setActiveSeed(seed)
       clearSelection()
       setPendingSelectedEntity(selected)
       writeWorkbenchRouteState({ lens: nextLens, seed, selected })
+      setError(state.error && !state.graph ? state.error : null)
     } catch (err) {
       if (requestId !== loadRequestRef.current) return
       setGraph(null)
@@ -145,20 +245,20 @@ export const useWorkbench = (selectedProgram) => {
         }),
       ])
       if (requestId !== selectionRequestRef.current) return
-      setEntity(unwrapSettled(entityResponse))
-      setActions(unwrapSettled(actionsResponse))
-      setMemory(unwrapSettled(memoryResponse))
-      setEvidencePack(unwrapSettled(evidencePackResponse))
+      setEntity(settledData(entityResponse))
+      setActions(settledData(actionsResponse))
+      setMemory(settledData(memoryResponse))
+      setEvidencePack(settledData(evidencePackResponse))
       setActionSubmission(null)
       const errors = {
-        profile: settledError(entityResponse),
-        actions: settledError(actionsResponse),
-        memory: settledError(memoryResponse),
-        evidence: settledError(evidencePackResponse),
+        profile: settledMessage(entityResponse),
+        actions: settledMessage(actionsResponse),
+        memory: settledMessage(memoryResponse),
+        evidence: settledMessage(evidencePackResponse),
       }
       const visibleErrors = Object.fromEntries(Object.entries(errors).filter(([, value]) => value))
       setEntityErrors(visibleErrors)
-      if (!unwrapSettled(entityResponse) && !unwrapSettled(actionsResponse) && !unwrapSettled(memoryResponse) && !unwrapSettled(evidencePackResponse)) {
+      if (!settledData(entityResponse) && !settledData(actionsResponse) && !settledData(memoryResponse) && !settledData(evidencePackResponse)) {
         setError('Failed to load selected entity context')
       }
     } catch (err) {
@@ -219,7 +319,7 @@ export const useWorkbench = (selectedProgram) => {
         operation,
       })
       setProjectionResult(response.data)
-      await loadWorkbench({ nextLens: lens, seed: activeSeed, depth: activeSeed ? 2 : 1 })
+      await loadWorkbench({ nextLens: lens, seed: activeSeed, depth: activeSeed ? 2 : 1, autoRepair: false })
       return response.data
     } catch (err) {
       setProjectionResult(null)
@@ -235,6 +335,23 @@ export const useWorkbench = (selectedProgram) => {
     loadWorkbench({ nextLens: lens, seed: node.entity_key, depth: 2 })
   }, [lens, loadWorkbench])
 
+
+  const seedForLens = useCallback((nextLens) => {
+    const descriptor = (bootstrap?.lenses || []).find((item) => item.lens === nextLens)
+    if (nextLens === 'neo4j_surface_math') {
+      return bootstrap?.projection_freshness?.latest_surface_snapshot?.['snapshot' + '_id'] || null
+    }
+    if (descriptor?.seed_required) {
+      return selectedNode?.entity_key || selectedNode?.canonical_entity_key || activeSeed || null
+    }
+    return null
+  }, [activeSeed, bootstrap, selectedNode])
+
+  const openLens = useCallback((nextLens) => {
+    const seed = seedForLens(nextLens)
+    loadWorkbench({ nextLens, seed, depth: seed ? 2 : 1 })
+  }, [loadWorkbench, seedForLens])
+
   useEffect(() => {
     if (programId) {
       const routeState = routeWorkbenchState()
@@ -244,6 +361,8 @@ export const useWorkbench = (selectedProgram) => {
       setGraph(null)
       setActiveSeed(null)
       setProjectionResult(null)
+      setAutoProjection(null)
+      autoProjectionAttemptsRef.current = new Set()
       clearSelection()
       setError(null)
     }
@@ -262,6 +381,7 @@ export const useWorkbench = (selectedProgram) => {
 
   return {
     actionSubmission,
+    autoProjection,
     actionSubmitting,
     actions,
     activeSeed,
@@ -279,6 +399,7 @@ export const useWorkbench = (selectedProgram) => {
     memory,
     projectionResult,
     projectionRunning,
+    openLens,
     reload: loadWorkbench,
     retrieveQuery,
     runProjectionRefresh,
