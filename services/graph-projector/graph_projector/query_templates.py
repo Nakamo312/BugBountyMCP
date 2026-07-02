@@ -112,11 +112,15 @@ LIMIT $limit
                 cypher="""
 MATCH (host:Host {program_id: $program_id})
 WITH host ORDER BY host.hostname LIMIT $limit
+OPTIONAL MATCH infra_path = (host)-[:RESOLVES_TO]->(:IP {program_id: $program_id})-[:IN_CIDR]->(:CIDR {program_id: $program_id})-[:ANNOUNCED_BY]->(:ASN {program_id: $program_id})
 OPTIONAL MATCH service_path = (host)-[:RESOLVES_TO]->(:IP {program_id: $program_id})-[:EXPOSES_SERVICE]->(:Service {program_id: $program_id})
 OPTIONAL MATCH endpoint_path = (host)-[:RESOLVES_TO]->(:IP {program_id: $program_id})-[:EXPOSES_SERVICE]->(:Service {program_id: $program_id})-[:HAS_ENDPOINT]->(:Endpoint {program_id: $program_id})
+OPTIONAL MATCH parameter_path = (host)-[:RESOLVES_TO]->(:IP {program_id: $program_id})-[:EXPOSES_SERVICE]->(:Service {program_id: $program_id})-[:HAS_ENDPOINT]->(:Endpoint {program_id: $program_id})-[:HAS_PARAM]->(:Parameter {program_id: $program_id})
 RETURN host,
+       collect(infra_path)[0..$limit] AS infra_paths,
        collect(service_path)[0..$limit] AS service_paths,
-       collect(endpoint_path)[0..$limit] AS endpoint_paths
+       collect(endpoint_path)[0..$limit] AS endpoint_paths,
+       collect(parameter_path)[0..$limit] AS parameter_paths
 LIMIT $limit
 """.strip(),
                 required_parameters=("program_id",),

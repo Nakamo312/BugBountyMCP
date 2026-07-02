@@ -40,6 +40,36 @@ services:
       retries: 12
     restart: unless-stopped
 
+  graph-projector-events:
+    build:
+      context: ./services/graph-projector
+      dockerfile: Dockerfile
+    container_name: bb-graph-projector-events
+    profiles:
+      - graph
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      NEO4J_ENABLED: "true"
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-bugbounty-neo4j-local}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
+      GRAPH_PROJECTION_EVENT_POLL_SECONDS: ${GRAPH_PROJECTION_EVENT_POLL_SECONDS:-1}
+      GRAPH_PROJECTION_EVENT_NOTIFY_CHANNEL: ${GRAPH_PROJECTION_EVENT_NOTIFY_CHANNEL:-graph_projection_events_changed}
+      GRAPH_FACT_BATCH_NOTIFY_CHANNEL: ${GRAPH_FACT_BATCH_NOTIFY_CHANNEL:-graph_fact_batches_changed}
+    command: ["process-projection-events-loop"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   graph-projector:
     build:
       context: ./services/graph-projector
@@ -69,7 +99,7 @@ services:
         condition: service_healthy
       neo4j:
         condition: service_healthy
-    restart: "no"
+    restart: unless-stopped
 
   opensearch:
     image: opensearchproject/opensearch:2.15.0

@@ -16,6 +16,14 @@ import {
 } from 'lucide-react'
 import { ActionFormFactory } from '../actions'
 import { buildActionFromCatalogDetail } from '../actions/catalog/actionCatalog'
+import {
+  formatValue,
+  frontendActionSeed,
+  nodeTypeGroups,
+  nodeTypeLabel,
+  readableNodeMetrics,
+  relationshipGroups,
+} from './workbenchGraphModel'
 
 export const copyToClipboard = (value) => {
   if (!value) return
@@ -160,8 +168,48 @@ const SavedViews = ({ views, onApplyView, onSaveView }) => (
   </section>
 )
 
+const GraphInventory = ({ graph, onFilterChange }) => {
+  const typeGroups = nodeTypeGroups(graph?.nodes || [])
+  const edgeGroups = relationshipGroups(graph?.edges || [])
+  if (!typeGroups.length && !edgeGroups.length) return null
+  return (
+    <section className="mb-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Graph inventory</div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {typeGroups.slice(0, 8).map((group) => (
+          <button
+            key={group.type}
+            type="button"
+            onClick={() => onFilterChange(`type:${group.type}`)}
+            className="rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100"
+            title={`${group.count} ${group.label}`}
+          >
+            {group.label} · {group.count}
+          </button>
+        ))}
+      </div>
+      {edgeGroups.length > 0 && (
+        <div className="mt-2 text-[11px] text-gray-500">
+          edges: {edgeGroups.slice(0, 3).map((group) => `${group.label} ${group.count}`).join(' · ')}
+        </div>
+      )}
+    </section>
+  )
+}
+
+const nodeListScore = (node) => {
+  let score = 0
+  score += Number(node.action_affordance_count || 0) * 10
+  score += (node.evidence_refs || []).length * 3
+  score += Number(node.metrics?.changed_node_count || node.properties?.changed_node_count || 0) * 8
+  score += Number(node.metrics?.rank_signal || node.metrics?.signal_score || node.properties?.rank_signal || node.properties?.signal_score || 0)
+  if (String(node.node_type || '').includes('gap')) score += 50
+  if (node.staleness === 'stale') score += 10
+  return score
+}
+
 export const NodeList = ({ graph, selectedNode, filterQuery, onFilterChange, onSelectNode, onFocusNode, onSaveView, savedViews, onApplyView }) => {
-  const nodes = useMemo(() => filteredNodes(graph, filterQuery), [graph, filterQuery])
+  const nodes = useMemo(() => filteredNodes(graph, filterQuery).sort((a, b) => nodeListScore(b) - nodeListScore(a)), [graph, filterQuery])
   const total = graph?.nodes?.length || 0
   return (
     <aside className="h-full overflow-y-auto border-r border-gray-200 bg-white p-4">
@@ -190,36 +238,51 @@ export const NodeList = ({ graph, selectedNode, filterQuery, onFilterChange, onS
         </label>
       </div>
 
+      <GraphInventory graph={graph} onFilterChange={onFilterChange} />
+
       <div className="space-y-2">
-        {nodes.map((node) => (
-          <div
-            key={node.id}
-            className={`rounded-lg border ${
-              selectedNode?.entity_key === node.entity_key ? 'border-primary-500 bg-primary-50' : 'border-gray-200 bg-white'
-            }`}
-          >
-            <button
-              type="button"
-              onClick={() => onSelectNode(node)}
-              className="w-full p-3 text-left hover:bg-gray-50"
+        {nodes.map((node) => {
+          const metrics = readableNodeMetrics(node).slice(0, 3)
+          return (
+            <div
+              key={node.id}
+              className={`rounded-lg border ${
+                selectedNode?.entity_key === node.entity_key ? 'border-primary-500 bg-primary-50' : 'border-gray-200 bg-white'
+              }`}
             >
-              <div className="truncate text-sm font-semibold text-gray-900" title={node.label}>{node.label}</div>
-              <div className="mt-1 truncate text-xs text-gray-500" title={node.entity_key}>{node.node_type}</div>
-            </button>
-            <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2 text-xs text-gray-500">
-              <span>{node.staleness || 'unknown'}</span>
               <button
                 type="button"
-                onClick={() => onFocusNode(node)}
-                className="flex items-center gap-1 font-medium text-primary-600 hover:text-primary-700"
-                title="Reload this lens around this entity as seed"
+                onClick={() => onSelectNode(node)}
+                className="w-full p-3 text-left hover:bg-gray-50"
               >
-                <Target size={13} />
-                Focus
+                <div className="truncate text-sm font-semibold text-gray-900" title={node.label}>{node.label}</div>
+                <div className="mt-1 flex items-center justify-between gap-2 text-xs text-gray-500">
+                  <span className="truncate" title={node.entity_key}>{nodeTypeLabel(node.node_type)}</span>
+                  {node.action_affordance_count > 0 && <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700">actions {node.action_affordance_count}</span>}
+                </div>
+                {metrics.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {metrics.map(([label, value]) => (
+                      <span key={label} className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">{label}: {formatValue(value)}</span>
+                    ))}
+                  </div>
+                )}
               </button>
+              <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2 text-xs text-gray-500">
+                <span>{node.staleness || 'unknown'}</span>
+                <button
+                  type="button"
+                  onClick={() => onFocusNode(node)}
+                  className="flex items-center gap-1 font-medium text-primary-600 hover:text-primary-700"
+                  title="Reload this lens around this entity as seed"
+                >
+                  <Target size={13} />
+                  Focus
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="mt-4">
@@ -353,12 +416,7 @@ const JsonBlock = ({ value }) => (
   </pre>
 )
 
-const displayValue = (value) => {
-  if (value == null || value === '') return 'n/a'
-  if (Array.isArray(value)) return value.length ? value.join(', ') : 'none'
-  if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
-}
+const displayValue = (value) => formatValue(value)
 
 const graphProjectorCapabilitySummary = (capabilities) => {
   if (!capabilities || typeof capabilities !== 'object') return null
@@ -775,12 +833,18 @@ const EvidencePackSummary = ({ evidencePack }) => {
 const ActionTargetSummary = ({ entity, selectedNode }) => {
   const target = entity?.profile?.action_target || selectedNode?.action_target || selectedNode?.metadata?.action_bridge
   const values = target?.values || selectedNode?.metadata?.action_bridge?.values || {}
-  if (!target && !Object.keys(values).length) return null
+  const actionSeed = frontendActionSeed(selectedNode)
+  if (!target && !Object.keys(values).length && !actionSeed) return null
   return (
     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
       <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Action target</div>
       <div className="mt-1 text-sm font-semibold text-gray-900">{target?.display || selectedNode?.label}</div>
-      <div className="mt-1 text-xs text-gray-500">{target?.kind || target?.target_kind || selectedNode?.node_type}</div>
+      <div className="mt-1 text-xs text-gray-500">{target?.kind || target?.target_kind || nodeTypeLabel(selectedNode?.node_type)}</div>
+      {actionSeed && (
+        <div className="mt-2 truncate rounded bg-white px-2 py-1 font-mono text-[11px] text-gray-700" title={actionSeed}>
+          seed: {actionSeed}
+        </div>
+      )}
       {Object.keys(values).length > 0 && <div className="mt-3"><JsonBlock value={values} /></div>}
     </div>
   )

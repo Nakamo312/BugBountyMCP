@@ -7,7 +7,8 @@ import re
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import bindparam, case, desc, func, or_, select
+from sqlalchemy import bindparam, desc, func, or_, select
+from sqlalchemy import case
 
 from api.application.workbench import (
     WorkbenchActionAffordanceList,
@@ -105,7 +106,7 @@ async def build_surface_lens_graph(
     ]
     ui_nodes: list[WorkbenchNode] = []
     ui_edges: list[WorkbenchEdge] = []
-    if not edges and not seed and len(nodes) > 1:
+    if not seed and len(nodes) > 1:
         ui_nodes, ui_edges = _surface_ui_grouping(node_rows)
 
     return WorkbenchGraph(
@@ -126,7 +127,7 @@ async def build_surface_lens_graph(
         },
         boundary={
             **workbench_read_boundary(surface="surface_lens_graph"),
-            "ui_grouping": "derived_from_surface_node_properties_when_persisted_edges_are_absent",
+            "ui_grouping": "derived_from_surface_node_properties_for_operator_surface_map",
         },
     )
 

@@ -109,8 +109,14 @@ docker compose --profile graph up -d
 docker compose --profile search up -d
 ```
 
-The graph profile includes Neo4j, `graph-projector`, and the raw artifact
-GraphFact enqueuer.
+The graph profile includes Neo4j plus two durable projection workers: `graph-projector-events` claims `graph_projection_events` and enqueues GraphFact batches, while `graph-projector` applies pending GraphFact batches into Neo4j. Without both workers, Neo4j remains empty even if scans write PostgreSQL artifacts.
+
+For an existing database that already has artifacts but an empty Neo4j store, rebuild the durable graph batches and let the apply worker drain them:
+
+```bash
+docker compose --profile graph run --rm graph-projector rebuild --program-id <program-id>
+docker compose --profile graph up -d graph-projector-events graph-projector
+```
 
 ## Verification
 

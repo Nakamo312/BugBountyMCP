@@ -174,6 +174,18 @@ def test_workbench_frontend_can_refresh_missing_read_models_without_manual_ids()
     assert "snapshot_id" not in hook
 
 
+
+
+def test_workbench_surface_lens_uses_surface_map_renderer_before_force_graph() -> None:
+    canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
+
+    assert "SurfaceMapCanvas" in canvas
+    assert "surface-map-canvas" in canvas
+    assert "Host → route family → endpoint topology" in canvas
+    assert "buildSurfaceMap(graph)" in canvas
+    assert "graph?.lens === 'surface' && !graph?.seed" in canvas
+    assert "surface_nodes: hosts, route families, endpoints, params, responses" in canvas
+
 def test_workbench_surface_canvas_uses_canvas_investigation_map_not_card_grid() -> None:
     canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
 
@@ -191,6 +203,22 @@ def test_workbench_surface_canvas_uses_canvas_investigation_map_not_card_grid() 
     assert "const columns =" not in canvas
     assert "nodePosition(index)" not in canvas
 
+
+
+def test_workbench_exposure_lens_uses_layered_topology_instead_of_raw_force_cloud() -> None:
+    canvas = _read("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx")
+    templates = _read("services/graph-projector/graph_projector/query_templates.py")
+
+    assert "ExposureTopologyCanvas" in canvas
+    assert "exposure-topology-canvas" in canvas
+    assert "graph?.lens === 'neo4j_exposure' && !graph?.seed" in canvas
+    assert "ASN → CIDR → IP → Host → Service → Endpoint → Parameter → Request" in canvas
+    assert "neo4j_asn" in canvas
+    assert "neo4j_cidr" in canvas
+    assert "neo4j_ip" in canvas
+    assert "parameter_path" in templates
+    assert "HAS_PARAM" in templates
+    assert "ANNOUNCED_BY" in templates
 
 def test_workbench_inspector_prefers_readable_profile_summary_over_empty_json_blob() -> None:
     panels = _read("BugBountyDashBoard/src/components/workbench/WorkbenchPanels.jsx")
@@ -356,15 +384,17 @@ def test_execution_copy_distinguishes_agent_tasks_from_executable_actions() -> N
     assert "No model call" in runtime
 
 
-def test_action_queue_toasts_are_global_site_notifications() -> None:
-    layout = _read("BugBountyDashBoard/src/components/Layout.jsx")
-    toasts = _read("BugBountyDashBoard/src/components/notifications/ActionQueueStatusToasts.jsx")
-    workspace_panels = _read("BugBountyDashBoard/src/components/agents/AgentWorkspacePanels.jsx")
+def test_execution_workspace_surfaces_action_queue_status_toasts() -> None:
+    hook = _read("BugBountyDashBoard/src/hooks/useAgentWorkspace.js")
+    panels = _read("BugBountyDashBoard/src/components/agents/AgentWorkspacePanels.jsx")
 
-    assert "ActionQueueStatusToasts" in layout
-    assert "getCampaignWorkspace" in toasts
-    assert "detectQueueTransitions" in toasts
-    assert "Action started" in toasts
-    assert "Action left active queue" in toasts
-    assert "Dismiss notification" in toasts
-    assert "QueueNotificationToasts" not in workspace_panels
+    assert "queueNotifications" in hook
+    assert "trackQueueStatusChanges" in hook
+    assert "queueNotificationForTransition" in hook
+    assert "loadWorkspace({ silent: true })" in hook
+    assert "queueNotificationForRemovedAction" in hook
+    assert "QueueNotificationToasts" in panels
+    assert "Action started" in hook
+    assert "Action output is being ingested" in hook
+    assert "Action left active queue" in hook
+    assert "Dismiss notification" in panels

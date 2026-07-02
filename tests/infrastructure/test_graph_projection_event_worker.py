@@ -75,7 +75,7 @@ def test_projection_event_worker_loop_stops_after_idle_threshold() -> None:
     assert sleeps == [0.5]
 
 
-def test_projection_event_worker_cli_is_exposed_without_extra_compose_services() -> None:
+def test_projection_event_worker_is_wired_into_graph_compose_profile() -> None:
     main_source = graph_projector_cli_source()
     compose_source = Path("docker-compose.yml").read_text(encoding="utf-8")
 
@@ -84,5 +84,7 @@ def test_projection_event_worker_cli_is_exposed_without_extra_compose_services()
     assert 'subparsers.add_parser("enqueue-action-outcomes"' in main_source
     assert "ActionOutcomeGraphFactEnqueuer" in main_source
     assert "GraphProjectionEventWorker" in main_source
-    assert "graph-projection-event-worker:" not in compose_source
-    assert 'command: ["process-projection-events-loop"]' not in compose_source
+    assert "graph-projector-events:" in compose_source
+    assert "container_name: bb-graph-projector-events" in compose_source
+    assert 'command: ["process-projection-events-loop"]' in compose_source
+    assert "GRAPH_PROJECTION_EVENT_NOTIFY_CHANNEL" in compose_source

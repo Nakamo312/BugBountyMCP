@@ -9,6 +9,7 @@ import {
   runWorkbenchProjectionRefresh,
   submitWorkbenchAction,
 } from '../services/api'
+import { lensSeed } from '../components/workbench/workbenchGraphModel'
 
 const defaultLens = 'surface'
 
@@ -276,8 +277,10 @@ export const useWorkbench = (selectedProgram) => {
   }, [actionEntityFromNode, activeSeed, lens, programId, retrieveQuery])
 
 
-  const submitSelectedAction = useCallback(async (action) => {
+  const submitSelectedAction = useCallback(async (action, override = {}) => {
     if (!programId || !selectedNode?.entity_key || !action?.catalog_id) return null
+    const targets = override.targets || action.submit_payload?.targets || action.inputs?.targets || []
+    const options = override.options || action.prefilled_options || {}
     setActionSubmitting(true)
     setError(null)
     try {
@@ -286,8 +289,8 @@ export const useWorkbench = (selectedProgram) => {
         entityKey: selectedNode.entity_key,
         catalogId: action.catalog_id,
         entity: actionEntityFromNode(selectedNode),
-        targets: action.inputs?.targets,
-        options: action.prefilled_options || {},
+        targets,
+        options,
         lens,
       })
       setActionSubmission(response.data)
@@ -338,13 +341,8 @@ export const useWorkbench = (selectedProgram) => {
 
   const seedForLens = useCallback((nextLens) => {
     const descriptor = (bootstrap?.lenses || []).find((item) => item.lens === nextLens)
-    if (nextLens === 'neo4j_surface_math') {
-      return bootstrap?.projection_freshness?.latest_surface_snapshot?.['snapshot' + '_id'] || null
-    }
-    if (descriptor?.seed_required) {
-      return selectedNode?.entity_key || selectedNode?.canonical_entity_key || activeSeed || null
-    }
-    return null
+    if (!descriptor?.seed_required && !String(nextLens || '').startsWith('neo4j_')) return null
+    return lensSeed(selectedNode, nextLens, activeSeed, bootstrap)
   }, [activeSeed, bootstrap, selectedNode])
 
   const openLens = useCallback((nextLens) => {
