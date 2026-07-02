@@ -21,6 +21,7 @@ from api.application.workbench import (
     WorkbenchGraph,
     WorkbenchLens,
     WorkbenchNode,
+    WorkbenchNotFound,
     WorkbenchReadService,
     WorkbenchRetrieveRequest,
     workbench_lenses,
@@ -592,6 +593,11 @@ class _NoopActionService:
     pass
 
 
+class _MissingAffordanceWorkbench:
+    async def entity_profile(self, *, program_id, entity_key):
+        raise WorkbenchNotFound("profile missing")
+
+
 @pytest.mark.asyncio
 async def test_workbench_action_affordances_are_derived_from_catalog_target_contracts() -> None:
     program_id = uuid4()
@@ -648,3 +654,60 @@ async def test_workbench_action_affordances_are_derived_from_catalog_target_cont
     assert result.actions[0].enabled is True
     assert result.actions[0].policy_preview["scope_policy"] == "strict"
     assert result.boundary["raw_frontend_tool_rules"] == "forbidden"
+
+
+@pytest.mark.asyncio
+async def test_workbench_action_affordances_can_use_projection_node_fallback_when_profile_is_missing() -> None:
+    program_id = uuid4()
+    catalog_id = uuid4()
+    detail = CatalogDetail(
+        id=catalog_id,
+        snapshot_id=uuid4(),
+        capability="httpx",
+        profile="safe-web-probe",
+        capability_label="HTTPX",
+        profile_label="Safe web probe",
+        safety_level="passive",
+        requires_approval=False,
+        queue="analysis",
+        request_event="httpx_scan_requested",
+        default_profile="safe-web-probe",
+        scope_policy="strict",
+        execution_budget=ExecutionBudget(max_targets=50),
+        frontend={
+            "workbench": {
+                "target_contracts": [
+                    {
+                        "kind": "host",
+                        "labels": ["Host"],
+                        "required_properties": ["hostname"],
+                        "target_property": "hostname",
+                    }
+                ]
+            }
+        },
+        submit={},
+    )
+    service = WorkbenchActionAffordanceService(
+        workbench=_MissingAffordanceWorkbench(),
+        catalog=_AffordanceCatalog(detail),
+        actions=_NoopActionService(),
+    )
+
+    result = await service.available(
+        WorkbenchAvailableActionsRequest(
+            program_id=program_id,
+            entity_key="neo4j:Host:example.com",
+            entity={
+                "source": "neo4j_graph_projector_ontology",
+                "label": "host",
+                "entity_key": "neo4j:Host:example.com",
+                "properties": {"hostname": "example.com"},
+                "metadata": {"labels": ["Host"], "display": "example.com"},
+            },
+        )
+    )
+
+    assert result.actions[0].catalog_id == str(catalog_id)
+    assert result.actions[0].inputs == {"targets": ["example.com"], "target": "example.com"}
+    assert result.target["display"] == "example.com"

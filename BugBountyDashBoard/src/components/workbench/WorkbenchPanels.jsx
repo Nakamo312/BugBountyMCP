@@ -587,7 +587,33 @@ export const InspectorTabs = ({ activeSection, sections, onChange }) => (
   </div>
 )
 
-export const Inspector = ({ entity, actions, memory, loading, selectedNode, actionSubmission, actionSubmitting, onSubmitAction }) => {
+const ContextLoadWarnings = ({ errors }) => {
+  const entries = Object.entries(errors || {}).filter(([, message]) => message)
+  if (!entries.length) return null
+  return (
+    <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+      {entries.map(([area, message]) => (
+        <div key={area}><span className="font-semibold">{area}</span>: {message}</div>
+      ))}
+    </div>
+  )
+}
+
+const ActionTargetSummary = ({ entity, selectedNode }) => {
+  const target = entity?.profile?.action_target || selectedNode?.action_target || selectedNode?.metadata?.action_bridge
+  const values = target?.values || selectedNode?.metadata?.action_bridge?.values || {}
+  if (!target && !Object.keys(values).length) return null
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Action target</div>
+      <div className="mt-1 text-sm font-semibold text-gray-900">{target?.display || selectedNode?.label}</div>
+      <div className="mt-1 text-xs text-gray-500">{target?.kind || target?.target_kind || selectedNode?.node_type}</div>
+      {Object.keys(values).length > 0 && <div className="mt-3"><JsonBlock value={values} /></div>}
+    </div>
+  )
+}
+
+export const Inspector = ({ entity, entityErrors = {}, actions, memory, loading, selectedNode, actionSubmission, actionSubmitting, onSubmitAction }) => {
   const [activeSection, setActiveSection] = useState('profile')
   const affordances = actions?.actions || []
   const rejectedAffordances = actions?.rejected || []
@@ -636,10 +662,12 @@ export const Inspector = ({ entity, actions, memory, loading, selectedNode, acti
       </div>
 
       <InspectorTabs activeSection={activeSection} sections={sections} onChange={setActiveSection} />
+      <ContextLoadWarnings errors={entityErrors} />
 
       {activeSection === 'profile' && (
         <section className="mt-5 space-y-3">
           <div className="text-sm font-semibold text-gray-900">Profile</div>
+          <ActionTargetSummary entity={entity} selectedNode={selectedNode} />
           <KeyValueGrid profile={entity?.profile} properties={entity?.properties} selectedNode={selectedNode} />
           <GraphProjectorPayloads profile={entity?.profile} properties={entity?.properties} />
           {entity?.profile && Object.keys(entity.profile).length > 0 && (

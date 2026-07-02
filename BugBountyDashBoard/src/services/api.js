@@ -276,10 +276,11 @@ export const getWorkbenchEntity = (programId, entityKey) =>
 export const getWorkbenchEntityActions = (programId, entityKey) =>
   api.get(`/workbench/entities/${encodeURIComponent(entityKey)}/actions`, { params: { program_id: programId } })
 
-export const getWorkbenchAvailableActions = ({ programId, entityKey, lens, context = {} }) =>
+export const getWorkbenchAvailableActions = ({ programId, entityKey, entity, lens, context = {} }) =>
   api.post('/workbench/actions/available', {
     program_id: programId,
     entity_key: entityKey,
+    entity,
     context: { lens, ...context },
   })
 

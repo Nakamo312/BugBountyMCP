@@ -51,6 +51,8 @@ class WorkbenchNode(BaseModel):
     node_type: str
     label: str
     caption: str | None = None
+    canonical_entity_key: str | None = None
+    action_target: dict[str, Any] = Field(default_factory=dict)
     properties: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
     visual: dict[str, Any] = Field(default_factory=dict)

@@ -31,6 +31,7 @@ const Workbench = () => {
     activeSeed,
     bootstrap,
     entity,
+    entityErrors,
     entityLoading,
     error,
     evidencePack,
@@ -187,6 +188,7 @@ const Workbench = () => {
         >
           <Inspector
             entity={entity}
+            entityErrors={entityErrors}
             actions={actions}
             memory={memory}
             loading={entityLoading}

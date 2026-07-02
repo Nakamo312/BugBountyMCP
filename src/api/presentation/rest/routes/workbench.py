@@ -94,10 +94,17 @@ async def get_workbench_entity(
 )
 async def get_workbench_entity_actions(
     entity_key: str,
-    service: FromDishka[WorkbenchReadService],
+    service: FromDishka[WorkbenchActionAffordanceService],
     program_id: UUID,
 ) -> dict:
-    actions = await service.entity_actions(program_id=program_id, entity_key=entity_key)
+    try:
+        actions = await service.available(
+            WorkbenchAvailableActionsRequest(program_id=program_id, entity_key=entity_key)
+        )
+    except WorkbenchNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CatalogNotReady as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return actions.model_dump(mode="json")
 
 

@@ -301,19 +301,31 @@ LIMIT 1
     node = next(iter(nodes.values()), None)
     if node is None:
         return None
+    labels = list(node.metadata.get("labels", []))
+    primary_label = _primary_label(labels)
+    action_properties = _action_target_properties(
+        labels=labels,
+        primary_label=primary_label,
+        properties=node.properties,
+        identity=identity_key,
+        label=node.label,
+    )
     return WorkbenchEntityProfile(
         program_id=program_id,
         entity_key=entity_key,
         profile={
             "type": node.node_type,
+            "node_type": node.node_type,
             "label": node.label,
             "caption": node.caption,
             "projection_source": "neo4j_graph_projector_ontology",
             "identity_key": identity_key,
-            "labels": node.metadata.get("labels", []),
+            "labels": labels,
+            "canonical_entity_key": node.canonical_entity_key,
+            "action_target": node.action_target,
             "safe_query_templates": list(_TEMPLATE_BY_LENS.values()),
         },
-        properties=node.properties,
+        properties=action_properties,
         evidence_refs=node.evidence_refs,
         boundary=_neo4j_boundary(surface="neo4j_entity_profile", template_name="entity_profile"),
     )
@@ -419,18 +431,43 @@ def _add_node(raw_node: Any, nodes: dict[str, WorkbenchNode]) -> None:
     entity_key = f"neo4j:{quote(primary_label, safe='')}:{quote(identity, safe='')}"
     node_type = _NODE_TYPE_BY_LABEL.get(primary_label, f"neo4j_{_snake(primary_label)}")
     label = _best_label(properties, labels, node_id)
+    action_properties = _action_target_properties(
+        labels=labels,
+        primary_label=primary_label,
+        properties=properties,
+        identity=identity,
+        label=label,
+    )
+    canonical_entity_key = _canonical_entity_key(properties)
+    action_target = _action_target_payload(
+        entity_key=entity_key,
+        node_type=node_type,
+        primary_label=primary_label,
+        label=label,
+        properties=action_properties,
+    )
     nodes[node_id] = WorkbenchNode(
         id=node_id,
         entity_key=entity_key,
         node_type=node_type,
         label=label,
         caption=_best_caption(properties),
+        canonical_entity_key=canonical_entity_key,
+        action_target=action_target,
         properties=properties,
         metadata={
             "labels": labels,
             "projection_source": "neo4j_graph_projector_ontology",
             "identity_key": identity,
             "raw_neo4j_shape": "redacted_properties_only",
+            "canonical_entity_key": canonical_entity_key,
+            "action_bridge": {
+                "source": "neo4j_projection_node",
+                "resolver": "catalog_target_contracts",
+                "status": "canonical_target_available" if action_target.get("values") else "projection_only",
+                "target_kind": action_target.get("kind"),
+                "values": action_target.get("values", {}),
+            },
         },
         badges=["Neo4j", primary_label],
         metrics=_node_metrics(properties),
@@ -439,6 +476,163 @@ def _add_node(raw_node: Any, nodes: dict[str, WorkbenchNode]) -> None:
         confidence=0.8,
         source_refs=[{"type": "neo4j", "label": primary_label, "identity_key": identity}],
     )
+
+
+def _canonical_entity_key(properties: Mapping[str, Any]) -> str | None:
+    for field in (
+        "canonical_entity_key",
+        "surface_entity_key",
+        "workbench_entity_key",
+        "entity_key",
+        "target_entity_key",
+    ):
+        value = properties.get(field)
+        if value not in (None, "", []):
+            return str(value)
+    return None
+
+
+def _action_target_payload(
+    *,
+    entity_key: str,
+    node_type: str,
+    primary_label: str,
+    label: str,
+    properties: Mapping[str, Any],
+) -> dict[str, Any]:
+    values = _action_target_values(primary_label=primary_label, properties=properties, display=label)
+    return {
+        "entity_key": entity_key,
+        "kind": _target_kind(primary_label, node_type),
+        "label": primary_label,
+        "display": label,
+        "source": "neo4j_graph_projector_ontology",
+        "values": values,
+    }
+
+
+def _action_target_properties(
+    *,
+    labels: list[str],
+    primary_label: str,
+    properties: Mapping[str, Any],
+    identity: str,
+    label: str,
+) -> dict[str, Any]:
+    enriched = dict(properties)
+    identity_value = _strip_identity_prefix(identity, primary_label)
+    service_parts = _service_key_parts(str(enriched.get("service_key") or identity_value or ""))
+
+    if primary_label in {"Host", "Scope"}:
+        enriched.setdefault("hostname", identity_value or label)
+    if primary_label == "IP":
+        enriched.setdefault("address", identity_value or label)
+    if primary_label == "CIDR":
+        enriched.setdefault("cidr", identity_value or label)
+    if primary_label == "ASN":
+        enriched.setdefault("asn", identity_value or label)
+    if primary_label == "Service":
+        enriched.setdefault("service_key", identity_value or label)
+    if service_parts:
+        hostname, port, scheme = service_parts
+        enriched.setdefault("hostname", hostname)
+        enriched.setdefault("host", hostname)
+        enriched.setdefault("port", port)
+        enriched.setdefault("scheme", scheme)
+    if primary_label == "Endpoint":
+        enriched.setdefault("path", enriched.get("normalized_path") or enriched.get("route_template"))
+        enriched.setdefault("method", enriched.get("method"))
+        if service_parts:
+            hostname, port, scheme = service_parts
+            path = str(enriched.get("path") or "/")
+            suffix = path if path.startswith("/") else f"/{path}"
+            port_suffix = "" if (scheme == "https" and port == "443") or (scheme == "http" and port == "80") else f":{port}"
+            enriched.setdefault("url", f"{scheme}://{hostname}{port_suffix}{suffix}")
+            enriched.setdefault("base_url", f"{scheme}://{hostname}{port_suffix}")
+    if primary_label == "JSFile":
+        enriched.setdefault("js_url", enriched.get("url") or enriched.get("source_url") or identity_value)
+    enriched.setdefault("identity", identity_value or identity)
+    enriched.setdefault("labels", labels)
+    return {key: value for key, value in enriched.items() if value not in (None, "", [])}
+
+
+def _action_target_values(*, primary_label: str, properties: Mapping[str, Any], display: str) -> dict[str, str]:
+    values = {
+        "identity": _first_text(properties, "identity", "identity_key", "service_key", "service_method_normalized_path"),
+        "hostname": _first_text(properties, "hostname", "host", "domain", "name"),
+        "address": _first_text(properties, "address", "ip", "ip_address"),
+        "cidr": _first_text(properties, "cidr", "cidr_block", "network"),
+        "asn": _first_text(properties, "asn", "asn_number", "number"),
+        "url": _first_text(properties, "url", "normalized_url"),
+        "base_url": _first_text(properties, "base_url", "origin"),
+        "path": _first_text(properties, "route_template", "normalized_path", "path"),
+        "port": _first_text(properties, "port"),
+        "method": _first_text(properties, "method"),
+        "js_url": _first_text(properties, "js_url", "source_url", "url"),
+    }
+    if primary_label in {"Host", "Scope"} and not values["hostname"]:
+        values["hostname"] = _hostlike(display)
+    if primary_label == "IP" and not values["address"]:
+        values["address"] = _hostlike(display)
+    if primary_label == "CIDR" and not values["cidr"]:
+        values["cidr"] = _hostlike(display)
+    if primary_label == "ASN" and not values["asn"]:
+        values["asn"] = _hostlike(display)
+    if primary_label == "JSFile" and not values["js_url"]:
+        values["js_url"] = values.get("url") or _hostlike(display)
+    return {key: str(value) for key, value in values.items() if value not in (None, "", [])}
+
+
+def _target_kind(primary_label: str, node_type: str) -> str:
+    aliases = {
+        "Host": "host",
+        "Scope": "host",
+        "IP": "ip",
+        "ASN": "asn",
+        "CIDR": "cidr",
+        "Service": "service",
+        "Endpoint": "endpoint",
+        "Parameter": "parameter",
+        "JSFile": "javascript",
+        "SurfaceSnapshot": "surface_snapshot",
+        "ActionOutcome": "action_outcome",
+    }
+    return aliases.get(primary_label, node_type)
+
+
+def _first_text(properties: Mapping[str, Any], *fields: str) -> str | None:
+    for field in fields:
+        value = properties.get(field)
+        if value not in (None, "", []):
+            return str(value)
+    return None
+
+
+def _strip_identity_prefix(identity: str, primary_label: str) -> str:
+    text = str(identity).strip()
+    prefix = f"{primary_label.lower()}:"
+    if text.lower().startswith(prefix):
+        return text[len(prefix):]
+    return text
+
+
+def _service_key_parts(value: str) -> tuple[str, str, str] | None:
+    # graph-projector service keys use host:port/scheme, for example example.com:443/https.
+    match = re.match(r"^(?P<host>.+):(?P<port>\d+)/(?:tcp/)?(?P<scheme>[a-zA-Z][a-zA-Z0-9+.-]*)$", value.strip())
+    if not match:
+        return None
+    return match.group("host"), match.group("port"), match.group("scheme").lower()
+
+
+def _hostlike(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.startswith("neo4j:"):
+        return None
+    return text
 
 
 def _add_relationship(raw_relationship: Any, edges: dict[str, WorkbenchEdge]) -> None:

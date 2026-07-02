@@ -251,8 +251,10 @@ def _normalized_labels(
     raw_values: list[Any] = []
     raw_values.extend(profile.get("labels") or []) if isinstance(profile.get("labels"), list) else None
     raw_values.extend(properties.get("labels") or []) if isinstance(properties.get("labels"), list) else None
+    raw_values.extend(entity.metadata.get("labels") or []) if entity and isinstance(entity.metadata.get("labels"), list) else None
     raw_values.append(profile.get("type"))
     raw_values.append(profile.get("node_type"))
+    raw_values.append(entity.metadata.get("node_type") if entity else None)
     raw_values.append(entity.label if entity else None)
     if entity_key.startswith("neo4j:"):
         parts = entity_key.split(":", 2)
@@ -493,6 +495,7 @@ def _display_value(
     fallback: str,
 ) -> str:
     values = [
+        entity.metadata.get("display") if entity else None,
         entity.label if entity else None,
         profile.get("label"),
         properties.get("url"),

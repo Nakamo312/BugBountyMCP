@@ -38,6 +38,7 @@ export const useWorkbench = (selectedProgram) => {
   const [actionSubmission, setActionSubmission] = useState(null)
   const [actionSubmitting, setActionSubmitting] = useState(false)
   const [entityLoading, setEntityLoading] = useState(false)
+  const [entityErrors, setEntityErrors] = useState({})
   const [error, setError] = useState(null)
 
   const programId = selectedProgram?.id
@@ -49,7 +50,34 @@ export const useWorkbench = (selectedProgram) => {
     setMemory(null)
     setEvidencePack(null)
     setActionSubmission(null)
+    setEntityErrors({})
   }, [])
+
+  const actionEntityFromNode = useCallback((node) => ({
+    source: node?.metadata?.projection_source || node?.source_projection || 'workbench_graph',
+    label: node?.node_type || node?.metadata?.labels?.[0] || null,
+    entity_key: node?.entity_key || null,
+    properties: {
+      ...(node?.action_target?.values || {}),
+      ...(node?.action_target || {}),
+      ...(node?.properties || {}),
+    },
+    metadata: {
+      ...(node?.metadata || {}),
+      canonical_entity_key: node?.canonical_entity_key || node?.metadata?.canonical_entity_key || null,
+      action_target: node?.action_target || null,
+      display: node?.label || null,
+      labels: node?.metadata?.labels || [],
+      node_type: node?.node_type || null,
+    },
+  }), [])
+
+  const unwrapSettled = (result) => (result.status === 'fulfilled' ? result.value?.data : null)
+
+  const settledError = (result) => {
+    if (result.status !== 'rejected') return null
+    return result.reason?.response?.data?.detail || result.reason?.message || 'request failed'
+  }
 
   const loadWorkbench = useCallback(async ({ nextLens = lens, seed = null, depth = seed ? 2 : 1 } = {}) => {
     if (!programId) return
@@ -78,10 +106,11 @@ export const useWorkbench = (selectedProgram) => {
     setSelectedNode(node)
     setEntityLoading(true)
     setError(null)
+    setEntityErrors({})
     try {
-      const [entityResponse, actionsResponse, memoryResponse, evidencePackResponse] = await Promise.all([
+      const [entityResponse, actionsResponse, memoryResponse, evidencePackResponse] = await Promise.allSettled([
         getWorkbenchEntity(programId, node.entity_key),
-        getWorkbenchAvailableActions({ programId, entityKey: node.entity_key, lens }),
+        getWorkbenchAvailableActions({ programId, entityKey: node.entity_key, entity: actionEntityFromNode(node), lens }),
         getWorkbenchEntityMemory(programId, node.entity_key),
         retrieveWorkbenchEvidence({
           program_id: programId,
@@ -90,22 +119,34 @@ export const useWorkbench = (selectedProgram) => {
           query: retrieveQuery.trim() || undefined,
         }),
       ])
-      setEntity(entityResponse.data)
-      setActions(actionsResponse.data)
-      setMemory(memoryResponse.data)
-      setEvidencePack(evidencePackResponse.data)
+      setEntity(unwrapSettled(entityResponse))
+      setActions(unwrapSettled(actionsResponse))
+      setMemory(unwrapSettled(memoryResponse))
+      setEvidencePack(unwrapSettled(evidencePackResponse))
       setActionSubmission(null)
+      const errors = {
+        profile: settledError(entityResponse),
+        actions: settledError(actionsResponse),
+        memory: settledError(memoryResponse),
+        evidence: settledError(evidencePackResponse),
+      }
+      const visibleErrors = Object.fromEntries(Object.entries(errors).filter(([, value]) => value))
+      setEntityErrors(visibleErrors)
+      if (!unwrapSettled(entityResponse) && !unwrapSettled(actionsResponse) && !unwrapSettled(memoryResponse) && !unwrapSettled(evidencePackResponse)) {
+        setError('Failed to load selected entity context')
+      }
     } catch (err) {
       setEntity(null)
       setActions(null)
       setMemory(null)
       setEvidencePack(null)
       setActionSubmission(null)
+      setEntityErrors({ selection: err.response?.data?.detail || err.message || 'Failed to load entity' })
       setError(err.response?.data?.detail || err.message || 'Failed to load entity')
     } finally {
       setEntityLoading(false)
     }
-  }, [lens, programId, retrieveQuery])
+  }, [actionEntityFromNode, lens, programId, retrieveQuery])
 
 
   const submitSelectedAction = useCallback(async (action) => {
@@ -125,6 +166,7 @@ export const useWorkbench = (selectedProgram) => {
       const actionsResponse = await getWorkbenchAvailableActions({
         programId,
         entityKey: selectedNode.entity_key,
+        entity: actionEntityFromNode(selectedNode),
         lens,
       })
       setActions(actionsResponse.data)
@@ -136,7 +178,7 @@ export const useWorkbench = (selectedProgram) => {
     } finally {
       setActionSubmitting(false)
     }
-  }, [lens, programId, selectedNode])
+  }, [actionEntityFromNode, lens, programId, selectedNode])
 
 
   const runProjectionRefresh = useCallback(async (operation = 'refresh_workbench') => {
@@ -188,6 +230,7 @@ export const useWorkbench = (selectedProgram) => {
     activeSeed,
     bootstrap,
     entity,
+    entityErrors,
     entityLoading,
     error,
     evidencePack,
