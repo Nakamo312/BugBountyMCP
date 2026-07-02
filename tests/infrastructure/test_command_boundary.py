@@ -234,3 +234,19 @@ async def test_command_executor_reports_nonzero_returncode_in_terminated_event()
     events = [event async for event in executor.run()]
 
     assert any(event.type == "terminated" and event.payload == "7" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_command_executor_does_not_wait_for_grandchild_holding_stdout_pipe() -> None:
+    executor = CommandExecutor(
+        command_invocation(
+            ["/bin/sh", "-c", "sleep 30 & echo parent-finished"],
+            timeout=2,
+        )
+    )
+
+    events = [event async for event in executor.run()]
+
+    assert any(event.type == "stdout" and event.payload == "parent-finished" for event in events)
+    assert any(event.type == "terminated" and event.payload == "0" for event in events)
+    assert not any(event.type == "timeout" for event in events)

@@ -54,6 +54,7 @@ class CommandExecutor:
         self.env = dict(self.invocation.env)
         self.state = ProcessState.CREATED
         self.process: Optional[asyncio.subprocess.Process] = None
+        self.process_group_id: int | None = None
 
     async def run(self) -> AsyncIterator[ProcessEvent]:
         self.state = ProcessState.STARTING
@@ -75,6 +76,11 @@ class CommandExecutor:
                 start_new_session=True,
                 env=process_env,
             )
+            if self.process.pid:
+                try:
+                    self.process_group_id = os.getpgid(self.process.pid)
+                except (ProcessLookupError, PermissionError, OSError):
+                    self.process_group_id = None
         except Exception as exc:
             self.state = ProcessState.FAILED
             yield ProcessEvent(type="failed", payload=str(exc))
@@ -100,10 +106,14 @@ class CommandExecutor:
                     async for event in self._stream_output():
                         yield event
 
-                    if not wait_task.done():
+                    if self.process.returncode is not None:
+                        return_code = self.process.returncode
+                    elif not wait_task.done():
                         return_code = await wait_task
                     else:
                         return_code = wait_task.result()
+
+                    await self._close_lingering_process_group()
 
                     self.state = ProcessState.TERMINATED
                     yield ProcessEvent(type="terminated", payload=str(return_code))
@@ -134,46 +144,61 @@ class CommandExecutor:
             await self._terminate()
 
     async def _cleanup_process_group(self):
-        """Cleanup zombie processes in the process group"""
-        if not self.process or not self.process.pid:
+        """Reap terminated children without changing command outcome."""
+        if self.process_group_id is None:
             return
 
         try:
-            pgid = os.getpgid(self.process.pid)
             subprocess.run(
-                ["pkill", "-SIGCHLD", "-g", str(pgid)],
+                ["pkill", "-SIGCHLD", "-g", str(self.process_group_id)],
                 capture_output=True,
-                timeout=1
+                timeout=1,
             )
         except (ProcessLookupError, PermissionError, OSError, subprocess.TimeoutExpired):
             pass
 
+    async def _close_lingering_process_group(self) -> None:
+        """Close descendants that keep stdout/stderr pipes open after the tool exits."""
+        if self.process_group_id is None:
+            return
+        try:
+            os.killpg(self.process_group_id, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            return
+        await asyncio.sleep(0)
+
     async def _terminate(self):
-        if not self.process or self.process.returncode is not None:
+        if not self.process:
             return
 
         self.state = ProcessState.TERMINATING
 
         try:
-            if self.process.pid:
-                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+            if self.process_group_id is not None:
+                os.killpg(self.process_group_id, signal.SIGTERM)
+            else:
+                self.process.terminate()
         except (ProcessLookupError, PermissionError, OSError):
-            self.process.terminate()
+            if self.process.returncode is None:
+                self.process.terminate()
 
         try:
             await asyncio.wait_for(self.process.wait(), timeout=5)
         except asyncio.TimeoutError:
             try:
-                if self.process.pid:
-                    os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+                if self.process_group_id is not None:
+                    os.killpg(self.process_group_id, signal.SIGKILL)
+                else:
+                    self.process.kill()
             except (ProcessLookupError, PermissionError, OSError):
-                self.process.kill()
+                if self.process.returncode is None:
+                    self.process.kill()
             await self.process.wait()
 
         await self._cleanup_process_group()
 
     async def _stream_output(self) -> AsyncIterator[ProcessEvent]:
-        """Stream stdout and stderr simultaneously."""
+        """Stream stdout and stderr without hanging on inherited pipes."""
         assert self.process is not None
 
         async def reader(stream, event_type):
@@ -198,20 +223,38 @@ class CommandExecutor:
             "stderr": asyncio.create_task(safe_anext(stderr_iter)),
         }
 
-        while tasks:
-            done, _ = await asyncio.wait(
-                tasks.values(), return_when=asyncio.FIRST_COMPLETED
-            )
+        closed_lingering_group = False
+        try:
+            while tasks:
+                done, _ = await asyncio.wait(
+                    set(tasks.values()),
+                    timeout=0.1,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
 
-            for finished in done:
-                for name, task in list(tasks.items()):
-                    if task is finished:
-                        result = task.result()
-                        if result is sentinel:
-                            tasks.pop(name)
-                        else:
-                            yield result
-                            tasks[name] = asyncio.create_task(
-                                safe_anext(stdout_iter if name == "stdout" else stderr_iter)
-                            )
-                        break
+                if (
+                    not closed_lingering_group
+                    and self.process is not None
+                    and self.process.returncode is not None
+                ):
+                    await self._close_lingering_process_group()
+                    closed_lingering_group = True
+
+                for finished in done:
+                    for name, task in list(tasks.items()):
+                        if task is finished:
+                            result = task.result()
+                            if result is sentinel:
+                                tasks.pop(name)
+                            else:
+                                yield result
+                                tasks[name] = asyncio.create_task(
+                                    safe_anext(stdout_iter if name == "stdout" else stderr_iter)
+                                )
+                            break
+        finally:
+            for task in tasks.values():
+                if not task.done():
+                    task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks.values(), return_exceptions=True)

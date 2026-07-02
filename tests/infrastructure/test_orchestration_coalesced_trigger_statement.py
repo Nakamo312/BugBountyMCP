@@ -26,3 +26,12 @@ def test_append_coalesced_trigger_statement_preserves_tail_trim_contract() -> No
     assert "ORDER BY" in compiled
     assert "LIMIT" in compiled
     assert "WITH ORDINALITY" in compiled
+
+
+def test_append_coalesced_trigger_statement_names_ordinality_columns_for_postgres() -> None:
+    from sqlalchemy.dialects.postgresql import dialect
+
+    compiled = str(append_coalesced_trigger_statement().compile(dialect=dialect()))
+
+    assert "WITH ORDINALITY AS" in compiled
+    assert "(item, ord)" in compiled

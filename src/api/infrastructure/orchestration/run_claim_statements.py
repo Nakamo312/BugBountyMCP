@@ -23,9 +23,13 @@ def append_coalesced_trigger_statement():
     current_triggers = func.coalesce(runs.c.coalesced_triggers, empty_jsonb)
     new_trigger_sample = cast(bindparam("trigger_sample"), JSONB)
     combined_triggers = current_triggers.op("||")(new_trigger_sample)
-    trigger_elements = func.jsonb_array_elements(combined_triggers).table_valued(
-        "item",
-        with_ordinality="ord",
+    trigger_elements = (
+        func.jsonb_array_elements(combined_triggers)
+        .table_valued(
+            "item",
+            with_ordinality="ord",
+        )
+        .render_derived()
     )
     trigger_tail = (
         select(trigger_elements.c.item, trigger_elements.c.ord)
