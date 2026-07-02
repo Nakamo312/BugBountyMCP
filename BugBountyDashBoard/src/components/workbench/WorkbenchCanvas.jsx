@@ -78,6 +78,13 @@ const radiusByType = {
 const overviewTypes = new Set(['program', 'host', 'service', 'route_family', 'surface_component', 'neo4j_program', 'neo4j_scope', 'neo4j_ip', 'neo4j_cidr', 'neo4j_asn', 'neo4j_surface_snapshot', 'neo4j_action_outcome'])
 const alwaysLabelTypes = new Set(['program', 'host', 'surface_component', 'neo4j_program', 'neo4j_surface_snapshot', 'neo4j_projection_status'])
 
+const nodeVisual = (node) => node?.visual || {}
+const visualPriority = (node) => Number(nodeVisual(node).priority || 0)
+const visualLane = (node) => String(nodeVisual(node).lane || node?.metadata?.primary_label || node?.node_type || 'Other')
+const visualTier = (node) => Number(nodeVisual(node).tier ?? 9)
+const labelPolicy = (node) => String(nodeVisual(node).label_policy || '')
+const shouldPinOverview = (node) => nodeVisual(node).visible_in_overview === true || visualPriority(node) >= 60
+
 const useCanvasSize = () => {
   const containerRef = useRef(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -117,13 +124,15 @@ const endpointStatusColor = (node) => {
 }
 
 const nodeColor = (node) => {
+  if (nodeVisual(node).color) return nodeVisual(node).color
   if (node?.node_type === 'endpoint') return endpointStatusColor(node)
   if (String(node?.node_type || '').includes('gap')) return '#dc2626'
   return colorByType[node?.node_type] || '#64748b'
 }
 
 const nodeRadius = (node) => {
-  const base = radiusByType[node?.node_type] || 4
+  const configured = Number(nodeVisual(node).radius || 0)
+  const base = configured > 0 ? configured : radiusByType[node?.node_type] || 4
   const count = Number(node?.metrics?.surface_node_count || node?.metrics?.endpoint_count || 0)
   if (count > 100) return base + 6
   if (count > 40) return base + 4
@@ -146,6 +155,39 @@ const nodeCaption = (node) => {
 const truncate = (value, max = 42) => {
   const text = String(value || '')
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
+}
+
+
+const laneIndex = (layout, lane) => {
+  const lanes = Array.isArray(layout?.lanes) ? layout.lanes : []
+  const index = lanes.indexOf(lane)
+  return index >= 0 ? index : Math.max(0, lanes.length)
+}
+
+const targetXForNode = (node, layout, width) => {
+  const lanes = Array.isArray(layout?.lanes) && layout.lanes.length ? layout.lanes : ['Graph']
+  const index = laneIndex(layout, visualLane(node))
+  const left = -Math.max(360, width || 900) / 2
+  const step = Math.max(140, Math.max(360, width || 900) / Math.max(1, lanes.length))
+  return left + step * (index + 0.5)
+}
+
+const targetYForNode = (node) => {
+  return (visualTier(node) - 4) * 42
+}
+
+const createAxisForce = (axis, targetFn, strength = 0.045) => {
+  let nodes = []
+  const velocity = axis === 'x' ? 'vx' : 'vy'
+  const force = (alpha) => {
+    for (const node of nodes) {
+      const target = targetFn(node)
+      if (!Number.isFinite(target)) continue
+      node[velocity] += (target - (node[axis] || 0)) * strength * alpha
+    }
+  }
+  force.initialize = (items) => { nodes = items || [] }
+  return force
 }
 
 const buildAdjacency = (links) => {
@@ -176,13 +218,35 @@ const normalizeGraph = (graph) => {
 }
 
 const scoreNode = (node) => {
-  let score = 0
-  if (overviewTypes.has(node?.node_type)) score += 1000
-  score += Number(node?.metrics?.surface_node_count || 0) * 10
+  let score = visualPriority(node) * 20
+  if (overviewTypes.has(node?.node_type) || shouldPinOverview(node)) score += 1000
+  score -= visualTier(node) * 3
+  score += Number(node?.metrics?.surface_node_count || node?.metrics?.endpoint_count || 0) * 6
   score += Number(node?.evidence_refs?.length || 0)
   score += Number(node?.action_affordance_count || 0) * 4
   if (node?.staleness === 'fresh') score += 1
   return score
+}
+
+
+const addBalancedOverviewNodes = (nodes, visibleIds, maxNodes) => {
+  const buckets = new Map()
+  nodes.forEach((node) => {
+    const key = `${visualTier(node)}:${visualLane(node)}`
+    if (!buckets.has(key)) buckets.set(key, [])
+    buckets.get(key).push(node)
+  })
+  ;[...buckets.values()]
+    .sort((a, b) => visualTier(a[0]) - visualTier(b[0]))
+    .forEach((bucket) => {
+      const limit = Math.max(8, Math.min(Number(bucket[0]?.visual?.overview_limit || 30), Math.ceil(maxNodes / Math.max(1, buckets.size)) + 8))
+      bucket
+        .sort((a, b) => scoreNode(b) - scoreNode(a))
+        .slice(0, limit)
+        .forEach((node) => {
+          if (visibleIds.size < maxNodes) visibleIds.add(node.id)
+        })
+    })
 }
 
 const selectCanvasGraph = (graph, selectedNode) => {
@@ -201,11 +265,14 @@ const selectCanvasGraph = (graph, selectedNode) => {
       .slice(0, FOCUSED_NEIGHBOR_LIMIT)
       .forEach((node) => visibleIds.add(node.id))
   } else if (normalized.nodes.length > DETAIL_GRAPH_LIMIT) {
-    normalized.nodes
-      .filter((node) => overviewTypes.has(node.node_type) || node?.metadata?.ui_grouping)
-      .sort((a, b) => scoreNode(b) - scoreNode(a))
-      .slice(0, OVERVIEW_NODE_LIMIT)
-      .forEach((node) => visibleIds.add(node.id))
+    addBalancedOverviewNodes(
+      normalized.nodes.filter((node) => shouldPinOverview(node) || overviewTypes.has(node.node_type) || node?.metadata?.ui_grouping),
+      visibleIds,
+      OVERVIEW_NODE_LIMIT,
+    )
+    if (visibleIds.size < Math.min(OVERVIEW_NODE_LIMIT, normalized.nodes.length)) {
+      addBalancedOverviewNodes(normalized.nodes, visibleIds, OVERVIEW_NODE_LIMIT)
+    }
   } else {
     normalized.nodes.forEach((node) => visibleIds.add(node.id))
   }
@@ -217,6 +284,8 @@ const selectCanvasGraph = (graph, selectedNode) => {
     links,
     hiddenNodeCount: Math.max(0, normalized.nodes.length - nodes.length),
     mode: selectedId ? 'focused' : normalized.nodes.length > DETAIL_GRAPH_LIMIT ? 'overview' : 'investigation',
+    layout: graph?.boundary?.layout || {},
+    labelCounts: graph?.boundary?.label_counts || {},
   }
 }
 
@@ -258,22 +327,33 @@ const drawLabel = (ctx, text, x, y, scale, options = {}) => {
   ctx.fillText(label, x, by + height / 2)
 }
 
-const GraphLegend = memo(({ hiddenNodeCount, mode, totalNodes }) => (
-  <div className="pointer-events-none absolute left-4 top-4 z-10 max-w-xl rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs text-slate-700 shadow-sm backdrop-blur">
-    <div className="font-semibold text-slate-900">Investigation graph</div>
-    <div className="mt-1">
-      Canvas renderer, hover/select to reveal labels, double click to focus. {hiddenNodeCount > 0 ? `${hiddenNodeCount} detail nodes hidden in ${mode} mode.` : `${totalNodes} nodes loaded.`}
+const GraphLegend = memo(({ hiddenNodeCount, mode, totalNodes, layout, labelCounts }) => {
+  const counts = Object.entries(labelCounts || {}).filter(([, count]) => Number(count) > 0).slice(0, 9)
+  const lanes = Array.isArray(layout?.lanes) ? layout.lanes : []
+  return (
+    <div className="pointer-events-none absolute left-4 top-4 z-10 max-w-2xl rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs text-slate-700 shadow-sm backdrop-blur">
+      <div className="font-semibold text-slate-900">{layout?.title || 'Investigation graph'}</div>
+      <div className="mt-1">
+        Canvas renderer, hover/select to reveal labels. {hiddenNodeCount > 0 ? `${hiddenNodeCount} low-priority detail nodes hidden in ${mode} mode.` : `${totalNodes} nodes loaded.`} double click to focus.
+      </div>
+      {lanes.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {lanes.map((lane) => (
+            <span key={lane} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">{lane}</span>
+          ))}
+        </div>
+      )}
+      {counts.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-sky-700" /> relationship data</span>
+          {counts.map(([label, count]) => (
+            <span key={label} className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-slate-500" /> {label} · {count}</span>
+          ))}
+        </div>
+      )}
     </div>
-    <div className="mt-2 flex flex-wrap gap-2">
-      <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-slate-900" /> host</span>
-      <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-blue-600" /> route family</span>
-      <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-green-600" /> endpoint 2xx</span>
-      <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-purple-600" /> GDS signal</span>
-      <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-orange-500" /> 4xx/redirect</span>
-      <span className="inline-flex items-center gap-1"><i className="h-2.5 w-2.5 rounded-full bg-sky-700" /> relationship data</span>
-    </div>
-  </div>
-))
+  )
+})
 GraphLegend.displayName = 'GraphLegend'
 
 const GraphToolbar = ({ onZoomToFit, onFocusSelected, selectedNode }) => (
@@ -394,18 +474,22 @@ const WorkbenchCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode, onCop
   useEffect(() => {
     if (!graphRef.current || !canvasGraph.nodes.length) return
     const graphApi = graphRef.current
-    graphApi.d3Force?.('charge')?.strength?.(canvasGraph.mode === 'focused' ? -150 : -260)
+    graphApi.d3Force?.('charge')?.strength?.(canvasGraph.mode === 'focused' ? -120 : -210)
+    graphApi.d3Force?.('tierX', createAxisForce('x', (node) => targetXForNode(node, canvasGraph.layout, canvasSize.width), canvasGraph.mode === 'focused' ? 0.025 : 0.055))
+    graphApi.d3Force?.('tierY', createAxisForce('y', targetYForNode, canvasGraph.mode === 'focused' ? 0.018 : 0.035))
     graphApi.d3Force?.('link')?.distance?.((link) => {
-      const sourceType = typeof link.source === 'object' ? link.source.node_type : ''
-      const targetType = typeof link.target === 'object' ? link.target.node_type : ''
-      if (sourceType === 'host' || targetType === 'host') return 95
-      if (sourceType === 'route_family' || targetType === 'route_family') return 55
-      return 38
+      const source = typeof link.source === 'object' ? link.source : null
+      const target = typeof link.target === 'object' ? link.target : null
+      const tierDistance = Math.abs(visualTier(source) - visualTier(target))
+      if (source?.node_type === 'host' || target?.node_type === 'host') return 85
+      if (source?.node_type === 'service' || target?.node_type === 'service') return 62
+      if (tierDistance > 2) return 95
+      return 44
     })
     graphApi.d3ReheatSimulation?.()
     const timer = window.setTimeout(() => graphApi.zoomToFit?.(450, 80), 450)
     return () => window.clearTimeout(timer)
-  }, [canvasGraph.mode, canvasGraph.nodes.length, canvasGraph.links.length])
+  }, [canvasGraph.mode, canvasGraph.nodes.length, canvasGraph.links.length, canvasGraph.layout, canvasSize.width])
 
   useEffect(() => {
     if (!graphRef.current || !selectedId) return
@@ -442,7 +526,8 @@ const WorkbenchCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode, onCop
     const selected = node.id === selectedId
     const hovered = node.id === hoverNode?.id
     const neighbor = highlightedNeighbors.has(node.id)
-    const alwaysLabel = alwaysLabelTypes.has(node.node_type)
+    const policy = labelPolicy(node)
+    const alwaysLabel = policy === 'always' || alwaysLabelTypes.has(node.node_type)
     const dimmed = (hoverNode || selectedId) && !selected && !hovered && !neighbor
     const radius = nodeRadius(node) * (selected ? 1.75 : hovered ? 1.45 : 1)
 
@@ -455,9 +540,10 @@ const WorkbenchCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode, onCop
     ctx.strokeStyle = selected ? '#2563eb' : hovered ? '#111827' : 'rgba(255,255,255,0.9)'
     ctx.stroke()
 
-    const sparseEnoughForLabels = canvasGraph.nodes.length <= 80
-    const zoomedEnoughForGroupLabels = globalScale > 1.9 && canvasGraph.nodes.length <= 160 && node.node_type !== 'endpoint'
-    if (selected || hovered || alwaysLabel || (sparseEnoughForLabels && globalScale > 1.35 && !dimmed) || (zoomedEnoughForGroupLabels && !dimmed)) {
+    const sparseEnoughForLabels = canvasGraph.nodes.length <= 60 && policy !== 'hover'
+    const zoomedEnoughForGroupLabels = globalScale > 1.9 && canvasGraph.nodes.length <= 140 && policy !== 'hover'
+    const importantLabel = policy === 'important' && globalScale > 1.25
+    if (selected || hovered || alwaysLabel || importantLabel || (sparseEnoughForLabels && globalScale > 1.35 && !dimmed) || (zoomedEnoughForGroupLabels && !dimmed)) {
       drawLabel(ctx, node.label || node.id, node.x || 0, node.y || 0, globalScale, {
         size: selected || hovered ? 12 : 10,
         weight: selected || hovered ? 700 : 600,
@@ -514,6 +600,8 @@ const WorkbenchCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode, onCop
         hiddenNodeCount={canvasGraph.hiddenNodeCount}
         mode={canvasGraph.mode}
         totalNodes={canvasGraph.nodes.length}
+        layout={canvasGraph.layout}
+        labelCounts={canvasGraph.labelCounts}
       />
           <GraphToolbar onZoomToFit={zoomToFit} onFocusSelected={focusSelected} selectedNode={selectedNode} />
           <ForceGraph2D

@@ -148,7 +148,41 @@ _CAPTION_FIELDS = (
     "last_seen",
 )
 
+_LABEL_VISUALS: dict[str, dict[str, Any]] = {
+    "Program": {"lane": "Program", "tier": 0, "priority": 100, "radius": 9, "color": "#111827", "label_policy": "always", "overview_limit": 8},
+    "Scope": {"lane": "Scope", "tier": 0, "priority": 92, "radius": 7, "color": "#475569", "label_policy": "always", "overview_limit": 12},
+    "ASN": {"lane": "Network", "tier": 1, "priority": 94, "radius": 7, "color": "#0f766e", "label_policy": "always", "overview_limit": 30},
+    "CIDR": {"lane": "Network", "tier": 2, "priority": 92, "radius": 7, "color": "#0e7490", "label_policy": "always", "overview_limit": 60},
+    "IP": {"lane": "Network", "tier": 3, "priority": 86, "radius": 6, "color": "#0369a1", "label_policy": "important", "overview_limit": 90},
+    "Host": {"lane": "Assets", "tier": 4, "priority": 84, "radius": 6.5, "color": "#0f172a", "label_policy": "important", "overview_limit": 110},
+    "Service": {"lane": "Services", "tier": 5, "priority": 80, "radius": 5.5, "color": "#334155", "label_policy": "important", "overview_limit": 100},
+    "Endpoint": {"lane": "HTTP", "tier": 6, "priority": 54, "radius": 3.6, "color": "#059669", "label_policy": "hover", "overview_limit": 70},
+    "Parameter": {"lane": "Inputs", "tier": 7, "priority": 42, "radius": 3.2, "color": "#d97706", "label_policy": "hover", "overview_limit": 40},
+    "JSFile": {"lane": "Client JS", "tier": 5, "priority": 72, "radius": 4.8, "color": "#ca8a04", "label_policy": "important", "overview_limit": 70},
+    "Evidence": {"lane": "Evidence", "tier": 8, "priority": 64, "radius": 4.2, "color": "#0f766e", "label_policy": "hover", "overview_limit": 50},
+    "Observation": {"lane": "Evidence", "tier": 8, "priority": 58, "radius": 3.8, "color": "#0891b2", "label_policy": "hover", "overview_limit": 50},
+    "Artifact": {"lane": "Evidence", "tier": 8, "priority": 50, "radius": 3.4, "color": "#475569", "label_policy": "hover", "overview_limit": 40},
+    "ActionOutcome": {"lane": "Outcomes", "tier": 8, "priority": 76, "radius": 5.2, "color": "#ea580c", "label_policy": "important", "overview_limit": 60},
+    "ToolRun": {"lane": "Outcomes", "tier": 7, "priority": 68, "radius": 4.5, "color": "#92400e", "label_policy": "hover", "overview_limit": 60},
+    "Tool": {"lane": "Outcomes", "tier": 6, "priority": 60, "radius": 4.2, "color": "#78716c", "label_policy": "hover", "overview_limit": 40},
+    "CapabilityProfile": {"lane": "Outcomes", "tier": 6, "priority": 60, "radius": 4.2, "color": "#7c3aed", "label_policy": "hover", "overview_limit": 40},
+    "OutcomeFeature": {"lane": "Outcomes", "tier": 9, "priority": 44, "radius": 3.6, "color": "#9333ea", "label_policy": "hover", "overview_limit": 40},
+    "SurfaceSnapshot": {"lane": "Surface", "tier": 1, "priority": 86, "radius": 6, "color": "#1d4ed8", "label_policy": "always", "overview_limit": 10},
+    "SurfaceNode": {"lane": "Surface", "tier": 2, "priority": 46, "radius": 3.8, "color": "#2563eb", "label_policy": "hover", "overview_limit": 80},
+    "SurfaceFingerprint": {"lane": "Surface", "tier": 3, "priority": 42, "radius": 3.5, "color": "#64748b", "label_policy": "hover", "overview_limit": 60},
+    "SurfaceDelta": {"lane": "Surface", "tier": 4, "priority": 60, "radius": 4.2, "color": "#be123c", "label_policy": "important", "overview_limit": 60},
+}
 
+_LENS_LAYOUTS: dict[WorkbenchLens, dict[str, Any]] = {
+    WorkbenchLens.NEO4J_EXPOSURE: {"title": "Exposure map", "lanes": ["Scope", "Network", "Assets", "Services", "HTTP", "Inputs"]},
+    WorkbenchLens.NEO4J_ENDPOINT: {"title": "Endpoint map", "lanes": ["Assets", "Services", "HTTP", "Inputs", "Client JS", "Evidence"]},
+    WorkbenchLens.NEO4J_EVIDENCE: {"title": "Evidence paths", "lanes": ["Assets", "Services", "HTTP", "Evidence"]},
+    WorkbenchLens.NEO4J_SURFACE_MATH: {"title": "Graph signals", "lanes": ["Surface"]},
+    WorkbenchLens.NEO4J_ACTION_OUTCOME: {"title": "Outcomes", "lanes": ["Assets", "Services", "HTTP", "Outcomes"]},
+    WorkbenchLens.NEO4J_JS: {"title": "JS references", "lanes": ["Assets", "Services", "HTTP", "Inputs", "Client JS"]},
+    WorkbenchLens.NEO4J_TECH: {"title": "Services", "lanes": ["Network", "Assets", "Services", "HTTP", "Inputs"]},
+    WorkbenchLens.NEO4J_HYPOTHESIS: {"title": "Hypothesis evidence", "lanes": ["Assets", "Services", "HTTP", "Evidence"]},
+}
 
 _NATIVE_LABELS_BY_LENS: dict[WorkbenchLens, tuple[str, ...]] = {
     WorkbenchLens.NEO4J_EXPOSURE: ("ASN", "CIDR", "IP", "Host", "Scope", "Service", "Endpoint", "Parameter"),
@@ -340,11 +374,13 @@ async def _build_native_neo4j_lens_graph(
     safe_limit = _workbench_query_limit(settings, limit)
     safe_depth = max(1, min(int(depth or 1), 3))
     identity_key = _identity_key_from_seed(seed)
+    per_label_limit = max(8, min(90, safe_limit // max(1, len(labels))))
     parameters: dict[str, object] = {
         "program_id": str(program_id),
         "labels": list(labels),
         "relationships": list(relationships),
         "limit": safe_limit,
+        "per_label_limit": per_label_limit,
         "path_limit": max(1, min(safe_limit * 4, 2000)),
     }
     if identity_key and _seed_predicate(schema_state):
@@ -398,6 +434,7 @@ async def _build_native_neo4j_lens_graph(
             "edges": len(visible_edges),
             "neo4j_nodes_seen": len(nodes),
             "neo4j_edges_seen": len(edges),
+            **_label_counts(visible_nodes),
         },
         boundary={
             **_neo4j_boundary(surface="relationship_graph_native_read", template_name=template_name),
@@ -405,6 +442,8 @@ async def _build_native_neo4j_lens_graph(
             "view_labels": list(labels),
             "view_relationships": list(relationships),
             "operator_projection": "existing_neo4j_relationship_graph",
+            "layout": _lens_layout(lens),
+            "label_counts": _label_count_map(visible_nodes),
         },
     )
 
@@ -416,14 +455,21 @@ def _native_overview_cypher(*, schema_state: Neo4jSchemaState, relationships: tu
 MATCH (n)
 WHERE n.program_id = $program_id
   AND any(label IN labels(n) WHERE label IN $labels)
-WITH n ORDER BY {order_expr} LIMIT $limit
-RETURN collect(DISTINCT n) AS nodes, [] AS paths
+WITH n, [label IN $labels WHERE label IN labels(n)][0] AS lens_label
+ORDER BY lens_label, {order_expr}
+WITH lens_label, collect(n)[0..$per_label_limit] AS label_nodes
+WITH reduce(selected = [], group IN collect(label_nodes) | selected + group)[0..$limit] AS selected_nodes
+RETURN selected_nodes AS nodes, [] AS paths
 """.strip()
     return f"""
 MATCH (n)
 WHERE n.program_id = $program_id
   AND any(label IN labels(n) WHERE label IN $labels)
-WITH n ORDER BY {order_expr} LIMIT $limit
+WITH n, [label IN $labels WHERE label IN labels(n)][0] AS lens_label
+ORDER BY lens_label, {order_expr}
+WITH lens_label, collect(n)[0..$per_label_limit] AS label_nodes
+WITH reduce(selected = [], group IN collect(label_nodes) | selected + group)[0..$limit] AS selected_nodes
+UNWIND selected_nodes AS n
 OPTIONAL MATCH path = (n)-[*1..{depth}]-(neighbor)
 WHERE all(node IN nodes(path) WHERE node.program_id = $program_id)
   AND all(rel IN relationships(path) WHERE type(rel) IN $relationships)
@@ -701,7 +747,8 @@ def _add_node(raw_node: Any, nodes: dict[str, WorkbenchNode]) -> None:
                 "values": action_target.get("values", {}),
             },
         },
-        badges=["Neo4j", primary_label],
+        visual=_node_visual(primary_label=primary_label, labels=labels, properties=properties),
+        badges=[primary_label],
         metrics=_node_metrics(properties),
         evidence_refs=_evidence_refs_from_properties(properties),
         staleness="unknown",
