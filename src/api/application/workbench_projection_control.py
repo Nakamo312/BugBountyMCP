@@ -33,12 +33,12 @@ class WorkbenchProjectionRunRequest(BaseModel):
             return value
         text = str(value).strip().lower()
         aliases = {
-            "neo4j": WorkbenchProjectionOperation.SYNC_NEO4J.value,
-            "neo4j_sync": WorkbenchProjectionOperation.SYNC_NEO4J.value,
-            "sync_graph": WorkbenchProjectionOperation.SYNC_NEO4J.value,
-            "sync_relationship_graph": WorkbenchProjectionOperation.SYNC_NEO4J.value,
-            "rebuild_neo4j": WorkbenchProjectionOperation.SYNC_NEO4J.value,
-            "build_neo4j": WorkbenchProjectionOperation.SYNC_NEO4J.value,
+            "neo4j": "sync_neo4j",
+            "neo4j_sync": "sync_neo4j",
+            "sync_graph": "sync_neo4j",
+            "sync_relationship_graph": "sync_neo4j",
+            "rebuild_neo4j": "sync_neo4j",
+            "build_neo4j": "sync_neo4j",
         }
         return aliases.get(text, value)
     limit: int = Field(default=10_000, ge=1, le=100_000)

@@ -356,17 +356,15 @@ def test_execution_copy_distinguishes_agent_tasks_from_executable_actions() -> N
     assert "No model call" in runtime
 
 
-def test_execution_workspace_surfaces_action_queue_status_toasts() -> None:
-    hook = _read("BugBountyDashBoard/src/hooks/useAgentWorkspace.js")
-    panels = _read("BugBountyDashBoard/src/components/agents/AgentWorkspacePanels.jsx")
+def test_action_queue_toasts_are_global_site_notifications() -> None:
+    layout = _read("BugBountyDashBoard/src/components/Layout.jsx")
+    toasts = _read("BugBountyDashBoard/src/components/notifications/ActionQueueStatusToasts.jsx")
+    workspace_panels = _read("BugBountyDashBoard/src/components/agents/AgentWorkspacePanels.jsx")
 
-    assert "queueNotifications" in hook
-    assert "trackQueueStatusChanges" in hook
-    assert "queueNotificationForTransition" in hook
-    assert "loadWorkspace({ silent: true })" in hook
-    assert "queueNotificationForRemovedAction" in hook
-    assert "QueueNotificationToasts" in panels
-    assert "Action started" in hook
-    assert "Action output is being ingested" in hook
-    assert "Action left active queue" in hook
-    assert "Dismiss notification" in panels
+    assert "ActionQueueStatusToasts" in layout
+    assert "getCampaignWorkspace" in toasts
+    assert "detectQueueTransitions" in toasts
+    assert "Action started" in toasts
+    assert "Action left active queue" in toasts
+    assert "Dismiss notification" in toasts
+    assert "QueueNotificationToasts" not in workspace_panels

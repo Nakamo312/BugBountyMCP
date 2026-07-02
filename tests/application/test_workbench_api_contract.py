@@ -711,3 +711,10 @@ async def test_workbench_action_affordances_can_use_projection_node_fallback_whe
     assert result.actions[0].catalog_id == str(catalog_id)
     assert result.actions[0].inputs == {"targets": ["example.com"], "target": "example.com"}
     assert result.target["display"] == "example.com"
+
+
+def test_projection_operation_alias_validator_does_not_reference_missing_enum_attr() -> None:
+    source = Path("src/api/application/workbench_projection_control.py").read_text(encoding="utf-8")
+    assert 'SYNC_NEO4J = "sync_neo4j"' in source
+    assert 'WorkbenchProjectionOperation.SYNC_NEO4J.value' not in source
+    assert '"neo4j": "sync_neo4j"' in source
