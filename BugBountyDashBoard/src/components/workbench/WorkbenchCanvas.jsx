@@ -1094,31 +1094,17 @@ const SurfaceMapCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode }) =>
 
 const WorkbenchCanvas = ({ graph, selectedNode, onSelectNode, onFocusNode, onCopyNodeKey, onFilterNodeType }) => {
   const canvasGraph = useMemo(() => selectCanvasGraph(graph, selectedNode), [graph, selectedNode])
-  const useSurfaceMapRenderer = graph?.lens === 'surface' && !graph?.seed
-  const useExposureTopologyRenderer = graph?.lens === 'neo4j_exposure' && !graph?.seed
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white">
-      <LensStory graph={graph} selectedNode={selectedNode} />
-      <SignalBoard graph={graph} selectedNode={selectedNode} onSelectNode={onSelectNode} />
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px] overflow-hidden">
-        {useSurfaceMapRenderer ? (
-          <SurfaceMapCanvas graph={graph} selectedNode={selectedNode} onSelectNode={onSelectNode} onFocusNode={onFocusNode} />
-        ) : useExposureTopologyRenderer ? (
-          <ExposureTopologyCanvas graph={graph} selectedNode={selectedNode} onSelectNode={onSelectNode} onFocusNode={onFocusNode} />
-        ) : (
-          <GraphCanvasOnly
-            graph={graph}
-            selectedNode={selectedNode}
-            canvasGraph={canvasGraph}
-            onSelectNode={onSelectNode}
-            onFocusNode={onFocusNode}
-            onCopyNodeKey={onCopyNodeKey}
-            onFilterNodeType={onFilterNodeType}
-          />
-        )}
-        <RankingPanel graph={graph} selectedNode={selectedNode} onSelectNode={onSelectNode} />
-      </div>
-      <RelationshipMatrix graph={graph} />
+    <div className="h-full min-h-0 bg-white">
+      <GraphCanvasOnly
+        graph={graph}
+        selectedNode={selectedNode}
+        canvasGraph={canvasGraph}
+        onSelectNode={onSelectNode}
+        onFocusNode={onFocusNode}
+        onCopyNodeKey={onCopyNodeKey}
+        onFilterNodeType={onFilterNodeType}
+      />
     </div>
   )
 }
