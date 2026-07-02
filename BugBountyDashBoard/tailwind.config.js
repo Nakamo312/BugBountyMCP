@@ -20,6 +20,10 @@ export default {
           900: '#0c4a6e',
         },
       },
+      fontFamily: {
+        mono: ['JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'ui-monospace', 'monospace'],
+        sans: ['JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'ui-monospace', 'monospace'],
+      },
     },
   },
   plugins: [],

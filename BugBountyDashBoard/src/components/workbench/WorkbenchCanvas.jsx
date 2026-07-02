@@ -11,49 +11,49 @@ const OVERVIEW_NODE_LIMIT = 180
 const FOCUSED_NEIGHBOR_LIMIT = 120
 
 const colorByType = {
-  program: '#111827',
-  host: '#0f172a',
-  service: '#334155',
-  route_family: '#2563eb',
-  surface_component: '#7c3aed',
-  surface_component_graph_signal: '#9333ea',
-  surface_component_action_candidate: '#ea580c',
-  endpoint: '#059669',
-  route_template: '#0891b2',
-  param: '#d97706',
-  response_shape: '#64748b',
-  artifact_ref: '#475569',
-  neo4j_program: '#111827',
-  neo4j_scope: '#475569',
-  neo4j_ip: '#0369a1',
-  neo4j_asn: '#0f766e',
-  neo4j_cidr: '#0e7490',
-  neo4j_js_file: '#ca8a04',
-  neo4j_tool: '#78716c',
-  neo4j_tool_run: '#92400e',
-  neo4j_action_outcome: '#ea580c',
-  neo4j_capability_profile: '#7c3aed',
-  neo4j_outcome_feature: '#9333ea',
-  neo4j_observation: '#0891b2',
-  neo4j_evidence: '#0f766e',
-  neo4j_surface_snapshot: '#1d4ed8',
-  neo4j_surface_node: '#2563eb',
-  neo4j_surface_fingerprint: '#64748b',
-  neo4j_surface_delta: '#be123c',
-  neo4j_projection_status: '#64748b',
-  memory_fragment: '#7c3aed',
-  action_request: '#92400e',
-  action_target: '#d97706',
-  action_run: '#ea580c',
-  action_outcome: '#f97316',
-  action_outcome_delta: '#0e7490',
-  research_hypothesis: '#be123c',
-  research_signal: '#9333ea',
-  coverage_overview: '#111827',
-  coverage_lane: '#2563eb',
-  coverage_gap: '#dc2626',
-  checked_entity: '#16a34a',
-  suggested_next_context: '#ea580c',
+  program: '#f4f7fb',
+  host: '#60a5fa',
+  service: '#7dd3fc',
+  route_family: '#f2cc60',
+  surface_component: '#c084fc',
+  surface_component_graph_signal: '#a78bfa',
+  surface_component_action_candidate: '#ffb86c',
+  endpoint: '#7ee787',
+  route_template: '#38bdf8',
+  param: '#ffb86c',
+  response_shape: '#8b9bb0',
+  artifact_ref: '#93c5fd',
+  neo4j_program: '#f4f7fb',
+  neo4j_scope: '#8b9bb0',
+  neo4j_ip: '#60a5fa',
+  neo4j_asn: '#7dd3fc',
+  neo4j_cidr: '#38bdf8',
+  neo4j_js_file: '#f2cc60',
+  neo4j_tool: '#a3aab7',
+  neo4j_tool_run: '#ffb86c',
+  neo4j_action_outcome: '#f97316',
+  neo4j_capability_profile: '#c084fc',
+  neo4j_outcome_feature: '#a78bfa',
+  neo4j_observation: '#38bdf8',
+  neo4j_evidence: '#7dd3fc',
+  neo4j_surface_snapshot: '#93c5fd',
+  neo4j_surface_node: '#60a5fa',
+  neo4j_surface_fingerprint: '#8b9bb0',
+  neo4j_surface_delta: '#ff6b6b',
+  neo4j_projection_status: '#8b9bb0',
+  memory_fragment: '#c084fc',
+  action_request: '#ffb86c',
+  action_target: '#f2cc60',
+  action_run: '#f97316',
+  action_outcome: '#ffb86c',
+  action_outcome_delta: '#38bdf8',
+  research_hypothesis: '#ff6b6b',
+  research_signal: '#a78bfa',
+  coverage_overview: '#f4f7fb',
+  coverage_lane: '#7dd3fc',
+  coverage_gap: '#ff6b6b',
+  checked_entity: '#7ee787',
+  suggested_next_context: '#f2cc60',
 }
 
 const radiusByType = {
@@ -148,17 +148,17 @@ const useCanvasSize = () => {
 
 const endpointStatusColor = (node) => {
   const status = Number(node?.properties?.status_code || node?.metadata?.status_code)
-  if (status >= 500) return '#dc2626'
-  if (status >= 400) return '#f97316'
-  if (status >= 300) return '#f59e0b'
-  if (status >= 200) return '#16a34a'
+  if (status >= 500) return '#ff6b6b'
+  if (status >= 400) return '#ffb86c'
+  if (status >= 300) return '#f2cc60'
+  if (status >= 200) return '#7ee787'
   return colorByType.endpoint
 }
 
 const nodeColor = (node) => {
   if (node?.node_type === 'endpoint') return endpointStatusColor(node)
-  if (String(node?.node_type || '').includes('gap')) return '#dc2626'
-  return colorByType[node?.node_type] || '#64748b'
+  if (String(node?.node_type || '').includes('gap')) return '#ff6b6b'
+  return colorByType[node?.node_type] || '#8b9bb0'
 }
 
 const nodeRadius = (node) => {
@@ -270,7 +270,7 @@ const neighborSet = (links, nodeId) => {
 
 const drawLabel = (ctx, text, x, y, scale, options = {}) => {
   const fontSize = Math.max(9 / scale, options.size || 11)
-  ctx.font = `${options.weight || 600} ${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`
+  ctx.font = `${options.weight || 600} ${fontSize}px 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SFMono-Regular', Consolas, monospace`
   const label = truncate(text, options.max || 46)
   const metrics = ctx.measureText(label)
   const paddingX = 4 / scale
@@ -280,15 +280,15 @@ const drawLabel = (ctx, text, x, y, scale, options = {}) => {
   const bx = x - width / 2
   const by = y + (options.offsetY || 9) / scale
 
-  ctx.fillStyle = options.background || 'rgba(255,255,255,0.92)'
-  ctx.strokeStyle = options.border || 'rgba(148,163,184,0.35)'
+  ctx.fillStyle = options.background || 'rgba(11,15,20,0.94)'
+  ctx.strokeStyle = options.border || 'rgba(125,211,252,0.28)'
   ctx.lineWidth = 1 / scale
   ctx.beginPath()
   ctx.roundRect?.(bx, by, width, height, 4 / scale)
   if (!ctx.roundRect) ctx.rect(bx, by, width, height)
   ctx.fill()
   ctx.stroke()
-  ctx.fillStyle = options.color || '#111827'
+  ctx.fillStyle = options.color || '#d6deeb'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(label, x, by + height / 2)
@@ -298,7 +298,7 @@ const GraphLegend = memo(({ graph, hiddenNodeCount, mode, totalNodes }) => {
   const counts = graphCounts(graph)
   return (
     <div className="pointer-events-none absolute left-4 top-4 z-10 max-w-xl rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs text-slate-700 shadow-sm backdrop-blur">
-      <div className="font-semibold text-slate-900">Investigation graph</div>
+      <div className="font-semibold text-slate-900">graph:view</div>
       <div className="mt-1">
         Canvas renderer, hover/select to reveal labels, double click to focus.
         {' '}
@@ -355,6 +355,18 @@ const EmptyCanvas = ({ graph }) => {
 const CanvasBoundsStyle = () => (
   <style>{`
     .workbench-canvas-bounds { position: relative; overflow: hidden; isolation: isolate; }
+    .workbench-canvas-bounds::before {
+      content: '';
+      pointer-events: none;
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      background:
+        radial-gradient(circle at 50% 40%, rgba(96, 165, 250, 0.10), transparent 38rem),
+        linear-gradient(rgba(125, 211, 252, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(192, 132, 252, 0.022) 1px, transparent 1px);
+      background-size: auto, 32px 32px, 32px 32px;
+    }
     .workbench-canvas-bounds > div { max-width: 100% !important; max-height: 100% !important; overflow: hidden !important; }
     .workbench-canvas-bounds canvas { display: block !important; max-width: 100% !important; max-height: 100% !important; touch-action: none; }
   `}</style>
@@ -447,7 +459,7 @@ const GraphCanvasOnly = ({ graph, selectedNode, canvasGraph, onSelectNode, onFoc
     ctx.fillStyle = nodeColor(node)
     ctx.fill()
     ctx.lineWidth = (selected || hovered ? 2.2 : 0.9) / globalScale
-    ctx.strokeStyle = selected ? '#2563eb' : hovered ? '#111827' : 'rgba(255,255,255,0.9)'
+    ctx.strokeStyle = selected ? '#7dd3fc' : hovered ? '#f4f7fb' : 'rgba(11,15,20,0.92)'
     ctx.stroke()
 
     const sparseEnoughForLabels = canvasGraph.nodes.length <= 80
@@ -457,7 +469,7 @@ const GraphCanvasOnly = ({ graph, selectedNode, canvasGraph, onSelectNode, onFoc
         size: selected || hovered ? 12 : 10,
         weight: selected || hovered ? 700 : 600,
         offsetY: radius + 4,
-        color: selected ? '#1d4ed8' : '#111827',
+        color: selected ? '#7dd3fc' : '#d6deeb',
         max: selected || hovered ? 56 : 24,
       })
     }
@@ -469,8 +481,8 @@ const GraphCanvasOnly = ({ graph, selectedNode, canvasGraph, onSelectNode, onFoc
           size: 9,
           weight: 500,
           offsetY: radius + 22,
-          color: '#475569',
-          background: 'rgba(248,250,252,0.95)',
+          color: '#8b9bb0',
+          background: 'rgba(11,15,20,0.96)',
           max: 46,
         })
       }
@@ -481,9 +493,9 @@ const GraphCanvasOnly = ({ graph, selectedNode, canvasGraph, onSelectNode, onFoc
   const linkColor = useCallback((link) => {
     const source = typeof link.source === 'object' ? link.source.id : link.source
     const target = typeof link.target === 'object' ? link.target.id : link.target
-    if (!hoverNode && !selectedId) return 'rgba(100,116,139,0.22)'
-    if (source === hoverNode?.id || target === hoverNode?.id || source === selectedId || target === selectedId) return 'rgba(37,99,235,0.65)'
-    return 'rgba(148,163,184,0.10)'
+    if (!hoverNode && !selectedId) return 'rgba(139,155,176,0.16)'
+    if (source === hoverNode?.id || target === hoverNode?.id || source === selectedId || target === selectedId) return 'rgba(125,211,252,0.72)'
+    return 'rgba(139,155,176,0.08)'
   }, [hoverNode, selectedId])
 
   const linkWidth = useCallback((link) => {
@@ -505,6 +517,7 @@ const GraphCanvasOnly = ({ graph, selectedNode, canvasGraph, onSelectNode, onFoc
             ref={graphRef}
             width={canvasSize.width || 320}
             height={canvasSize.height || 320}
+            backgroundColor="#0b0f14"
             graphData={canvasGraph}
             nodeId="id"
             nodeCanvasObject={paintNode}
