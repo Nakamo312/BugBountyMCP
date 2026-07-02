@@ -149,6 +149,42 @@ _CAPTION_FIELDS = (
 )
 
 
+
+_REQUIRED_SCHEMA_BY_TEMPLATE: dict[str, dict[str, set[str]]] = {
+    "asset_exposure": {
+        "labels": {"Host", "IP", "Service", "Endpoint"},
+        "relationships": {"RESOLVES_TO", "EXPOSES_SERVICE", "HAS_ENDPOINT"},
+    },
+    "endpoint_neighborhood": {"labels": {"Endpoint"}, "relationships": set()},
+    "evidence_path": {"labels": {"Artifact", "Observation"}, "relationships": {"PRODUCED_OBSERVATION", "DESCRIBES"}},
+    "hidden_endpoints_from_js": {"labels": {"Endpoint", "JSFile"}, "relationships": {"REFERENCES"}},
+    "exposed_services_by_technology": {"labels": {"Service", "Endpoint"}, "relationships": {"HAS_ENDPOINT"}},
+    "action_outcome_experience_neighborhood": {
+        "labels": {"ActionOutcome"},
+        "relationships": {"HAS_OUTCOME_FEATURE", "USED_CAPABILITY_PROFILE", "OUTCOME_OF_RUN"},
+    },
+    "surface_graph_math": {"labels": {"SurfaceSnapshot", "SurfaceNode"}, "relationships": {"HAS_SURFACE_NODE"}},
+    "hypothesis_evidence_paths": {"labels": {"Hypothesis", "HypothesisCandidate"}, "relationships": set()},
+}
+
+
+@dataclass(frozen=True)
+class Neo4jSchemaState:
+    labels: frozenset[str]
+    relationships: frozenset[str]
+
+    def missing_for_template(self, template_name: str) -> dict[str, list[str]]:
+        required = _REQUIRED_SCHEMA_BY_TEMPLATE.get(template_name, {})
+        missing_labels = sorted(set(required.get("labels", set())) - set(self.labels))
+        missing_relationships = sorted(set(required.get("relationships", set())) - set(self.relationships))
+        return {
+            "labels": missing_labels,
+            "relationships": missing_relationships,
+        }
+
+    def has_any_graph_content(self) -> bool:
+        return bool(self.labels or self.relationships)
+
 @dataclass(frozen=True)
 class Neo4jTemplateSpec:
     lens: WorkbenchLens
@@ -199,6 +235,28 @@ async def build_neo4j_lens_graph(
         )
 
     template_name = _TEMPLATE_BY_LENS[lens]
+    schema_state = await _neo4j_schema_state(settings)
+    missing_schema = schema_state.missing_for_template(template_name)
+    if missing_schema["labels"]:
+        status = "empty" if not schema_state.has_any_graph_content() else "preparing"
+        return _message_graph(
+            program_id=program_id,
+            lens=lens,
+            seed=seed,
+            message=(
+                "Relationship graph is not ready for this view yet. "
+                "Use the canonical surface map while the graph projection catches up."
+            ),
+            reason="neo4j_projection_schema_not_ready",
+            template_name=template_name,
+            status=status,
+            details={
+                "missing_labels": missing_schema["labels"],
+                "missing_relationships": missing_schema["relationships"],
+                "available_labels": sorted(schema_state.labels),
+                "available_relationships": sorted(schema_state.relationships),
+            },
+        )
     required_seed_reason = _SEED_REQUIRED.get(lens)
     identity_key = _identity_key_from_seed(seed)
     if required_seed_reason and not identity_key:
@@ -356,6 +414,26 @@ def neo4j_entity_memory(*, program_id: UUID, entity_key: str) -> WorkbenchEntity
         ],
         boundary=_neo4j_boundary(surface="neo4j_entity_memory_pointer", template_name="entity_memory"),
     )
+
+
+async def _neo4j_schema_state(settings: Settings) -> Neo4jSchemaState:
+    try:
+        rows = await _execute_neo4j_read(
+            settings,
+            """
+CALL db.labels() YIELD label
+WITH collect(label) AS labels
+CALL db.relationshipTypes() YIELD relationshipType
+RETURN labels, collect(relationshipType) AS relationships
+""".strip(),
+            {},
+        )
+    except Exception:
+        return Neo4jSchemaState(labels=frozenset(), relationships=frozenset())
+    row = rows[0] if rows else {}
+    labels = frozenset(str(item) for item in row.get("labels", []) if item)
+    relationships = frozenset(str(item) for item in row.get("relationships", []) if item)
+    return Neo4jSchemaState(labels=labels, relationships=relationships)
 
 
 async def _execute_neo4j_read(settings: Settings, cypher: str, parameters: dict[str, object]) -> list[dict[str, Any]]:
@@ -829,17 +907,21 @@ def _message_graph(
     message: str,
     reason: str,
     template_name: str | None = None,
+    status: str | None = None,
+    details: dict[str, Any] | None = None,
 ) -> WorkbenchGraph:
     boundary = _neo4j_boundary(surface=f"neo4j_{reason}", template_name=template_name or "none")
     boundary.update(
         {
-            "status": _message_graph_status(reason),
+            "status": status or _message_graph_status(reason),
             "reason": reason,
             "message": message,
             "ui_empty_state": True,
             "render_as_graph_node": False,
         }
     )
+    if details:
+        boundary["details"] = details
     return WorkbenchGraph(
         program_id=program_id,
         lens=lens,
@@ -854,7 +936,7 @@ def _message_graph(
 def _message_graph_status(reason: str) -> str:
     if reason in {"seed_required_for_template", "snapshot_seed_required_for_surface_graph_math"}:
         return "seed_required"
-    if reason == "neo4j_template_empty_result":
+    if reason in {"neo4j_template_empty_result", "neo4j_projection_schema_not_ready"}:
         return "empty"
     return "unavailable"
 

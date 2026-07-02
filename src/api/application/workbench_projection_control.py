@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import Any, Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class WorkbenchProjectionOperation(StrEnum):
@@ -21,10 +21,26 @@ class WorkbenchProjectionOperation(StrEnum):
 
 
 class WorkbenchProjectionRunRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     program_id: UUID
     operation: WorkbenchProjectionOperation = WorkbenchProjectionOperation.REFRESH_WORKBENCH
+
+    @field_validator("operation", mode="before")
+    @classmethod
+    def _normalize_operation_alias(cls, value: object) -> object:
+        if value is None:
+            return value
+        text = str(value).strip().lower()
+        aliases = {
+            "neo4j": WorkbenchProjectionOperation.SYNC_NEO4J.value,
+            "neo4j_sync": WorkbenchProjectionOperation.SYNC_NEO4J.value,
+            "sync_graph": WorkbenchProjectionOperation.SYNC_NEO4J.value,
+            "sync_relationship_graph": WorkbenchProjectionOperation.SYNC_NEO4J.value,
+            "rebuild_neo4j": WorkbenchProjectionOperation.SYNC_NEO4J.value,
+            "build_neo4j": WorkbenchProjectionOperation.SYNC_NEO4J.value,
+        }
+        return aliases.get(text, value)
     limit: int = Field(default=10_000, ge=1, le=100_000)
     snapshot_id: UUID | None = None
     component_limit: int = Field(default=10, ge=1, le=100)
