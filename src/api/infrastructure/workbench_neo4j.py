@@ -50,20 +50,20 @@ _TEMPLATE_BY_LENS: dict[WorkbenchLens, str] = {
 }
 
 _LENS_LABELS: dict[WorkbenchLens, str] = {
-    WorkbenchLens.NEO4J_EXPOSURE: "Neo4j · Exposure",
-    WorkbenchLens.NEO4J_ENDPOINT: "Neo4j · Endpoint neighborhood",
-    WorkbenchLens.NEO4J_EVIDENCE: "Neo4j · Evidence paths",
-    WorkbenchLens.NEO4J_SURFACE_MATH: "Neo4j · Surface math",
-    WorkbenchLens.NEO4J_ACTION_OUTCOME: "Neo4j · Action outcomes",
-    WorkbenchLens.NEO4J_JS: "Neo4j · JS references",
-    WorkbenchLens.NEO4J_TECH: "Neo4j · Services by technology",
-    WorkbenchLens.NEO4J_HYPOTHESIS: "Neo4j · Hypothesis evidence",
+    WorkbenchLens.NEO4J_EXPOSURE: "Exposure map",
+    WorkbenchLens.NEO4J_ENDPOINT: "Endpoint map",
+    WorkbenchLens.NEO4J_EVIDENCE: "Evidence paths",
+    WorkbenchLens.NEO4J_SURFACE_MATH: "Graph signals",
+    WorkbenchLens.NEO4J_ACTION_OUTCOME: "Outcomes",
+    WorkbenchLens.NEO4J_JS: "JS references",
+    WorkbenchLens.NEO4J_TECH: "Services",
+    WorkbenchLens.NEO4J_HYPOTHESIS: "Hypothesis evidence",
 }
 
-_SEED_REQUIRED = {
-    WorkbenchLens.NEO4J_ENDPOINT: "Select or focus an Endpoint node from any Neo4j view.",
-    WorkbenchLens.NEO4J_EVIDENCE: "Select or focus a Neo4j entity to read its evidence path.",
-}
+# These lenses read the existing graph materialization as-is. They must not
+# synthesize PostgreSQL fallback nodes or require the operator to understand
+# Neo4j/template internals. Seed values narrow the graph when available; they
+# are not required for the default overview.
 
 _ENTITY_LABEL_PRIORITY = (
     "Program",
@@ -150,21 +150,26 @@ _CAPTION_FIELDS = (
 
 
 
-_REQUIRED_SCHEMA_BY_TEMPLATE: dict[str, dict[str, set[str]]] = {
-    "asset_exposure": {
-        "labels": {"Host", "IP", "Service", "Endpoint"},
-        "relationships": {"RESOLVES_TO", "EXPOSES_SERVICE", "HAS_ENDPOINT"},
-    },
-    "endpoint_neighborhood": {"labels": {"Endpoint"}, "relationships": set()},
-    "evidence_path": {"labels": {"Artifact", "Observation"}, "relationships": {"PRODUCED_OBSERVATION", "DESCRIBES"}},
-    "hidden_endpoints_from_js": {"labels": {"Endpoint", "JSFile"}, "relationships": {"REFERENCES"}},
-    "exposed_services_by_technology": {"labels": {"Service", "Endpoint"}, "relationships": {"HAS_ENDPOINT"}},
-    "action_outcome_experience_neighborhood": {
-        "labels": {"ActionOutcome"},
-        "relationships": {"HAS_OUTCOME_FEATURE", "USED_CAPABILITY_PROFILE", "OUTCOME_OF_RUN"},
-    },
-    "surface_graph_math": {"labels": {"SurfaceSnapshot", "SurfaceNode"}, "relationships": {"HAS_SURFACE_NODE"}},
-    "hypothesis_evidence_paths": {"labels": {"Hypothesis", "HypothesisCandidate"}, "relationships": set()},
+_NATIVE_LABELS_BY_LENS: dict[WorkbenchLens, tuple[str, ...]] = {
+    WorkbenchLens.NEO4J_EXPOSURE: ("ASN", "CIDR", "IP", "Host", "Scope", "Service", "Endpoint", "Parameter"),
+    WorkbenchLens.NEO4J_ENDPOINT: ("Endpoint", "Parameter", "Service", "Host", "IP", "JSFile", "Observation", "Artifact"),
+    WorkbenchLens.NEO4J_EVIDENCE: ("Evidence", "Observation", "Artifact", "Endpoint", "Service", "Host", "IP"),
+    WorkbenchLens.NEO4J_SURFACE_MATH: ("SurfaceSnapshot", "SurfaceNode", "SurfaceFingerprint", "SurfaceDelta", "SurfaceComponentProbe"),
+    WorkbenchLens.NEO4J_ACTION_OUTCOME: ("ActionOutcome", "ToolRun", "Tool", "CapabilityProfile", "OutcomeFeature", "Endpoint", "Service", "Host"),
+    WorkbenchLens.NEO4J_JS: ("JSFile", "Endpoint", "Parameter", "Service", "Host", "Observation", "Artifact"),
+    WorkbenchLens.NEO4J_TECH: ("Service", "Endpoint", "Parameter", "Host", "IP"),
+    WorkbenchLens.NEO4J_HYPOTHESIS: ("Hypothesis", "HypothesisCandidate", "Evidence", "Observation", "Artifact", "Endpoint", "Service", "Host"),
+}
+
+_NATIVE_RELATIONSHIPS_BY_LENS: dict[WorkbenchLens, tuple[str, ...]] = {
+    WorkbenchLens.NEO4J_EXPOSURE: ("HAS_SCOPE", "MATCHES_SCOPE", "RESOLVES_TO", "IN_CIDR", "ANNOUNCED_BY", "EXPOSES_SERVICE", "HAS_ENDPOINT", "HAS_PARAM"),
+    WorkbenchLens.NEO4J_ENDPOINT: ("RESOLVES_TO", "EXPOSES_SERVICE", "HAS_ENDPOINT", "HAS_PARAM", "REFERENCES", "PRODUCED_OBSERVATION", "DESCRIBES"),
+    WorkbenchLens.NEO4J_EVIDENCE: ("PRODUCED_ARTIFACT", "PRODUCED_OBSERVATION", "DESCRIBES", "SUPPORTS_EVIDENCE", "DERIVED_FROM"),
+    WorkbenchLens.NEO4J_SURFACE_MATH: ("HAS_SURFACE_NODE", "HAS_SURFACE_FINGERPRINT", "SURFACE_EDGE", "HAS_SURFACE_DELTA", "HAS_SURFACE_FINGERPRINT_FEATURE"),
+    WorkbenchLens.NEO4J_ACTION_OUTCOME: ("HAS_TOOL_RUN", "HAS_ACTION_OUTCOME", "OUTCOME_OF_RUN", "USED_CAPABILITY_PROFILE", "HAS_OUTCOME_FEATURE", "BEFORE_SURFACE_SNAPSHOT", "AFTER_SURFACE_SNAPSHOT", "USED_TOOL"),
+    WorkbenchLens.NEO4J_JS: ("REFERENCES", "HAS_ENDPOINT", "HAS_PARAM", "DESCRIBES", "PRODUCED_OBSERVATION"),
+    WorkbenchLens.NEO4J_TECH: ("EXPOSES_SERVICE", "HAS_ENDPOINT", "HAS_PARAM", "DESCRIBES"),
+    WorkbenchLens.NEO4J_HYPOTHESIS: ("SUPPORTS_EVIDENCE", "DERIVED_FROM", "DESCRIBES"),
 }
 
 
@@ -172,18 +177,17 @@ _REQUIRED_SCHEMA_BY_TEMPLATE: dict[str, dict[str, set[str]]] = {
 class Neo4jSchemaState:
     labels: frozenset[str]
     relationships: frozenset[str]
-
-    def missing_for_template(self, template_name: str) -> dict[str, list[str]]:
-        required = _REQUIRED_SCHEMA_BY_TEMPLATE.get(template_name, {})
-        missing_labels = sorted(set(required.get("labels", set())) - set(self.labels))
-        missing_relationships = sorted(set(required.get("relationships", set())) - set(self.relationships))
-        return {
-            "labels": missing_labels,
-            "relationships": missing_relationships,
-        }
+    properties: frozenset[str]
 
     def has_any_graph_content(self) -> bool:
-        return bool(self.labels or self.relationships)
+        return bool(self.labels or self.relationships or self.properties)
+
+    def labels_for_lens(self, lens: WorkbenchLens) -> tuple[str, ...]:
+        return tuple(label for label in _NATIVE_LABELS_BY_LENS.get(lens, ()) if label in self.labels)
+
+    def relationships_for_lens(self, lens: WorkbenchLens) -> tuple[str, ...]:
+        return tuple(rel for rel in _NATIVE_RELATIONSHIPS_BY_LENS.get(lens, ()) if rel in self.relationships)
+
 
 @dataclass(frozen=True)
 class Neo4jTemplateSpec:
@@ -222,77 +226,61 @@ async def build_neo4j_lens_graph(
             program_id=program_id,
             lens=lens,
             seed=seed,
-            message=f"Unsupported Neo4j workbench lens: {lens.value}",
-            reason="unsupported_neo4j_lens",
-        )
-    if default_query_template_registry is None:
-        return _message_graph(
-            program_id=program_id,
-            lens=lens,
-            seed=seed,
-            message="graph-projector query template registry is not importable in the API image.",
-            reason="graph_projector_templates_unavailable",
+            message=f"Unsupported relationship graph view: {lens.value}",
+            reason="unsupported_relationship_lens",
         )
 
-    template_name = _TEMPLATE_BY_LENS[lens]
     schema_state = await _neo4j_schema_state(settings)
-    missing_schema = schema_state.missing_for_template(template_name)
-    if missing_schema["labels"]:
-        status = "empty" if not schema_state.has_any_graph_content() else "preparing"
+    template_name = _TEMPLATE_BY_LENS[lens]
+    if "program_id" not in schema_state.properties:
         return _message_graph(
             program_id=program_id,
             lens=lens,
             seed=seed,
-            message=(
-                "Relationship graph is not ready for this view yet. "
-                "Use the canonical surface map while the graph projection catches up."
-            ),
-            reason="neo4j_projection_schema_not_ready",
+            message="Relationship graph has not been built for this database yet.",
+            reason="relationship_graph_not_built",
             template_name=template_name,
-            status=status,
+            status="not_built",
             details={
-                "missing_labels": missing_schema["labels"],
-                "missing_relationships": missing_schema["relationships"],
                 "available_labels": sorted(schema_state.labels),
                 "available_relationships": sorted(schema_state.relationships),
             },
         )
-    required_seed_reason = _SEED_REQUIRED.get(lens)
-    identity_key = _identity_key_from_seed(seed)
-    if required_seed_reason and not identity_key:
-        return _message_graph(
-            program_id=program_id,
-            lens=lens,
-            seed=seed,
-            message=required_seed_reason,
-            reason="seed_required_for_template",
-            template_name=template_name,
-        )
 
-    safe_limit = _workbench_query_limit(settings, limit)
-    parameters: dict[str, object] = {"program_id": str(program_id), "limit": safe_limit}
-    if lens in {WorkbenchLens.NEO4J_ENDPOINT, WorkbenchLens.NEO4J_EVIDENCE}:
-        parameters["identity_key"] = identity_key or ""
-    elif lens == WorkbenchLens.NEO4J_SURFACE_MATH:
-        snapshot_id = _snapshot_id_from_seed(seed)
-        if not snapshot_id:
-            return _message_graph(
-                program_id=program_id,
-                lens=lens,
-                seed=seed,
-                message="Focus a SurfaceSnapshot node or open Surface Components to select the snapshot-local graph math view.",
-                reason="snapshot_seed_required_for_surface_graph_math",
-                template_name=template_name,
-            )
-        parameters["snapshot_id"] = snapshot_id
-    elif lens == WorkbenchLens.NEO4J_ACTION_OUTCOME:
-        parameters["outcome_id"] = _outcome_id_from_seed(seed)
-    elif lens == WorkbenchLens.NEO4J_TECH:
-        parameters["technology"] = _technology_from_seed(seed)
-    elif lens == WorkbenchLens.NEO4J_HYPOTHESIS:
-        parameters["hypothesis_id"] = _hypothesis_id_from_seed(seed)
+    graph = await _build_native_neo4j_lens_graph(
+        settings=settings,
+        program_id=program_id,
+        lens=lens,
+        seed=seed,
+        depth=depth,
+        limit=limit,
+        schema_state=schema_state,
+        template_name=template_name,
+    )
+    if graph.nodes or (graph.boundary or {}).get("reason") != "relationship_graph_view_not_represented":
+        return graph
 
+    # The native graph reader is the default because it displays the ontology as
+    # stored in Neo4j. Keep the allowlisted template path only as a compatibility
+    # fallback for older graph-projector images that materialize a narrower shape.
+    if default_query_template_registry is None:
+        return graph
     try:
+        safe_limit = _workbench_query_limit(settings, limit)
+        parameters: dict[str, object] = {"program_id": str(program_id), "limit": safe_limit}
+        identity_key = _identity_key_from_seed(seed)
+        if lens in {WorkbenchLens.NEO4J_ENDPOINT, WorkbenchLens.NEO4J_EVIDENCE}:
+            parameters["identity_key"] = identity_key or ""
+        elif lens == WorkbenchLens.NEO4J_SURFACE_MATH:
+            snapshot_id = _snapshot_id_from_seed(seed)
+            if snapshot_id:
+                parameters["snapshot_id"] = snapshot_id
+        elif lens == WorkbenchLens.NEO4J_ACTION_OUTCOME:
+            parameters["outcome_id"] = _outcome_id_from_seed(seed)
+        elif lens == WorkbenchLens.NEO4J_TECH:
+            parameters["technology"] = _technology_from_seed(seed)
+        elif lens == WorkbenchLens.NEO4J_HYPOTHESIS:
+            parameters["hypothesis_id"] = _hypothesis_id_from_seed(seed)
         registry = default_query_template_registry()
         rendered = registry.get(template_name).render(parameters)
         rows = await _execute_neo4j_read(settings, rendered.cypher, dict(rendered.parameters))
@@ -301,9 +289,81 @@ async def build_neo4j_lens_graph(
             program_id=program_id,
             lens=lens,
             seed=seed,
-            message=f"Neo4j read failed: {_redact_text(str(exc))}",
-            reason="neo4j_read_failed",
+            message=f"Relationship graph read failed: {_redact_text(str(exc))}",
+            reason="relationship_graph_read_failed",
             template_name=template_name,
+        )
+
+    nodes, edges = _graph_from_records(rows)
+    if not nodes:
+        return graph
+    return WorkbenchGraph(
+        program_id=program_id,
+        lens=lens,
+        seed=seed,
+        depth=depth,
+        nodes=list(nodes.values())[:safe_limit],
+        edges=list(edges.values())[: max(1, min(safe_limit * 4, 2000))],
+        counts={"nodes": len(nodes), "edges": len(edges), "template_rows": len(rows)},
+        boundary=_neo4j_boundary(surface=f"relationship_template_{template_name}", template_name=template_name),
+    )
+
+
+async def _build_native_neo4j_lens_graph(
+    *,
+    settings: Settings,
+    program_id: UUID,
+    lens: WorkbenchLens,
+    seed: str | None,
+    depth: int,
+    limit: int,
+    schema_state: Neo4jSchemaState,
+    template_name: str,
+) -> WorkbenchGraph:
+    labels = schema_state.labels_for_lens(lens)
+    relationships = schema_state.relationships_for_lens(lens)
+    if not labels:
+        return _message_graph(
+            program_id=program_id,
+            lens=lens,
+            seed=seed,
+            message="This graph view is not represented in the current relationship graph yet.",
+            reason="relationship_graph_view_not_represented",
+            template_name=template_name,
+            status="empty",
+            details={
+                "available_labels": sorted(schema_state.labels),
+                "available_relationships": sorted(schema_state.relationships),
+            },
+        )
+
+    safe_limit = _workbench_query_limit(settings, limit)
+    safe_depth = max(1, min(int(depth or 1), 3))
+    identity_key = _identity_key_from_seed(seed)
+    parameters: dict[str, object] = {
+        "program_id": str(program_id),
+        "labels": list(labels),
+        "relationships": list(relationships),
+        "limit": safe_limit,
+        "path_limit": max(1, min(safe_limit * 4, 2000)),
+    }
+    if identity_key and _seed_predicate(schema_state):
+        parameters["identity_key"] = identity_key
+        cypher = _native_seed_cypher(schema_state=schema_state, relationships=relationships, depth=safe_depth)
+    else:
+        cypher = _native_overview_cypher(schema_state=schema_state, relationships=relationships, depth=safe_depth)
+
+    try:
+        rows = await _execute_neo4j_read(settings, cypher, parameters)
+    except Exception as exc:  # noqa: BLE001
+        return _message_graph(
+            program_id=program_id,
+            lens=lens,
+            seed=seed,
+            message=f"Relationship graph read failed: {_redact_text(str(exc))}",
+            reason="relationship_graph_read_failed",
+            template_name=template_name,
+            details={"view": lens.value},
         )
 
     nodes, edges = _graph_from_records(rows)
@@ -312,24 +372,115 @@ async def build_neo4j_lens_graph(
             program_id=program_id,
             lens=lens,
             seed=seed,
-            message=f"Neo4j template {template_name} returned no graph rows for this program/seed.",
-            reason="neo4j_template_empty_result",
+            message="No matching nodes are present in this relationship graph view.",
+            reason="relationship_graph_view_empty",
             template_name=template_name,
+            status="empty",
+            details={
+                "labels_used": list(labels),
+                "relationships_used": list(relationships),
+                "seed": seed,
+            },
         )
+
+    visible_nodes = list(nodes.values())[:safe_limit]
+    node_ids = {node.id for node in visible_nodes}
+    visible_edges = [edge for edge in edges.values() if edge.source in node_ids and edge.target in node_ids]
     return WorkbenchGraph(
         program_id=program_id,
         lens=lens,
         seed=seed,
-        depth=depth,
-        nodes=list(nodes.values())[:safe_limit],
-        edges=list(edges.values())[: max(1, min(safe_limit * 4, 2000))],
+        depth=safe_depth,
+        nodes=visible_nodes,
+        edges=visible_edges[: max(1, min(safe_limit * 4, 2000))],
         counts={
-            "nodes": len(nodes),
-            "edges": len(edges),
-            "neo4j_rows": len(rows),
+            "nodes": len(visible_nodes),
+            "edges": len(visible_edges),
+            "neo4j_nodes_seen": len(nodes),
+            "neo4j_edges_seen": len(edges),
         },
-        boundary=_neo4j_boundary(surface=f"neo4j_template_{template_name}", template_name=template_name),
+        boundary={
+            **_neo4j_boundary(surface="relationship_graph_native_read", template_name=template_name),
+            "status": "ready",
+            "view_labels": list(labels),
+            "view_relationships": list(relationships),
+            "operator_projection": "existing_neo4j_relationship_graph",
+        },
     )
+
+
+def _native_overview_cypher(*, schema_state: Neo4jSchemaState, relationships: tuple[str, ...], depth: int) -> str:
+    order_expr = _node_order_expression("n", schema_state)
+    if not relationships:
+        return f"""
+MATCH (n)
+WHERE n.program_id = $program_id
+  AND any(label IN labels(n) WHERE label IN $labels)
+WITH n ORDER BY {order_expr} LIMIT $limit
+RETURN collect(DISTINCT n) AS nodes, [] AS paths
+""".strip()
+    return f"""
+MATCH (n)
+WHERE n.program_id = $program_id
+  AND any(label IN labels(n) WHERE label IN $labels)
+WITH n ORDER BY {order_expr} LIMIT $limit
+OPTIONAL MATCH path = (n)-[*1..{depth}]-(neighbor)
+WHERE all(node IN nodes(path) WHERE node.program_id = $program_id)
+  AND all(rel IN relationships(path) WHERE type(rel) IN $relationships)
+RETURN collect(DISTINCT n) AS nodes, collect(path)[0..$path_limit] AS paths
+""".strip()
+
+
+def _native_seed_cypher(*, schema_state: Neo4jSchemaState, relationships: tuple[str, ...], depth: int) -> str:
+    predicate = _seed_predicate(schema_state) or "seed.identity_key = $identity_key"
+    if not relationships:
+        return f"""
+MATCH (seed {{program_id: $program_id}})
+WHERE {predicate}
+RETURN collect(DISTINCT seed)[0..$limit] AS nodes, [] AS paths
+""".strip()
+    return f"""
+MATCH (seed {{program_id: $program_id}})
+WHERE {predicate}
+WITH seed LIMIT 1
+OPTIONAL MATCH path = (seed)-[*1..{depth}]-(neighbor)
+WHERE all(node IN nodes(path) WHERE node.program_id = $program_id)
+  AND all(rel IN relationships(path) WHERE type(rel) IN $relationships)
+RETURN collect(DISTINCT seed) AS nodes, collect(path)[0..$path_limit] AS paths
+""".strip()
+
+
+def _seed_predicate(schema_state: Neo4jSchemaState) -> str | None:
+    predicates = []
+    if "identity_key" in schema_state.properties:
+        predicates.append("seed.identity_key = $identity_key")
+    if "key" in schema_state.properties:
+        predicates.append("seed.key = $identity_key")
+    if "hostname" in schema_state.properties:
+        predicates.append("seed.hostname = $identity_key")
+    if "service_key" in schema_state.properties:
+        predicates.append("seed.service_key = $identity_key")
+    if not predicates:
+        return None
+    return " OR ".join(predicates)
+
+
+def _node_order_expression(alias: str, schema_state: Neo4jSchemaState) -> str:
+    candidates = [
+        "hostname",
+        "address",
+        "service_key",
+        "service_method_normalized_path",
+        "normalized_path",
+        "route_template",
+        "url",
+        "key",
+        "identity_key",
+    ]
+    expressions = [f"{alias}.{field}" for field in candidates if field in schema_state.properties]
+    if not expressions:
+        return f"elementId({alias})"
+    return "coalesce(" + ", ".join(expressions + [f"elementId({alias})"]) + ")"
 
 
 async def neo4j_entity_profile(
@@ -424,16 +575,19 @@ async def _neo4j_schema_state(settings: Settings) -> Neo4jSchemaState:
 CALL db.labels() YIELD label
 WITH collect(label) AS labels
 CALL db.relationshipTypes() YIELD relationshipType
-RETURN labels, collect(relationshipType) AS relationships
+WITH labels, collect(relationshipType) AS relationships
+CALL db.propertyKeys() YIELD propertyKey
+RETURN labels, relationships, collect(propertyKey) AS properties
 """.strip(),
             {},
         )
     except Exception:
-        return Neo4jSchemaState(labels=frozenset(), relationships=frozenset())
+        return Neo4jSchemaState(labels=frozenset(), relationships=frozenset(), properties=frozenset())
     row = rows[0] if rows else {}
     labels = frozenset(str(item) for item in row.get("labels", []) if item)
     relationships = frozenset(str(item) for item in row.get("relationships", []) if item)
-    return Neo4jSchemaState(labels=labels, relationships=relationships)
+    properties = frozenset(str(item) for item in row.get("properties", []) if item)
+    return Neo4jSchemaState(labels=labels, relationships=relationships, properties=properties)
 
 
 async def _execute_neo4j_read(settings: Settings, cypher: str, parameters: dict[str, object]) -> list[dict[str, Any]]:
