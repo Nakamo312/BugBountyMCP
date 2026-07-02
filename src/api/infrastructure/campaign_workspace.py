@@ -223,6 +223,20 @@ class CampaignWorkspaceStore:
         limit: int,
     ) -> list[dict[str, Any]]:
         active_run_statuses = ["queued", "leased", "running", "flushing", "failed"]
+        terminal_success_statuses = ["completed", "cancelled", "dead"]
+        terminal_jobs = jobs.alias("terminal_jobs")
+        terminal_runs = runs.alias("terminal_runs")
+        terminal_success_exists = (
+            select(terminal_runs.c.id)
+            .select_from(
+                terminal_jobs.join(
+                    terminal_runs, terminal_runs.c.job_id == terminal_jobs.c.id
+                )
+            )
+            .where(terminal_jobs.c.action_id == action_requests.c.id)
+            .where(terminal_runs.c.status.in_(terminal_success_statuses))
+            .exists()
+        )
         visible_request_statuses = [
             CampaignWorkspaceActionStatus.REQUIRES_APPROVAL.value,
             CampaignWorkspaceActionStatus.ALLOWED.value,
@@ -272,6 +286,7 @@ class CampaignWorkspaceStore:
                     action_requests.c.status.in_(visible_request_statuses),
                     and_(
                         action_requests.c.status == CampaignWorkspaceActionStatus.QUEUED.value,
+                        ~terminal_success_exists,
                         or_(runs.c.status.is_(None), runs.c.status.in_(active_run_statuses)),
                     ),
                 )

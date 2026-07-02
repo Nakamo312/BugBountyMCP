@@ -106,24 +106,21 @@ class NodeRegistryClaimingMixin:
     def _uses_preallocated_action_run(node: Node, event: Dict[str, Any]) -> bool:
         """Use the already-created action run for initial ActionService events.
 
-        ActionService records a job/run/event-store row before the event is
-        published. The registry must execute that run instead of creating a
-        second claimed run; otherwise the dashboard follows the preallocated
-        run forever while the worker state is written elsewhere.
+        ActionService records a job/run/event-store row before publishing the
+        event. The registry must execute that exact run instead of claiming a
+        second node run, even when the target worker is normally configured as a
+        scheduled/coalesced node. Explicit operator actions are already scoped,
+        approved, budgeted, and materialized as durable runs by ActionService;
+        sending them through scheduled claim coalescing leaves the dashboard
+        tracking the preallocated run while another run gets executed.
 
-        The event path has two currently-supported shapes:
+        The event path has three currently-supported shapes:
 
         * canonical envelope payload: ``payload.action_invocation``;
         * legacy RabbitMQ dict: top-level ``action_invocation`` after
-          ``EventEnvelope.to_legacy_dict()`` flattens payload values.
-
-        The previous check accepted only the first shape. When the dispatcher
-        replayed a flattened stored event, the registry treated the action as a
-        normal trigger, claimed a second run, and left the dashboard-visible
-        preallocated run stuck in ``queued`` forever.
+          ``EventEnvelope.to_legacy_dict()`` flattens payload values;
+        * older legacy top-level ``action_id/capability_id/profile_id``.
         """
-        if node.execution_mode != ExecutionMode.INLINE:
-            return False
         if not event.get("run_id") or not event.get("job_id"):
             return False
 

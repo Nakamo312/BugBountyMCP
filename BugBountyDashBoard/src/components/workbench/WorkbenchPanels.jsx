@@ -11,10 +11,11 @@ import {
   Search,
   Loader,
   PlayCircle,
-  Send,
   Target,
   X,
 } from 'lucide-react'
+import { ActionFormFactory } from '../actions'
+import { buildActionFromCatalogDetail } from '../actions/catalog/actionCatalog'
 
 export const copyToClipboard = (value) => {
   if (!value) return
@@ -550,35 +551,116 @@ const actionStateLabel = (action) => {
   return action.state || 'available'
 }
 
-const ActionCard = ({ action, disabled = false, submitting = false, onSubmitAction }) => (
-  <div className={`rounded-lg border p-3 ${disabled ? 'border-orange-100 bg-orange-50' : 'border-green-100 bg-green-50'}`}>
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <div className="text-sm font-semibold text-gray-900">{action.label}</div>
-        <div className="mt-1 text-xs text-gray-600">
-          {action.tool || 'catalog'} · {action.profile} · {actionStateLabel(action)}
-        </div>
-      </div>
-      {!disabled && (
-        <button
-          type="button"
-          disabled={submitting}
-          onClick={() => onSubmitAction?.(action)}
-          className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-primary-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Send size={13} />
-          {action.approval_required ? 'Request approval' : 'Start scan'}
-        </button>
-      )}
+const parseTargetText = (value) => String(value || '')
+  .split(/\r?\n|,/g)
+  .map((item) => item.trim())
+  .filter(Boolean)
+
+const actionTargets = (action) => {
+  const payloadTargets = action.submit_payload?.targets
+  if (Array.isArray(payloadTargets) && payloadTargets.length) return payloadTargets.filter(Boolean)
+  const inputTarget = action.inputs?.target
+  return inputTarget ? [inputTarget] : []
+}
+
+const workbenchCatalogDetail = (action) => ({
+  id: action.catalog_id,
+  capability: action.tool || action.capability_id || 'action',
+  profile: action.profile || 'default',
+  capability_label: action.tool || action.label || 'Action',
+  profile_label: action.profile || action.state || 'default',
+  option_schema: action.option_schema || {},
+  allowed_options: Object.keys(action.prefilled_options || {}),
+  requires_approval: Boolean(action.approval_required),
+  safety_level: action.risk_class,
+  scope_policy: action.policy_preview?.scope_policy,
+  frontend: {
+    name: action.label,
+    description: action.reason || action.expected_delta?.summary || 'Workbench action',
+    target_label: 'Targets',
+    target_placeholder: 'one target per line',
+  },
+})
+
+const workbenchFormAction = (action) => {
+  const formAction = buildActionFromCatalogDetail(workbenchCatalogDetail(action))
+  return {
+    ...formAction,
+    label: action.approval_required ? 'Request approval' : 'Queue action',
+    initialValues: {
+      ...formAction.initialValues,
+      ...(action.prefilled_options || {}),
+      targets: actionTargets(action).join('\n'),
+    },
+  }
+}
+
+const ActionRunForm = ({ action, submitting = false, onSubmitAction }) => {
+  const formAction = useMemo(() => workbenchFormAction(action), [action])
+
+  const submit = async (data) => {
+    const { targets: rawTargets, ...options } = data || {}
+    const targets = Array.isArray(rawTargets) ? rawTargets.filter(Boolean) : parseTargetText(rawTargets)
+    const effectiveTargets = targets.length ? targets : actionTargets(action)
+    if (!effectiveTargets.length) {
+      return { status: 'error', message: 'At least one target is required.' }
+    }
+    const result = await onSubmitAction?.(action, { targets: effectiveTargets, options })
+    if (!result) {
+      return { status: 'error', message: 'Action submission failed.' }
+    }
+    return {
+      status: 'success',
+      message: result.submission?.message || 'Action queued through ActionService.',
+      results: result,
+    }
+  }
+
+  return (
+    <div className="mt-3 border-t border-green-100 pt-3">
+      <ActionFormFactory
+        action={formAction}
+        onRun={submit}
+        loading={submitting}
+        actionColor={formAction.color}
+      />
     </div>
-    <div className="mt-2 text-xs text-gray-600">{action.reason || (action.disabled_reasons || []).join(', ') || 'Catalog match.'}</div>
-    {(action.inputs?.target || action.submit_payload?.targets?.[0]) && (
-      <div className="mt-2 truncate rounded bg-white/70 px-2 py-1 font-mono text-[11px] text-gray-700" title={action.inputs?.target || action.submit_payload?.targets?.[0]}>
-        target: {action.inputs?.target || action.submit_payload?.targets?.[0]}
+  )
+}
+
+const ActionCard = ({ action, disabled = false, submitting = false, onSubmitAction }) => {
+  const [expanded, setExpanded] = useState(false)
+  const target = action.inputs?.target || action.submit_payload?.targets?.[0]
+  return (
+    <div className={`rounded-lg border p-3 ${disabled ? 'border-orange-100 bg-orange-50' : expanded ? 'border-primary-200 bg-primary-50/40' : 'border-green-100 bg-green-50'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <button type="button" disabled={disabled} onClick={() => setExpanded((value) => !value)} className="min-w-0 flex-1 text-left disabled:cursor-default">
+          <div className="text-sm font-semibold text-gray-900">{action.label}</div>
+          <div className="mt-1 text-xs text-gray-600">
+            {action.tool || 'catalog'} · {action.profile} · {actionStateLabel(action)}
+          </div>
+        </button>
+        {!disabled && (
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => setExpanded((value) => !value)}
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-primary-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-primary-700 hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {expanded ? 'Close' : 'Configure'}
+          </button>
+        )}
       </div>
-    )}
-  </div>
-)
+      <div className="mt-2 text-xs text-gray-600">{action.reason || (action.disabled_reasons || []).join(', ') || 'Catalog match.'}</div>
+      {target && (
+        <div className="mt-2 truncate rounded bg-white/70 px-2 py-1 font-mono text-[11px] text-gray-700" title={target}>
+          target: {target}
+        </div>
+      )}
+      {!disabled && expanded && <ActionRunForm action={action} submitting={submitting} onSubmitAction={onSubmitAction} />}
+    </div>
+  )
+}
 
 const ActionAffordanceList = ({ affordances, rejected = [], submitting = false, onSubmitAction, submission }) => {
   const groups = groupedActionAffordances(affordances)
