@@ -354,3 +354,19 @@ def test_execution_copy_distinguishes_agent_tasks_from_executable_actions() -> N
     assert "operator-controlled" not in workspace
     assert "label: 'Manual'" in runtime
     assert "No model call" in runtime
+
+
+def test_execution_workspace_surfaces_action_queue_status_toasts() -> None:
+    hook = _read("BugBountyDashBoard/src/hooks/useAgentWorkspace.js")
+    panels = _read("BugBountyDashBoard/src/components/agents/AgentWorkspacePanels.jsx")
+
+    assert "queueNotifications" in hook
+    assert "trackQueueStatusChanges" in hook
+    assert "queueNotificationForTransition" in hook
+    assert "loadWorkspace({ silent: true })" in hook
+    assert "queueNotificationForRemovedAction" in hook
+    assert "QueueNotificationToasts" in panels
+    assert "Action started" in hook
+    assert "Action output is being ingested" in hook
+    assert "Action left active queue" in hook
+    assert "Dismiss notification" in panels

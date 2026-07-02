@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   acceptActionExperienceProposal,
   acceptAgentActionProposal,
@@ -48,25 +48,77 @@ export function useAgentWorkspace() {
   const [actionBusy, setActionBusy] = useState(false)
   const [experienceTargetReview, setExperienceTargetReview] = useState(emptyExperienceTargetReview)
   const [error, setError] = useState(null)
+  const [queueNotifications, setQueueNotifications] = useState([])
+  const queueStateRef = useRef(new Map())
+  const queueStateReadyRef = useRef(false)
 
   const programId = selectedProgram?.id
 
-  const loadWorkspace = useCallback(async () => {
+  const pushQueueNotifications = useCallback((items) => {
+    if (!items.length) return
+    setQueueNotifications((current) => [...items, ...current].slice(0, 8))
+  }, [])
+
+  const dismissQueueNotification = useCallback((notificationId) => {
+    setQueueNotifications((current) => current.filter((item) => item.id !== notificationId))
+  }, [])
+
+  const trackQueueStatusChanges = useCallback((actions = []) => {
+    const next = new Map(actions.map((action) => [String(action.action_id), queueStateSnapshot(action)]))
+    if (!queueStateReadyRef.current) {
+      queueStateRef.current = next
+      queueStateReadyRef.current = true
+      return
+    }
+
+    const notifications = []
+    actions.forEach((action) => {
+      const actionId = String(action.action_id)
+      const previous = queueStateRef.current.get(actionId)
+      const current = next.get(actionId)
+      if (!previous) {
+        notifications.push(queueNotificationForNewAction(action, current))
+        return
+      }
+      if (previous.key !== current.key) {
+        notifications.push(queueNotificationForTransition(action, previous, current))
+      }
+    })
+
+    queueStateRef.current.forEach((previous, actionId) => {
+      if (!next.has(actionId)) {
+        notifications.push(queueNotificationForRemovedAction(previous))
+      }
+    })
+
+    queueStateRef.current = next
+    pushQueueNotifications(notifications.filter(Boolean))
+  }, [pushQueueNotifications])
+
+  const loadWorkspace = useCallback(async (options = {}) => {
     if (!programId) return
-    setLoading(true)
-    setError(null)
+    const silent = Boolean(options.silent)
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
     try {
       const response = await getCampaignWorkspace({ program_id: programId })
       const snapshot = response.data
+      trackQueueStatusChanges(snapshot.action_queue || [])
       setWorkspace(snapshot)
       const firstTaskId = snapshot.tasks?.[0]?.task?.task_id
       setSelectedTaskId((current) => current || firstTaskId || null)
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Failed to load execution workspace')
+      if (silent) {
+        console.warn('Execution workspace polling failed:', err)
+      } else {
+        setError(err.response?.data?.detail || err.message || 'Failed to load execution workspace')
+      }
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
-  }, [programId])
+  }, [programId, trackQueueStatusChanges])
 
   const loadTaskDetail = useCallback(async (taskId) => {
     if (!taskId) {
@@ -93,13 +145,12 @@ export function useAgentWorkspace() {
       if (events.length > 0) {
         setActivity((current) => [...events, ...current].slice(0, 60))
         setActivityCursor(response.data.next_after || activityCursor)
-        await loadWorkspace()
         if (selectedTaskId) await loadTaskDetail(selectedTaskId)
       }
     } catch (err) {
       console.warn('Agent activity polling failed:', err)
     }
-  }, [activityCursor, loadTaskDetail, loadWorkspace, programId, selectedTaskId])
+  }, [activityCursor, loadTaskDetail, programId, selectedTaskId])
 
   useEffect(() => {
     setWorkspace(null)
@@ -107,6 +158,9 @@ export function useAgentWorkspace() {
     setActivity([])
     setActivityCursor(null)
     setSelectedTaskId(null)
+    setQueueNotifications([])
+    queueStateRef.current = new Map()
+    queueStateReadyRef.current = false
     loadWorkspace()
   }, [loadWorkspace])
 
@@ -118,9 +172,10 @@ export function useAgentWorkspace() {
     if (!programId) return undefined
     const interval = window.setInterval(() => {
       loadActivity()
+      loadWorkspace({ silent: true })
     }, 8000)
     return () => window.clearInterval(interval)
-  }, [loadActivity, programId])
+  }, [loadActivity, loadWorkspace, programId])
 
   const tasks = workspace?.tasks || []
   const taskCardsById = useMemo(() => new Map(tasks.map((card) => [card.task.task_id, card])), [tasks])
@@ -365,6 +420,8 @@ export function useAgentWorkspace() {
     experienceTargetReview,
     setExperienceTargetReview,
     error,
+    queueNotifications,
+    dismissQueueNotification,
     loadWorkspace,
     handleCreateTask,
     handleFollowup,
@@ -373,4 +430,96 @@ export function useAgentWorkspace() {
     reviewQueuedAction,
     submitExperienceTargets,
   }
+}
+
+
+function queueStateSnapshot(action = {}) {
+  const runStatus = action.run_status || null
+  const dispatchStatus = action.dispatch_status || null
+  const queueStage = action.queue_stage || null
+  const requestStatus = action.status || null
+  const effectiveStatus = runStatus || dispatchStatus || queueStage || requestStatus || 'unknown'
+  return {
+    actionId: String(action.action_id || ''),
+    capabilityId: action.capability_id || 'action',
+    profileId: action.profile_id || 'default',
+    requestStatus,
+    queueStage,
+    dispatchStatus,
+    runStatus,
+    effectiveStatus,
+    key: [requestStatus, queueStage, dispatchStatus, runStatus].map((item) => item || '').join('|'),
+  }
+}
+
+function queueNotificationForNewAction(action, current) {
+  return buildQueueNotification({
+    action,
+    snapshot: current,
+    tone: current?.requestStatus === 'requires_approval' ? 'warning' : 'info',
+    title: current?.requestStatus === 'requires_approval' ? 'Action needs approval' : 'Action entered queue',
+    detail: action.queue_reason || `${current.capabilityId} is waiting for execution.`,
+  })
+}
+
+function queueNotificationForTransition(action, previous, current) {
+  const status = current.runStatus || current.dispatchStatus || current.queueStage || current.requestStatus
+  if (current.runStatus === 'running') {
+    return buildQueueNotification({ action, snapshot: current, tone: 'info', title: 'Action started', detail: `${current.capabilityId} is running.` })
+  }
+  if (current.runStatus === 'flushing') {
+    return buildQueueNotification({ action, snapshot: current, tone: 'warning', title: 'Action output is being ingested', detail: `${current.capabilityId} finished execution and is flushing artifacts.` })
+  }
+  if (current.runStatus === 'failed' || current.runStatus === 'dead' || current.dispatchStatus === 'failed' || current.dispatchStatus === 'dead') {
+    return buildQueueNotification({
+      action,
+      snapshot: current,
+      tone: 'error',
+      title: 'Action failed',
+      detail: action.run_error || action.dispatch_last_error || action.queue_reason || `${current.capabilityId} failed in the execution pipeline.`,
+    })
+  }
+  if (current.requestStatus === 'requires_approval') {
+    return buildQueueNotification({ action, snapshot: current, tone: 'warning', title: 'Action needs approval', detail: action.queue_reason || `${current.capabilityId} is waiting for approval.` })
+  }
+  if (current.requestStatus === 'rejected') {
+    return buildQueueNotification({ action, snapshot: current, tone: 'warning', title: 'Action rejected or cancelled', detail: `${current.capabilityId} left the executable queue.` })
+  }
+  return buildQueueNotification({
+    action,
+    snapshot: current,
+    tone: status === 'running' ? 'info' : 'neutral',
+    title: 'Action status changed',
+    detail: `${current.capabilityId}: ${formatQueueStatus(previous)} → ${formatQueueStatus(current)}`,
+  })
+}
+
+function queueNotificationForRemovedAction(previous) {
+  return {
+    id: `queue-removed-${previous.actionId}-${Date.now()}`,
+    tone: previous.runStatus === 'failed' || previous.dispatchStatus === 'failed' ? 'error' : 'success',
+    title: 'Action left active queue',
+    detail: `${previous.capabilityId} completed, was cancelled, or moved to history.`,
+    capabilityId: previous.capabilityId,
+    profileId: previous.profileId,
+    actionId: previous.actionId,
+    createdAt: new Date().toISOString(),
+  }
+}
+
+function buildQueueNotification({ action, snapshot, tone, title, detail }) {
+  return {
+    id: `queue-${snapshot.actionId}-${snapshot.key}-${Date.now()}`,
+    tone,
+    title,
+    detail,
+    capabilityId: snapshot.capabilityId,
+    profileId: snapshot.profileId,
+    actionId: snapshot.actionId,
+    createdAt: new Date().toISOString(),
+  }
+}
+
+function formatQueueStatus(snapshot) {
+  return snapshot.runStatus || snapshot.dispatchStatus || snapshot.queueStage || snapshot.requestStatus || 'unknown'
 }
