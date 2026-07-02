@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from api.application.contracts import RunnerInvocationContext, ToolInvocation
 from api.application.pipeline.context import PipelineContext
 from api.application.pipeline.ingestion import ingest_with_optional_context
+from api.application.pipeline.extractors import normalize_targets
 from api.application.pipeline.invocation import (
     build_invocation,
     build_runner_context,
@@ -135,7 +136,7 @@ async def prepare_scan_execution(
     program_id = UUID(event["program_id"])
     job_id = UUID(event["job_id"]) if event.get("job_id") else None
     run_id = UUID(event["run_id"]) if event.get("run_id") else None
-    targets = runtime.target_extractor(event)
+    targets = normalize_targets(runtime.target_extractor(event))
 
     if not targets:
         event_name = event.get("_event_type") or event.get("event") or runtime.node_id

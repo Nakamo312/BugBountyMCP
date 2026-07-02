@@ -16,6 +16,7 @@ from api.config import Settings
 from api.application.contracts import EventEnvelope, IngestContext
 from api.application.pipeline.scope_policy import ScopePolicy
 from api.application.pipeline.invocation import RUNNER_CONTEXT_PAYLOAD_KEY
+from api.application.action_invocation_payload import action_invocation_mapping
 from api.application.action_outcomes import ActionOutcomeRecorder
 from api.application.ports.artifacts import RawArtifactMetadataWriter, RawOutputCapturePort
 from api.application.ports.orchestration import PipelineRunStatePort
@@ -226,10 +227,17 @@ class PipelineContext:
         inherited = event.get(LINEAGE_PAYLOAD_KEY) or payload.get(LINEAGE_PAYLOAD_KEY)
         lineage = dict(inherited) if isinstance(inherited, Mapping) else {}
 
+        action_payload = action_invocation_mapping(payload)
+        if not action_payload:
+            flattened = event.get("action_invocation")
+            action_payload = flattened if isinstance(flattened, Mapping) else {}
+
         for source_key, lineage_key in _LINEAGE_FIELD_MAP.items():
             value = event.get(source_key)
             if value is None:
                 value = payload.get(source_key)
+            if value is None:
+                value = action_payload.get(source_key)
             if value is not None:
                 lineage.setdefault(lineage_key, cls._json_safe(value))
 

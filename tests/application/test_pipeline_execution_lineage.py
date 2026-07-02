@@ -413,3 +413,103 @@ async def test_raw_artifact_capture_marks_run_reconcile_when_metadata_write_fail
     assert run_states.reconcile_reasons == [
         (run_id, "raw_artifact_metadata_record_failed")
     ]
+
+@pytest.mark.asyncio
+async def test_pipeline_context_extracts_lineage_from_nested_action_invocation_payload() -> None:
+    bus = RecordingBus()
+    action_id = uuid4()
+    policy_id = uuid4()
+    scope_id = uuid4()
+    campaign_id = uuid4()
+    correlation_id = uuid4()
+    context = PipelineContext(node_id="amass", bus=bus)
+    context.bind_event(
+        {
+            "event": "amass_scan_requested",
+            "event_id": str(uuid4()),
+            "job_id": str(uuid4()),
+            "run_id": str(uuid4()),
+            "program_id": str(uuid4()),
+            "campaign_id": str(campaign_id),
+            "correlation_id": str(correlation_id),
+            "targets": ["example.com"],
+            "payload": {
+                "action_invocation": {
+                    "schema": "action-invocation-v1",
+                    "action_id": str(action_id),
+                    "capability_id": "amass",
+                    "profile_id": "passive-enum",
+                    "safety_level": "safe_active",
+                    "policy_decision_id": str(policy_id),
+                    "scope_decision_id": str(scope_id),
+                    "requested_by": "workbench",
+                    "execution_budget": {"max_targets": 10, "concurrency": 2},
+                }
+            },
+        }
+    )
+
+    await context.emit(
+        event="subdomain_discovered",
+        targets=["api.example.com"],
+        program_id=uuid4(),
+    )
+
+    lineage = bus.events[0].payload[LINEAGE_PAYLOAD_KEY]
+    assert lineage["root_action_id"] == str(action_id)
+    assert lineage["root_capability_id"] == "amass"
+    assert lineage["root_profile_id"] == "passive-enum"
+    assert lineage["root_safety_level"] == "safe_active"
+    assert lineage["policy_decision_id"] == str(policy_id)
+    assert lineage["scope_decision_id"] == str(scope_id)
+    assert lineage["root_execution_budget"] == {"max_targets": 10, "concurrency": 2}
+
+
+def test_runner_context_builder_uses_downstream_runner_context_as_lineage_fallback() -> None:
+    from api.application.pipeline.invocation import build_runner_context
+
+    action_id = uuid4()
+    policy_id = uuid4()
+    scope_id = uuid4()
+    campaign_id = uuid4()
+    correlation_id = uuid4()
+    event = {
+        "event": "host_discovered",
+        "event_id": str(uuid4()),
+        "job_id": str(uuid4()),
+        "run_id": str(uuid4()),
+        "program_id": str(uuid4()),
+        "correlation_id": str(correlation_id),
+        "targets": ["api.example.com"],
+        "payload": {
+            RUNNER_CONTEXT_PAYLOAD_KEY: {
+                "node_id": "amass",
+                "root_action_id": str(action_id),
+                "root_capability_id": "amass",
+                "root_profile_id": "passive-enum",
+                "execution_budget": {"max_targets": 10, "concurrency": 2},
+                "safety_level": "safe_active",
+                "policy_decision_id": str(policy_id),
+                "scope_decision_id": str(scope_id),
+                "campaign_id": str(campaign_id),
+                "correlation_id": str(correlation_id),
+                "requested_by": "workbench",
+            }
+        },
+    }
+
+    context = build_runner_context(event, ["api.example.com"], node_id="httpx")
+
+    assert context is not None
+    assert context.node_id == "httpx"
+    assert context.upstream_node_id == "amass"
+    assert context.root_action_id == action_id
+    assert context.root_capability_id == "amass"
+    assert context.root_profile_id == "passive-enum"
+    assert context.execution_budget is not None
+    assert context.execution_budget.max_targets == 10
+    assert context.safety_level.value == "safe_active"
+    assert context.policy_decision_id == policy_id
+    assert context.scope_decision_id == scope_id
+    assert context.campaign_id == campaign_id
+    assert context.requested_by == "workbench"
