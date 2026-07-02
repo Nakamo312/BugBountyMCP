@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
+from api.application.action_control_contracts import ActionCancelResult
 from api.application.contracts import (
     ActionArtifactReference,
     ActionEventRecord,
@@ -84,6 +85,17 @@ class ActionResultPort(Protocol):
         ...
 
     async def list_action_artifacts(self, action_id: UUID) -> list[ActionArtifactReference]:
+        ...
+
+
+class ActionControlPort(Protocol):
+    async def cancel_action(
+        self,
+        *,
+        action_id: UUID,
+        cancelled_by: str,
+        reason: str | None = None,
+    ) -> ActionCancelResult | None:
         ...
 
 

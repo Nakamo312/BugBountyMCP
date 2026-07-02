@@ -76,6 +76,8 @@ class CampaignWorkspaceActionQueueItem(BaseModel):
     queue_reason: str
     can_approve: bool = False
     can_reject: bool = False
+    can_cancel: bool = False
+    cancel_reason: str | None = None
     created_at: datetime
     updated_at: datetime
 

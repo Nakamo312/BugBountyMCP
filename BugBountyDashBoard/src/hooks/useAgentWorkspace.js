@@ -4,6 +4,7 @@ import {
   acceptAgentActionProposal,
   appendAgentTaskMessage,
   approveAction,
+  cancelAction,
   createAgentTask,
   getAgentActivity,
   getAgentTaskDetail,
@@ -314,6 +315,11 @@ export function useAgentWorkspace() {
         await approveAction(action.action_id, {
           approved_by: 'human',
           reason: 'Approved from campaign workspace action queue',
+        })
+      } else if (decision === 'cancel') {
+        await cancelAction(action.action_id, {
+          cancelled_by: 'human',
+          reason: 'Cancelled from campaign workspace action queue',
         })
       } else {
         await rejectAction(action.action_id, {

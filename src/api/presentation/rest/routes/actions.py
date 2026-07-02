@@ -15,7 +15,7 @@ from api.application.services.action_errors import (
     ActionOutcomeNotFoundError,
 )
 from api.application.services.action_catalog import ActionCatalogService
-from api.presentation.schemas import ActionApprovalRequest, ActionRejectionRequest
+from api.presentation.schemas import ActionApprovalRequest, ActionCancellationRequest, ActionRejectionRequest
 
 router = APIRouter(route_class=DishkaRoute)
 
@@ -246,6 +246,32 @@ async def reject_action(
         submission = await action_service.reject_action(
             action_id=action_id,
             rejected_by=request.rejected_by,
+            reason=request.reason,
+        )
+    except ActionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ActionApprovalStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return _action_response(submission, status_code=200)
+
+
+@router.post(
+    "/{action_id}/cancel",
+    summary="Cancel queued action",
+    description="Cancels an action before the pipeline worker starts executing it.",
+    tags=["Actions"],
+    status_code=200,
+)
+async def cancel_action(
+    action_id: UUID,
+    request: ActionCancellationRequest,
+    action_service: FromDishka[ActionService],
+) -> JSONResponse:
+    try:
+        submission = await action_service.cancel_action(
+            action_id=action_id,
+            cancelled_by=request.cancelled_by,
             reason=request.reason,
         )
     except ActionNotFoundError as exc:

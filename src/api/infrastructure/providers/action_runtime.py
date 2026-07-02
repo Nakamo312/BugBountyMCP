@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from api.application.execution_limits import system_execution_budget
 from api.application.ports.action import (
+    ActionControlPort,
     ActionPolicyResultWriter,
     ActionQueryPort,
     ActionResultPort,
@@ -26,6 +27,7 @@ from api.application.services.policy import PolicyService
 from api.config import Settings
 from api.application.action_outcomes import ActionOutcomeRecorder
 from api.infrastructure.action_outcomes import ActionOutcomeStore
+from api.infrastructure.orchestration.action_control_store import ActionControlStore
 from api.infrastructure.orchestration.action_policy_result_store import ActionPolicyResultStore
 from api.infrastructure.orchestration.allowed_action_queue_store import AllowedActionQueueStore
 from api.infrastructure.orchestration.action_read_store import ActionReadStore
@@ -107,6 +109,10 @@ class ActionRuntimeProvider(Provider):
         return ActionReadStore(session_factory)
 
     @provide(scope=Scope.APP)
+    def get_action_control_store(self, session_factory: async_sessionmaker) -> ActionControlStore:
+        return ActionControlStore(session_factory)
+
+    @provide(scope=Scope.APP)
     def get_action_policy_result_store(
         self,
         session_factory: async_sessionmaker,
@@ -129,6 +135,13 @@ class ActionRuntimeProvider(Provider):
             campaigns=campaign_write_store,
             dispatches=dispatch_writer,
         )
+
+    @provide(scope=Scope.APP)
+    def get_action_control_port(
+        self,
+        action_control_store: ActionControlStore,
+    ) -> ActionControlPort:
+        return action_control_store
 
     @provide(scope=Scope.APP)
     def get_action_policy_result_writer(
@@ -283,6 +296,7 @@ class ActionRuntimeProvider(Provider):
         allowed_action_queue: AllowedActionQueueWriter,
         action_queries: ActionQueryPort,
         action_results: ActionResultPort,
+        action_controls: ActionControlPort,
         approval_requests: ApprovalRequestReader,
         approval_decisions: ApprovalDecisionWriter,
         policy_service: PolicyService,
@@ -295,6 +309,7 @@ class ActionRuntimeProvider(Provider):
             allowed_actions=allowed_action_queue,
             queries=action_queries,
             results=action_results,
+            controls=action_controls,
             approval_requests=approval_requests,
             approval_decisions=approval_decisions,
             policy=policy_service,

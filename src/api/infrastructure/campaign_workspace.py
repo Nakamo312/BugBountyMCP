@@ -431,9 +431,34 @@ def _action_queue_item(row: dict[str, Any]) -> CampaignWorkspaceActionQueueItem:
         queue_reason=queue_reason,
         can_approve=status is CampaignWorkspaceActionStatus.REQUIRES_APPROVAL,
         can_reject=status is CampaignWorkspaceActionStatus.REQUIRES_APPROVAL,
+        can_cancel=_can_cancel_action(row),
+        cancel_reason=_cancel_reason(row),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
+
+
+def _can_cancel_action(row: dict[str, Any]) -> bool:
+    status = str(row.get("status") or "")
+    run_status = row.get("run_status")
+    if status in {
+        CampaignWorkspaceActionStatus.REQUIRES_APPROVAL.value,
+        CampaignWorkspaceActionStatus.ALLOWED.value,
+    }:
+        return True
+    if status != CampaignWorkspaceActionStatus.QUEUED.value:
+        return False
+    return run_status in {None, "queued", "failed", "dead"}
+
+
+def _cancel_reason(row: dict[str, Any]) -> str | None:
+    status = str(row.get("status") or "")
+    run_status = row.get("run_status")
+    if _can_cancel_action(row):
+        return None
+    if status == CampaignWorkspaceActionStatus.QUEUED.value and run_status in {"leased", "running", "flushing"}:
+        return "Worker already started this action; queued cancellation cannot stop a live runner."
+    return "This action is not in a cancellable queue state."
 
 
 def _action_queue_explanation(row: dict[str, Any]) -> tuple[str, str]:

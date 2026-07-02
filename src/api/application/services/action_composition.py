@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from api.application.execution_limits import DEFAULT_SYSTEM_EXECUTION_BUDGET, ExecutionBudget
 from api.application.ports.action import (
+    ActionControlPort,
     ActionOutcomeFeedbackWriter,
     ActionPolicyResultWriter,
     ActionQueryPort,
@@ -15,6 +16,7 @@ from api.application.ports.action import (
 from api.application.services.action import ActionService
 from api.application.services.action_approval import ActionApprovalWorkflow
 from api.application.services.action_catalog import ActionCatalogService
+from api.application.services.action_control import ActionControlService
 from api.application.services.action_command import ActionCommandCompiler
 from api.application.services.action_envelope import ActionEnvelopeBuilder
 from api.application.services.action_outcome_feedback import ActionOutcomeFeedbackService
@@ -38,6 +40,7 @@ def build_action_service(
     scope_rules: ScopeRuleProvider | None = None,
     outcome_feedback: ActionOutcomeFeedbackWriter | None = None,
     system_budget: ExecutionBudget | None = None,
+    controls: ActionControlPort | None = None,
 ) -> ActionService:
     """Assemble action use cases once at the composition boundary."""
 
@@ -61,7 +64,7 @@ def build_action_service(
         allowed_actions=allowed_actions,
         submission_lookup=reads.get_action_submission,
     )
-    return ActionService(
+    service = ActionService(
         reads=reads,
         feedback=feedback,
         submissions=ActionSubmissionWorkflow(
@@ -79,3 +82,6 @@ def build_action_service(
             envelopes=envelopes,
         ),
     )
+    if controls is not None:
+        service.with_controls(ActionControlService(controls=controls))
+    return service

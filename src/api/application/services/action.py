@@ -14,6 +14,8 @@ from api.application.contracts import (
     ActionSubmission,
 )
 from api.application.services.action_approval import ActionApprovalWorkflow
+from api.application.services.action_control import ActionControlService
+from api.application.services.action_errors import ActionApprovalStateError
 from api.application.services.action_outcome_feedback import ActionOutcomeFeedbackService
 from api.application.services.action_read import ActionReadService
 from api.application.services.action_submission import ActionSubmissionWorkflow
@@ -34,6 +36,7 @@ class ActionService:
         self._feedback = feedback
         self._submissions = submissions
         self._approvals = approvals
+        self._controls: ActionControlService | None = None
 
     async def list_actions(
         self,
@@ -101,6 +104,26 @@ class ActionService:
         return await self._approvals.reject_action(
             action_id=action_id,
             rejected_by=rejected_by,
+            reason=reason,
+        )
+
+
+    def with_controls(self, controls: ActionControlService) -> "ActionService":
+        self._controls = controls
+        return self
+
+    async def cancel_action(
+        self,
+        *,
+        action_id: UUID,
+        cancelled_by: str = "api",
+        reason: str | None = None,
+    ) -> ActionSubmission:
+        if self._controls is None:
+            raise ActionApprovalStateError("Action cancellation controls are not configured")
+        return await self._controls.cancel_action(
+            action_id=action_id,
+            cancelled_by=cancelled_by,
             reason=reason,
         )
 

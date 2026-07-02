@@ -87,6 +87,9 @@ export const approveAction = (actionId, data = {}) =>
 export const rejectAction = (actionId, data = {}) =>
   api.post(`/actions/${actionId}/reject`, data)
 
+export const cancelAction = (actionId, data = {}) =>
+  api.post(`/actions/${actionId}/cancel`, data)
+
 let actionCatalogCache = null
 
 const resolveCatalogId = async (capability, profile) => {

@@ -387,24 +387,43 @@ function ActionQueueDetails({ action, state }) {
           {action.dispatch_last_error || action.run_error}
         </div>
       )}
-      {action.can_approve && (
-        <div className="flex gap-2">
-          <button
-            type="button"
-            disabled={state.actionBusy}
-            onClick={() => state.reviewQueuedAction(action, 'approve')}
-            className="rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
-          >
-            Approve and queue
-          </button>
-          <button
-            type="button"
-            disabled={state.actionBusy}
-            onClick={() => state.reviewQueuedAction(action, 'reject')}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 disabled:opacity-50"
-          >
-            Reject
-          </button>
+      {(action.can_approve || action.can_cancel) && (
+        <div className="flex flex-wrap gap-2">
+          {action.can_approve && (
+            <>
+              <button
+                type="button"
+                disabled={state.actionBusy}
+                onClick={() => state.reviewQueuedAction(action, 'approve')}
+                className="rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
+              >
+                Approve and queue
+              </button>
+              <button
+                type="button"
+                disabled={state.actionBusy}
+                onClick={() => state.reviewQueuedAction(action, 'reject')}
+                className="rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 disabled:opacity-50"
+              >
+                Reject
+              </button>
+            </>
+          )}
+          {action.can_cancel && (
+            <button
+              type="button"
+              disabled={state.actionBusy}
+              onClick={() => state.reviewQueuedAction(action, 'cancel')}
+              className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+            >
+              Cancel queued
+            </button>
+          )}
+        </div>
+      )}
+      {!action.can_cancel && action.cancel_reason && (
+        <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-amber-700">
+          {action.cancel_reason}
         </div>
       )}
     </div>

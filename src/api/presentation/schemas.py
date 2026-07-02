@@ -307,3 +307,10 @@ class ActionRejectionRequest(BaseModel):
 
     rejected_by: str = Field(default="api", min_length=1, max_length=100)
     reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class ActionCancellationRequest(BaseModel):
+    """Request schema for cancelling a queued action before worker execution."""
+
+    cancelled_by: str = Field(default="api", min_length=1, max_length=100)
+    reason: Optional[str] = Field(default=None, max_length=500)
