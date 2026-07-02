@@ -264,6 +264,20 @@ def test_graph_rebuild_can_refresh_only_mutable_action_outcomes() -> None:
     assert all("FROM action_outcomes" in query for query in connection.queries)
 
 
+def test_graph_rebuild_can_enqueue_missing_batches_without_resetting_existing_rows() -> None:
+    GraphRebuildService = _symbols()
+    connection = FakeConnection()
+    store = RecordingStore()
+
+    result = GraphRebuildService(connection=connection, store=store).rebuild(
+        limit=100,
+        reset_existing=False,
+    )
+
+    assert result.enqueued == 6
+    assert [call[2] for call in store.calls] == [False, False, False, False, False, False]
+
+
 def test_graph_rebuild_rejects_unknown_source() -> None:
     import pytest
 

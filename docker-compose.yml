@@ -64,7 +64,8 @@ services:
       GRAPH_PROJECTION_EVENT_POLL_SECONDS: ${GRAPH_PROJECTION_EVENT_POLL_SECONDS:-1}
       GRAPH_PROJECTION_EVENT_NOTIFY_CHANNEL: ${GRAPH_PROJECTION_EVENT_NOTIFY_CHANNEL:-graph_projection_events_changed}
       GRAPH_FACT_BATCH_NOTIFY_CHANNEL: ${GRAPH_FACT_BATCH_NOTIFY_CHANNEL:-graph_fact_batches_changed}
-    command: ["process-projection-events-loop"]
+      GRAPH_BOOTSTRAP_REBUILD_LIMIT: ${GRAPH_BOOTSTRAP_REBUILD_LIMIT:-50000}
+    command: ["process-projection-events-loop", "--bootstrap-rebuild"]
     depends_on:
       postgres:
         condition: service_healthy

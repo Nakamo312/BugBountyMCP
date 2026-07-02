@@ -65,6 +65,17 @@ def _add_batch_commands(subparsers) -> None:
     _add_limit_program_arguments(process_projection_events)
     process_projection_events_loop = subparsers.add_parser("process-projection-events-loop", help="Continuously process pending graph_projection_events through the registered GraphFact producers.")
     _add_enqueue_loop_arguments(process_projection_events_loop)
+    process_projection_events_loop.add_argument(
+        "--bootstrap-rebuild",
+        action="store_true",
+        help="Before listening for new projection events, enqueue missing GraphFact batches from existing PostgreSQL data.",
+    )
+    process_projection_events_loop.add_argument(
+        "--bootstrap-rebuild-limit",
+        type=int,
+        default=None,
+        help="Maximum source rows scanned by the startup bootstrap rebuild. Defaults to GRAPH_BOOTSTRAP_REBUILD_LIMIT.",
+    )
 
 
 def _add_experience_commands(subparsers) -> None:

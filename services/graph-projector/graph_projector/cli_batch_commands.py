@@ -17,6 +17,7 @@ from .cli_services import (
     _build_projection_event_notification_waiter,
     _build_projection_event_worker,
     _build_raw_artifact_enqueuer,
+    _build_rebuild_service,
 )
 
 _BuildEnqueuer = Callable[[GraphProjectorSettings], Any]
@@ -200,6 +201,29 @@ def process_projection_events_loop(args) -> int:
     worker = _build_projection_event_worker(settings)
     limit = settings.raw_artifact_enqueue_limit if args.limit is None else args.limit
     poll_seconds = settings.graph_projection_event_poll_seconds if args.poll_seconds is None else args.poll_seconds
+
+    if getattr(args, "bootstrap_rebuild", False):
+        bootstrap_limit = (
+            settings.bootstrap_rebuild_limit
+            if getattr(args, "bootstrap_rebuild_limit", None) is None
+            else args.bootstrap_rebuild_limit
+        )
+        bootstrap = _build_rebuild_service(settings).rebuild(
+            limit=bootstrap_limit,
+            program_id=args.program_id,
+            reset_existing=False,
+        )
+        print(
+            "graph-projector process-projection-events-loop bootstrap-rebuild: "
+            f"raw_artifacts_scanned={bootstrap.raw_artifacts_scanned} "
+            f"canonical_inventory_programs_scanned={bootstrap.canonical_inventory_programs_scanned} "
+            f"http_observation_sources_scanned={bootstrap.http_observation_sources_scanned} "
+            f"javascript_reference_sources_scanned={bootstrap.javascript_reference_sources_scanned} "
+            f"action_outcomes_scanned={bootstrap.action_outcomes_scanned} "
+            f"surface_snapshots_scanned={bootstrap.surface_snapshots_scanned} "
+            f"enqueued={bootstrap.enqueued} skipped={bootstrap.skipped}"
+        )
+
     result = worker.process_loop(
         limit=limit,
         program_id=args.program_id,

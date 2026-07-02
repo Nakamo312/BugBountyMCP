@@ -32,6 +32,7 @@ def rebuild_row_source(
     producer: RowProducer,
     store: GraphFactBatchStore,
     dedupe_key: Callable[[Mapping[str, Any], str], str],
+    reset_existing: bool = True,
 ) -> RebuildSourceResult:
     enqueued = 0
     skipped = 0
@@ -40,7 +41,7 @@ def rebuild_row_source(
         if batch is None:
             skipped += 1
             continue
-        _enqueue_rebuild_batch(store, batch, dedupe_key(row, batch.parser_version))
+        _enqueue_rebuild_batch(store, batch, dedupe_key(row, batch.parser_version), reset_existing=reset_existing)
         enqueued += 1
     return RebuildSourceResult(rows_scanned=len(rows), enqueued=enqueued, skipped=skipped)
 
@@ -52,6 +53,7 @@ def rebuild_grouped_source(
     producer: GroupedRowsProducer,
     store: GraphFactBatchStore,
     dedupe_key: Callable[[GroupKey, str], str],
+    reset_existing: bool = True,
 ) -> RebuildSourceResult:
     grouped_rows = _group_rows(rows, group_key)
     enqueued = 0
@@ -61,7 +63,7 @@ def rebuild_grouped_source(
         if batch is None:
             skipped += 1
             continue
-        _enqueue_rebuild_batch(store, batch, dedupe_key(key, batch.parser_version))
+        _enqueue_rebuild_batch(store, batch, dedupe_key(key, batch.parser_version), reset_existing=reset_existing)
         enqueued += 1
     return RebuildSourceResult(
         rows_scanned=len(rows),
@@ -81,5 +83,11 @@ def _group_rows(
     return grouped
 
 
-def _enqueue_rebuild_batch(store: GraphFactBatchStore, batch: GraphFactBatch, dedupe_key: str) -> None:
-    store.enqueue(batch, dedupe_key=f"rebuild:{dedupe_key}", reset_existing=True)
+def _enqueue_rebuild_batch(
+    store: GraphFactBatchStore,
+    batch: GraphFactBatch,
+    dedupe_key: str,
+    *,
+    reset_existing: bool,
+) -> None:
+    store.enqueue(batch, dedupe_key=f"rebuild:{dedupe_key}", reset_existing=reset_existing)

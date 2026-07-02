@@ -83,11 +83,17 @@ class GraphRebuildService:
         limit: int = 1000,
         program_id: UUID | str | None = None,
         sources: set[str] | frozenset[str] | tuple[str, ...] | list[str] | None = None,
+        reset_existing: bool = True,
     ) -> GraphRebuildResult:
         if limit <= 0:
             raise ValueError("limit must be positive")
         selected_sources = _normalize_sources(sources)
-        results = self._rebuild_selected_sources(limit=limit, program_id=program_id, sources=selected_sources)
+        results = self._rebuild_selected_sources(
+            limit=limit,
+            program_id=program_id,
+            sources=selected_sources,
+            reset_existing=reset_existing,
+        )
         return _graph_rebuild_result(results)
 
     def _rebuild_selected_sources(
@@ -96,18 +102,45 @@ class GraphRebuildService:
         limit: int,
         program_id: UUID | str | None,
         sources: frozenset[str],
+        reset_existing: bool,
     ) -> dict[str, RebuildSourceResult]:
         return {
-            "raw_artifacts": self._rebuild_raw_artifacts(limit=limit, program_id=program_id, sources=sources),
-            "canonical_inventory": self._rebuild_canonical_inventory(limit=limit, program_id=program_id, sources=sources),
-            "http_observations": self._rebuild_http_observations(limit=limit, program_id=program_id, sources=sources),
+            "raw_artifacts": self._rebuild_raw_artifacts(
+                limit=limit,
+                program_id=program_id,
+                sources=sources,
+                reset_existing=reset_existing,
+            ),
+            "canonical_inventory": self._rebuild_canonical_inventory(
+                limit=limit,
+                program_id=program_id,
+                sources=sources,
+                reset_existing=reset_existing,
+            ),
+            "http_observations": self._rebuild_http_observations(
+                limit=limit,
+                program_id=program_id,
+                sources=sources,
+                reset_existing=reset_existing,
+            ),
             "javascript_references": self._rebuild_javascript_references(
                 limit=limit,
                 program_id=program_id,
                 sources=sources,
+                reset_existing=reset_existing,
             ),
-            "action_outcomes": self._rebuild_action_outcomes(limit=limit, program_id=program_id, sources=sources),
-            "surface_map": self._rebuild_surface_map(limit=limit, program_id=program_id, sources=sources),
+            "action_outcomes": self._rebuild_action_outcomes(
+                limit=limit,
+                program_id=program_id,
+                sources=sources,
+                reset_existing=reset_existing,
+            ),
+            "surface_map": self._rebuild_surface_map(
+                limit=limit,
+                program_id=program_id,
+                sources=sources,
+                reset_existing=reset_existing,
+            ),
         }
 
     def _rebuild_raw_artifacts(
@@ -116,6 +149,7 @@ class GraphRebuildService:
         limit: int,
         program_id: UUID | str | None,
         sources: frozenset[str],
+        reset_existing: bool,
     ) -> RebuildSourceResult:
         if "raw_artifacts" not in sources:
             return RebuildSourceResult()
@@ -125,6 +159,7 @@ class GraphRebuildService:
             producer=self._raw_artifact_producer,
             store=self._store,
             dedupe_key=lambda row, parser_version: raw_artifact_dedupe_key(row["id"], parser_version),
+            reset_existing=reset_existing,
         )
 
     def _rebuild_canonical_inventory(
@@ -133,6 +168,7 @@ class GraphRebuildService:
         limit: int,
         program_id: UUID | str | None,
         sources: frozenset[str],
+        reset_existing: bool,
     ) -> RebuildSourceResult:
         if "canonical_inventory" not in sources:
             return RebuildSourceResult()
@@ -143,6 +179,7 @@ class GraphRebuildService:
             producer=self._canonical_inventory_producer,
             store=self._store,
             dedupe_key=canonical_inventory_dedupe_key,
+            reset_existing=reset_existing,
         )
 
     def _rebuild_http_observations(
@@ -151,6 +188,7 @@ class GraphRebuildService:
         limit: int,
         program_id: UUID | str | None,
         sources: frozenset[str],
+        reset_existing: bool,
     ) -> RebuildSourceResult:
         if "http_observations" not in sources:
             return RebuildSourceResult()
@@ -161,6 +199,7 @@ class GraphRebuildService:
             producer=self._http_observation_producer,
             store=self._store,
             dedupe_key=http_observations_dedupe_key,
+            reset_existing=reset_existing,
         )
 
     def _rebuild_javascript_references(
@@ -169,6 +208,7 @@ class GraphRebuildService:
         limit: int,
         program_id: UUID | str | None,
         sources: frozenset[str],
+        reset_existing: bool,
     ) -> RebuildSourceResult:
         if "javascript_references" not in sources:
             return RebuildSourceResult()
@@ -179,6 +219,7 @@ class GraphRebuildService:
             producer=self._javascript_reference_producer,
             store=self._store,
             dedupe_key=javascript_reference_dedupe_key,
+            reset_existing=reset_existing,
         )
 
     def _rebuild_action_outcomes(
@@ -187,6 +228,7 @@ class GraphRebuildService:
         limit: int,
         program_id: UUID | str | None,
         sources: frozenset[str],
+        reset_existing: bool,
     ) -> RebuildSourceResult:
         if "action_outcomes" not in sources:
             return RebuildSourceResult()
@@ -200,6 +242,7 @@ class GraphRebuildService:
                 row.get("updated_at"),
                 parser_version,
             ),
+            reset_existing=reset_existing,
         )
 
     def _rebuild_surface_map(
@@ -208,6 +251,7 @@ class GraphRebuildService:
         limit: int,
         program_id: UUID | str | None,
         sources: frozenset[str],
+        reset_existing: bool,
     ) -> RebuildSourceResult:
         if "surface_map" not in sources:
             return RebuildSourceResult()
@@ -218,6 +262,7 @@ class GraphRebuildService:
             producer=self._surface_map_producer,
             store=self._store,
             dedupe_key=lambda key, parser_version: surface_map_dedupe_key(key[0], key[1], parser_version),
+            reset_existing=reset_existing,
         )
 
 

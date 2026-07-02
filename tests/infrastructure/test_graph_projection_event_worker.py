@@ -86,5 +86,7 @@ def test_projection_event_worker_is_wired_into_graph_compose_profile() -> None:
     assert "GraphProjectionEventWorker" in main_source
     assert "graph-projector-events:" in compose_source
     assert "container_name: bb-graph-projector-events" in compose_source
-    assert 'command: ["process-projection-events-loop"]' in compose_source
+    assert 'command: ["process-projection-events-loop", "--bootstrap-rebuild"]' in compose_source
+    assert "--bootstrap-rebuild" in main_source
+    assert "GRAPH_BOOTSTRAP_REBUILD_LIMIT" in compose_source
     assert "GRAPH_PROJECTION_EVENT_NOTIFY_CHANNEL" in compose_source

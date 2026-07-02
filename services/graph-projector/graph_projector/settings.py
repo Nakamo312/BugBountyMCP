@@ -21,6 +21,7 @@ class GraphProjectorSettings:
     graph_projection_event_notify_channel: str = "graph_projection_events_changed"
     graph_projection_event_poll_seconds: float = 1.0
     raw_artifact_enqueue_limit: int = 100
+    bootstrap_rebuild_limit: int = 50000
     raw_artifact_enqueue_poll_seconds: float = 5.0
     http_observation_enqueue_limit: int = 100
     http_observation_enqueue_poll_seconds: float = 5.0
@@ -51,6 +52,7 @@ class GraphProjectorSettings:
             ),
             graph_projection_event_poll_seconds=_env_float("GRAPH_PROJECTION_EVENT_POLL_SECONDS", default=1.0),
             raw_artifact_enqueue_limit=_env_int("RAW_ARTIFACT_ENQUEUE_LIMIT", default=100),
+            bootstrap_rebuild_limit=_env_int("GRAPH_BOOTSTRAP_REBUILD_LIMIT", default=50000),
             raw_artifact_enqueue_poll_seconds=_env_float("RAW_ARTIFACT_ENQUEUE_POLL_SECONDS", default=5.0),
             http_observation_enqueue_limit=_env_int("HTTP_OBSERVATION_ENQUEUE_LIMIT", default=100),
             http_observation_enqueue_poll_seconds=_env_float("HTTP_OBSERVATION_ENQUEUE_POLL_SECONDS", default=5.0),
