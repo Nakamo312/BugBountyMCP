@@ -50,10 +50,10 @@ export const SectionCard = ({ title, icon: Icon, children, action }) => (
 
 export const StatTile = ({ title, value, icon: Icon, tone = 'blue' }) => {
   const tones = {
-    blue: 'bg-blue-50 text-blue-600',
-    violet: 'bg-violet-50 text-violet-600',
-    amber: 'bg-amber-50 text-amber-600',
-    emerald: 'bg-emerald-50 text-emerald-600',
+    blue: 'text-blue-600',
+    violet: 'text-violet-600',
+    amber: 'text-amber-600',
+    emerald: 'text-emerald-600',
   }
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -62,7 +62,7 @@ export const StatTile = ({ title, value, icon: Icon, tone = 'blue' }) => {
           <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{title}</p>
           <p className="mt-2 text-2xl font-bold text-gray-900">{value ?? 0}</p>
         </div>
-        <div className={`rounded-xl p-3 ${tones[tone] || tones.blue}`}>
+        <div className={tones[tone] || tones.blue}>
           <Icon size={20} />
         </div>
       </div>
@@ -74,15 +74,15 @@ export const MessageCard = ({ message }) => {
   const isUser = message.role === 'user'
   const isDecision = message.message_kind === 'decision'
   const iconClass = isUser
-    ? 'bg-gray-900 text-white'
+    ? 'text-gray-900'
     : isDecision
-      ? 'bg-emerald-600 text-white'
-      : 'bg-primary-600 text-white'
+      ? 'text-emerald-600'
+      : 'text-primary-600'
 
   return (
     <article className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
       <div className="flex gap-3">
-        <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${iconClass}`}>
+        <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center ${iconClass}`}>
           {isUser ? <MessageSquare size={17} /> : isDecision ? <CheckCircle2 size={17} /> : <Bot size={17} />}
         </div>
         <div className="min-w-0 flex-1">

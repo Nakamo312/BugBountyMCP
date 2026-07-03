@@ -106,9 +106,9 @@ const Workbench = () => {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="terminal-title-prefix text-3xl font-bold text-gray-900">Workbench</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Workbench</h1>
           <p className="mt-2 text-gray-600">
-            graph / evidence / memory / actions ·{' '}
+            Graph, evidence, memory, and actions for{' '}
             <span className="font-semibold text-primary-600">{selectedProgram.name}</span>
           </p>
         </div>
@@ -123,7 +123,7 @@ const Workbench = () => {
         </button>
       </div>
 
-      <div className="terminal-card rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <LensSelector lens={lens} lenses={lenses} onChange={openLens} />
           <div className="flex items-center gap-2 text-xs text-gray-500">
@@ -168,7 +168,7 @@ const Workbench = () => {
         <CountBadge label="Pending proposals" value={counts.experience_proposals_pending} />
       </div>
 
-      <div className="terminal-card grid h-[calc(100vh-300px)] min-h-[760px] grid-cols-[270px_minmax(0,1fr)_340px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="grid h-[calc(100vh-300px)] min-h-[760px] grid-cols-[270px_minmax(0,1fr)_340px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <NodeList
           graph={graph}
           selectedNode={selectedNode}
@@ -215,7 +215,7 @@ const Workbench = () => {
         </div>
       </div>
 
-      <div className="terminal-card flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
         <div>
           <div className="text-sm font-semibold text-gray-900">Projection diagnostics</div>
           <div className="text-xs text-gray-500">Read-model freshness, queue health, and repair operations.</div>

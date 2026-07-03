@@ -456,7 +456,7 @@ function ActivityPanel({ activity }) {
 function ActivityRow({ event }) {
   return (
     <div className="flex gap-3 border-b border-gray-100 py-3 last:border-b-0">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-900 text-white">
+      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center text-primary-600">
         {event.event_type === 'proposal_decision' ? <CheckCircle2 size={15} /> : event.event_type === 'agent_proposal' ? <Sparkles size={15} /> : <Activity size={15} />}
       </div>
       <div className="min-w-0 flex-1">

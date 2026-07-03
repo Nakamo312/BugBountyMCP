@@ -13,11 +13,8 @@ const Layout = ({ children }) => {
       <aside className="fixed left-0 top-0 h-full w-72 border-r border-gray-800 bg-gray-950 text-white shadow-lg">
         <div className="flex h-full flex-col">
           <div className="border-b border-gray-800 p-6">
-            <div className="mb-3 inline-flex rounded-full border border-cyan-200/40 bg-cyan-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.28em] text-cyan-600">
-              terminal ui
-            </div>
-            <h1 className="terminal-title-prefix text-xl font-bold text-slate-100">Bug Bounty MCP</h1>
-            <p className="mt-1 text-xs text-gray-400">scope / graph / runs</p>
+            <h1 className="text-xl font-bold text-primary-400">Bug Bounty Dashboard</h1>
+            <p className="mt-1 text-xs text-gray-400">Program state, graph analysis, and execution control.</p>
           </div>
 
           <div className="border-b border-gray-800 p-4">
@@ -38,10 +35,10 @@ const Layout = ({ children }) => {
                       <Link
                         key={item.path}
                         to={item.path}
-                        className={`group flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
+                        className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
                           active
-                            ? 'border-cyan-200 bg-cyan-600 text-white'
-                            : 'border-transparent text-gray-300 hover:border-gray-800 hover:bg-gray-800 hover:text-white'
+                            ? 'bg-primary-600 text-white'
+                            : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                         }`}
                       >
                         <Icon size={18} />
@@ -55,9 +52,9 @@ const Layout = ({ children }) => {
           </nav>
 
           <div className="border-t border-gray-800 p-4 text-sm text-gray-400">
-            <div className="flex items-center gap-2 font-mono text-xs">
+            <div className="flex items-center gap-2">
               <AlertCircle size={16} />
-              <span>api:v0.1.0</span>
+              <span>API v0.1.0</span>
             </div>
           </div>
         </div>

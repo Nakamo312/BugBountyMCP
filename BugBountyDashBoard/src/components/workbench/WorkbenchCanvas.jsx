@@ -298,7 +298,7 @@ const GraphLegend = memo(({ graph, hiddenNodeCount, mode, totalNodes }) => {
   const counts = graphCounts(graph)
   return (
     <div className="pointer-events-none absolute left-4 top-4 z-10 max-w-xl rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs text-slate-700 shadow-sm backdrop-blur">
-      <div className="font-semibold text-slate-900">graph:view</div>
+      <div className="font-semibold text-slate-900">Investigation graph</div>
       <div className="mt-1">
         Canvas renderer, hover/select to reveal labels, double click to focus.
         {' '}
@@ -354,18 +354,18 @@ const EmptyCanvas = ({ graph }) => {
 
 const CanvasBoundsStyle = () => (
   <style>{`
-    .workbench-canvas-bounds { position: relative; overflow: hidden; isolation: isolate; }
+    .workbench-canvas-bounds { position: relative; overflow: hidden; isolation: isolate; background: #0b0f14; }
     .workbench-canvas-bounds::before {
       content: '';
       pointer-events: none;
       position: absolute;
       inset: 0;
       z-index: 1;
-      background:
-        radial-gradient(circle at 50% 40%, rgba(96, 165, 250, 0.10), transparent 38rem),
-        linear-gradient(rgba(125, 211, 252, 0.035) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(192, 132, 252, 0.022) 1px, transparent 1px);
-      background-size: auto, 32px 32px, 32px 32px;
+      background-image:
+        linear-gradient(rgba(125, 211, 252, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(125, 211, 252, 0.025) 1px, transparent 1px);
+      background-size: 32px 32px;
+      opacity: 0.9;
     }
     .workbench-canvas-bounds > div { max-width: 100% !important; max-height: 100% !important; overflow: hidden !important; }
     .workbench-canvas-bounds canvas { display: block !important; max-width: 100% !important; max-height: 100% !important; touch-action: none; }
