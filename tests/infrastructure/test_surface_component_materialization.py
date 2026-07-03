@@ -200,3 +200,24 @@ def test_surface_component_analysis_latest_binds_previous_snapshot_id_when_reque
     latest_params = next(params for query, params in zip(connection.queries, connection.parameters) if "FROM surface_component_analysis_runs" in query)
 
     assert latest_params["previous_snapshot_id"] == previous_snapshot_id
+
+
+def test_surface_component_profile_carries_node_fingerprints_for_workbench_signal_join() -> None:
+    from graph_projector.surface_gds_queries import SURFACE_COMPONENT_PROFILE_CYPHER
+    from graph_projector.surface_gds_rows import _component_profile_from_row
+
+    profile = _component_profile_from_row(
+        {
+            "component_id": 9,
+            "node_count": 2,
+            "changed_node_count": 1,
+            "avg_novelty_score": 25.0,
+            "max_novelty_score": 80,
+            "avg_degree": 1.0,
+            "max_degree": 2.0,
+            "node_fingerprints": ["a" * 64, "b" * 64],
+        }
+    )
+
+    assert "node_fingerprints" in SURFACE_COMPONENT_PROFILE_CYPHER
+    assert profile.node_fingerprints == ("a" * 64, "b" * 64)

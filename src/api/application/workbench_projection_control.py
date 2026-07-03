@@ -18,6 +18,7 @@ class WorkbenchProjectionOperation(StrEnum):
     BUILD_SURFACE = "build_surface"
     MATERIALIZE_COMPONENTS = "materialize_components"
     REFRESH_WORKBENCH = "refresh_workbench"
+    SYNC_NEO4J = "sync_neo4j"
 
 
 class WorkbenchProjectionRunRequest(BaseModel):

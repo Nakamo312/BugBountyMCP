@@ -40,6 +40,7 @@ class SurfaceComponentProfile:
     max_degree: float
     novelty_density: float
     structural_pressure_score: int
+    node_fingerprints: tuple[str, ...] = ()
 
 
 

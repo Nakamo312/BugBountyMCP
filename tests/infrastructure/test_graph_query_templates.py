@@ -193,3 +193,20 @@ def test_gds_readiness_requires_rebuild_support_and_safe_query_templates() -> No
     assert ready.missing_query_templates == ()
     assert missing_rebuild.ready is False
     assert missing_rebuild.reasons == ("graph rebuild command is not available",)
+
+
+def test_program_exposure_topology_uses_island_tolerant_subqueries() -> None:
+    _, default_query_template_registry, _ = _symbols()
+    template = default_query_template_registry().get("program_exposure_topology")
+
+    assert "CALL {" in template.cypher
+    assert "OPTIONAL MATCH (program:Program" in template.cypher
+    assert "topology_nodes" in template.cypher
+    assert "collect(host_ip_path)[0..$limit]" in template.cypher
+    assert "collect(ip_cidr_path)[0..$limit]" in template.cypher
+    assert "collect(cidr_asn_path)[0..$limit]" in template.cypher
+    assert "MATCH infra_path = (:ASN" not in template.cypher
+    assert "collect(observation_evidence_path)[0..$limit]" in template.cypher
+    assert "surface_endpoint_path" in template.cypher
+    assert "REPRESENTS" in template.cypher
+    assert "HAS_REQUEST_SHAPE" in template.cypher

@@ -2,7 +2,6 @@ import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { AlertCircle } from 'lucide-react'
 import ProgramSelector from './ProgramSelector'
-import { ActionQueueStatusToasts } from './notifications/ActionQueueStatusToasts'
 import { dashboardNavGroups, isNavItemActive } from '../navigation/dashboardNavigation'
 
 const Layout = ({ children }) => {
@@ -63,7 +62,6 @@ const Layout = ({ children }) => {
       <main className="ml-72 p-8">
         {children}
       </main>
-      <ActionQueueStatusToasts />
     </div>
   )
 }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from ipaddress import ip_address
+import json
 from typing import Any, Mapping
 from uuid import UUID
 
@@ -12,6 +13,15 @@ from ..row_codec import (
     required_row_text,
     required_row_uuid,
 )
+
+
+@dataclass(frozen=True)
+class InputParameterProjection:
+    location: str
+    name: str
+    param_type: str
+    reflected: bool
+    is_array: bool
 
 
 @dataclass(frozen=True)
@@ -30,6 +40,11 @@ class HttpObservationProjection:
     status_code: int | None
     content_type: str | None
     url: str | None
+    body_sha256: str | None
+    body_size_bytes: int | None
+    body_artifact_id: UUID | None
+    input_parameters: tuple[InputParameterProjection, ...]
+    response_header_names: tuple[str, ...]
 
 
 def http_observation_projection_from_row(row: Mapping[str, Any]) -> HttpObservationProjection | None:
@@ -57,6 +72,11 @@ def http_observation_projection_from_row(row: Mapping[str, Any]) -> HttpObservat
         status_code=optional_int(row.get("status_code")),
         content_type=optional_text(row.get("content_type")),
         url=optional_text(row.get("url")),
+        body_sha256=_optional_sha256(row.get("body_sha256")),
+        body_size_bytes=optional_int(row.get("body_size_bytes")),
+        body_artifact_id=optional_uuid(row.get("body_artifact_id")),
+        input_parameters=_input_parameters(row.get("input_parameters")),
+        response_header_names=_response_header_names(row.get("response_header_names")),
     )
 
 
@@ -94,3 +114,106 @@ def canonical_ip_address(value: str) -> str:
         return str(ip_address(text))
     except ValueError:
         return text
+
+
+def _optional_sha256(value: Any) -> str | None:
+    text = optional_text(value)
+    if text is None:
+        return None
+    lowered = text.lower()
+    return lowered if len(lowered) == 64 and all(ch in "0123456789abcdef" for ch in lowered) else None
+
+
+def _input_parameters(value: Any) -> tuple[InputParameterProjection, ...]:
+    records = _records(value)
+    params: list[InputParameterProjection] = []
+    seen: set[tuple[str, str]] = set()
+    for record in records:
+        location = _safe_location(record.get("location"))
+        name = _safe_name(record.get("name"))
+        if location is None or name is None:
+            continue
+        key = (location, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        params.append(
+            InputParameterProjection(
+                location=location,
+                name=name,
+                param_type=_safe_param_type(record.get("param_type")),
+                reflected=_safe_bool(record.get("reflected")),
+                is_array=_safe_bool(record.get("is_array")),
+            )
+        )
+    return tuple(sorted(params, key=lambda item: (item.location, item.name)))
+
+
+def _response_header_names(value: Any) -> tuple[str, ...]:
+    names: set[str] = set()
+    if isinstance(value, (list, tuple, set)):
+        values = value
+    elif value is None:
+        values = ()
+    else:
+        try:
+            parsed = json.loads(str(value))
+        except Exception:
+            parsed = ()
+        values = parsed if isinstance(parsed, list) else ()
+    for item in values:
+        name = _safe_name(item)
+        if name is not None:
+            names.add(name.lower())
+    return tuple(sorted(names))
+
+
+def _records(value: Any) -> tuple[Mapping[str, Any], ...]:
+    if value is None:
+        return ()
+    parsed: Any = value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return ()
+    if not isinstance(parsed, list):
+        return ()
+    return tuple(item for item in parsed if isinstance(item, Mapping))
+
+
+def _safe_location(value: Any) -> str | None:
+    text = optional_text(value)
+    if text is None:
+        return None
+    location = text.lower()
+    return location if location in {"query", "path", "body", "header", "cookie", "graphql", "form"} else None
+
+
+def _safe_param_type(value: Any) -> str:
+    text = optional_text(value)
+    if text is None:
+        return "string"
+    param_type = text.lower()
+    return param_type if param_type in {"string", "integer", "boolean", "array", "object", "file"} else "string"
+
+
+def _safe_name(value: Any) -> str | None:
+    text = optional_text(value)
+    if text is None:
+        return None
+    safe = text.strip().strip("\x00")
+    if not safe or len(safe) > 255:
+        return None
+    return safe
+
+
+def _safe_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return bool(value)
+    text = optional_text(value)
+    if text is None:
+        return False
+    return text.lower() in {"1", "true", "t", "yes", "y"}

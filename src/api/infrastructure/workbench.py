@@ -377,6 +377,7 @@ class WorkbenchGraphStore:
             settings=self.settings,
             program_id=program_id,
             lens=lens,
+            session_factory=self.session_factory,
             seed=seed,
             depth=depth,
             limit=limit,

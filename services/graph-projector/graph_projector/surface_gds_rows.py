@@ -196,6 +196,8 @@ def _component_profile_from_row(row: dict[str, object]) -> SurfaceComponentProfi
         max_novelty_score=max_novelty_score,
         max_degree=max_degree,
     )
+    raw_fingerprints = row.get("node_fingerprints") or ()
+    node_fingerprints = tuple(str(item) for item in raw_fingerprints if item)
     return SurfaceComponentProfile(
         component_id=int(row["component_id"]),
         node_count=node_count,
@@ -206,6 +208,7 @@ def _component_profile_from_row(row: dict[str, object]) -> SurfaceComponentProfi
         max_degree=max_degree,
         novelty_density=novelty_density,
         structural_pressure_score=structural_pressure_score,
+        node_fingerprints=node_fingerprints,
     )
 
 

@@ -1,8 +1,9 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Activity,
   AlertTriangle,
+  Bell,
   Bot,
   CheckCircle2,
   Clock3,
@@ -16,6 +17,7 @@ import {
   ShieldCheck,
   Sparkles,
   Target,
+  X,
 } from 'lucide-react'
 import {
   AgentRuntimeModeControl,
@@ -52,6 +54,10 @@ export function AgentWorkspaceView({ state }) {
 
   return (
     <div className="space-y-6">
+      <QueueNotificationToasts
+        notifications={state.queueNotifications || []}
+        onDismiss={state.dismissQueueNotification}
+      />
       <WorkspaceHeader state={state} />
       <WorkspaceError error={state.error} />
       <WorkspaceStats workspace={state.workspace} />
@@ -67,6 +73,69 @@ export function AgentWorkspaceView({ state }) {
       </div>
     </div>
   )
+}
+
+
+function QueueNotificationToasts({ notifications, onDismiss }) {
+  if (!notifications?.length) return null
+  return (
+    <div className="pointer-events-none fixed bottom-6 right-6 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-3">
+      {notifications.slice(0, 5).map((notification) => (
+        <QueueNotificationToast
+          key={notification.id}
+          notification={notification}
+          onDismiss={onDismiss}
+        />
+      ))}
+    </div>
+  )
+}
+
+function QueueNotificationToast({ notification, onDismiss }) {
+  useEffect(() => {
+    const timer = window.setTimeout(() => onDismiss?.(notification.id), 7000)
+    return () => window.clearTimeout(timer)
+  }, [notification.id, onDismiss])
+
+  const toneClass = queueToastToneClass(notification.tone)
+  return (
+    <article className={`pointer-events-auto rounded-2xl border bg-white p-4 shadow-2xl ${toneClass.border}`}>
+      <div className="flex gap-3">
+        <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${toneClass.icon}`}>
+          <Bell size={17} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-semibold text-gray-900">{notification.title}</p>
+              <p className="mt-1 text-sm leading-5 text-gray-600">{notification.detail}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onDismiss?.(notification.id)}
+              className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+              aria-label="Dismiss notification"
+            >
+              <X size={15} />
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            <Badge className="border-gray-200 bg-gray-50 text-gray-600">{notification.capabilityId}</Badge>
+            <Badge className="border-gray-200 bg-gray-50 text-gray-600">{notification.profileId}</Badge>
+            {notification.actionId && <span className="font-mono text-gray-400">#{shortId(notification.actionId)}</span>}
+          </div>
+        </div>
+      </div>
+    </article>
+  )
+}
+
+function queueToastToneClass(tone) {
+  if (tone === 'success') return { border: 'border-emerald-200', icon: 'bg-emerald-50 text-emerald-700' }
+  if (tone === 'warning') return { border: 'border-amber-200', icon: 'bg-amber-50 text-amber-700' }
+  if (tone === 'error') return { border: 'border-red-200', icon: 'bg-red-50 text-red-700' }
+  if (tone === 'info') return { border: 'border-blue-200', icon: 'bg-blue-50 text-blue-700' }
+  return { border: 'border-gray-200', icon: 'bg-gray-50 text-gray-700' }
 }
 
 

@@ -90,6 +90,127 @@ class GraphQueryTemplateRegistry:
         return tuple(sorted(self._templates))
 
 
+
+
+def _program_exposure_topology_cypher(*, include_surface_bridge: bool) -> str:
+    # Rendered Cypher starts with: OPTIONAL MATCH (program:Program {program_id: $program_id})
+    # The topology is intentionally island-tolerant. Missing ASN/CIDR/IP/Host/Service
+    # links must not hide endpoints, parameters, request shapes, or evidence nodes that
+    # still carry program_id. Relationship paths are read as bounded partial segments so
+    # a broken or incomplete chain does not suppress the rest of the graph.
+    surface_bridge = ""
+    surface_return = ""
+    if include_surface_bridge:
+        surface_bridge = """
+CALL {
+  WITH program
+  MATCH surface_bridge_path = (surface:SurfaceNode {program_id: $program_id})-[:REPRESENTS]->(:Host {program_id: $program_id})
+  RETURN collect(surface_bridge_path)[0..$limit] AS surface_bridge_paths
+}
+CALL {
+  WITH program
+  MATCH surface_endpoint_path = (surface:SurfaceNode {program_id: $program_id})-[:REPRESENTS]->(host:Host {program_id: $program_id})
+    -[:EXPOSES_SERVICE]->(:Service {program_id: $program_id})-[:HAS_ENDPOINT]->(endpoint:Endpoint {program_id: $program_id})
+  WHERE surface.method = endpoint.method
+    AND coalesce(surface.route_template, surface.path) = coalesce(endpoint.route_template, endpoint.normalized_path, endpoint.path)
+  RETURN collect(surface_endpoint_path)[0..$limit] AS surface_endpoint_paths
+}
+"""
+        surface_return = ",\n       surface_bridge_paths,\n       surface_endpoint_paths"
+    return f"""
+OPTIONAL MATCH (program:Program {{program_id: $program_id}})
+WITH program LIMIT 1
+CALL {{
+  WITH program
+  MATCH topology_node {{program_id: $program_id}}
+  WHERE any(label IN labels(topology_node) WHERE label IN ["Program", "ASN", "CIDR", "IP", "Host", "Service", "Endpoint", "Parameter", "RequestShape", "ResponseShape", "Artifact", "Observation", "Evidence", "SurfaceNode"])
+  RETURN collect(topology_node)[0..$limit] AS topology_nodes
+}}
+CALL {{
+  WITH program
+  OPTIONAL MATCH asset_path = (program)-[:HAS_ASSET]->(asset {{program_id: $program_id}})
+  WHERE any(label IN labels(asset) WHERE label IN ["ASN", "CIDR", "IP", "Host", "Service", "Endpoint", "Parameter", "RequestShape", "ResponseShape", "Artifact", "Observation", "Evidence"])
+  RETURN collect(asset_path)[0..$limit] AS asset_paths
+}}
+CALL {{
+  WITH program
+  MATCH host_ip_path = (:Host {{program_id: $program_id}})-[:RESOLVES_TO]->(:IP {{program_id: $program_id}})
+  RETURN collect(host_ip_path)[0..$limit] AS host_ip_paths
+}}
+CALL {{
+  WITH program
+  MATCH ip_cidr_path = (:IP {{program_id: $program_id}})-[:IN_CIDR]->(:CIDR {{program_id: $program_id}})
+  RETURN collect(ip_cidr_path)[0..$limit] AS ip_cidr_paths
+}}
+CALL {{
+  WITH program
+  MATCH cidr_asn_path = (:CIDR {{program_id: $program_id}})-[:ANNOUNCED_BY]->(:ASN {{program_id: $program_id}})
+  RETURN collect(cidr_asn_path)[0..$limit] AS cidr_asn_paths
+}}
+CALL {{
+  WITH program
+  MATCH service_path = (:Host {{program_id: $program_id}})-[:EXPOSES_SERVICE]->(:Service {{program_id: $program_id}})
+  RETURN collect(service_path)[0..$limit] AS service_paths
+}}
+CALL {{
+  WITH program
+  MATCH ip_service_path = (:IP {{program_id: $program_id}})-[:EXPOSES_SERVICE]->(:Service {{program_id: $program_id}})
+  RETURN collect(ip_service_path)[0..$limit] AS ip_service_paths
+}}
+CALL {{
+  WITH program
+  MATCH endpoint_path = (:Service {{program_id: $program_id}})-[:HAS_ENDPOINT]->(:Endpoint {{program_id: $program_id}})
+  RETURN collect(endpoint_path)[0..$limit] AS endpoint_paths
+}}
+CALL {{
+  WITH program
+  MATCH parameter_path = (:Endpoint {{program_id: $program_id}})-[:HAS_PARAM]->(:Parameter {{program_id: $program_id}})
+  RETURN collect(parameter_path)[0..$limit] AS parameter_paths
+}}
+CALL {{
+  WITH program
+  MATCH request_shape_path = (:Endpoint {{program_id: $program_id}})-[:HAS_REQUEST_SHAPE]->(:RequestShape {{program_id: $program_id}})
+  RETURN collect(request_shape_path)[0..$limit] AS request_shape_paths
+}}
+CALL {{
+  WITH program
+  MATCH response_shape_path = (:RequestShape {{program_id: $program_id}})-[:YIELDS_RESPONSE]->(:ResponseShape {{program_id: $program_id}})
+  RETURN collect(response_shape_path)[0..$limit] AS response_shape_paths
+}}
+CALL {{
+  WITH program
+  MATCH response_delta_path = (:ResponseShape {{program_id: $program_id}})-[:DIFFERS_FROM]->(:ResponseShape {{program_id: $program_id}})
+  RETURN collect(response_delta_path)[0..$limit] AS response_delta_paths
+}}
+CALL {{
+  WITH program
+  MATCH evidence_path = (:RequestShape {{program_id: $program_id}})-[:SUPPORTED_BY]->(:Observation {{program_id: $program_id}})<-[:PRODUCED_OBSERVATION]-(:Artifact {{program_id: $program_id}})
+  RETURN collect(evidence_path)[0..$limit] AS evidence_paths
+}}
+CALL {{
+  WITH program
+  MATCH observation_evidence_path = (:Observation {{program_id: $program_id}})-[:SUPPORTS_EVIDENCE]->(:Evidence {{program_id: $program_id}})-[:DERIVED_FROM]->(:Artifact {{program_id: $program_id}})
+  RETURN collect(observation_evidence_path)[0..$limit] AS observation_evidence_paths
+}}{surface_bridge}
+RETURN program,
+       topology_nodes,
+       asset_paths,
+       host_ip_paths,
+       ip_cidr_paths,
+       cidr_asn_paths,
+       service_paths,
+       ip_service_paths,
+       endpoint_paths,
+       parameter_paths,
+       request_shape_paths,
+       response_shape_paths,
+       response_delta_paths,
+       evidence_paths,
+       observation_evidence_paths{surface_return}
+LIMIT $limit
+""".strip()
+
+
 def default_query_template_registry() -> GraphQueryTemplateRegistry:
     return GraphQueryTemplateRegistry(
         (
@@ -109,52 +230,15 @@ LIMIT $limit
             GraphQueryTemplate(
                 name="asset_exposure",
                 description="Read exposed services and endpoints for one program.",
-                cypher="""
-MATCH (program:Program {program_id: $program_id})
-OPTIONAL MATCH asset_path = (program)-[:HAS_ASSET]->(:Host|IP|ASN|CIDR|Service|Endpoint|Parameter|RequestShape {program_id: $program_id})
-OPTIONAL MATCH infra_path = (:ASN {program_id: $program_id})<-[:ANNOUNCED_BY]-(:CIDR {program_id: $program_id})<-[:IN_CIDR]-(:IP {program_id: $program_id})<-[:RESOLVES_TO]-(:Host {program_id: $program_id})
-OPTIONAL MATCH service_path = (:Host {program_id: $program_id})-[:EXPOSES_SERVICE]->(:Service {program_id: $program_id})
-OPTIONAL MATCH endpoint_path = (:Service {program_id: $program_id})-[:HAS_ENDPOINT]->(:Endpoint {program_id: $program_id})
-OPTIONAL MATCH parameter_path = (:Endpoint {program_id: $program_id})-[:HAS_PARAM]->(:Parameter {program_id: $program_id})
-OPTIONAL MATCH request_shape_path = (:Endpoint {program_id: $program_id})-[:HAS_REQUEST_SHAPE]->(:RequestShape {program_id: $program_id})
-RETURN program,
-       collect(asset_path)[0..$limit] AS asset_paths,
-       collect(infra_path)[0..$limit] AS infra_paths,
-       collect(service_path)[0..$limit] AS service_paths,
-       collect(endpoint_path)[0..$limit] AS endpoint_paths,
-       collect(parameter_path)[0..$limit] AS parameter_paths,
-       collect(request_shape_path)[0..$limit] AS request_shape_paths
-LIMIT $limit
-""".strip(),
+                cypher=_program_exposure_topology_cypher(include_surface_bridge=False),
                 required_parameters=("program_id",),
                 optional_parameters=("limit",),
+                max_rows=250,
             ),
             GraphQueryTemplate(
                 name="program_exposure_topology",
                 description="Read program-rooted ASN/CIDR/IP/Host/Service/Endpoint/Parameter/RequestShape topology.",
-                cypher="""
-MATCH (program:Program {program_id: $program_id})
-OPTIONAL MATCH asset_path = (program)-[:HAS_ASSET]->(:Host|IP|ASN|CIDR|Service|Endpoint|Parameter|RequestShape {program_id: $program_id})
-OPTIONAL MATCH infra_path = (:ASN {program_id: $program_id})<-[:ANNOUNCED_BY]-(:CIDR {program_id: $program_id})<-[:IN_CIDR]-(:IP {program_id: $program_id})<-[:RESOLVES_TO]-(:Host {program_id: $program_id})
-OPTIONAL MATCH host_service_path = (:Host {program_id: $program_id})-[:EXPOSES_SERVICE]->(:Service {program_id: $program_id})
-OPTIONAL MATCH ip_service_path = (:IP {program_id: $program_id})-[:EXPOSES_SERVICE]->(:Service {program_id: $program_id})
-OPTIONAL MATCH endpoint_path = (:Service {program_id: $program_id})-[:HAS_ENDPOINT]->(:Endpoint {program_id: $program_id})
-OPTIONAL MATCH parameter_path = (:Endpoint {program_id: $program_id})-[:HAS_PARAM]->(:Parameter {program_id: $program_id})
-OPTIONAL MATCH request_shape_path = (:Endpoint {program_id: $program_id})-[:HAS_REQUEST_SHAPE]->(:RequestShape {program_id: $program_id})
-OPTIONAL MATCH evidence_path = (:RequestShape {program_id: $program_id})-[:SUPPORTED_BY]->(:Observation {program_id: $program_id})<-[:PRODUCED_OBSERVATION]-(:Artifact {program_id: $program_id})
-OPTIONAL MATCH surface_bridge_path = (:SurfaceNode {program_id: $program_id})-[:REPRESENTS]->(:Host {program_id: $program_id})
-RETURN program,
-       collect(asset_path)[0..$limit] AS asset_paths,
-       collect(infra_path)[0..$limit] AS infra_paths,
-       collect(host_service_path)[0..$limit] AS host_service_paths,
-       collect(ip_service_path)[0..$limit] AS ip_service_paths,
-       collect(endpoint_path)[0..$limit] AS endpoint_paths,
-       collect(parameter_path)[0..$limit] AS parameter_paths,
-       collect(request_shape_path)[0..$limit] AS request_shape_paths,
-       collect(evidence_path)[0..$limit] AS evidence_paths,
-       collect(surface_bridge_path)[0..$limit] AS surface_bridge_paths
-LIMIT $limit
-""".strip(),
+                cypher=_program_exposure_topology_cypher(include_surface_bridge=True),
                 required_parameters=("program_id",),
                 optional_parameters=("limit",),
                 max_rows=250,

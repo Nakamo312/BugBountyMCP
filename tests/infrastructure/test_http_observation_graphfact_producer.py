@@ -279,6 +279,113 @@ def test_http_observation_producer_projects_query_parameters() -> None:
     ) in edge_facts
 
 
+
+def test_http_observation_producer_projects_persisted_parameter_and_safe_request_shape_metadata() -> None:
+    HttpObservationGraphFactProducer, _, _, _ = _symbols()
+    row = _observation_row(
+        url="https://api.example.com/v1/users/123?debug=true&debug=false",
+        normalized_path="/v1/users/:id",
+        body_sha256="a" * 64,
+        body_size_bytes=128,
+        body_artifact_id=uuid4(),
+        input_parameters=[
+            {"location": "header", "name": "x-api-version", "param_type": "string"},
+            {"location": "cookie", "name": "session", "param_type": "string"},
+            {"location": "body", "name": "email", "param_type": "string"},
+        ],
+        response_header_names=["Content-Type", "X-Frame-Options"],
+    )
+
+    batch = HttpObservationGraphFactProducer(parser_version="http-observations.v1").produce([row])
+
+    assert batch is not None
+    endpoint_key = "api.example.com:443/https:GET:/v1/users/:id"
+    expected_params = {
+        f"{endpoint_key}:path:id",
+        f"{endpoint_key}:query:debug",
+        f"{endpoint_key}:header:x-api-version",
+        f"{endpoint_key}:cookie:session",
+        f"{endpoint_key}:body:email",
+    }
+    parameter_facts = {fact.key: fact for fact in batch.facts if getattr(fact, "kind", None) == "Parameter"}
+    assert expected_params <= set(parameter_facts)
+    assert parameter_facts[f"{endpoint_key}:query:debug"].properties["is_array"] is True
+    assert parameter_facts[f"{endpoint_key}:header:x-api-version"].properties["shape_source"] == "input_parameters"
+
+    request_shape = next(fact for fact in batch.facts if getattr(fact, "kind", None) == "RequestShape")
+    assert request_shape.properties["request_body_shape_present"] is True
+    assert request_shape.properties["request_body_param_keys"] == ["email"]
+    assert request_shape.properties["parameter_key_set"] == [
+        "body:email",
+        "cookie:session",
+        "header:x-api-version",
+        "path:id",
+        "query:debug",
+    ]
+    assert request_shape.properties["parameter_locations"] == ["body", "cookie", "header", "path", "query"]
+    assert request_shape.properties["response_shape_key"].startswith(f"response:{row['program_id']}:200:success_json:shape=")
+    assert request_shape.properties["semantic_hash"]
+    assert request_shape.properties["wire_hash"]
+    assert request_shape.properties["framing_hash"]
+    assert request_shape.properties["cache_key_candidate_hash"]
+    assert request_shape.properties["parser_normalized_hash"]
+    assert request_shape.properties["body_shape_hash"]
+
+    response_shape = next(fact for fact in batch.facts if getattr(fact, "kind", None) == "ResponseShape")
+    assert response_shape.properties["response_family"] == "success_json"
+    assert response_shape.properties["status_code"] == 200
+    assert response_shape.properties["content_type"] == "application/json"
+    assert response_shape.properties["response_header_keys"] == ["content-type", "x-frame-options"]
+    assert response_shape.properties["body_size_bucket"] == "tiny"
+
+    edge_facts = {
+        (fact.src_kind, fact.src_key, fact.edge_kind, fact.dst_kind, fact.dst_key)
+        for fact in batch.facts
+        if hasattr(fact, "edge_kind")
+    }
+    assert ("RequestShape", request_shape.key, "YIELDS_RESPONSE", "ResponseShape", response_shape.key) in edge_facts
+    for fact in batch.facts:
+        values = list(fact.properties.values())
+        assert "secret" not in values
+        assert "Bearer token" not in values
+
+
+def test_http_observation_producer_links_same_request_shape_to_multiple_response_shapes() -> None:
+    HttpObservationGraphFactProducer, _, _, _ = _symbols()
+    program_id = uuid4()
+    first = _observation_row(program_id=program_id, status_code=200, content_type="application/json")
+    second = _observation_row(
+        program_id=program_id,
+        run_id=first["run_id"],
+        raw_artifact_id=uuid4(),
+        status_code=401,
+        content_type="text/html",
+    )
+
+    batch = HttpObservationGraphFactProducer(parser_version="http-observations.v1").produce([first, second])
+
+    assert batch is not None
+    request_shapes = {fact.key for fact in batch.facts if getattr(fact, "kind", None) == "RequestShape"}
+    response_shapes = {fact.key for fact in batch.facts if getattr(fact, "kind", None) == "ResponseShape"}
+    assert len(request_shapes) == 1
+    assert len(response_shapes) == 2
+    request_key = next(iter(request_shapes))
+    edge_facts = {
+        (fact.src_kind, fact.src_key, fact.edge_kind, fact.dst_kind, fact.dst_key)
+        for fact in batch.facts
+        if hasattr(fact, "edge_kind")
+    }
+    for response_key in response_shapes:
+        assert ("RequestShape", request_key, "YIELDS_RESPONSE", "ResponseShape", response_key) in edge_facts
+    assert any(
+        fact.edge_kind == "DIFFERS_FROM"
+        and fact.src_kind == "ResponseShape"
+        and fact.dst_kind == "ResponseShape"
+        and fact.properties["family_delta"] is True
+        for fact in batch.facts
+        if hasattr(fact, "edge_kind")
+    )
+
 def test_http_observation_producer_deduplicates_repeated_rows() -> None:
     HttpObservationGraphFactProducer, _, _, _ = _symbols()
     row = _observation_row()

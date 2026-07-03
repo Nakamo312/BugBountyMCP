@@ -16,6 +16,8 @@ from typing import Any
 from urllib.parse import quote, unquote
 from uuid import UUID
 
+from sqlalchemy import bindparam, desc, select
+
 from api.application.workbench import (
     WorkbenchActionAffordanceList,
     WorkbenchEdge,
@@ -26,6 +28,11 @@ from api.application.workbench import (
     WorkbenchNode,
 )
 from api.config import Settings
+from api.infrastructure.adapters.orm import (
+    surface_component_analysis_items,
+    surface_component_analysis_runs,
+    surface_nodes,
+)
 
 try:  # Imported from services/graph-projector, copied into the API image.
     from graph_projector.query_templates import default_query_template_registry
@@ -76,6 +83,7 @@ _ENTITY_LABEL_PRIORITY = (
     "Endpoint",
     "Parameter",
     "RequestShape",
+    "ResponseShape",
     "JSFile",
     "Tool",
     "ToolRun",
@@ -102,6 +110,7 @@ _NODE_TYPE_BY_LABEL = {
     "Endpoint": "endpoint",
     "Parameter": "param",
     "RequestShape": "request_shape",
+    "ResponseShape": "response_shape",
     "JSFile": "neo4j_js_file",
     "Tool": "neo4j_tool",
     "ToolRun": "neo4j_tool_run",
@@ -128,6 +137,7 @@ _LABEL_FIELDS = (
     "path",
     "service_key",
     "technology",
+    "response_family",
     "capability_id",
     "profile_id",
     "tool_name",
@@ -142,6 +152,8 @@ _CAPTION_FIELDS = (
     "port",
     "method",
     "status_code",
+    "response_family",
+    "body_size_bucket",
     "content_type",
     "parser_version",
     "event_type",
@@ -154,12 +166,18 @@ _CAPTION_FIELDS = (
 
 _REQUIRED_SCHEMA_BY_TEMPLATE: dict[str, dict[str, set[str]]] = {
     "asset_exposure": {
-        "labels": {"Program", "Host", "IP", "Service", "Endpoint"},
-        "relationships": {"HAS_ASSET", "RESOLVES_TO", "EXPOSES_SERVICE", "HAS_ENDPOINT"},
+        "labels": set(),
+        "relationships": set(),
+        "optional_labels": {"Program", "ASN", "CIDR", "IP", "Host", "Service", "Endpoint", "Parameter", "RequestShape", "ResponseShape", "Artifact", "Observation", "Evidence", "SurfaceNode"},
+        "optional_relationships": {"HAS_ASSET", "RESOLVES_TO", "IN_CIDR", "ANNOUNCED_BY", "EXPOSES_SERVICE", "HAS_ENDPOINT", "HAS_PARAM", "HAS_REQUEST_SHAPE", "YIELDS_RESPONSE", "DIFFERS_FROM", "SUPPORTED_BY", "PRODUCED_OBSERVATION", "SUPPORTS_EVIDENCE", "DERIVED_FROM", "REPRESENTS"},
+        "island_tolerant": True,
     },
     "program_exposure_topology": {
-        "labels": {"Program", "Host", "IP", "Service", "Endpoint"},
-        "relationships": {"HAS_ASSET", "RESOLVES_TO", "EXPOSES_SERVICE", "HAS_ENDPOINT"},
+        "labels": set(),
+        "relationships": set(),
+        "optional_labels": {"Program", "ASN", "CIDR", "IP", "Host", "Service", "Endpoint", "Parameter", "RequestShape", "ResponseShape", "Artifact", "Observation", "Evidence", "SurfaceNode"},
+        "optional_relationships": {"HAS_ASSET", "RESOLVES_TO", "IN_CIDR", "ANNOUNCED_BY", "EXPOSES_SERVICE", "HAS_ENDPOINT", "HAS_PARAM", "HAS_REQUEST_SHAPE", "YIELDS_RESPONSE", "DIFFERS_FROM", "SUPPORTED_BY", "PRODUCED_OBSERVATION", "SUPPORTS_EVIDENCE", "DERIVED_FROM", "REPRESENTS"},
+        "island_tolerant": True,
     },
     "endpoint_neighborhood": {"labels": {"Endpoint"}, "relationships": set()},
     "evidence_path": {"labels": {"Artifact", "Observation"}, "relationships": {"PRODUCED_OBSERVATION", "DESCRIBES"}},
@@ -183,9 +201,13 @@ class Neo4jSchemaState:
         required = _REQUIRED_SCHEMA_BY_TEMPLATE.get(template_name, {})
         missing_labels = sorted(set(required.get("labels", set())) - set(self.labels))
         missing_relationships = sorted(set(required.get("relationships", set())) - set(self.relationships))
+        missing_optional_labels = sorted(set(required.get("optional_labels", set())) - set(self.labels))
+        missing_optional_relationships = sorted(set(required.get("optional_relationships", set())) - set(self.relationships))
         return {
             "labels": missing_labels,
             "relationships": missing_relationships,
+            "optional_labels": missing_optional_labels,
+            "optional_relationships": missing_optional_relationships,
         }
 
     def has_any_graph_content(self) -> bool:
@@ -196,6 +218,19 @@ class Neo4jTemplateSpec:
     lens: WorkbenchLens
     template_name: str
     label: str
+
+
+@dataclass(frozen=True)
+class SurfaceStructuralSignalIndex:
+    lookup: Mapping[str, tuple[dict[str, Any], ...]]
+    analysis_run_id: str | None = None
+    snapshot_id: str | None = None
+    component_count: int = 0
+    indexed_signal_count: int = 0
+
+    @property
+    def available(self) -> bool:
+        return bool(self.lookup)
 
 
 def neo4j_lenses() -> tuple[WorkbenchLens, ...]:
@@ -219,6 +254,7 @@ async def build_neo4j_lens_graph(
     settings: Settings,
     program_id: UUID,
     lens: WorkbenchLens,
+    session_factory: Any | None = None,
     seed: str | None = None,
     depth: int = 1,
     limit: int = 250,
@@ -243,7 +279,7 @@ async def build_neo4j_lens_graph(
     template_name = _TEMPLATE_BY_LENS[lens]
     schema_state = await _neo4j_schema_state(settings)
     missing_schema = schema_state.missing_for_template(template_name)
-    if missing_schema["labels"]:
+    if missing_schema["labels"] or missing_schema["relationships"]:
         status = "empty" if not schema_state.has_any_graph_content() else "preparing"
         return _message_graph(
             program_id=program_id,
@@ -259,6 +295,8 @@ async def build_neo4j_lens_graph(
             details={
                 "missing_labels": missing_schema["labels"],
                 "missing_relationships": missing_schema["relationships"],
+                "missing_optional_labels": missing_schema.get("optional_labels", []),
+                "missing_optional_relationships": missing_schema.get("optional_relationships", []),
                 "available_labels": sorted(schema_state.labels),
                 "available_relationships": sorted(schema_state.relationships),
             },
@@ -313,6 +351,13 @@ async def build_neo4j_lens_graph(
         )
 
     nodes, edges = _graph_from_records(rows)
+    signal_index = await _load_surface_structural_signal_index(
+        session_factory,
+        program_id=program_id,
+        limit=safe_limit,
+    )
+    if signal_index.available:
+        nodes = _attach_surface_structural_signals(nodes, signal_index)
     if not nodes:
         return _message_graph(
             program_id=program_id,
@@ -334,7 +379,11 @@ async def build_neo4j_lens_graph(
             "edges": len(edges),
             "neo4j_rows": len(rows),
         },
-        boundary=_neo4j_boundary(surface=f"neo4j_template_{template_name}", template_name=template_name),
+        boundary={
+            **_neo4j_boundary(surface=f"neo4j_template_{template_name}", template_name=template_name),
+            "topology_contract": _topology_contract_state(template_name, schema_state, missing_schema),
+            "structural_signal_overlay": _structural_signal_overlay_state(signal_index),
+        },
     )
 
 
@@ -420,6 +469,351 @@ def neo4j_entity_memory(*, program_id: UUID, entity_key: str) -> WorkbenchEntity
         ],
         boundary=_neo4j_boundary(surface="neo4j_entity_memory_pointer", template_name="entity_memory"),
     )
+
+
+async def _load_surface_structural_signal_index(
+    session_factory: Any | None,
+    *,
+    program_id: UUID,
+    limit: int,
+) -> SurfaceStructuralSignalIndex:
+    if session_factory is None:
+        return SurfaceStructuralSignalIndex(lookup={})
+    try:
+        async with session_factory() as session:
+            run = await _latest_surface_component_run(session, program_id)
+            if run is None:
+                return SurfaceStructuralSignalIndex(lookup={})
+            items = await _surface_component_signal_items(session, run["id"], limit=max(1, min(limit, 500)))
+            signal_rows = _component_signal_rows(run, items)
+            fingerprints = sorted({fingerprint for row in signal_rows for fingerprint in row["node_fingerprints"]})
+            surface_rows = await _surface_nodes_for_component_fingerprints(
+                session,
+                program_id=program_id,
+                snapshot_id=run["snapshot_id"],
+                fingerprints=fingerprints,
+                limit=max(1, min(limit * 20, 5000)),
+            )
+    except Exception:  # noqa: BLE001 - Workbench must keep Neo4j graph readable if Postgres signals lag.
+        return SurfaceStructuralSignalIndex(lookup={})
+
+    lookup: dict[str, list[dict[str, Any]]] = {}
+    surface_rows_by_fingerprint = {str(row["node_fingerprint"]): row for row in surface_rows if row.get("node_fingerprint")}
+    for signal_row in signal_rows:
+        for fingerprint in signal_row["node_fingerprints"]:
+            _append_signal(lookup, f"surface_node_fingerprint:{fingerprint}", signal_row["signal"])
+            surface_row = surface_rows_by_fingerprint.get(fingerprint)
+            if surface_row:
+                for key in _surface_row_signal_lookup_keys(surface_row):
+                    _append_signal(lookup, key, signal_row["signal"])
+    frozen_lookup = {key: tuple(_dedupe_signals(values)) for key, values in lookup.items() if values}
+    return SurfaceStructuralSignalIndex(
+        lookup=frozen_lookup,
+        analysis_run_id=str(run["id"]),
+        snapshot_id=str(run["snapshot_id"]),
+        component_count=len(items),
+        indexed_signal_count=sum(len(values) for values in frozen_lookup.values()),
+    )
+
+
+async def _latest_surface_component_run(session: Any, program_id: UUID) -> Mapping[str, Any] | None:
+    statement = (
+        select(
+            surface_component_analysis_runs.c.id,
+            surface_component_analysis_runs.c.program_id,
+            surface_component_analysis_runs.c.snapshot_id,
+            surface_component_analysis_runs.c.algorithm,
+            surface_component_analysis_runs.c.algorithm_version,
+            surface_component_analysis_runs.c.created_at,
+        )
+        .where(surface_component_analysis_runs.c.program_id == bindparam("program_id"))
+        .order_by(surface_component_analysis_runs.c.created_at.desc(), surface_component_analysis_runs.c.id.desc())
+        .limit(1)
+    )
+    result = await session.execute(statement, {"program_id": program_id})
+    return result.mappings().one_or_none()
+
+
+async def _surface_component_signal_items(session: Any, analysis_run_id: UUID, *, limit: int) -> list[Mapping[str, Any]]:
+    statement = (
+        select(
+            surface_component_analysis_items.c.component_id,
+            surface_component_analysis_items.c.node_count,
+            surface_component_analysis_items.c.changed_node_count,
+            surface_component_analysis_items.c.structural_pressure_score,
+            surface_component_analysis_items.c.drift_score,
+            surface_component_analysis_items.c.bridge_pressure_score,
+            surface_component_analysis_items.c.outlier_score,
+            surface_component_analysis_items.c.coverage_score,
+            surface_component_analysis_items.c.exploration_priority_score,
+            surface_component_analysis_items.c.action_candidate_count,
+            surface_component_analysis_items.c.metrics_json,
+        )
+        .where(surface_component_analysis_items.c.analysis_run_id == bindparam("analysis_run_id"))
+        .order_by(
+            desc(surface_component_analysis_items.c.exploration_priority_score).nulls_last(),
+            desc(surface_component_analysis_items.c.structural_pressure_score).nulls_last(),
+            surface_component_analysis_items.c.component_id.asc(),
+        )
+        .limit(limit)
+    )
+    result = await session.execute(statement, {"analysis_run_id": analysis_run_id})
+    return list(result.mappings().all())
+
+
+async def _surface_nodes_for_component_fingerprints(
+    session: Any,
+    *,
+    program_id: UUID,
+    snapshot_id: UUID,
+    fingerprints: list[str],
+    limit: int,
+) -> list[Mapping[str, Any]]:
+    if not fingerprints:
+        return []
+    statement = (
+        select(
+            surface_nodes.c.node_fingerprint,
+            surface_nodes.c.node_type,
+            surface_nodes.c.host,
+            surface_nodes.c.path,
+            surface_nodes.c.route_template,
+            surface_nodes.c.method,
+        )
+        .where(surface_nodes.c.program_id == bindparam("program_id"))
+        .where(surface_nodes.c.snapshot_id == bindparam("snapshot_id"))
+        .where(surface_nodes.c.node_fingerprint.in_(bindparam("fingerprints", expanding=True)))
+        .limit(limit)
+    )
+    result = await session.execute(
+        statement,
+        {"program_id": program_id, "snapshot_id": snapshot_id, "fingerprints": fingerprints[:limit]},
+    )
+    return list(result.mappings().all())
+
+
+def _component_signal_rows(run: Mapping[str, Any], items: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for item in items:
+        fingerprints = _component_node_fingerprints(item)
+        if not fingerprints:
+            continue
+        signal = _component_structural_signal(run, item)
+        if signal:
+            rows.append({"node_fingerprints": fingerprints, "signal": signal})
+    return rows
+
+
+def _component_node_fingerprints(item: Mapping[str, Any]) -> tuple[str, ...]:
+    metrics = _safe_mapping(item.get("metrics_json"))
+    profile = _safe_mapping(metrics.get("profile"))
+    raw_fingerprints = profile.get("node_fingerprints") or metrics.get("node_fingerprints") or ()
+    return tuple(str(value) for value in raw_fingerprints if value)
+
+
+def _component_structural_signal(run: Mapping[str, Any], item: Mapping[str, Any]) -> dict[str, Any]:
+    component_id = int(item["component_id"])
+    scores = {
+        "structural_pressure": _optional_int(item.get("structural_pressure_score")),
+        "drift": _optional_int(item.get("drift_score")),
+        "bridge_pressure": _optional_int(item.get("bridge_pressure_score")),
+        "outlier_pressure": _optional_int(item.get("outlier_score")),
+        "coverage": _optional_int(item.get("coverage_score")),
+        "exploration_priority": _optional_int(item.get("exploration_priority_score")),
+    }
+    present_scores = {key: value for key, value in scores.items() if value is not None}
+    if not present_scores:
+        return {}
+    return {
+        "type": "surface_component_structural_signal",
+        "source": "surface_component_analysis_items",
+        "component_id": component_id,
+        "analysis_run_id": str(run["id"]),
+        "snapshot_id": str(run["snapshot_id"]),
+        "algorithm": run.get("algorithm"),
+        "algorithm_version": run.get("algorithm_version"),
+        "score": max(int(value) for value in present_scores.values()),
+        "scores": present_scores,
+        "node_count": int(item.get("node_count") or 0),
+        "changed_node_count": int(item.get("changed_node_count") or 0),
+        "action_candidate_count": int(item.get("action_candidate_count") or 0),
+        "evidence_ref": {
+            "type": "surface_component_analysis_item",
+            "id": f"{run['id']}:{component_id}",
+            "analysis_run_id": str(run["id"]),
+            "component_id": component_id,
+        },
+        "semantics": "advisory_structural_signal_not_finding_or_verdict",
+    }
+
+
+def _attach_surface_structural_signals(
+    nodes: dict[str, WorkbenchNode],
+    signal_index: SurfaceStructuralSignalIndex,
+) -> dict[str, WorkbenchNode]:
+    if not signal_index.available:
+        return nodes
+    enriched: dict[str, WorkbenchNode] = {}
+    for node_id, node in nodes.items():
+        signals = _signals_for_node(node, signal_index)
+        if not signals:
+            enriched[node_id] = node
+            continue
+        max_score = max(int(signal.get("score") or 0) for signal in signals)
+        metadata = dict(node.metadata)
+        metadata["structural_signals"] = signals
+        metadata["structural_signal_overlay"] = {
+            "source": "surface_component_analysis",
+            "analysis_run_id": signal_index.analysis_run_id,
+            "snapshot_id": signal_index.snapshot_id,
+            "match": "surface_node_membership_or_canonical_surface_key",
+            "island_tolerant": True,
+        }
+        metrics = dict(node.metrics)
+        metrics["max_structural_signal_score"] = max_score
+        badges = list(node.badges)
+        if "GDS" not in badges:
+            badges.append("GDS")
+        if max_score >= 70 and "attention" not in badges:
+            badges.append("attention")
+        evidence_refs = [*node.evidence_refs, *[signal["evidence_ref"] for signal in signals if signal.get("evidence_ref")]][:8]
+        visual = dict(node.visual)
+        visual.setdefault("signal_score", max_score)
+        visual.setdefault("signal_badge", _dominant_signal_type(signals))
+        enriched[node_id] = node.model_copy(
+            update={
+                "metadata": metadata,
+                "metrics": metrics,
+                "badges": badges,
+                "evidence_refs": _dedupe_refs(evidence_refs),
+                "visual": visual,
+                "confidence": max(node.confidence, min(max_score / 100.0, 1.0)),
+            }
+        )
+    return enriched
+
+
+def _signals_for_node(node: WorkbenchNode, signal_index: SurfaceStructuralSignalIndex) -> list[dict[str, Any]]:
+    signals: list[dict[str, Any]] = []
+    for key in _node_signal_lookup_keys(node):
+        signals.extend(signal_index.lookup.get(key, ()))
+    return _dedupe_signals(signals)[:6]
+
+
+def _node_signal_lookup_keys(node: WorkbenchNode) -> tuple[str, ...]:
+    properties = node.properties or {}
+    keys: list[str] = []
+    node_fingerprint = properties.get("node_fingerprint")
+    if node_fingerprint:
+        keys.append(f"surface_node_fingerprint:{node_fingerprint}")
+    canonical = node.canonical_entity_key or properties.get("canonical_entity_key")
+    if canonical:
+        keys.append(str(canonical))
+    host = _first_text(properties, "hostname", "host", "domain", "name")
+    if host:
+        keys.append(f"host:{host}")
+    endpoint_key = _endpoint_surface_lookup_key(properties)
+    if endpoint_key:
+        keys.append(endpoint_key)
+    endpoint_from_identity = _endpoint_surface_lookup_key_from_identity(str(properties.get("endpoint_key") or properties.get("identity_key") or ""))
+    if endpoint_from_identity:
+        keys.append(endpoint_from_identity)
+    return tuple(dict.fromkeys(keys))
+
+
+def _surface_row_signal_lookup_keys(row: Mapping[str, Any]) -> tuple[str, ...]:
+    keys: list[str] = []
+    fingerprint = row.get("node_fingerprint")
+    if fingerprint:
+        keys.append(f"surface_node_fingerprint:{fingerprint}")
+    host = row.get("host")
+    if host:
+        keys.append(f"host:{host}")
+    method = row.get("method")
+    route = row.get("route_template") or row.get("path")
+    if host and method and route:
+        keys.append(f"surface:{host}:{str(method).upper()}:{route}")
+    return tuple(dict.fromkeys(str(key) for key in keys if key))
+
+
+def _endpoint_surface_lookup_key(properties: Mapping[str, Any]) -> str | None:
+    method = properties.get("method")
+    route = properties.get("route_template") or properties.get("normalized_path") or properties.get("path")
+    host = properties.get("hostname") or properties.get("host")
+    if not host:
+        service_parts = _service_key_parts(str(properties.get("service_key") or ""))
+        if service_parts:
+            host = service_parts[0]
+    if host and method and route:
+        return f"surface:{host}:{str(method).upper()}:{route}"
+    return None
+
+
+def _endpoint_surface_lookup_key_from_identity(identity: str) -> str | None:
+    # Endpoint-like identity uses service_key:METHOD:/path. Parameter and request
+    # shapes keep that endpoint prefix before their own suffixes; extracting this
+    # keeps signal attachment advisory and island-friendly without requiring a
+    # persisted SurfaceNode -> Endpoint edge.
+    match = re.match(r"^(?P<service>.+:\\d+/(?:tcp/)?[A-Za-z][A-Za-z0-9+.-]*):(?P<method>[A-Z]+):(?P<path>/[^:]*).*$", identity)
+    if not match:
+        return None
+    service_parts = _service_key_parts(match.group("service"))
+    if not service_parts:
+        return None
+    host, _port, _scheme = service_parts
+    return f"surface:{host}:{match.group('method')}:{match.group('path')}"
+
+
+def _append_signal(lookup: dict[str, list[dict[str, Any]]], key: str | None, signal: dict[str, Any]) -> None:
+    if key and signal:
+        lookup.setdefault(str(key), []).append(signal)
+
+
+def _dedupe_signals(signals: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: dict[str, dict[str, Any]] = {}
+    for signal in signals:
+        key = f"{signal.get('analysis_run_id')}:{signal.get('component_id')}:{signal.get('type')}"
+        deduped.setdefault(key, signal)
+    return sorted(deduped.values(), key=lambda item: int(item.get("score") or 0), reverse=True)
+
+
+def _dedupe_refs(refs: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: dict[str, dict[str, Any]] = {}
+    for ref in refs:
+        key = f"{ref.get('type')}:{ref.get('id')}"
+        deduped.setdefault(key, ref)
+    return list(deduped.values())[:8]
+
+
+def _dominant_signal_type(signals: list[dict[str, Any]]) -> str | None:
+    if not signals:
+        return None
+    scores = _safe_mapping(signals[0].get("scores"))
+    if not scores:
+        return str(signals[0].get("type") or "structural_signal")
+    return max(scores.items(), key=lambda item: int(item[1] or 0))[0]
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _structural_signal_overlay_state(signal_index: SurfaceStructuralSignalIndex) -> dict[str, Any]:
+    return {
+        "source": "surface_component_analysis_items",
+        "available": signal_index.available,
+        "analysis_run_id": signal_index.analysis_run_id,
+        "snapshot_id": signal_index.snapshot_id,
+        "component_count": signal_index.component_count,
+        "indexed_signal_count": signal_index.indexed_signal_count,
+        "island_tolerant": True,
+        "semantics": "advisory_structural_signal_not_finding_or_verdict",
+    }
 
 
 async def _neo4j_schema_state(settings: Settings) -> Neo4jSchemaState:
@@ -523,6 +917,7 @@ def _add_node(raw_node: Any, nodes: dict[str, WorkbenchNode]) -> None:
         label=label,
     )
     canonical_entity_key = _canonical_entity_key(properties)
+    topology = _topology_metadata(primary_label=primary_label, properties=properties)
     action_target = _action_target_payload(
         entity_key=entity_key,
         node_type=node_type,
@@ -545,6 +940,7 @@ def _add_node(raw_node: Any, nodes: dict[str, WorkbenchNode]) -> None:
             "identity_key": identity,
             "raw_neo4j_shape": "redacted_properties_only",
             "canonical_entity_key": canonical_entity_key,
+            "topology": topology,
             "action_bridge": {
                 "source": "neo4j_projection_node",
                 "resolver": "catalog_target_contracts",
@@ -553,14 +949,117 @@ def _add_node(raw_node: Any, nodes: dict[str, WorkbenchNode]) -> None:
                 "values": action_target.get("values", {}),
             },
         },
-        badges=["Neo4j", primary_label],
-        metrics=_node_metrics(properties),
+        badges=["Neo4j", primary_label, topology["lane"]],
+        metrics={**_node_metrics(properties), "topology_rank": topology["rank"]},
         evidence_refs=_evidence_refs_from_properties(properties),
         staleness="unknown",
         confidence=0.8,
         source_refs=[{"type": "neo4j", "label": primary_label, "identity_key": identity}],
     )
 
+
+
+
+def _topology_contract_state(
+    template_name: str,
+    schema_state: Neo4jSchemaState,
+    missing_schema: dict[str, list[str]],
+) -> dict[str, Any]:
+    required = _REQUIRED_SCHEMA_BY_TEMPLATE.get(template_name, {})
+    return {
+        "template": template_name,
+        "island_tolerant": bool(required.get("island_tolerant", False)),
+        "required_labels": sorted(required.get("labels", set())),
+        "required_relationships": sorted(required.get("relationships", set())),
+        "optional_labels": sorted(required.get("optional_labels", set())),
+        "optional_relationships": sorted(required.get("optional_relationships", set())),
+        "missing_optional_labels": missing_schema.get("optional_labels", []),
+        "missing_optional_relationships": missing_schema.get("optional_relationships", []),
+        "available_labels": sorted(schema_state.labels),
+        "available_relationships": sorted(schema_state.relationships),
+    }
+
+
+_TOPOLOGY_LANES: dict[str, tuple[str, int]] = {
+    "Program": ("program", 0),
+    "ASN": ("network", 10),
+    "CIDR": ("network", 20),
+    "IP": ("network", 30),
+    "Host": ("asset", 40),
+    "Service": ("service", 50),
+    "Endpoint": ("surface", 60),
+    "Parameter": ("surface", 70),
+    "RequestShape": ("request", 80),
+    "ResponseShape": ("response", 90),
+    "Observation": ("evidence", 100),
+    "Evidence": ("evidence", 110),
+    "Artifact": ("evidence", 120),
+    "SurfaceNode": ("surface-map", 130),
+    "SurfaceSnapshot": ("surface-map", 140),
+    "SurfaceFingerprint": ("surface-map", 150),
+    "SurfaceDelta": ("surface-map", 160),
+}
+
+
+def _topology_metadata(*, primary_label: str, properties: Mapping[str, Any]) -> dict[str, Any]:
+    lane, rank = _TOPOLOGY_LANES.get(primary_label, ("other", 900))
+    collapse_key = properties.get("collapse_key") or properties.get("service_key") or properties.get("endpoint_key") or properties.get("identity_key")
+    return {
+        "lane": lane,
+        "rank": rank,
+        "collapse_key": str(collapse_key) if collapse_key not in (None, "", []) else None,
+        "visual_role": primary_label,
+    }
+
+
+def _relationship_weight(rel_type: str, properties: Mapping[str, Any]) -> float:
+    if properties.get("weight") not in (None, "", []):
+        try:
+            return float(properties["weight"])
+        except (TypeError, ValueError):
+            pass
+    return {
+        "HAS_ASSET": 0.25,
+        "RESOLVES_TO": 2.0,
+        "IN_CIDR": 1.8,
+        "ANNOUNCED_BY": 1.6,
+        "EXPOSES_SERVICE": 2.0,
+        "HAS_ENDPOINT": 2.2,
+        "HAS_PARAM": 1.4,
+        "HAS_REQUEST_SHAPE": 1.5,
+        "YIELDS_RESPONSE": 1.7,
+        "MUTATES": 1.3,
+        "DIFFERS_FROM": 1.1,
+        "SUPPORTED_BY": 1.0,
+        "SUPPORTS_EVIDENCE": 1.0,
+        "DERIVED_FROM": 0.8,
+        "PRODUCED_OBSERVATION": 0.8,
+        "REPRESENTS": 1.2,
+    }.get(rel_type, 1.0)
+
+
+def _relationship_caption(rel_type: str, properties: Mapping[str, Any]) -> str | None:
+    caption = _best_caption(properties)
+    if caption:
+        return caption
+    return {
+        "HAS_ASSET": "program-owned asset anchor",
+        "RESOLVES_TO": "DNS/observation resolution",
+        "IN_CIDR": "network membership",
+        "ANNOUNCED_BY": "BGP announcement",
+        "EXPOSES_SERVICE": "observable service exposure",
+        "HAS_ENDPOINT": "HTTP/API surface",
+        "HAS_PARAM": "request parameter shape",
+        "HAS_REQUEST_SHAPE": "safe request shape",
+        "YIELDS_RESPONSE": "observed response shape",
+        "MUTATES": "request-shape mutation",
+        "DIFFERS_FROM": "response-shape delta",
+        "SUPPORTED_BY": "supported by observation",
+        "SUPPORTS_EVIDENCE": "observation evidence claim",
+        "DERIVED_FROM": "derived from artifact",
+        "PRODUCED_OBSERVATION": "artifact produced observation",
+        "REPRESENTS": "surface node bridge",
+    }.get(rel_type)
 
 def _canonical_entity_key(properties: Mapping[str, Any]) -> str | None:
     for field in (
@@ -638,6 +1137,8 @@ def _action_target_properties(
         enriched.setdefault("path", enriched.get("normalized_path") or enriched.get("route_template"))
         enriched.setdefault("method", enriched.get("method"))
         enriched.setdefault("display_label", enriched.get("display_label") or _endpoint_context_label(enriched, identity_value or label))
+    if primary_label == "ResponseShape":
+        enriched.setdefault("display_label", enriched.get("display_label") or identity_value or label)
     if primary_label == "JSFile":
         enriched.setdefault("js_url", enriched.get("url") or enriched.get("source_url") or identity_value)
     enriched.setdefault("identity", identity_value or identity)
@@ -685,6 +1186,7 @@ def _target_kind(primary_label: str, node_type: str) -> str:
         "Endpoint": "endpoint",
         "Parameter": "parameter",
         "RequestShape": "request_shape",
+        "ResponseShape": "response_shape",
         "JSFile": "javascript",
         "SurfaceSnapshot": "surface_snapshot",
         "ActionOutcome": "action_outcome",
@@ -755,8 +1257,8 @@ def _add_relationship(raw_relationship: Any, edges: dict[str, WorkbenchEdge]) ->
         target=target,
         relationship_type=rel_type,
         label=_humanize(rel_type),
-        caption=_best_caption(properties),
-        weight=float(properties.get("weight") or 1.0),
+        caption=_relationship_caption(rel_type, properties),
+        weight=_relationship_weight(rel_type, properties),
         confidence=0.9,
         evidence_refs=_evidence_refs_from_properties(properties),
         source_projection="neo4j_graph_projector_template",
@@ -850,6 +1352,8 @@ def _node_metrics(properties: Mapping[str, Any]) -> dict[str, Any]:
         "confidence",
         "status_code",
         "port",
+        "body_size_bytes",
+        "parameter_count",
         "node_count",
         "changed_node_count",
     ):
@@ -866,7 +1370,9 @@ def _evidence_refs_from_properties(properties: Mapping[str, Any]) -> list[dict[s
     return refs[:6]
 
 
-def _safe_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
+def _safe_mapping(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
     return {str(key): _safe_value(str(key), raw_value) for key, raw_value in value.items() if _safe_value(str(key), raw_value) is not None}
 
 

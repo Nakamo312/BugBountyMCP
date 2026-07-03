@@ -23,14 +23,12 @@ nodes:
   query_templates:
   - asset_exposure
   - evidence_path
-  property_vs_node_rationale: Program is a node because every graph fact is scoped
-    to a program and queries need program-bounded traversal.
+  property_vs_node_rationale: Program is a node because every graph fact is scoped to a program and queries need program-bounded
+    traversal.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: program_id
     source_properties:
@@ -60,14 +58,12 @@ nodes:
   - scopes
   query_templates:
   - asset_exposure
-  property_vs_node_rationale: Scope is a node because scope status controls whether
-    assets and findings are valid for the program.
+  property_vs_node_rationale: Scope is a node because scope status controls whether assets and findings are valid for the
+    program.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: scope_key
     source_properties:
@@ -105,14 +101,11 @@ nodes:
   - asset_exposure
   - endpoint_neighborhood
   - evidence_path
-  property_vs_node_rationale: Host is a node because it links DNS, services, endpoints,
-    technologies, and evidence paths.
+  property_vs_node_rationale: Host is a node because it links DNS, services, endpoints, technologies, and evidence paths.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: hostname
     source_properties:
@@ -146,14 +139,11 @@ nodes:
   query_templates:
   - asset_exposure
   - asn_cidr_asset_expansion
-  property_vs_node_rationale: IP is a node because it links hosts, network ranges,
-    services, ASN data, and exposure queries.
+  property_vs_node_rationale: IP is a node because it links hosts, network ranges, services, ASN data, and exposure queries.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: address
     source_properties:
@@ -185,14 +175,11 @@ nodes:
   - asns
   query_templates:
   - asn_cidr_asset_expansion
-  property_vs_node_rationale: ASN is a node because it groups CIDR ranges and supports
-    asset-expansion queries.
+  property_vs_node_rationale: ASN is a node because it groups CIDR ranges and supports asset-expansion queries.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: asn
     source_properties:
@@ -224,14 +211,11 @@ nodes:
   query_templates:
   - asn_cidr_asset_expansion
   - asset_exposure
-  property_vs_node_rationale: CIDR is a node because IP membership and expansion queries
-    traverse network ranges.
+  property_vs_node_rationale: CIDR is a node because IP membership and expansion queries traverse network ranges.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: cidr
     source_properties:
@@ -270,14 +254,11 @@ nodes:
   - asset_exposure
   - exposed_services_by_technology
   - endpoint_neighborhood
-  property_vs_node_rationale: Service is a node because ports and protocols link infrastructure
-    to web/API endpoints and technologies.
+  property_vs_node_rationale: Service is a node because ports and protocols link infrastructure to web/API endpoints and technologies.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: service_key
     source_properties:
@@ -318,14 +299,12 @@ nodes:
   - endpoint_neighborhood
   - hidden_endpoints_from_js
   - similar_endpoints
-  property_vs_node_rationale: Endpoint is a node because endpoint neighborhoods, similarity,
-    parameters, and evidence paths need traversal.
+  property_vs_node_rationale: Endpoint is a node because endpoint neighborhoods, similarity, parameters, and evidence paths
+    need traversal.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: service_method_normalized_path
     source_properties:
@@ -351,6 +330,9 @@ nodes:
   optional_properties:
   - param_type
   - is_array
+  - reflected
+  - shape_source
+  - display_label
   source_references:
   - source_artifact_id
   - tool_run_id
@@ -371,14 +353,12 @@ nodes:
   query_templates:
   - endpoint_neighborhood
   - hypothesis_evidence_paths
-  property_vs_node_rationale: Parameter is a node because endpoint behavior and future
-    invariant tests reason over parameter identity without storing raw values.
+  property_vs_node_rationale: Parameter is a node because endpoint behavior and future invariant tests reason over parameter
+    identity without storing raw values.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: endpoint_location_name
     source_properties:
@@ -406,6 +386,27 @@ nodes:
   - scheme
   - content_type
   - status_code
+  - parameter_keys_by_location
+  - parameter_count
+  - response_header_keys
+  - body_sha256
+  - body_size_bytes
+  - body_artifact_id
+  - body_present
+  - body_size_bucket
+  - parameter_key_set
+  - parameter_locations
+  - semantic_hash
+  - wire_hash
+  - framing_hash
+  - cache_key_candidate_hash
+  - parser_normalized_hash
+  - body_shape_hash
+  - response_shape_key
+  - response_family
+  - response_header_key_hash
+  - shape_fingerprint
+  - display_label
   source_references:
   - source_artifact_id
   - tool_run_id
@@ -427,7 +428,8 @@ nodes:
   - program_exposure_topology
   - endpoint_neighborhood
   - evidence_path
-  property_vs_node_rationale: RequestShape is a node because the graph needs request-level context without storing raw request bodies, header values, cookies, or secrets.
+  property_vs_node_rationale: RequestShape is a node because the graph needs request-level context without storing raw request
+    bodies, header values, cookies, or secrets.
   retention: program_lifetime
   sensitivity: normal
   confidence_policy: Use parser-backed shape confidence; omit raw payload values.
@@ -439,7 +441,62 @@ nodes:
     - method
     - path_param_keys
     - query_keys
-    key_policy: endpoint_method_safe_key_sets
+    key_policy: endpoint_method_safe_key_sets_and_safe_body_fingerprint
+- description: Safe response shape observed for one or more request shapes without storing raw response bodies.
+  label: ResponseShape
+  layer: surface
+  identity_properties:
+  - program_id
+  - response_shape_key
+  required_properties:
+  - program_id
+  - response_shape_key
+  - response_family
+  optional_properties:
+  - status_code
+  - content_type
+  - response_header_keys
+  - response_header_key_hash
+  - body_sha256
+  - body_size_bytes
+  - body_size_bucket
+  - body_present
+  - exact_body_hash
+  - structural_hash
+  - schema_fingerprint
+  - display_label
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  - program_exposure_topology
+  - endpoint_neighborhood
+  - evidence_path
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - httpx
+  - katana
+  - ffuf
+  - playwright
+  parser_outputs:
+  - http_observations
+  query_templates:
+  - program_exposure_topology
+  - endpoint_neighborhood
+  - evidence_path
+  property_vs_node_rationale: ResponseShape is a node because many request shapes can yield the same response class, and one
+    request shape can yield multiple response classes. Raw response payloads stay in artifact storage, not in Neo4j.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use parser-backed safe response fingerprints and keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; response shapes remain stable by safe response fingerprints.
+  identity:
+    graph_key: response_shape_key
+    source_properties:
+    - response_shape_key
+    key_policy: safe_response_status_content_family_and_structure
 - description: JavaScript file that references web/API endpoints.
   label: JSFile
   layer: surface
@@ -470,15 +527,12 @@ nodes:
   - hidden_endpoints_from_js
   - endpoint_neighborhood
   - evidence_path
-  property_vs_node_rationale: JSFile is a node because JavaScript references create
-    source-backed endpoint hypotheses and evidence paths without storing raw script
-    bodies in the graph.
+  property_vs_node_rationale: JSFile is a node because JavaScript references create source-backed endpoint hypotheses and
+    evidence paths without storing raw script bodies in the graph.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: url
     source_properties:
@@ -505,14 +559,11 @@ nodes:
   - tool_catalog_entries
   query_templates:
   - evidence_path
-  property_vs_node_rationale: Tool is a node because tool runs and evidence need a
-    reusable tool identity.
+  property_vs_node_rationale: Tool is a node because tool runs and evidence need a reusable tool identity.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: tool_id
     source_properties:
@@ -543,14 +594,11 @@ nodes:
   - tool_runs
   query_templates:
   - evidence_path
-  property_vs_node_rationale: ToolRun is a node because evidence lineage must trace
-    facts to execution instances.
+  property_vs_node_rationale: ToolRun is a node because evidence lineage must trace facts to execution instances.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: tool_run_id
     source_properties:
@@ -596,7 +644,8 @@ nodes:
   - action_outcomes
   query_templates:
   - action_outcome_experience_neighborhood
-  property_vs_node_rationale: ActionOutcome is a node because experience must connect actions, tool runs, generic features, and human feedback for graph algorithms.
+  property_vs_node_rationale: ActionOutcome is a node because experience must connect actions, tool runs, generic features,
+    and human feedback for graph algorithms.
   retention: program_lifetime
   sensitivity: normal
   confidence_policy: Use deterministic action-outcome memory confidence; keep max confidence across repeated projection.
@@ -631,7 +680,8 @@ nodes:
   - action_outcomes
   query_templates:
   - action_outcome_experience_neighborhood
-  property_vs_node_rationale: CapabilityProfile is a node because future action selection compares past usefulness by capability/profile without hard-coded rules.
+  property_vs_node_rationale: CapabilityProfile is a node because future action selection compares past usefulness by capability/profile
+    without hard-coded rules.
   retention: program_lifetime
   sensitivity: normal
   confidence_policy: Use deterministic action-outcome memory confidence; keep max confidence across repeated projection.
@@ -666,7 +716,8 @@ nodes:
   - action_outcomes
   query_templates:
   - action_outcome_experience_neighborhood
-  property_vs_node_rationale: OutcomeFeature is a node because GDS similarity algorithms need shared feature neighborhoods instead of SQL cohorts or vulnerability labels.
+  property_vs_node_rationale: OutcomeFeature is a node because GDS similarity algorithms need shared feature neighborhoods
+    instead of SQL cohorts or vulnerability labels.
   retention: program_lifetime
   sensitivity: normal
   confidence_policy: Use deterministic action-outcome memory confidence; keep max confidence across repeated projection.
@@ -677,7 +728,8 @@ nodes:
     - feature_type
     - feature_value
     key_policy: feature_type_value
-- description: Deprecated legacy probe node kept for old migrations; current candidate scoring is read-only and does not write probes.
+- description: Deprecated legacy probe node kept for old migrations; current candidate scoring is read-only and does not write
+    probes.
   label: ActionExperienceProbe
   layer: lineage
   identity_properties:
@@ -699,7 +751,8 @@ nodes:
   - action_experience_probes
   query_templates:
   - action_outcome_experience_neighborhood
-  property_vs_node_rationale: Deprecated; read-only Jaccard scoring now compares feature-key sets directly without graph-native probe nodes.
+  property_vs_node_rationale: Deprecated; read-only Jaccard scoring now compares feature-key sets directly without graph-native
+    probe nodes.
   retention: legacy_migration_only
   sensitivity: normal
   confidence_policy: Use caller-provided current-state features only; never treat the probe as evidence.
@@ -734,14 +787,12 @@ nodes:
   - raw_artifacts
   query_templates:
   - evidence_path
-  property_vs_node_rationale: Artifact is a node because observations and evidence
-    must trace to raw artifact metadata without storing raw output in Neo4j.
+  property_vs_node_rationale: Artifact is a node because observations and evidence must trace to raw artifact metadata without
+    storing raw output in Neo4j.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: artifact_id
     source_properties:
@@ -773,14 +824,12 @@ nodes:
   - observations
   query_templates:
   - evidence_path
-  property_vs_node_rationale: Observation is a node because parser outputs may describe
-    multiple assets and support evidence chains.
+  property_vs_node_rationale: Observation is a node because parser outputs may describe multiple assets and support evidence
+    chains.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: observation_id
     source_properties:
@@ -812,14 +861,11 @@ nodes:
   - evidence_items
   query_templates:
   - hypothesis_evidence_paths
-  property_vs_node_rationale: Evidence is a node because hypotheses and findings must
-    trace to verifiable supporting material.
+  property_vs_node_rationale: Evidence is a node because hypotheses and findings must trace to verifiable supporting material.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the fact.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the fact.
   identity:
     graph_key: evidence_id
     source_properties:
@@ -920,7 +966,8 @@ nodes:
   - surface_nodes
   query_templates:
   - surface_graph_math
-  property_vs_node_rationale: SurfaceFingerprint is a node because graph algorithms need stable cross-snapshot feature anchors instead of snapshot-local SurfaceNode identities.
+  property_vs_node_rationale: SurfaceFingerprint is a node because graph algorithms need stable cross-snapshot feature anchors
+    instead of snapshot-local SurfaceNode identities.
   retention: program_lifetime
   sensitivity: normal
   confidence_policy: Use deterministic surface-engine fingerprints.
@@ -957,7 +1004,8 @@ nodes:
   - surface_deltas
   query_templates:
   - surface_graph_math
-  property_vs_node_rationale: SurfaceDelta is a node because graph algorithms can attach novelty density to components without domain labels.
+  property_vs_node_rationale: SurfaceDelta is a node because graph algorithms can attach novelty density to components without
+    domain labels.
   retention: program_lifetime
   sensitivity: normal
   confidence_policy: Use deterministic surface-engine confidence.
@@ -994,7 +1042,8 @@ nodes:
   - surface_component_probes
   query_templates:
   - surface_graph_math
-  property_vs_node_rationale: Deprecated; read-only Jaccard scoring now compares component fingerprint sets to historical outcome fingerprints directly.
+  property_vs_node_rationale: Deprecated; read-only Jaccard scoring now compares component fingerprint sets to historical
+    outcome fingerprints directly.
   retention: legacy_migration_only
   sensitivity: normal
   confidence_policy: Use only current snapshot component membership; never persist probe facts as evidence.
@@ -1051,7 +1100,8 @@ relationships:
   - surface_nodes
   query_templates:
   - surface_graph_math
-  property_vs_node_rationale: Stable fingerprint edges let graph algorithms compare components across snapshots without using snapshot-local node identities.
+  property_vs_node_rationale: Stable fingerprint edges let graph algorithms compare components across snapshots without using
+    snapshot-local node identities.
   retention: program_lifetime
   sensitivity: normal
   confidence_policy: Use deterministic surface-engine fingerprints.
@@ -1138,7 +1188,8 @@ relationships:
   query_templates:
   - surface_graph_math
   - program_exposure_topology
-  property_vs_node_rationale: Surface Map graph math uses snapshot-local nodes; REPRESENTS bridges exact surface nodes back to canonical assets when the source schema has enough identity.
+  property_vs_node_rationale: Surface Map graph math uses snapshot-local nodes; REPRESENTS bridges exact surface nodes back
+    to canonical assets when the source schema has enough identity.
   retention: program_lifetime
   sensitivity: normal
   confidence_policy: Use deterministic surface-engine confidence.
@@ -1156,6 +1207,7 @@ relationships:
   - Endpoint
   - Parameter
   - RequestShape
+  - ResponseShape
   - JSFile
   required_properties:
   - program_id
@@ -1187,7 +1239,8 @@ relationships:
   query_templates:
   - program_exposure_topology
   - asset_exposure
-  property_vs_node_rationale: Program asset anchoring is a relationship because every visual topology needs an explicit program root instead of relying only on program_id properties.
+  property_vs_node_rationale: Program asset anchoring is a relationship because every visual topology needs an explicit program
+    root instead of relying only on program_id properties.
   retention: program_lifetime
   sensitivity: normal
   confidence_policy: Use the producing parser confidence; keep max confidence across repeated observations.
@@ -1212,14 +1265,11 @@ relationships:
   - program_scope_edges
   query_templates:
   - asset_exposure
-  property_vs_node_rationale: Scope membership is a relationship because scope rules
-    are reused across many assets.
+  property_vs_node_rationale: Scope membership is a relationship because scope rules are reused across many assets.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: Scope rule matches a host asset.
   relationship_type: MATCHES_SCOPE
   source_labels:
@@ -1247,14 +1297,11 @@ relationships:
   - hosts
   query_templates:
   - asset_exposure
-  property_vs_node_rationale: Scope matching is a relationship because scope rules
-    and host assets have separate lifecycles.
+  property_vs_node_rationale: Scope matching is a relationship because scope rules and host assets have separate lifecycles.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: Host resolves to an IP address.
   relationship_type: RESOLVES_TO
   source_labels:
@@ -1283,14 +1330,12 @@ relationships:
   query_templates:
   - asset_exposure
   - asn_cidr_asset_expansion
-  property_vs_node_rationale: DNS resolution is a relationship because it links host
-    assets to IP assets and changes over time.
+  property_vs_node_rationale: DNS resolution is a relationship because it links host assets to IP assets and changes over
+    time.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: IP address belongs to a network range.
   relationship_type: IN_CIDR
   source_labels:
@@ -1315,14 +1360,11 @@ relationships:
   query_templates:
   - asn_cidr_asset_expansion
   - asset_exposure
-  property_vs_node_rationale: CIDR membership is a relationship because IP-to-range
-    traversal drives asset expansion.
+  property_vs_node_rationale: CIDR membership is a relationship because IP-to-range traversal drives asset expansion.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: Network range is announced by an autonomous system.
   relationship_type: ANNOUNCED_BY
   source_labels:
@@ -1347,14 +1389,12 @@ relationships:
   query_templates:
   - asn_cidr_asset_expansion
   - asset_exposure
-  property_vs_node_rationale: ASN announcement is a relationship because CIDR ranges
-    and ASNs have separate lifecycles and support asset-expansion paths.
+  property_vs_node_rationale: ASN announcement is a relationship because CIDR ranges and ASNs have separate lifecycles and
+    support asset-expansion paths.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: IP address exposes a network service.
   relationship_type: EXPOSES_SERVICE
   source_labels:
@@ -1386,14 +1426,12 @@ relationships:
   - asset_exposure
   - endpoint_neighborhood
   - exposed_services_by_technology
-  property_vs_node_rationale: Service exposure is a relationship because IP addresses
-    and services have separate lifecycles and evidence.
+  property_vs_node_rationale: Service exposure is a relationship because IP addresses and services have separate lifecycles
+    and evidence.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: Service has a web endpoint.
   relationship_type: HAS_ENDPOINT
   source_labels:
@@ -1423,14 +1461,12 @@ relationships:
   query_templates:
   - endpoint_neighborhood
   - hidden_endpoints_from_js
-  property_vs_node_rationale: Endpoint membership is a relationship because services
-    and endpoints are analyzed at different layers.
+  property_vs_node_rationale: Endpoint membership is a relationship because services and endpoints are analyzed at different
+    layers.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: Endpoint accepts or exposes an input parameter.
   relationship_type: HAS_PARAM
   source_labels:
@@ -1461,14 +1497,12 @@ relationships:
   query_templates:
   - endpoint_neighborhood
   - hypothesis_evidence_paths
-  property_vs_node_rationale: Parameter membership is a relationship because endpoints
-    and parameters have separate identities and lifecycles.
+  property_vs_node_rationale: Parameter membership is a relationship because endpoints and parameters have separate identities
+    and lifecycles.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: Endpoint has one safe request shape observed from traffic or crawling.
   relationship_type: HAS_REQUEST_SHAPE
   source_labels:
@@ -1500,11 +1534,140 @@ relationships:
   - program_exposure_topology
   - endpoint_neighborhood
   - evidence_path
-  property_vs_node_rationale: Request shapes are related to endpoints so traversal can show request context without raw request content.
+  property_vs_node_rationale: Request shapes are related to endpoints so traversal can show request context without raw request
+    content.
   retention: program_lifetime
   sensitivity: normal
   confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
   stale_policy: Refresh last_seen from repeated observations.
+- description: Safe request shape yielded a safe response shape.
+  relationship_type: YIELDS_RESPONSE
+  source_labels:
+  - RequestShape
+  target_labels:
+  - ResponseShape
+  required_properties:
+  - program_id
+  optional_properties:
+  - count
+  - status_code
+  - status_histogram
+  - content_type
+  - response_family
+  - body_size_bucket
+  - evidence_refs
+  - artifact_refs
+  - tool_run_refs
+  - projection
+  - semantics
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  - program_exposure_topology
+  - endpoint_neighborhood
+  - evidence_path
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - httpx
+  - katana
+  - ffuf
+  - playwright
+  parser_outputs:
+  - http_observations
+  query_templates:
+  - program_exposure_topology
+  - endpoint_neighborhood
+  - evidence_path
+  property_vs_node_rationale: Yielded response is an aggregate relationship because concrete exchanges remain in artifacts/PostgreSQL
+    while Neo4j keeps behavior shape links.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Use evidence-backed parser confidence; keep refs capped and safe.
+  stale_policy: Refresh last_seen from repeated observations.
+- description: One safe request shape mutates into another safe request shape.
+  relationship_type: MUTATES
+  source_labels:
+  - RequestShape
+  target_labels:
+  - RequestShape
+  required_properties:
+  - program_id
+  optional_properties:
+  - operator
+  - dimension
+  - target
+  - projection
+  - from_hash
+  - to_hash
+  - delta_class
+  - generated_by
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - program_exposure_topology
+  - endpoint_neighborhood
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - action_outcomes
+  - mutation_testing
+  parser_outputs:
+  - action_outcomes
+  query_templates:
+  - program_exposure_topology
+  - endpoint_neighborhood
+  property_vs_node_rationale: Mutation is a relationship because the operator is a transition between request shapes, not
+    an independently reusable graph entity.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Advisory mutation edge; not a finding or verdict.
+  stale_policy: Refresh when the same mutation is re-observed.
+- description: One safe response shape differs from another safe response shape under a chosen oracle.
+  relationship_type: DIFFERS_FROM
+  source_labels:
+  - ResponseShape
+  target_labels:
+  - ResponseShape
+  required_properties:
+  - program_id
+  optional_properties:
+  - projection
+  - oracle
+  - status_delta
+  - content_type_delta
+  - family_delta
+  - schema_delta
+  - body_size_bucket_delta
+  - semantics
+  source_references:
+  - source_artifact_id
+  - tool_run_id
+  projections:
+  - asset_exposure
+  - program_exposure_topology
+  - endpoint_neighborhood
+  level: L2_WEB_API
+  maturity: experimental
+  sources:
+  - httpx
+  - katana
+  - ffuf
+  - playwright
+  parser_outputs:
+  - http_observations
+  query_templates:
+  - program_exposure_topology
+  - endpoint_neighborhood
+  property_vs_node_rationale: Response difference is a relationship because it is an oracle-dependent comparison between reusable
+    response shapes.
+  retention: program_lifetime
+  sensitivity: normal
+  confidence_policy: Advisory response-delta edge; not a finding or verdict.
+  stale_policy: Refresh when compared response shapes are re-observed.
 - description: JavaScript file references a web/API endpoint.
   relationship_type: REFERENCES
   source_labels:
@@ -1532,15 +1695,12 @@ relationships:
   - hidden_endpoints_from_js
   - endpoint_neighborhood
   - evidence_path
-  property_vs_node_rationale: JavaScript references are relationships because the
-    same script can point to multiple endpoints and each endpoint keeps a separate
-    canonical identity.
+  property_vs_node_rationale: JavaScript references are relationships because the same script can point to multiple endpoints
+    and each endpoint keeps a separate canonical identity.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: Program has a concrete tool run.
   relationship_type: HAS_TOOL_RUN
   source_labels:
@@ -1561,14 +1721,11 @@ relationships:
   - tool_runs
   query_templates:
   - evidence_path
-  property_vs_node_rationale: Tool run ownership is a relationship because program-bounded
-    lineage traverses through executions.
+  property_vs_node_rationale: Tool run ownership is a relationship because program-bounded lineage traverses through executions.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: Program has a measured action outcome.
   relationship_type: HAS_ACTION_OUTCOME
   source_labels:
@@ -1643,7 +1800,8 @@ relationships:
   - action_outcomes
   query_templates:
   - action_outcome_experience_neighborhood
-  property_vs_node_rationale: Capability/profile linkage lets the planner compare learned utility without hand-written bug rules.
+  property_vs_node_rationale: Capability/profile linkage lets the planner compare learned utility without hand-written bug
+    rules.
   retention: program_lifetime
   sensitivity: normal
   confidence_policy: Use deterministic action-outcome memory confidence.
@@ -1667,7 +1825,8 @@ relationships:
   - surface_component_probes
   query_templates:
   - surface_graph_math
-  property_vs_node_rationale: Deprecated with SurfaceComponentProbe; read-only scoring compares fingerprint sets without writing probe-feature edges.
+  property_vs_node_rationale: Deprecated with SurfaceComponentProbe; read-only scoring compares fingerprint sets without writing
+    probe-feature edges.
   retention: legacy_migration_only
   sensitivity: normal
   confidence_policy: Use current snapshot component membership only.
@@ -1721,7 +1880,8 @@ relationships:
   query_templates:
   - action_outcome_experience_neighborhood
   - surface_graph_math
-  property_vs_node_rationale: Before-snapshot linkage is a relationship because temporal utility compares execution against a bounded surface state.
+  property_vs_node_rationale: Before-snapshot linkage is a relationship because temporal utility compares execution against
+    a bounded surface state.
   retention: program_lifetime
   sensitivity: normal
   confidence_policy: Use deterministic action-outcome memory confidence.
@@ -1749,7 +1909,8 @@ relationships:
   query_templates:
   - action_outcome_experience_neighborhood
   - surface_graph_math
-  property_vs_node_rationale: After-snapshot linkage lets graph math attach measured action experience to changed surface components without semantic labels.
+  property_vs_node_rationale: After-snapshot linkage lets graph math attach measured action experience to changed surface
+    components without semantic labels.
   retention: program_lifetime
   sensitivity: normal
   confidence_policy: Use deterministic action-outcome memory confidence.
@@ -1775,14 +1936,11 @@ relationships:
   - tool_runs
   query_templates:
   - evidence_path
-  property_vs_node_rationale: Tool usage is a relationship because one tool definition
-    can have many runs.
+  property_vs_node_rationale: Tool usage is a relationship because one tool definition can have many runs.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: Tool run produced an artifact.
   relationship_type: PRODUCED_ARTIFACT
   source_labels:
@@ -1804,14 +1962,11 @@ relationships:
   - raw_artifacts
   query_templates:
   - evidence_path
-  property_vs_node_rationale: Artifact production is a relationship because tool runs
-    can produce multiple artifacts.
+  property_vs_node_rationale: Artifact production is a relationship because tool runs can produce multiple artifacts.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: Artifact yielded a normalized observation.
   relationship_type: PRODUCED_OBSERVATION
   source_labels:
@@ -1836,14 +1991,12 @@ relationships:
   - observations
   query_templates:
   - evidence_path
-  property_vs_node_rationale: Observation production is a relationship because a parser
-    can extract multiple observations from one artifact.
+  property_vs_node_rationale: Observation production is a relationship because a parser can extract multiple observations
+    from one artifact.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: Observation describes a graph entity.
   relationship_type: DESCRIBES
   source_labels:
@@ -1855,6 +2008,7 @@ relationships:
   - Endpoint
   - Parameter
   - RequestShape
+  - ResponseShape
   - JSFile
   required_properties:
   - program_id
@@ -1873,14 +2027,11 @@ relationships:
   - observations
   query_templates:
   - evidence_path
-  property_vs_node_rationale: Description is a relationship because observations can
-    describe different entity types.
+  property_vs_node_rationale: Description is a relationship because observations can describe different entity types.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: Safe request shape is supported by an observation or artifact.
   relationship_type: SUPPORTED_BY
   source_labels:
@@ -1935,14 +2086,11 @@ relationships:
   - evidence_items
   query_templates:
   - hypothesis_evidence_paths
-  property_vs_node_rationale: Evidence support is a relationship because observations
-    can support multiple evidence items.
+  property_vs_node_rationale: Evidence support is a relationship because observations can support multiple evidence items.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 - description: Evidence derives from an artifact.
   relationship_type: DERIVED_FROM
   source_labels:
@@ -1964,14 +2112,11 @@ relationships:
   - evidence_items
   query_templates:
   - evidence_path
-  property_vs_node_rationale: Derivation is a relationship because evidence must trace
-    back to artifact metadata.
+  property_vs_node_rationale: Derivation is a relationship because evidence must trace back to artifact metadata.
   retention: program_lifetime
   sensitivity: normal
-  confidence_policy: Use evidence-backed parser confidence; keep max confidence across
-    repeated observations.
-  stale_policy: Refresh last_seen from repeated observations; mark stale when source
-    evidence stops reproducing the relationship.
+  confidence_policy: Use evidence-backed parser confidence; keep max confidence across repeated observations.
+  stale_policy: Refresh last_seen from repeated observations; mark stale when source evidence stops reproducing the relationship.
 projections:
 - description: Snapshot-bounded Surface Map graph for mathematical analysis.
   name: surface_graph_math
@@ -2009,6 +2154,7 @@ projections:
   - Endpoint
   - Parameter
   - RequestShape
+  - ResponseShape
   relationship_types:
   - HAS_SCOPE
   - HAS_ASSET
@@ -2020,6 +2166,8 @@ projections:
   - HAS_ENDPOINT
   - HAS_PARAM
   - HAS_REQUEST_SHAPE
+  - YIELDS_RESPONSE
+  - DIFFERS_FROM
   use_case: Analyze scoped asset exposure without lineage fan-out.
   version: 1
   level: L1_INFRASTRUCTURE
@@ -2040,6 +2188,7 @@ projections:
   - Endpoint
   - Parameter
   - RequestShape
+  - ResponseShape
   - SurfaceNode
   - Observation
   - Artifact
@@ -2052,6 +2201,8 @@ projections:
   - HAS_ENDPOINT
   - HAS_PARAM
   - HAS_REQUEST_SHAPE
+  - YIELDS_RESPONSE
+  - DIFFERS_FROM
   - REPRESENTS
   - SUPPORTED_BY
   - PRODUCED_OBSERVATION
@@ -2071,6 +2222,7 @@ projections:
   - Endpoint
   - Parameter
   - RequestShape
+  - ResponseShape
   - JSFile
   relationship_types:
   - RESOLVES_TO
@@ -2078,6 +2230,9 @@ projections:
   - HAS_ENDPOINT
   - HAS_PARAM
   - REFERENCES
+  - HAS_REQUEST_SHAPE
+  - YIELDS_RESPONSE
+  - DIFFERS_FROM
   use_case: Inspect the neighborhood around web endpoints.
   version: 1
   level: L2_WEB_API
@@ -2120,6 +2275,7 @@ projections:
   - Endpoint
   - Parameter
   - RequestShape
+  - ResponseShape
   - JSFile
   - Tool
   - ToolRun
@@ -2151,5 +2307,4 @@ projections:
   query_templates:
   - evidence_path
   - hypothesis_evidence_paths
-  expected_output: Evidence lineage path from graph entity to observation, artifact,
-    tool run, and evidence item.
+  expected_output: Evidence lineage path from graph entity to observation, artifact, tool run, and evidence item.

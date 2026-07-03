@@ -101,6 +101,11 @@ const overviewTypes = new Set([
   'program',
   'host',
   'service',
+  'endpoint',
+  'param',
+  'request_shape',
+  'response_shape',
+  'artifact_ref',
   'route_family',
   'surface_component',
   'surface_component_graph_signal',
@@ -116,8 +121,12 @@ const overviewTypes = new Set([
   'neo4j_asn',
   'neo4j_surface_snapshot',
   'neo4j_action_outcome',
+  'neo4j_observation',
+  'neo4j_evidence',
 ])
 const alwaysLabelTypes = new Set(['program', 'host', 'surface_component', 'coverage_overview', 'coverage_gap', 'neo4j_program', 'neo4j_surface_snapshot', 'neo4j_projection_status'])
+
+const isNeo4jTopologyNode = (node) => Boolean(node?.metadata?.topology || (node?.badges || []).includes('Neo4j'))
 
 const useCanvasSize = () => {
   const containerRef = useRef(null)
@@ -212,6 +221,8 @@ const normalizeGraph = (graph) => {
 const scoreNode = (node) => {
   let score = 0
   if (overviewTypes.has(node?.node_type)) score += 1000
+  const topologyRank = Number(node?.metrics?.topology_rank ?? node?.metadata?.topology?.rank)
+  if (Number.isFinite(topologyRank)) score += Math.max(0, 900 - topologyRank)
   score += toNumber(node?.metrics?.surface_node_count || node?.metrics?.node_count || node?.properties?.node_count) * 10
   score += toNumber(node?.metrics?.changed_node_count || node?.properties?.changed_node_count) * 16
   score += toNumber(node?.evidence_refs?.length)
@@ -238,7 +249,7 @@ const selectCanvasGraph = (graph, selectedNode) => {
       .forEach((node) => visibleIds.add(node.id))
   } else if (normalized.nodes.length > DETAIL_GRAPH_LIMIT) {
     normalized.nodes
-      .filter((node) => overviewTypes.has(node.node_type) || node?.metadata?.ui_grouping)
+      .filter((node) => overviewTypes.has(node.node_type) || node?.metadata?.ui_grouping || isNeo4jTopologyNode(node))
       .sort((a, b) => scoreNode(b) - scoreNode(a))
       .slice(0, OVERVIEW_NODE_LIMIT)
       .forEach((node) => visibleIds.add(node.id))

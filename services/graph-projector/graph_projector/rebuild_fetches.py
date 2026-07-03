@@ -132,6 +132,11 @@ SELECT
     ho.url,
     ho.status_code,
     ho.content_type,
+    ho.body_sha256,
+    ho.body_size_bytes,
+    ho.body_artifact_id,
+    coalesce(inp.input_parameters, '[]'::jsonb) AS input_parameters,
+    coalesce(hdr.response_header_names, '[]'::jsonb) AS response_header_names,
     ho.observed_at,
     e.id AS endpoint_id,
     e.path,
@@ -148,6 +153,25 @@ JOIN endpoints e ON e.id = ho.endpoint_id
 JOIN hosts h ON h.id = e.host_id
 JOIN services s ON s.id = ho.service_id
 JOIN ip_addresses ip ON ip.id = s.ip_id
+LEFT JOIN LATERAL (
+    SELECT jsonb_agg(
+        jsonb_build_object(
+            'name', p.name,
+            'location', p.location,
+            'param_type', p.param_type,
+            'reflected', coalesce(p.reflected, false),
+            'is_array', coalesce(p.is_array, false)
+        )
+        ORDER BY p.location, p.name
+    ) AS input_parameters
+    FROM input_parameters p
+    WHERE p.endpoint_id = e.id
+) inp ON true
+LEFT JOIN LATERAL (
+    SELECT jsonb_agg(DISTINCT lower(hh.name)) AS response_header_names
+    FROM http_observation_headers hh
+    WHERE hh.observation_id = ho.id
+) hdr ON true
 WHERE ho.run_id IS NOT NULL
   AND ho.raw_artifact_id IS NOT NULL
   AND ho.source_tool IS NOT NULL

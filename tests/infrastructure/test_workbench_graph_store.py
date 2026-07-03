@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import uuid4
 
 from api.infrastructure import workbench as workbench_store
@@ -838,10 +839,12 @@ def test_graph_projector_templates_limit_before_expanding_heavy_neo4j_lenses() -
     js = registry.get("hidden_endpoints_from_js").cypher
     outcome = registry.get("action_outcome_experience_neighborhood").cypher
 
-    assert "MATCH (program:Program {program_id: $program_id})" in asset
+    assert "OPTIONAL MATCH (program:Program {program_id: $program_id})" in asset
     assert "HAS_ASSET" in asset
     assert "collect(asset_path)[0..$limit]" in asset
-    assert "collect(infra_path)[0..$limit]" in asset
+    assert "collect(host_ip_path)[0..$limit]" in asset
+    assert "collect(ip_cidr_path)[0..$limit]" in asset
+    assert "collect(cidr_asn_path)[0..$limit]" in asset
     assert "collect(service_path)[0..$limit]" in asset
     assert "collect(parameter_path)[0..$limit]" in asset
     assert "collect(request_shape_path)[0..$limit]" in asset
@@ -851,3 +854,98 @@ def test_graph_projector_templates_limit_before_expanding_heavy_neo4j_lenses() -
     assert "WITH host ORDER BY host.hostname LIMIT $limit" not in asset
     assert "WITH endpoint ORDER BY endpoint.normalized_path LIMIT $limit" in js
     assert "WITH outcome ORDER BY outcome.finished_at DESC LIMIT $limit" in outcome
+
+
+def test_workbench_neo4j_schema_readiness_allows_partial_topology_islands() -> None:
+    from api.infrastructure import workbench_neo4j
+
+    state = workbench_neo4j.Neo4jSchemaState(
+        labels=frozenset({"Endpoint"}),
+        relationships=frozenset(),
+    )
+
+    missing = state.missing_for_template("program_exposure_topology")
+    contract = workbench_neo4j._topology_contract_state("program_exposure_topology", state, missing)
+
+    assert missing["labels"] == []
+    assert missing["relationships"] == []
+    assert contract["island_tolerant"] is True
+    assert "Host" in missing["optional_labels"]
+    assert "EXPOSES_SERVICE" in missing["optional_relationships"]
+
+
+def test_workbench_neo4j_nodes_expose_visual_topology_metadata_without_frontend_guessing() -> None:
+    from api.infrastructure import workbench_neo4j
+
+    endpoint = workbench_neo4j._topology_metadata(
+        primary_label="Endpoint",
+        properties={"service_key": "api.example.test:443/https", "identity_key": "endpoint-1"},
+    )
+    evidence = workbench_neo4j._topology_metadata(primary_label="Evidence", properties={"identity_key": "evidence-1"})
+
+    assert endpoint == {
+        "lane": "surface",
+        "rank": 60,
+        "collapse_key": "api.example.test:443/https",
+        "visual_role": "Endpoint",
+    }
+    assert evidence["lane"] == "evidence"
+    assert evidence["rank"] > endpoint["rank"]
+
+
+def test_workbench_canvas_overview_keeps_neo4j_endpoint_parameter_request_nodes_visible() -> None:
+    source = Path("BugBountyDashBoard/src/components/workbench/WorkbenchCanvas.jsx").read_text(encoding="utf-8")
+
+    assert "const isNeo4jTopologyNode" in source
+    assert "isNeo4jTopologyNode(node)" in source
+    assert "'endpoint'" in source
+    assert "'param'" in source
+    assert "'request_shape'" in source
+
+
+def test_workbench_neo4j_attaches_surface_component_signals_to_matching_topology_nodes() -> None:
+    from api.application.workbench import WorkbenchNode
+    from api.infrastructure import workbench_neo4j
+
+    signal = {
+        "type": "surface_component_structural_signal",
+        "source": "surface_component_analysis_items",
+        "component_id": 4,
+        "analysis_run_id": "run-1",
+        "snapshot_id": "snapshot-1",
+        "score": 82,
+        "scores": {"structural_pressure": 82, "exploration_priority": 61},
+        "evidence_ref": {"type": "surface_component_analysis_item", "id": "run-1:4"},
+    }
+    index = workbench_neo4j.SurfaceStructuralSignalIndex(
+        lookup={"surface:api.example.test:GET:/v1/users": (signal,)},
+        analysis_run_id="run-1",
+        snapshot_id="snapshot-1",
+        component_count=1,
+        indexed_signal_count=1,
+    )
+    node = WorkbenchNode(
+        id="neo4j:1",
+        entity_key="neo4j:Endpoint:endpoint-1",
+        node_type="endpoint",
+        label="GET /v1/users @ api.example.test:443",
+        properties={
+            "hostname": "api.example.test",
+            "method": "GET",
+            "normalized_path": "/v1/users",
+        },
+        metadata={"topology": {"lane": "surface", "rank": 60}},
+        badges=["Neo4j", "Endpoint"],
+        metrics={"topology_rank": 60},
+        confidence=0.5,
+    )
+
+    enriched = workbench_neo4j._attach_surface_structural_signals({node.id: node}, index)[node.id]
+
+    assert enriched.metadata["structural_signals"][0]["component_id"] == 4
+    assert enriched.metadata["structural_signal_overlay"]["island_tolerant"] is True
+    assert enriched.metrics["max_structural_signal_score"] == 82
+    assert "GDS" in enriched.badges
+    assert "attention" in enriched.badges
+    assert enriched.visual["signal_badge"] == "structural_pressure"
+    assert enriched.evidence_refs == [{"type": "surface_component_analysis_item", "id": "run-1:4"}]
